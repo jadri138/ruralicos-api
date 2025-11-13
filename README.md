@@ -52,3 +52,20 @@ curl -X POST https://ruralicos-api.onrender.com/alertas \
     "fecha": "2025-11-13",
     "region": "castilla"
   }'
+```
+
+
+### Tecnologías
+
+Backend: Node.js + Express
+Base de datos: Supabase (PostgreSQL)
+Hosting: Render (despliegue automático)
+Futuro: Twilio (WhatsApp), scraper BOE, cron diario
+
+### Variables de entorno (en Render)
+
+envSUPABASE_URL=https://yojivxkeuwpjucwzmbzp.supabase.co
+SUPABASE_ANON_KEY=eyJhbgc1...
+
+
+¿Quieres colaborar? Escribe a soporteruralicos@gmail.com
