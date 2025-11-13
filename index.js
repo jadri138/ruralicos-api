@@ -40,3 +40,15 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log('API lista en puerto ' + PORT);
 });
+// Ruta para guardar una alerta del BOE
+app.post('/alertas', async (req, res) => {
+  const { titulo, resumen, url, fecha, region } = req.body;
+
+  const { data, error } = await supabase
+    .from('alertas')
+    .insert([{ titulo, resumen, url, fecha, region }])
+    .select();
+
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ success: true, alerta: data[0] });
+});
