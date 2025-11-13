@@ -1,11 +1,42 @@
+require('dotenv').config();
 const express = require('express');
+const { createClient } = require('@supabase/supabase-js');
 const app = express();
 
+app.use(express.json());
+
+// Conectar Supabase
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_ANON_KEY
+);
+
+// Ruta de prueba
 app.get('/', (req, res) => {
-  res.json(message: 'Esta sera la proxima web de Ruralicos!🚜);
+  res.json({ message: '¡Ruralicos API viva! 🚜' });
+});
+
+// Ruta para registrar usuario
+app.post('/register', async (req, res) => {
+  const { phone } = req.body;
+
+  if (!phone) {
+    return res.status(400).json({ error: 'Falta el número de teléfono' });
+  }
+
+  const { data, error } = await supabase
+    .from('users')
+    .insert([{ phone, preferences: '', subscription: 'free' }])
+    .select();
+
+  if (error) {
+    return res.status(500).json({ error: error.message });
+  }
+
+  res.json({ success: true, user: data[0] });
 });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log('API lista');
+  console.log('API lista en puerto ' + PORT);
 });
