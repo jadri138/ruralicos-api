@@ -58,9 +58,14 @@ curl -X POST https://ruralicos-api.onrender.com/alertas \
 ### Tecnologías
 
 Backend: Node.js + Express
+
 Base de datos: Supabase (PostgreSQL)
+
 Hosting: Render (despliegue automático)
+
 Futuro: Twilio (WhatsApp), scraper BOE, cron diario
+
+
 
 ### Variables de entorno (en Render)
 
