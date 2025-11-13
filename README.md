@@ -31,6 +31,8 @@ Solo necesitas un móvil.
 
 ## Pruebas rápidas (copia-pega)
 
+#Utilizar https://reqbin.com/ para ejecutar bash
+
 ```bash
 # 1. Registrar usuario
 curl -X POST https://ruralicos-api.onrender.com/register \
