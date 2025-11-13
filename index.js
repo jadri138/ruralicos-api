@@ -13,7 +13,7 @@ const supabase = createClient(
 
 // Ruta de prueba
 app.get('/', (req, res) => {
-  res.json({ message: 'Futura pagina de Ruralicoss!! 🚜' });
+  res.json({ message: 'La API de Ruralicos esta vivaa!! 🚜' });
 });
 
 // Ruta para registrar usuario
@@ -30,8 +30,11 @@ app.post('/register', async (req, res) => {
     .select();
 
   if (error) {
-    return res.status(500).json({ error: error.message });
+  if (error.code === '23505') { // Código de duplicado en PostgreSQL
+    return res.status(400).json({ error: 'Este número ya está registrado' });
   }
+  return res.status(500).json({ error: error.message });
+}
 
   res.json({ success: true, user: data[0] });
   // LOG: registro de usuario
