@@ -13,7 +13,7 @@ const supabase = createClient(
 
 // Ruta de prueba
 app.get('/', (req, res) => {
-  res.json({ message: '¡Ruralicos API viva! 🚜' });
+  res.json({ message: 'Futura pagina de Ruralicoss!! 🚜' });
 });
 
 // Ruta para registrar usuario
