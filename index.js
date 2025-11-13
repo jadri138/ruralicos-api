@@ -34,6 +34,8 @@ app.post('/register', async (req, res) => {
   }
 
   res.json({ success: true, user: data[0] });
+  // LOG: registro de usuario
+await supabase.from('logs').insert([{ action: 'register', details: `phone: ${phone}` }]);
 });
 
 const PORT = process.env.PORT || 3000;
