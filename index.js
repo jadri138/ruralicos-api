@@ -74,3 +74,4 @@ app.get('/alertas', async (req, res) => {
     alertas: data 
   });
 });
+
