@@ -54,3 +54,20 @@ app.post('/alertas', async (req, res) => {
   if (error) return res.status(500).json({ error: error.message });
   res.json({ success: true, alerta: data[0] });
 });
+
+// Ruta para LEER todas las alertas del BOE
+app.get('/alertas', async (req, res) => {
+  const { data, error } = await supabase
+    .from('alertas')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    return res.status(500).json({ error: error.message });
+  }
+
+  res.json({ 
+    count: data.length, 
+    alertas: data 
+  });
+});
