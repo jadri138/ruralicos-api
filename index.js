@@ -75,3 +75,42 @@ app.get('/alertas', async (req, res) => {
   });
 });
 
+// === SCRAPER BOE CON API OFICIAL ===
+app.get('/scrape-boe-api', async (req, res) => {
+  try {
+    const response = await fetch('https://www.boe.es/api/diario_boe');
+    const data = await response.json();
+
+    let nuevas = 0;
+    const keywords = /ayuda|subvención|tractor|maquinaria|pac|ganadería|agricultura|ley|normativa|reglamento|sancion|inspeccion|control|medio ambiente|agua|riego|sequía|incendio|forestal|ganado|pienso|fertilizante/i;
+
+    for (const item of data.items) {
+      const titulo = item.titulo || '';
+      const url = item.enlace || '';
+
+      if (!keywords.test(titulo)) continue;
+
+      const { data: existe } = await supabase
+        .from('alertas')
+        .select('id')
+        .eq('url', url)
+        .limit(1);
+
+      if (existe?.length > 0) continue;
+
+      await supabase.from('alertas').insert([{
+        titulo,
+        resumen: 'Procesando con IA...',
+        url,
+        fecha: item.fecha_publicacion || 'Pendiente',
+        region: item.ambito || 'nacional'
+      }]);
+
+      nuevas++;
+    }
+
+    res.json({ success: true, nuevas, total: data.items.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
