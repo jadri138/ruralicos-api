@@ -75,41 +75,50 @@ app.get('/alertas', async (req, res) => {
   });
 });
 
-// === SCRAPER BOE CON API OFICIAL ===
-app.get('/scrape-boe-api', async (req, res) => {
+// === SCRAPER BOE OFICIAL (datosabiertos.boe.es) ===
+app.get('/scrape-boe-oficial', async (req, res) => {
   try {
-    const response = await fetch('https://www.boe.es/api/diario_boe');
+    // Fecha de hoy en formato YYYY/MM/DD
+    const hoy = new Date().toISOString().slice(0, 10).replace(/-/g, '/');
+    const url = `https://datosabiertos.boe.es/api/boe/sumario/${hoy}`;
+
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`BOE API: ${response.status}`);
+
     const data = await response.json();
-
     let nuevas = 0;
-    const keywords = /ayuda|subvención|tractor|maquinaria|pac|ganadería|agricultura|ley|normativa|reglamento|sancion|inspeccion|control|medio ambiente|agua|riego|sequía|incendio|forestal|ganado|pienso|fertilizante/i;
 
-    for (const item of data.items) {
-      const titulo = item.titulo || '';
-      const url = item.enlace || '';
+    const keywords = /ayuda|subvenci|n|tractor|maquinaria|pac|ganader|a|agricultura|ley|normativa|reglamento|sancion|inspeccion|control|medio ambiente|agua|riego|sequía|incendio|forestal|ganado|pienso|fertilizante/i;
 
-      if (!keywords.test(titulo)) continue;
+    // Recorrer todas las entradas del sumario
+    for (const seccion of data.secciones) {
+      for (const item of seccion.items) {
+        const titulo = item.titulo || '';
+        const url = item.url || '';
 
-      const { data: existe } = await supabase
-        .from('alertas')
-        .select('id')
-        .eq('url', url)
-        .limit(1);
+        if (!keywords.test(titulo)) continue;
 
-      if (existe?.length > 0) continue;
+        const { data: existe } = await supabase
+          .from('alertas')
+          .select('id')
+          .eq('url', url)
+          .limit(1);
 
-      await supabase.from('alertas').insert([{
-        titulo,
-        resumen: 'Procesando con IA...',
-        url,
-        fecha: item.fecha_publicacion || 'Pendiente',
-        region: item.ambito || 'nacional'
-      }]);
+        if (existe?.length > 0) continue;
 
-      nuevas++;
+        await supabase.from('alertas').insert([{
+          titulo,
+          resumen: 'Procesando con IA...',
+          url,
+          fecha: hoy.replace(/\//g, '-'),
+          region: seccion.departamento || 'nacional'
+        }]);
+
+        nuevas++;
+      }
     }
 
-    res.json({ success: true, nuevas, total: data.items.length });
+    res.json({ success: true, nuevas, fecha: hoy });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
