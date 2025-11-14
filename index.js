@@ -75,48 +75,58 @@ app.get('/alertas', async (req, res) => {
   });
 });
 
-// === SCRAPER BOE OFICIAL (datosabiertos.boe.es) ===
+// === SCRAPER BOE OFICIAL (FORMATO aaaammdd) ===
 app.get('/scrape-boe-oficial', async (req, res) => {
   try {
-    const hoy = new Date().toISOString().slice(0, 10).replace(/-/g, '/');
-    const url = `https://datosabiertos.boe.es/api/boe/sumario/${hoy}`;
+    // FECHA DE HOY EN FORMATO aaaammdd
+    const hoy = new Date();
+    const fecha = hoy.getFullYear() +
+                  String(hoy.getMonth() + 1).padStart(2, '0') +
+                  String(hoy.getDate()).padStart(2, '0'); // Ej: 20251114
+
+    const url = `https://datosabiertos.boe.es/api/boe/sumario/${fecha}`;
 
     const response = await fetch(url);
+    
+    if (response.status === 404) {
+      return res.json({ success: true, nuevas: 0, mensaje: "No hay BOE hoy", fecha });
+    }
     if (!response.ok) throw new Error(`BOE API: ${response.status}`);
 
-    const data = await response.json();
+    const text = await response.text();
+    const parser = new DOMParser();
+    const xml = parser.parseFromString(text, "application/xml");
+    
     let nuevas = 0;
-
     const keywords = /ayuda|subvenci|n|tractor|maquinaria|pac|ganader|a|agricultura|ley|normativa|reglamento|sancion|inspeccion|control|medio ambiente|agua|riego|sequía|incendio|forestal|ganado|pienso|fertilizante/i;
 
-    for (const seccion of data.secciones || []) {
-      for (const item of seccion.items || []) {
-        const titulo = item.titulo || '';
-        const url = item.url || '';
+    const items = xml.querySelectorAll('item');
+    for (const item of items) {
+      const titulo = item.querySelector('titulo')?.textContent || '';
+      const url = item.querySelector('url')?.textContent || '';
 
-        if (!keywords.test(titulo)) continue;
+      if (!keywords.test(titulo)) continue;
 
-        const { data: existe } = await supabase
-          .from('alertas')
-          .select('id')
-          .eq('url', url)
-          .limit(1);
+      const { data: existe } = await supabase
+        .from('alertas')
+        .select('id')
+        .eq('url', url)
+        .limit(1);
 
-        if (existe?.length > 0) continue;
+      if (existe?.length > 0) continue;
 
-        await supabase.from('alertas').insert([{
-          titulo,
-          resumen: 'Procesando con IA...',
-          url,
-          fecha: hoy.replace(/\//g, '-'),
-          region: seccion.departamento || 'nacional'
-        }]);
+      await supabase.from('alertas').insert([{
+        titulo,
+        resumen: 'Procesando con IA...',
+        url,
+        fecha: `${fecha.slice(0,4)}-${fecha.slice(4,6)}-${fecha.slice(6,8)}`,
+        region: item.querySelector('departamento')?.textContent || 'nacional'
+      }]);
 
-        nuevas++;
-      }
+      nuevas++;
     }
 
-    res.json({ success: true, nuevas, fecha: hoy });
+    res.json({ success: true, nuevas, fecha: `${fecha.slice(0,4)}-${fecha.slice(4,6)}-${fecha.slice(6,8)}` });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
