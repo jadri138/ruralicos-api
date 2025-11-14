@@ -78,7 +78,6 @@ app.get('/alertas', async (req, res) => {
 // === SCRAPER BOE OFICIAL (datosabiertos.boe.es) ===
 app.get('/scrape-boe-oficial', async (req, res) => {
   try {
-    // Fecha de hoy en formato YYYY/MM/DD
     const hoy = new Date().toISOString().slice(0, 10).replace(/-/g, '/');
     const url = `https://datosabiertos.boe.es/api/boe/sumario/${hoy}`;
 
@@ -90,9 +89,8 @@ app.get('/scrape-boe-oficial', async (req, res) => {
 
     const keywords = /ayuda|subvenci|n|tractor|maquinaria|pac|ganader|a|agricultura|ley|normativa|reglamento|sancion|inspeccion|control|medio ambiente|agua|riego|sequía|incendio|forestal|ganado|pienso|fertilizante/i;
 
-    // Recorrer todas las entradas del sumario
-    for (const seccion of data.secciones) {
-      for (const item of seccion.items) {
+    for (const seccion of data.secciones || []) {
+      for (const item of seccion.items || []) {
         const titulo = item.titulo || '';
         const url = item.url || '';
 
