@@ -88,7 +88,8 @@ app.get('/scrape-boe-oficial', async (req, res) => {
       String(hoy.getMonth() + 1).padStart(2, '0') +
       String(hoy.getDate()).padStart(2, '0'); // Ej: 20251114
 
-    const url = `https://www.boe.es/datosabiertos/api/boe/sumario/{fecha}`;
+    const url = `https://www.boe.es/datosabiertos/api/boe/sumario/${fecha}`;
+
 
     const response = await fetch(url);
 
