@@ -151,7 +151,7 @@ app.get('/scrape-boe-oficial', async (req, res) => {
 
     // Palabras clave "rurales"
     const keywords =
-      /ayuda|subvenci[oó]n|tractor|maquinaria|pac|ganader[ií]a|ganadero|agricultura|explotaci[oó]n|riego|regad[ií]o|incendio forestal|fertilizante|pienso|semilla|ganado|seguro agrario|forestal|suelo r[uú]stico/i;
+      /ayuda|subvención|tractor|maquinaria|pac|ganadería|ganadero|agricultura|explotación|riego|regadío|incendio forestal|fertilizante|pienso|semilla|ganado|seguro agrario|forestal|suelo rústico/i;
 
     // 4) Recorremos diario → seccion → departamento → epigrafe/item
     for (const diario of diarios) {
@@ -180,12 +180,27 @@ app.get('/scrape-boe-oficial', async (req, res) => {
           // 5) Recorremos todos los items
           for (const grupo of gruposItems) {
             for (const item of grupo) {
-              if (!item) continue;
+                if (!item) continue;
+                const titulo = item.titulo;
+  
+              // Sacar la URL correctamente, sea string o objeto con "#text"
+              let url_pdf = null;
+              
+              if (typeof item.url_pdf === 'string') {
+                 // Si viene como string, usamos tal cual
+                
+                 url_pdf = item.url_pdf;
+              } else if (item.url_pdf && typeof item.url_pdf === 'object') {
+                  
+                // Si viene como { "#text": "https://..." }                 
+                  url_pdf = item.url_pdf['#text'] || item.url_pdf.text || null;
+              }
 
-              const titulo = item.titulo;
-              const url_pdf = item.url_pdf;
-
+              // Saltar si no hay título o URL
               if (!titulo || !url_pdf) continue;
+
+
+           
 
               // Filtrar por palabras clave
               if (!keywords.test(titulo)) continue;
