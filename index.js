@@ -76,120 +76,81 @@ app.get('/alertas', async (req, res) => {
   });
 });
 
-// === SCRAPER BOE OFICIAL (FORMATO aaaammdd) ===
-// Usa fetch global de Node 18+
-// Si tu Node NO tiene fetch, luego te digo cómo arreglarlo.
+// === SCRAPER BOE OFICIAL (FORMATO AAAAMMDD) ===
 app.get('/scrape-boe-oficial', async (req, res) => {
   try {
-    // FECHA DE HOY EN FORMATO aaaammdd
-    const hoy = new Date();
-    const fecha =
-      hoy.getFullYear().toString() +
-      String(hoy.getMonth() + 1).padStart(2, '0') +
-      String(hoy.getDate()).padStart(2, '0'); // Ej: 20251114
+    // 1) Opción A: le pasas la fecha a mano por la URL: ?fecha=20240101
+    let fecha = req.query.fecha;
 
-    const url = `https://www.boe.es/datosabiertos/api/boe/sumario/${fecha}`;
+    // 2) Opción B: si no pasas nada, usa la fecha de HOY
+    if (!fecha) {
+      const hoy = new Date();
+      const anyo = hoy.getFullYear();               // 2024
+      const mes = String(hoy.getMonth() + 1).padStart(2, '0'); // 01..12
+      const dia = String(hoy.getDate()).padStart(2, '0');      // 01..31
+      fecha = `${anyo}${mes}${dia}`;               // "20241115"
+    }
 
+    // La API del BOE exige EXACTAMENTE 8 números: AAAAMMDD
+    if (!/^\d{8}$/.test(fecha)) {
+      return res.status(400).json({
+        error: 'Fecha inválida. Usa AAAAMMDD, por ejemplo 20240101',
+        fecha_recibida: fecha
+      });
+    }
 
-    const response = await fetch(url);
+    // URL correcta del BOE (sin dominios raros)
+    const url = `https://boe.es/datosabiertos/api/boe/sumario/${fecha}`;
+    console.log('Llamando a BOE con fecha:', fecha, 'URL:', url);
 
+    // Pedimos XML (es lo que ponen en la documentación oficial)
+    const response = await fetch(url, {
+      headers: {
+        'Accept': 'application/xml'
+      }
+    });
+
+    // Si no hay BOE ese día -> 404
     if (response.status === 404) {
-      // Día sin BOE publicado
+      const fechaISO = `${fecha.slice(0, 4)}-${fecha.slice(4, 6)}-${fecha.slice(6, 8)}`;
       return res.json({
         success: true,
         nuevas: 0,
-        mensaje: 'No hay BOE hoy',
+        mensaje: 'No hay BOE publicado para esta fecha',
+        fecha: fechaISO
+      });
+    }
+
+    // Si el BOE devuelve 400 -> fecha fuera de rango / mal
+    if (response.status === 400) {
+      const text = await response.text();
+      console.error('Respuesta 400 del BOE:', text);
+      return res.status(400).json({
+        error: 'El BOE ha devuelto 400 (identificador o parámetros incorrectos)',
         fecha
       });
     }
 
+    // Otros errores HTTP
     if (!response.ok) {
-      throw new Error(`BOE API: ${response.status}`);
+      throw new Error(`BOE API HTTP ${response.status}`);
     }
 
-    const text = await response.text();
-
-    // ---- PARCHE CASERO DEL XML ----
-    // Partimos por <item> ... </item>
-    const bloquesItems = text.split('<item>').slice(1); // el primer trozo es basura antes del primer <item>
-
-    let nuevas = 0;
-
-    const keywords =
-      /ayuda|subvención|subvencion|tractor|maquinaria|pac|ganaderia|ganadería|agricultura|ley|normativa|reglamento|sancion|sanción|inspeccion|inspección|control|medio ambiente|agua|riego|sequía|sequia|incendio|forestal|ganado|pienso|fertilizante/i;
-
-    for (const bloque of bloquesItems) {
-      const itemXml = '<item>' + bloque; // por si quieres loguear el XML de cada item
-
-      const matchTitulo = itemXml.match(/<titulo>([\s\S]*?)<\/titulo>/);
-      const matchUrl = itemXml.match(/<url>([\s\S]*?)<\/url>/);
-      const matchDept = itemXml.match(/<departamento>([\s\S]*?)<\/departamento>/);
-
-      const titulo = matchTitulo ? matchTitulo[1].trim() : '';
-      const urlDoc = matchUrl ? matchUrl[1].trim() : '';
-      const departamento = matchDept ? matchDept[1].trim() : 'nacional';
-
-      if (!titulo || !urlDoc) continue;
-
-      // Filtrar por palabras clave "rural"
-      if (!keywords.test(titulo)) continue;
-
-      // Comprobar si ya existe en BD por URL
-      const { data: existe, error: errorExiste } = await supabase
-        .from('alertas')
-        .select('id')
-        .eq('url', urlDoc)
-        .limit(1);
-
-      if (errorExiste) {
-        console.error('Error comprobando alerta existente:', errorExiste.message);
-        continue; // no rompemos el scrape si falla una consulta
-      }
-
-      if (existe && existe.length > 0) {
-        // Ya está guardada
-        continue;
-      }
-
-      // Guardar alerta nueva
-      const fechaISO = `${fecha.slice(0, 4)}-${fecha.slice(4, 6)}-${fecha.slice(
-        6,
-        8
-      )}`;
-
-      const { error: errorInsert } = await supabase.from('alertas').insert([
-        {
-          titulo,
-          resumen: 'Procesando con IA...',
-          url: urlDoc,
-          fecha: fechaISO,
-          region: departamento
-        }
-      ]);
-
-      if (errorInsert) {
-        console.error('Error insertando alerta nueva:', errorInsert.message);
-        continue;
-      }
-
-      nuevas++;
-    }
-
-    const fechaISO = `${fecha.slice(0, 4)}-${fecha.slice(4, 6)}-${fecha.slice(
-      6,
-      8
-    )}`;
+    // Si todo va bien, de momento solo comprobamos que llega XML
+    const xml = await response.text();
 
     res.json({
       success: true,
-      nuevas,
-      fecha: fechaISO
+      fecha,
+      // Solo enseñamos un trocito para no petar la respuesta
+      ejemploXml: xml.slice(0, 300) + '...'
     });
   } catch (err) {
     console.error('Error en /scrape-boe-oficial:', err);
     res.status(500).json({ error: err.message });
   }
 });
+
 
 // Arrancar servidor
 const PORT = process.env.PORT || 3000;
