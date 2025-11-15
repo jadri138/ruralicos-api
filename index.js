@@ -98,7 +98,7 @@ app.get('/scrape-boe-oficial', async (req, res) => {
     const xml = parser.parseFromString(text, "application/xml");
     
     let nuevas = 0;
-    const keywords = /ayuda|subvenci|n|tractor|maquinaria|pac|ganader|a|agricultura|ley|normativa|reglamento|sancion|inspeccion|control|medio ambiente|agua|riego|sequía|incendio|forestal|ganado|pienso|fertilizante/i;
+    const keywords = /ayuda|subvención|tractor|maquinaria|pac|ganaderia|agricultura|ley|normativa|reglamento|sancion|inspeccion|control|medio ambiente|agua|riego|sequía|incendio|forestal|ganado|pienso|fertilizante/i;
 
     const items = xml.querySelectorAll('item');
     for (const item of items) {
