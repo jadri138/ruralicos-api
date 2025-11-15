@@ -88,7 +88,7 @@ app.get('/scrape-boe-oficial', async (req, res) => {
       String(hoy.getMonth() + 1).padStart(2, '0') +
       String(hoy.getDate()).padStart(2, '0'); // Ej: 20251114
 
-    const url = `https://datosabiertos.boe.es/api/boe/sumario/${fecha}`;
+    const url = `https://www.boe.es/datosabiertos/api/boe/sumario/{fecha}`;
 
     const response = await fetch(url);
 
@@ -108,7 +108,7 @@ app.get('/scrape-boe-oficial', async (req, res) => {
 
     const text = await response.text();
 
-    // ---- PARSE CASERO DEL XML ----
+    // ---- PARCHE CASERO DEL XML ----
     // Partimos por <item> ... </item>
     const bloquesItems = text.split('<item>').slice(1); // el primer trozo es basura antes del primer <item>
 
