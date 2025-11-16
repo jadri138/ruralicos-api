@@ -162,7 +162,12 @@ app.get('/scrape-boe-oficial', async (req, res) => {
 
     // ✅ Ministerios / departamentos relacionados con campo / rural
     const deptRelevanteRegex =
-      /(AGRICULTURA|GANADERÍA|DESARROLLO RURAL|MEDIO AMBIENTE|TRANSICIÓN ECOLÓGICA|ALIMENTACIÓN)/i;
+      /(AGRICULTURA|GANADER[ÍI]A|DESARROLLO RURAL|MEDIO AMBIENTE|TRANSICI[ÓO]N ECOL[ÓO]GICA|ALIMENTACI[ÓO]N)/i;
+
+      if (!deptRelevanteRegex.test(nombreDept)) {
+        continue;
+      }
+
 
 
     // 4) Recorremos diario → seccion → departamento → epigrafe/item
