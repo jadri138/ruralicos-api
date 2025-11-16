@@ -151,11 +151,8 @@ app.get('/scrape-boe-oficial', async (req, res) => {
 
     // ✅ Ministerios / departamentos relacionados con campo / rural
     const deptRelevanteRegex =
-      /(AGRICULTURA|GANADERÍA|DESARROLLO RURAL|MEDIO AMBIENTE|TRANSICIÓON ECOLÓGICA|ALIMENTACIÓN)/i;
+      /(AGRICULTURA|GANADERÍA|DESARROLLO RURAL|MEDIO AMBIENTE|TRANSICIÓN ECOLÓGICA|ALIMENTACIÓN)/i;
 
-    // ❌ Departamentos que NO quieres aunque caigan dentro del MAPA (ej. pesca pura)
-    const deptExcluirRegex =
-      /(PESCA|PESCADORES|BUQUES PESQUEROS)/i;
 
     // 4) Recorremos diario → seccion → departamento → epigrafe/item
     for (const diario of diarios) {
