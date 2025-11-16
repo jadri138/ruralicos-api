@@ -166,11 +166,11 @@ app.get('/scrape-boe-oficial', async (req, res) => {
             dept['@_nombre'] || dept.nombre || 'NACIONAL';
 
           // Filtro SOLO por ministerio / departamento
-          if (
-            !deptRelevanteRegex.test(nombreDept) ||
-          ) {
-            continue; // saltamos este departamento completo
-          }
+         if (!deptRelevanteRegex.test(nombreDept)) {
+          continue; // saltamos este departamento completo
+        }
+
+           
 
           console.log('Departamento relevante encontrado:', nombreDept);
 
