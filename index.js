@@ -168,7 +168,6 @@ app.get('/scrape-boe-oficial', async (req, res) => {
           // Filtro SOLO por ministerio / departamento
           if (
             !deptRelevanteRegex.test(nombreDept) ||
-            deptExcluirRegex.test(nombreDept)
           ) {
             continue; // saltamos este departamento completo
           }
