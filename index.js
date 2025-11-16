@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const { createClient } = require('@supabase/supabase-js');
 const { XMLParser } = require('fast-xml-parser');
+
 const xmlParser = new XMLParser({ ignoreAttributes: false });
 
 const app = express();
@@ -41,7 +42,7 @@ app.post('/register', async (req, res) => {
 
   res.json({ success: true, user: data[0] });
 
-  // LOG: registro de usuario (si falla el log no rompemos la respuesta)
+  // LOG: registro de usuario (si falla, no rompemos la respuesta)
   await supabase.from('logs').insert([
     { action: 'register', details: `phone: ${phone}` }
   ]);
@@ -78,7 +79,7 @@ app.get('/alertas', async (req, res) => {
   });
 });
 
-// === SCRAPER BOE OFICIAL (FORMATO AAAAMMDD) ===
+// === SCRAPER BOE OFICIAL (solo filtrando por ministerios) ===
 app.get('/scrape-boe-oficial', async (req, res) => {
   try {
     // 1) Si pasas ?fecha=AAAAMMDD la usa; si no, usa HOY
@@ -146,12 +147,15 @@ app.get('/scrape-boe-oficial', async (req, res) => {
     const toArray = (x) => (Array.isArray(x) ? x : x ? [x] : []);
 
     let diarios = toArray(sumario.diario);
-
     let nuevas = 0;
 
-    // Palabras clave "rurales"
-    const keywords =
-      /ayuda|subvención|tractor|maquinaria|pac|ganadería|ganadero|agricultura|explotación|riego|regadío|incendio forestal|fertilizante|pienso|semilla|ganado|seguro agrario|forestal|suelo rústico/i;
+    // ✅ Ministerios / departamentos relacionados con campo / rural
+    const deptRelevanteRegex =
+      /(AGRICULTURA|GANADERÍA|DESARROLLO RURAL|MEDIO AMBIENTE|TRANSICIÓON ECOLÓGICA|ALIMENTACIÓN)/i;
+
+    // ❌ Departamentos que NO quieres aunque caigan dentro del MAPA (ej. pesca pura)
+    const deptExcluirRegex =
+      /(PESCA|PESCADORES|BUQUES PESQUEROS)/i;
 
     // 4) Recorremos diario → seccion → departamento → epigrafe/item
     for (const diario of diarios) {
@@ -163,6 +167,16 @@ app.get('/scrape-boe-oficial', async (req, res) => {
         for (const dept of departamentos) {
           const nombreDept =
             dept['@_nombre'] || dept.nombre || 'NACIONAL';
+
+          // Filtro SOLO por ministerio / departamento
+          if (
+            !deptRelevanteRegex.test(nombreDept) ||
+            deptExcluirRegex.test(nombreDept)
+          ) {
+            continue; // saltamos este departamento completo
+          }
+
+          console.log('Departamento relevante encontrado:', nombreDept);
 
           const epigrafes = toArray(dept.epigrafe);
           const gruposItems = [];
@@ -177,33 +191,25 @@ app.get('/scrape-boe-oficial', async (req, res) => {
           const itemsDept = toArray(dept.item);
           if (itemsDept.length) gruposItems.push(itemsDept);
 
-          // 5) Recorremos todos los items
+          // 5) Recorremos todos los items (sin filtrar aún por título)
           for (const grupo of gruposItems) {
             for (const item of grupo) {
-                if (!item) continue;
-                const titulo = item.titulo;
-  
+              if (!item) continue;
+
+              const titulo = item.titulo;
+
               // Sacar la URL correctamente, sea string o objeto con "#text"
               let url_pdf = null;
-              
               if (typeof item.url_pdf === 'string') {
-                 // Si viene como string, usamos tal cual
-                
-                 url_pdf = item.url_pdf;
+                // Si viene como string, usamos tal cual
+                url_pdf = item.url_pdf;
               } else if (item.url_pdf && typeof item.url_pdf === 'object') {
-                  
-                // Si viene como { "#text": "https://..." }                 
-                  url_pdf = item.url_pdf['#text'] || item.url_pdf.text || null;
+                // Si viene como { "#text": "https://..." }
+                url_pdf = item.url_pdf['#text'] || item.url_pdf.text || null;
               }
 
               // Saltar si no hay título o URL
               if (!titulo || !url_pdf) continue;
-
-
-           
-
-              // Filtrar por palabras clave
-              if (!keywords.test(titulo)) continue;
 
               // ¿Ya existe en la tabla alertas por URL?
               const { data: existe, error: errorExiste } = await supabase
@@ -241,6 +247,7 @@ app.get('/scrape-boe-oficial', async (req, res) => {
                 continue;
               }
 
+              console.log('INSERTADA ALERTA:', titulo);
               nuevas++;
             }
           }
@@ -259,8 +266,6 @@ app.get('/scrape-boe-oficial', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
-
 
 // Arrancar servidor
 const PORT = process.env.PORT || 3000;
