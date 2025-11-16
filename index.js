@@ -155,7 +155,7 @@ app.get('/scrape-boe-oficial', async (req, res) => {
 
     // Palabras que indican que es del sector agrario / ganadero
     const keywordsAgro =
-    /(agricultor(es)?|explotaci[oó]n(es)? agrarias?|explotaci[oó]n(es)? ganaderas?|ganader[íi]a|sector agrario|sector agroalimentario|explotaciones agropecuarias|regad[ií]o|riego|seguro agrario|j[oó]venes agricultores|maquinaria agr[ií]cola|tractor(es)?|PAC|FEADER)/i;
+   /(agricultor(es)?|explotaci[oó]n(es)? agrarias?|explotaci[oó]n(es)? ganaderas?|ganader[íi]a|sector agrario|sector agroalimentario|explotaciones agropecuarias|regad[ií]o|riego|seguro agrario|j[oó]venes agricultores|maquinaria agr[ií]cola|tractor(es)?|PAC|FEADER)/i;
     // Cosas que NO queremos, aunque sean ayudas
     const keywordsExcluir =
      /(pescadores?|buques pesqueros|actividad pesquera|curso de posgrado|m[aá]ster|investigaci[oó]n social|CIS|universidad)/i;
@@ -218,17 +218,20 @@ app.get('/scrape-boe-oficial', async (req, res) => {
               // Saltar si no hay título o URL
               if (!titulo || !url_pdf) continue;
 
-                  // Filtro por TÍTULO:
-                  //     // 1) Debe parecer una ayuda/subvención/convocatoria
-                  //     // 2) Debe estar claramente vinculada al sector agrario/ganadero
-                  //     // 3) No debe ser de pesca ni de cursos raros
-                     if (
-                        !keywordsAyuda.test(titulo) ||
-                        !keywordsAgro.test(titulo) ||
-                        keywordsExcluir.test(titulo)
-                    ) {
-                       continue; // descartamos este item
-                   }
+                  // Filtro: solo ayudas/subvenciones/convocatorias
+                  const keywordsAyuda =
+                  /(ayudas?|subvenci[oó]n|subvenciones|convocatoria|bases reguladoras|extracto de la Orden)/i;
+                  // Exclusiones: pesca, cursos, CIS, universidad
+                  const keywordsExcluir =
+                  /(pescadores?|buques pesqueros|actividad pesquera|curso de posgrado|m[aá]ster|investigaci[oó]n social|CIS|universidad)/i;
+                  // Si NO parece una ayuda → fuera
+                  if (!keywordsAyuda.test(titulo)) {
+                    continue;
+                  }
+                  // Si parece algo que no queremos → fuera
+                  if (keywordsExcluir.test(titulo)) {
+                    continue;
+                  }
 
 
               // ¿Ya existe en la tabla alertas por URL?
