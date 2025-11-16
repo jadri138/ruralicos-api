@@ -149,6 +149,17 @@ app.get('/scrape-boe-oficial', async (req, res) => {
     let diarios = toArray(sumario.diario);
     let nuevas = 0;
 
+    // Palabras que indican que es una ayuda / subvención / convocatoria
+    const keywordsAyuda =
+    /(ayudas?|subvenci[oó]n|subvenciones|convocatoria|bases reguladoras|extracto de la Orden)/i;
+
+    // Palabras que indican que es del sector agrario / ganadero
+    const keywordsAgro =
+    /(agricultor(es)?|explotaci[oó]n(es)? agrarias?|explotaci[oó]n(es)? ganaderas?|ganader[íi]a|sector agrario|sector agroalimentario|explotaciones agropecuarias|regad[ií]o|riego|seguro agrario|j[oó]venes agricultores|maquinaria agr[ií]cola|tractor(es)?|PAC|FEADER)/i;
+    // Cosas que NO queremos, aunque sean ayudas
+    const keywordsExcluir =
+     /(pescadores?|buques pesqueros|actividad pesquera|curso de posgrado|m[aá]ster|investigaci[oó]n social|CIS|universidad)/i;
+
     // ✅ Ministerios / departamentos relacionados con campo / rural
     const deptRelevanteRegex =
       /(AGRICULTURA|GANADERÍA|DESARROLLO RURAL|MEDIO AMBIENTE|TRANSICIÓN ECOLÓGICA|ALIMENTACIÓN)/i;
@@ -206,6 +217,19 @@ app.get('/scrape-boe-oficial', async (req, res) => {
 
               // Saltar si no hay título o URL
               if (!titulo || !url_pdf) continue;
+
+                  // Filtro por TÍTULO:
+                  //     // 1) Debe parecer una ayuda/subvención/convocatoria
+                  //     // 2) Debe estar claramente vinculada al sector agrario/ganadero
+                  //     // 3) No debe ser de pesca ni de cursos raros
+                     if (
+                        !keywordsAyuda.test(titulo) ||
+                        !keywordsAgro.test(titulo) ||
+                        keywordsExcluir.test(titulo)
+                    ) {
+                       continue; // descartamos este item
+                   }
+
 
               // ¿Ya existe en la tabla alertas por URL?
               const { data: existe, error: errorExiste } = await supabase
