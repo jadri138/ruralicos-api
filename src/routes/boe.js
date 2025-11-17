@@ -100,10 +100,6 @@ module.exports = function boeRoutes(app, supabase) {
       const keywordsInteres =
         /(ayudas?|subvenci[oó]n|subvenciones|convocatoria|bases reguladoras|extracto de la Orden|real decreto|ley\b|leyes\b|reglamento|reglamentos|modificaci[oó]n|modifica la|corrige errores|correcci[oó]n de errores|plazo|plazos|pr[oó]rroga|prorroga)/i;
 
-      // 6) Exclusiones claras
-      const keywordsExcluir =
-        /(pescadores?|buques pesqueros|actividad pesquera)/i;
-
       // 7) Recorrer todo el BOE
       for (const diario of diarios) {
         const secciones = toArray(diario.seccion);
