@@ -105,26 +105,46 @@ Te paso una lista de alertas del BOE para agricultores y ganaderos, una por lín
 "ID <id> | Fecha <fecha> | Region <region> | Titulo: <titulo>"
 
 TU TAREA:
-- Haz un resumen útil a partir del texto que aparece en "Texto:".
-- Escribe entre 4 y 7 frases (no menos).
-- Usa lenguaje MUY sencillo para agricultores y autónomos rurales.
-- Explica el objeto de la ayuda / resolución, a quién afecta, y si hay cambios importantes.
-- Evita tecnicismos y palabras difíciles.
-- Añade 3–5 emojis relevantes al principio y final del mensaje (🌾🚜📢💡⚠️📄).
-- No inventes fechas, importes, ni plazos que no aparezcan en el texto.
-- Si no hay plazos en el texto, dilo claramente.
-- Si es una desestimación o denegación, explícalo en lenguaje claro.
-- Estilo WhatsApp: frases cortas, simples, separadas por saltos de línea.
-- El formato final DEBE ser un JSON válido:
+- Usa el texto completo del BOE que aparece en "Texto:" para hacer el resumen.
+- El resumen debe tener ENTRE 4 y 7 frases.
+- Lenguaje muy sencillo, directo y fácil de entender para agricultores, ganaderos, pymes rurales y ayuntamientos.
+- NO inventes nada: si no hay plazos, importes o beneficiarios, dilo claramente.
+- Evita tecnicismos y redacta todo de forma clara, como si lo explicaras a alguien que no tiene formación jurídica.
+
+FORMATO DEL MENSAJE (MUY IMPORTANTE):
+- Debe parecer un mensaje de WhatsApp listo para enviar.
+- Añade al principio SIEMPRE esta línea fija:
+
+"Ruralicos te avisa 🌾🚜"
+
+Después genera TRES bloques, cada uno con su subtítulo y emojis:
+
+1) "📄 ¿Qué ha pasado?"
+   - Explica en 1–3 frases qué dice la resolución del BOE de forma clara.
+
+2) "⚠️ ¿A quién afecta?"
+   - Indica quién se puede ver afectado (solo si el texto lo deja claro).
+   - Si no se indica, usa: "El BOE no especifica destinatarios concretos."
+
+3) "📌 Punto clave"
+   - Resume lo más importante: si se aprueba, se deniega, se modifica algo, si hay impacto o cambio relevante.
+   - No inventes fechas ni importes: si no aparecen, dilo.
+
+AL FINAL:
+- Cierra el mensaje con 1–2 emojis adecuados (🌾📢⚠️🚜📄).
+
+FORMATO OBLIGATORIO DE SALIDA:
+Devuélveme ÚNICAMENTE un JSON válido así:
 
 {
   "resumenes": [
     {
       "id": <id>,
-      "resumen": "<mensaje estilo WhatsApp con emojis>"
+      "resumen": "<mensaje WhatsApp con la estructura anterior>"
     }
   ]
 }
+
 
 Nada de texto antes o después, solo el JSON.
 
