@@ -215,7 +215,7 @@ module.exports = function boeRoutes(app, supabase) {
                   .insert([
                     {
                       titulo,
-                      resumen: 'Procesando con IA.', // mantenemos como lo tenías
+                      resumen: 'Procesando con IA...', // mantenemos como lo tenías
                       url: url_pdf,
                       fecha: fechaISO,
                       region: nombreDept,
