@@ -208,4 +208,25 @@ ${lista}
         } else {
           console.error(
             'Error actualizando alerta',
-            item
+            item.id,
+            updError.message
+          );
+        }
+      }
+
+      res.json({
+        success: true,
+        procesadas: alertas.length,
+        actualizadas,
+        ids: resumenes.map((r) => r.id),
+      });
+    } catch (err) {
+      console.error('Error en /alertas/procesar-ia', err);
+      res.status(500).json({ error: err.message });
+    }
+  };
+
+  // 4) Rutas para lanzar el procesado con IA
+  app.post('/alertas/procesar-ia', procesarIAHandler);
+  app.get('/alertas/procesar-ia', procesarIAHandler);
+};
