@@ -102,7 +102,7 @@ module.exports = function boeRoutes(app, supabase) {
 
       // 6) Exclusiones claras
       const keywordsExcluir =
-        /(pescadores?|buques pesqueros|actividad pesquera|curso de posgrado|m[aá]ster|master|CIS\b|universidad|investigaci[oó]n social)/i;
+        /(pescadores?|buques pesqueros|actividad pesquera)/i;
 
       // 7) Recorrer todo el BOE
       for (const diario of diarios) {
