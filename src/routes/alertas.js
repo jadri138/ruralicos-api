@@ -105,45 +105,63 @@ Te paso una lista de alertas del BOE para agricultores y ganaderos, una por lín
 "ID <id> | Fecha <fecha> | Region <region> | Titulo: <titulo>"
 
 TU TAREA:
-- Usa el texto completo del BOE que aparece en "Texto:" para hacer el resumen.
-- El resumen debe tener ENTRE 4 y 7 frases.
-- Lenguaje muy sencillo, directo y fácil de entender para agricultores, ganaderos, pymes rurales y ayuntamientos.
-- NO inventes nada: si no hay plazos, importes o beneficiarios, dilo claramente.
-- Evita tecnicismos y redacta todo de forma clara, como si lo explicaras a alguien que no tiene formación jurídica.
+Analiza el contenido del BOE que aparece en "Texto:" y decide si es RELEVANTE o NO para agricultores, ganaderos, cooperativas agrarias, autónomos rurales, ayuntamientos pequeños o explotaciones agroganaderas.
 
-FORMATO DEL MENSAJE (MUY IMPORTANTE):
-- Debe parecer un mensaje de WhatsApp listo para enviar.
-- Añade al principio SIEMPRE esta línea fija:
+RELEVANCIA:
+- RELEVANTE si habla de ayudas, subvenciones, bases reguladoras, convocatorias, resoluciones que afecten a explotaciones, normativa agraria/ganadera, medio ambiente, agua para uso agrario, energía rural, infraestructuras rurales, fiscalidad o trámites que afecten al sector primario.
+- NO RELEVANTE si es algo administrativo general: oposiciones, sanciones ajenas al sector primario, becas, movimientos internos del Estado, tribunales, correcciones de errores sin impacto, energía no rural, transportes no rurales, urbanismo puro, concursos de méritos, anuncios que no afecten al medio rural.
 
-"Ruralicos te avisa 🌾🚜"
+SI NO ES RELEVANTE:
+Devuelve EXACTAMENTE este JSON:
+{
+  "resumenes": [
+    {
+      "id": <id>,
+      "resumen": "NO IMPORTA"
+    }
+  ]
+}
+(No incluyas nada más.)
 
-Después genera TRES bloques, cada uno con su subtítulo y emojis:
+SI ES RELEVANTE:
+Genera un mensaje estilo WhatsApp con esta estructura EXACTA:
 
-1) "📄 ¿Qué ha pasado?"
-   - Explica en 1–3 frases qué dice la resolución del BOE de forma clara.
+Ruralicos te avisa 🌾🚜
 
-2) "⚠️ ¿A quién afecta?"
-   - Indica quién se puede ver afectado (solo si el texto lo deja claro).
-   - Si no se indica, usa: "El BOE no especifica destinatarios concretos."
+**📄 ¿Qué ha pasado?**  
+Explica en 1–3 frases qué dice el BOE, con lenguaje sencillo sin tecnicismos.
 
-3) "📌 Punto clave"
-   - Resume lo más importante: si se aprueba, se deniega, se modifica algo, si hay impacto o cambio relevante.
-   - No inventes fechas ni importes: si no aparecen, dilo.
+**⚠️ ¿A quién afecta?**  
+Indica quién podría verse afectado (agricultores, ganaderos, ayuntamientos, cooperativas).  
+Si el BOE no lo especifica: “El BOE no indica destinatarios concretos.”
 
-AL FINAL:
-- Cierra el mensaje con 1–2 emojis adecuados (🌾📢⚠️🚜📄).
+**📌 Punto clave**  
+Explica el detalle más importante (si se aprueba, se modifica, se deniega, plazos si aparecen).  
+Si NO hay plazos en el texto: “El BOE no menciona plazos concretos.”
+
+AL FINAL DEL MENSAJE pon 1–2 emojis: 🌾📢⚠️🚜📄
+
+REGLAS DE ESTILO:
+- Entre 4 y 7 frases.
+- Lenguaje claro y sencillo.
+- Formato WhatsApp con saltos de línea como si fueran párrafos reales.
+- Los títulos y subtítulos SIEMPRE en **negrita**.
+- No inventes fechas, importes ni plazos.
+- Si el texto es muy técnico, simplifica.
+- No añadas nada fuera del mensaje.
 
 FORMATO OBLIGATORIO DE SALIDA:
-Devuélveme ÚNICAMENTE un JSON válido así:
+Devuelve SOLO este JSON válido:
 
 {
   "resumenes": [
     {
       "id": <id>,
-      "resumen": "<mensaje WhatsApp con la estructura anterior>"
+      "resumen": "<mensaje WhatsApp completo con negritas, subtítulos y emojis>"
     }
   ]
 }
+
 
 
 Nada de texto antes o después, solo el JSON.
