@@ -88,12 +88,17 @@ module.exports = function alertasRoutes(app, supabase) {
       }
 
       // 3.2) Construir texto para el prompt
-      const lista = alertas
-        .map(
-          (a) =>
-            `ID ${a.id} | Fecha ${a.fecha} | Region ${a.region || 'NACIONAL'} | Titulo: ${a.titulo}`
-        )
-        .join('\n');
+     const lista = alertas
+     .map((a) => {
+           const texto = a.contenido
+          ? a.contenido.slice(0, 4000) // por si acaso limitamos un poco
+          : '';
+           return `ID ${a.id} | Fecha ${a.fecha} | Region ${
+             a.region || 'NACIONAL'
+         } | Titulo: ${a.titulo} | Texto: ${texto}`;
+    })
+     .join('\n\n');
+
 
       const prompt = `
 Te paso una lista de alertas del BOE para agricultores y ganaderos, una por línea, con este formato:
