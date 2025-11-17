@@ -122,24 +122,24 @@ ${lista}
       `.trim();
 
       // 3.3) Llamar a la API nueva de OpenAI: /v1/responses
-      const aiRes = await fetch('https://api.openai.com/v1/responses', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${OPENAI_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: 'gpt-5-nano',
-          input: prompt,
-          instructions:
-            'Eres un asistente experto en resumir disposiciones del BOE para el sector agrario. Devuelve SIEMPRE solo JSON válido con la clave "resumenes".',
-          temperature: 0.2,
-          text: {
-            // JSON mode en Responses API
-            format: { type: 'json_object' },
-          },
-        }),
-      });
+const aiRes = await fetch('https://api.openai.com/v1/responses', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${OPENAI_API_KEY}`,
+  },
+  body: JSON.stringify({
+    model: 'gpt-5-nano',
+    input: prompt,
+    instructions:
+      'Eres un asistente experto en resumir disposiciones del BOE para el sector agrario. Devuelve SIEMPRE solo JSON válido con la clave "resumenes".',
+    text: {
+      // JSON mode en Responses API
+      format: { type: 'json_object' },
+    },
+  }),
+});
+
 
       if (!aiRes.ok) {
         const text = await aiRes.text();
