@@ -105,18 +105,23 @@ Te paso una lista de alertas del BOE para agricultores y ganaderos, una por lín
 "ID <id> | Fecha <fecha> | Region <region> | Titulo: <titulo>"
 
 TU TAREA:
-- Para cada alerta, escribe un resumen corto, claro y útil para enviar por WhatsApp.
-- No inventes detalles que no estén en el título.
-- Máximo 3 frases por resumen.
-- Escribe en español sencillo.
-
-DEVUELVE ÚNICAMENTE UN JSON VÁLIDO con este formato EXACTO:
+- Haz un resumen útil a partir del texto que aparece en "Texto:".
+- Escribe entre 4 y 7 frases (no menos).
+- Usa lenguaje MUY sencillo para agricultores y autónomos rurales.
+- Explica el objeto de la ayuda / resolución, a quién afecta, y si hay cambios importantes.
+- Evita tecnicismos y palabras difíciles.
+- Añade 3–5 emojis relevantes al principio y final del mensaje (🌾🚜📢💡⚠️📄).
+- No inventes fechas, importes, ni plazos que no aparezcan en el texto.
+- Si no hay plazos en el texto, dilo claramente.
+- Si es una desestimación o denegación, explícalo en lenguaje claro.
+- Estilo WhatsApp: frases cortas, simples, separadas por saltos de línea.
+- El formato final DEBE ser un JSON válido:
 
 {
   "resumenes": [
     {
       "id": <id>,
-      "resumen": "<texto corto para WhatsApp>"
+      "resumen": "<mensaje estilo WhatsApp con emojis>"
     }
   ]
 }
