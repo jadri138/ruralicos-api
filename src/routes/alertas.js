@@ -66,6 +66,8 @@ module.exports = function alertasRoutes(app, supabase) {
       }
 
       // 3.1) Cargar alertas pendientes (máx 10)
+      //     - resumen = NULL
+      //     - o resumen = 'Procesando con IA...'
       const { data: alertas, error } = await supabase
         .from('alertas')
         .select('id, titulo, url, region, fecha, resumen')
@@ -120,7 +122,7 @@ Lista de alertas:
 ${lista}
       `.trim();
 
-      // 3.3) Llamar a la API nueva de OpenAI: /v1/responses (sin JSON mode)
+      // 3.3) Llamar a la API nueva de OpenAI: /v1/responses
       const aiRes = await fetch('https://api.openai.com/v1/responses', {
         method: 'POST',
         headers: {
@@ -149,26 +151,31 @@ ${lista}
       // 3.4) Extraer el texto de la respuesta
       let contenido = '';
 
-      // Si existe la propiedad output_text (SDKs)
+      // 1º: si existe output_text (algunos SDKs lo añaden)
       if (typeof aiJson.output_text === 'string' && aiJson.output_text.trim()) {
         contenido = aiJson.output_text.trim();
-      } else if (
-        Array.isArray(aiJson.output) &&
-        aiJson.output.length > 0 &&
-        aiJson.output[0] &&
-        Array.isArray(aiJson.output[0].content) &&
-        aiJson.output[0].content.length > 0
-      ) {
-        const firstContent = aiJson.output[0].content[0];
-        if (typeof firstContent.text === 'string') {
-          contenido = firstContent.text.trim();
-        } else if (typeof firstContent.value === 'string') {
-          contenido = firstContent.value.trim();
+      } else if (Array.isArray(aiJson.output)) {
+        // 2º: buscar el primer elemento de tipo "message" con contenido
+        for (const item of aiJson.output) {
+          if (
+            item &&
+            item.type === 'message' &&
+            Array.isArray(item.content) &&
+            item.content.length > 0
+          ) {
+            const firstContent = item.content[0];
+            if (typeof firstContent.text === 'string') {
+              contenido = firstContent.text.trim();
+              break;
+            } else if (typeof firstContent.value === 'string') {
+              contenido = firstContent.value.trim();
+              break;
+            }
+          }
         }
       }
 
       if (!contenido) {
-        // No hemos conseguido sacar texto: devolvemos todo el objeto para depurar
         console.error('Respuesta IA sin contenido de texto:', aiJson);
         return res.status(500).json({
           error: 'La IA no devolvió texto',
