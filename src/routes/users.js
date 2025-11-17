@@ -9,16 +9,32 @@ module.exports = function usersRoutes(app, supabase) {
 
   // Registrar usuario
   app.post('/register', async (req, res) => {
-    const { phone } = req.body;
+    let { phone } = req.body;
 
     if (!phone) {
       return res.status(400).json({ error: 'Falta el número de teléfono' });
     }
 
+    // Normalizar: quitar espacios, guiones, +, etc.
+    phone = String(phone).trim();
+    const soloDigitos = phone.replace(/\D/g, '');
+
+    // 👉 Longitud exacta permitida (cámbiala si quieres otra)
+    const LONGITUD_TELEFONO = 11; // ej: 34 + 9 dígitos
+
+    if (soloDigitos.length !== LONGITUD_TELEFONO) {
+      return res.status(400).json({
+        error: `introduce un numero de teléfono válido`
+      });
+    }
+
+    // Aquí ya usamos solo los dígitos normalizados para guardar
+    const telefonoNormalizado = soloDigitos;
+
     // Insertar usuario
     const { data, error } = await supabase
       .from('users')
-      .insert([{ phone, preferences: '', subscription: 'free' }])
+      .insert([{ phone: telefonoNormalizado, preferences: '', subscription: 'free' }])
       .select();
 
     if (error) {
@@ -37,7 +53,7 @@ module.exports = function usersRoutes(app, supabase) {
 
     // Registrar acción en logs (esto no afecta a la respuesta)
     await supabase.from('logs').insert([
-      { action: 'register', details: `phone: ${phone}` }
+      { action: 'register', details: `phone: ${telefonoNormalizado}` }
     ]);
   });
 };
