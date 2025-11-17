@@ -3,6 +3,27 @@ const { XMLParser } = require('fast-xml-parser');
 
 const xmlParser = new XMLParser({ ignoreAttributes: false });
 
+// Función muy simple para sacar texto de HTML
+function htmlAtextoPlano(html) {
+  if (!html) return '';
+  return html
+    // fuera scripts y estilos
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    // fuera etiquetas
+    .replace(/<[^>]+>/g, ' ')
+    // entidades básicas
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&apos;/gi, "'")
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    // espacios múltiples
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 module.exports = function boeRoutes(app, supabase) {
   // Scraper BOE por ministerios relacionados con el medio rural
   app.get('/scrape-boe-oficial', async (req, res) => {
@@ -20,7 +41,7 @@ module.exports = function boeRoutes(app, supabase) {
       if (!/^\d{8}$/.test(fecha)) {
         return res.status(400).json({
           error: 'Fecha inválida. Usa AAAAMMDD, por ejemplo 20240101',
-          fecha_recibida: fecha
+          fecha_recibida: fecha,
         });
       }
 
@@ -34,7 +55,7 @@ module.exports = function boeRoutes(app, supabase) {
       console.log('Llamando a BOE con fecha:', fecha, 'URL:', url);
 
       const response = await fetch(url, {
-        headers: { Accept: 'application/xml' }
+        headers: { Accept: 'application/xml' },
       });
 
       if (response.status === 404) {
@@ -42,7 +63,7 @@ module.exports = function boeRoutes(app, supabase) {
           success: true,
           nuevas: 0,
           mensaje: 'No hay BOE publicado para esta fecha',
-          fecha: fechaISO
+          fecha: fechaISO,
         });
       }
 
@@ -62,7 +83,7 @@ module.exports = function boeRoutes(app, supabase) {
           success: true,
           nuevas: 0,
           mensaje: 'No se encontró <sumario> en el XML',
-          fecha: fechaISO
+          fecha: fechaISO,
         });
       }
 
@@ -75,13 +96,11 @@ module.exports = function boeRoutes(app, supabase) {
       const deptRelevanteRegex =
         /(AGRICULTURA|GANADER[ÍI]A|DESARROLLO RURAL|MEDIO AMBIENTE|TRANSICI[ÓO]N ECOL[ÓO]GICA|ALIMENTACI[ÓO]N)/i;
 
-      // 5) COSAS QUE INTERESAN:
-      // ayudas, subvenciones, convocatorias, leyes, reales decretos, reglamentos,
-      // modificaciones, corrección de errores, plazos, prórrogas…
+      // 5) COSAS QUE INTERESAN
       const keywordsInteres =
         /(ayudas?|subvenci[oó]n|subvenciones|convocatoria|bases reguladoras|extracto de la Orden|real decreto|ley\b|leyes\b|reglamento|reglamentos|modificaci[oó]n|modifica la|corrige errores|correcci[oó]n de errores|plazo|plazos|pr[oó]rroga|prorroga)/i;
 
-      // 6) Exclusiones claras (cosas que casi seguro no quieres)
+      // 6) Exclusiones claras
       const keywordsExcluir =
         /(pescadores?|buques pesqueros|actividad pesquera|curso de posgrado|m[aá]ster|master|CIS\b|universidad|investigaci[oó]n social)/i;
 
@@ -130,16 +149,22 @@ module.exports = function boeRoutes(app, supabase) {
                     item.url_pdf['#text'] || item.url_pdf.text || null;
                 }
 
+                // URL HTML (texto “legible” del BOE)
+                let url_html = null;
+                if (typeof item.url_html === 'string') {
+                  url_html = item.url_html;
+                } else if (item.url_html && typeof item.url_html === 'object') {
+                  url_html =
+                    item.url_html['#text'] || item.url_html.text || null;
+                }
+
                 if (!titulo || !url_pdf) continue;
 
-                // 8) FILTRO DE INTERÉS:
-                // Tiene que parecer algo relevante (ayudas, ley, RD, modificación, plazos…)
+                // 8) FILTRO DE INTERÉS
                 if (!keywordsInteres.test(titulo)) continue;
-
-                // Y NO debe ser pesca, másters, CIS, etc.
                 if (keywordsExcluir.test(titulo)) continue;
 
-                // Evitar duplicados por URL
+                // Evitar duplicados por URL PDF
                 const { data: existe, error: errorExiste } = await supabase
                   .from('alertas')
                   .select('id')
@@ -158,17 +183,44 @@ module.exports = function boeRoutes(app, supabase) {
                   continue;
                 }
 
-                // Insertar alerta
+                // 9) Descargar contenido HTML del BOE (si hay url_html)
+                let contenidoPlano = null;
+                if (url_html) {
+                  try {
+                    const respHtml = await fetch(url_html);
+                    if (respHtml.ok) {
+                      const html = await respHtml.text();
+                      const texto = htmlAtextoPlano(html);
+                      // Recortamos para no petar tokens (ajusta si quieres)
+                      contenidoPlano = texto.slice(0, 8000);
+                    } else {
+                      console.error(
+                        'Error HTTP al descargar HTML del BOE',
+                        respHtml.status,
+                        url_html
+                      );
+                    }
+                  } catch (e) {
+                    console.error(
+                      'Error descargando/parsing HTML del BOE',
+                      url_html,
+                      e.message
+                    );
+                  }
+                }
+
+                // Insertar alerta con contenido
                 const { error: errorInsert } = await supabase
                   .from('alertas')
                   .insert([
                     {
                       titulo,
-                      resumen: 'Procesando con IA...',
+                      resumen: 'Procesando con IA.', // mantenemos como lo tenías
                       url: url_pdf,
                       fecha: fechaISO,
-                      region: nombreDept
-                    }
+                      region: nombreDept,
+                      contenido: contenidoPlano, // NUEVO: texto del BOE
+                    },
                   ]);
 
                 if (errorInsert) {
