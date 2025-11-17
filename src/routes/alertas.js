@@ -126,16 +126,16 @@ Devuelve EXACTAMENTE este JSON:
 SI ES RELEVANTE:
 Genera un mensaje estilo WhatsApp con esta estructura EXACTA:
 
-Ruralicos te avisa 🌾🚜
+*Ruralicos te avisa* 🌾🚜
 
-**📄 ¿Qué ha pasado?**  
+*📄 ¿Qué ha pasado?*
 Explica en 1–3 frases qué dice el BOE, con lenguaje sencillo sin tecnicismos.
 
-**⚠️ ¿A quién afecta?**  
+*⚠️ ¿A quién afecta?*  
 Indica quién podría verse afectado (agricultores, ganaderos, ayuntamientos, cooperativas).  
 Si el BOE no lo especifica: “El BOE no indica destinatarios concretos.”
 
-**📌 Punto clave**  
+*📌 Punto clave*
 Explica el detalle más importante (si se aprueba, se modifica, se deniega, plazos si aparecen).  
 Si NO hay plazos en el texto: “El BOE no menciona plazos concretos.”
 
