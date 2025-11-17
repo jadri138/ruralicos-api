@@ -108,7 +108,7 @@ TU TAREA:
 Analiza el contenido del BOE que aparece en "Texto:" y decide si es RELEVANTE o NO para agricultores, ganaderos, cooperativas agrarias, autónomos rurales, ayuntamientos pequeños o explotaciones agroganaderas.
 
 RELEVANCIA:
-- RELEVANTE si habla de ayudas, subvenciones, bases reguladoras, convocatorias, resoluciones que afecten a explotaciones, normativa agraria/ganadera, medio ambiente, agua para uso agrario, energía rural, infraestructuras rurales, fiscalidad o trámites que afecten al sector primario.
+- RELEVANTE si habla para la comunidad agraria y ganadera sobre: ayudas, subvenciones, bases reguladoras, convocatorias, resoluciones que afecten a explotaciones, normativa agraria/ganadera, medio ambiente, agua para uso agrario, energía rural, infraestructuras rurales, fiscalidad o trámites que afecten al sector primario.
 - NO RELEVANTE si es algo administrativo general: oposiciones, sanciones ajenas al sector primario, becas, movimientos internos del Estado, tribunales, correcciones de errores sin impacto, energía no rural, transportes no rurales, urbanismo puro, concursos de méritos, anuncios que no afecten al medio rural.
 
 SI NO ES RELEVANTE:
