@@ -70,7 +70,7 @@ module.exports = function alertasRoutes(app, supabase) {
       //     - o resumen = 'Procesando con IA...'
       const { data: alertas, error } = await supabase
         .from('alertas')
-        .select('id, titulo, url, region, fecha, resumen')
+        .select('id, titulo, url, region, fecha, resumen, contenido')
         .or('resumen.is.null,resumen.eq.Procesando con IA...')
         .order('created_at', { ascending: true })
         .limit(10);
