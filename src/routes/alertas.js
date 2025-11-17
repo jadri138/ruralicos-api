@@ -9,13 +9,24 @@ module.exports = function alertasRoutes(app, supabase) {
 
     if (!titulo || !url || !fecha) {
       return res.status(400).json({
-        error: 'Faltan campos obligatorios: titulo, url o fecha'
+        error: 'Faltan campos obligatorios: titulo, url o fecha',
       });
     }
 
+    // Si no envías resumen, lo marcamos como pendiente de IA
+    const resumenFinal = resumen ?? 'Procesando con IA.';
+
     const { data, error } = await supabase
       .from('alertas')
-      .insert([{ titulo, resumen, url, fecha, region }])
+      .insert([
+        {
+          titulo,
+          resumen: resumenFinal,
+          url,
+          fecha,
+          region,
+        },
+      ])
       .select();
 
     if (error) {
@@ -44,15 +55,17 @@ module.exports = function alertasRoutes(app, supabase) {
     try {
       if (!OPENAI_API_KEY) {
         return res.status(500).json({
-          error: 'Falta OPENAI_API_KEY en variables de entorno'
+          error: 'Falta OPENAI_API_KEY en variables de entorno',
         });
       }
 
       // 1) Alertas con resumen pendiente (máx 10)
+      //    - resumen NULL
+      //    - o resumen = 'Procesando con IA.'
       const { data: alertas, error } = await supabase
         .from('alertas')
         .select('id, titulo, url, region, fecha, resumen')
-        .eq('resumen', 'Procesando con IA...')
+        .or('resumen.is.null,resumen.eq.Procesando con IA.')
         .order('created_at', { ascending: true })
         .limit(10);
 
@@ -64,10 +77,11 @@ module.exports = function alertasRoutes(app, supabase) {
         return res.json({
           success: true,
           procesadas: 0,
-          mensaje: 'No hay alertas pendientes de resumir'
+          mensaje: 'No hay alertas pendientes de resumir',
         });
       }
 
+      // Montamos la lista para el prompt
       const lista = alertas
         .map(
           (a) =>
@@ -76,15 +90,14 @@ module.exports = function alertasRoutes(app, supabase) {
         .join('\n');
 
       const prompt = `
-Eres un asistente que resume disposiciones del BOE para agricultores y ganaderos.
-
-Te paso una lista de alertas, una por línea, con este formato:
+Te paso una lista de alertas del BOE para agricultores y ganaderos, una por línea, con este formato:
 "ID <id> | Fecha <fecha> | Region <region> | Titulo: <titulo>"
 
 TU TAREA:
 - Para cada alerta, escribe un resumen corto, claro y útil para enviar por WhatsApp.
 - No inventes detalles que no estén en el título.
 - Máximo 3 frases por resumen.
+- Escribe en español sencillo.
 
 Devuélveme SOLO un JSON con este formato EXACTO:
 
@@ -101,20 +114,23 @@ Lista de alertas:
 ${lista}
       `.trim();
 
-      const aiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+      // 2) Llamada a la API nueva de OpenAI: /v1/responses con gpt-5-nano
+      const aiRes = await fetch('https://api.openai.com/v1/responses', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${OPENAI_API_KEY}`
+          Authorization: `Bearer ${OPENAI_API_KEY}`,
         },
         body: JSON.stringify({
-          model: 'gpt-4o-mini',
+          model: 'gpt-5-nano',
+          input: prompt, // texto entero
+          instructions:
+            'Eres un asistente experto en resumir disposiciones del BOE para el sector agrario. Responde SIEMPRE solo con JSON válido según el esquema indicado.',
           temperature: 0.2,
-          messages: [
-            { role: 'system', content: 'Eres un asistente experto en BOE rural.' },
-            { role: 'user', content: prompt }
-          ]
-        })
+          response_format: {
+            type: 'json_object', // forzamos JSON
+          },
+        }),
       });
 
       if (!aiRes.ok) {
@@ -122,12 +138,35 @@ ${lista}
         console.error('Error OpenAI:', aiRes.status, text);
         return res.status(500).json({
           error: 'Error al llamar a OpenAI',
-          detalle: text
+          detalle: text,
         });
       }
 
       const aiJson = await aiRes.json();
-      const contenido = aiJson.choices?.[0]?.message?.content?.trim() || '';
+
+      // 3) Sacar el texto JSON de la respuesta de la Responses API
+      let contenido = '';
+
+      // Algunos clientes exponen output_text, por si acaso
+      if (typeof aiJson.output_text === 'string') {
+        contenido = aiJson.output_text;
+      } else if (Array.isArray(aiJson.output) && aiJson.output.length > 0) {
+        const firstOutput = aiJson.output[0];
+        if (
+          firstOutput &&
+          Array.isArray(firstOutput.content) &&
+          firstOutput.content.length > 0
+        ) {
+          const firstContent = firstOutput.content[0];
+          if (typeof firstContent.text === 'string') {
+            contenido = firstContent.text;
+          } else if (typeof firstContent.value === 'string') {
+            contenido = firstContent.value;
+          }
+        }
+      }
+
+      contenido = (contenido || '').trim();
 
       let parsed;
       try {
@@ -136,7 +175,7 @@ ${lista}
         console.error('No se pudo parsear JSON de la IA:', contenido);
         return res.status(500).json({
           error: 'La respuesta de la IA no es JSON válido',
-          bruto: contenido
+          bruto: contenido,
         });
       }
 
@@ -144,10 +183,11 @@ ${lista}
       if (!Array.isArray(resumenes) || resumenes.length === 0) {
         return res.status(500).json({
           error: 'La IA no devolvió resumenes válidos',
-          bruto: parsed
+          bruto: parsed,
         });
       }
 
+      // 4) Actualizar en BD
       let actualizadas = 0;
 
       for (const item of resumenes) {
@@ -173,7 +213,7 @@ ${lista}
         success: true,
         procesadas: alertas.length,
         actualizadas,
-        ids: resumenes.map((r) => r.id)
+        ids: resumenes.map((r) => r.id),
       });
     } catch (err) {
       console.error('Error en /alertas/procesar-ia', err);
