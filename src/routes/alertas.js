@@ -39,8 +39,8 @@ module.exports = function alertasRoutes(app, supabase) {
     res.json({ count: data.length, alertas: data });
   });
 
-  // Procesar alertas pendientes con IA (resumen corto)
-  app.post('/alertas/procesar-ia', async (req, res) => {
+  // ---- Procesar alertas pendientes con IA (handler reutilizable) ----
+  const procesarIAHandler = async (req, res) => {
     try {
       if (!OPENAI_API_KEY) {
         return res.status(500).json({
@@ -48,7 +48,7 @@ module.exports = function alertasRoutes(app, supabase) {
         });
       }
 
-      // 1) Coger alertas con resumen pendiente (máx 10 cada vez)
+      // 1) Alertas con resumen pendiente (máx 10)
       const { data: alertas, error } = await supabase
         .from('alertas')
         .select('id, titulo, url, region, fecha, resumen')
@@ -68,7 +68,6 @@ module.exports = function alertasRoutes(app, supabase) {
         });
       }
 
-      // 2) Montar texto para la IA
       const lista = alertas
         .map(
           (a) =>
@@ -83,9 +82,8 @@ Te paso una lista de alertas, una por línea, con este formato:
 "ID <id> | Fecha <fecha> | Region <region> | Titulo: <titulo>"
 
 TU TAREA:
-- Para cada alerta, decide un resumen corto, claro y útil para enviar por WhatsApp.
-- No te inventes cosas que no estén en el título.
-- Usa un lenguaje sencillo, pensando en agricultores y ganaderos.
+- Para cada alerta, escribe un resumen corto, claro y útil para enviar por WhatsApp.
+- No inventes detalles que no estén en el título.
 - Máximo 3 frases por resumen.
 
 Devuélveme SOLO un JSON con este formato EXACTO:
@@ -95,8 +93,7 @@ Devuélveme SOLO un JSON con este formato EXACTO:
     {
       "id": <id>,
       "resumen": "<texto corto para WhatsApp>"
-    },
-    ...
+    }
   ]
 }
 
@@ -104,7 +101,6 @@ Lista de alertas:
 ${lista}
       `.trim();
 
-      // 3) Llamada a OpenAI (chat completions clásico, modelo ligero)
       const aiRes = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -131,8 +127,7 @@ ${lista}
       }
 
       const aiJson = await aiRes.json();
-      const contenido =
-        aiJson.choices?.[0]?.message?.content?.trim() || '';
+      const contenido = aiJson.choices?.[0]?.message?.content?.trim() || '';
 
       let parsed;
       try {
@@ -153,7 +148,6 @@ ${lista}
         });
       }
 
-      // 4) Actualizar cada alerta en Supabase
       let actualizadas = 0;
 
       for (const item of resumenes) {
@@ -167,7 +161,11 @@ ${lista}
         if (!updError) {
           actualizadas++;
         } else {
-          console.error('Error actualizando alerta', item.id, updError.message);
+          console.error(
+            'Error actualizando alerta',
+            item.id,
+            updError.message
+          );
         }
       }
 
@@ -181,5 +179,9 @@ ${lista}
       console.error('Error en /alertas/procesar-ia', err);
       res.status(500).json({ error: err.message });
     }
-  });
+  };
+
+  // Acepta POST y GET para que no dé "Not Found"
+  app.post('/alertas/procesar-ia', procesarIAHandler);
+  app.get('/alertas/procesar-ia', procesarIAHandler);
 };
