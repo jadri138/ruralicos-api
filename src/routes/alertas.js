@@ -66,8 +66,6 @@ module.exports = function alertasRoutes(app, supabase) {
       }
 
       // 3.1) Cargar alertas pendientes (máx 10)
-      //     - resumen = NULL
-      //     - o resumen = 'Procesando con IA...'
       const { data: alertas, error } = await supabase
         .from('alertas')
         .select('id, titulo, url, region, fecha, resumen')
@@ -104,9 +102,8 @@ TU TAREA:
 - No inventes detalles que no estén en el título.
 - Máximo 3 frases por resumen.
 - Escribe en español sencillo.
-- IMPORTANTE: responde ÚNICAMENTE en formato JSON válido con la estructura indicada.
 
-Devuélveme SOLO un JSON con este formato EXACTO:
+DEVUELVE ÚNICAMENTE UN JSON VÁLIDO con este formato EXACTO:
 
 {
   "resumenes": [
@@ -117,30 +114,26 @@ Devuélveme SOLO un JSON con este formato EXACTO:
   ]
 }
 
+Nada de texto antes o después, solo el JSON.
+
 Lista de alertas:
 ${lista}
       `.trim();
 
-      // 3.3) Llamar a la API nueva de OpenAI: /v1/responses
-
+      // 3.3) Llamar a la API nueva de OpenAI: /v1/responses (sin JSON mode)
       const aiRes = await fetch('https://api.openai.com/v1/responses', {
         method: 'POST',
         headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${OPENAI_API_KEY}`,
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${OPENAI_API_KEY}`,
         },
         body: JSON.stringify({
-            model: 'gpt-5-nano',
-            input: prompt,
-            instructions:
-            'Eres un asistente experto en resumir disposiciones del BOE para el sector agrario. Devuelve SIEMPRE solo JSON válido con la clave "resumenes".',
-            text: {
-                // JSON mode en Responses API
-                format: { type: 'json_object' },
-            },
+          model: 'gpt-5-nano',
+          input: prompt,
+          instructions:
+            'Eres un asistente experto en resumir disposiciones del BOE para el sector agrario y ganadero. Responde siempre SOLO con el JSON pedido.',
         }),
-    });
-
+      });
 
       if (!aiRes.ok) {
         const text = await aiRes.text();
@@ -153,26 +146,35 @@ ${lista}
 
       const aiJson = await aiRes.json();
 
-      // 3.4) Extraer el texto JSON de la respuesta
+      // 3.4) Extraer el texto de la respuesta
       let contenido = '';
 
-      if (Array.isArray(aiJson.output) && aiJson.output.length > 0) {
-        const firstOutput = aiJson.output[0];
-        if (
-          firstOutput &&
-          Array.isArray(firstOutput.content) &&
-          firstOutput.content.length > 0
-        ) {
-          const firstContent = firstOutput.content[0];
-          if (typeof firstContent.text === 'string') {
-            contenido = firstContent.text;
-          } else if (typeof firstContent.value === 'string') {
-            contenido = firstContent.value;
-          }
+      // Si existe la propiedad output_text (SDKs)
+      if (typeof aiJson.output_text === 'string' && aiJson.output_text.trim()) {
+        contenido = aiJson.output_text.trim();
+      } else if (
+        Array.isArray(aiJson.output) &&
+        aiJson.output.length > 0 &&
+        aiJson.output[0] &&
+        Array.isArray(aiJson.output[0].content) &&
+        aiJson.output[0].content.length > 0
+      ) {
+        const firstContent = aiJson.output[0].content[0];
+        if (typeof firstContent.text === 'string') {
+          contenido = firstContent.text.trim();
+        } else if (typeof firstContent.value === 'string') {
+          contenido = firstContent.value.trim();
         }
       }
 
-      contenido = (contenido || '').trim();
+      if (!contenido) {
+        // No hemos conseguido sacar texto: devolvemos todo el objeto para depurar
+        console.error('Respuesta IA sin contenido de texto:', aiJson);
+        return res.status(500).json({
+          error: 'La IA no devolvió texto',
+          bruto: aiJson,
+        });
+      }
 
       let parsed;
       try {
