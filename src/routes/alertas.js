@@ -3,7 +3,9 @@
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
 module.exports = function alertasRoutes(app, supabase) {
-  // Insertar alerta manualmente
+  // ==========================
+  // 1) Insertar alerta manual
+  // ==========================
   app.post('/alertas', async (req, res) => {
     const { titulo, resumen, url, fecha, region } = req.body;
 
@@ -13,8 +15,8 @@ module.exports = function alertasRoutes(app, supabase) {
       });
     }
 
-    // Si no envías resumen, lo marcamos como pendiente de IA
-    const resumenFinal = resumen ?? 'Procesando con IA.';
+    // Si no envías resumen, la marcamos como pendiente de IA
+    const resumenFinal = resumen ?? 'Procesando con IA...';
 
     const { data, error } = await supabase
       .from('alertas')
@@ -36,7 +38,9 @@ module.exports = function alertasRoutes(app, supabase) {
     res.json({ success: true, alerta: data[0] });
   });
 
-  // Listar alertas (todas)
+  // ==========================
+  // 2) Listar todas las alertas
+  // ==========================
   app.get('/alertas', async (req, res) => {
     const { data, error } = await supabase
       .from('alertas')
@@ -50,7 +54,9 @@ module.exports = function alertasRoutes(app, supabase) {
     res.json({ count: data.length, alertas: data });
   });
 
-  // ---- Procesar alertas pendientes con IA (handler reutilizable) ----
+  // =========================================
+  // 3) Procesar alertas pendientes con la IA
+  // =========================================
   const procesarIAHandler = async (req, res) => {
     try {
       if (!OPENAI_API_KEY) {
@@ -59,13 +65,13 @@ module.exports = function alertasRoutes(app, supabase) {
         });
       }
 
-      // 1) Alertas con resumen pendiente (máx 10)
-      //    - resumen NULL
-      //    - o resumen = 'Procesando con IA.'
+      // 3.1) Cargar alertas pendientes (máx 10)
+      //     - resumen = NULL
+      //     - o resumen = 'Procesando con IA...'
       const { data: alertas, error } = await supabase
         .from('alertas')
         .select('id, titulo, url, region, fecha, resumen')
-        .or('resumen.is.null,resumen.eq.Procesando con IA.')
+        .or('resumen.is.null,resumen.eq.Procesando con IA...')
         .order('created_at', { ascending: true })
         .limit(10);
 
@@ -81,7 +87,7 @@ module.exports = function alertasRoutes(app, supabase) {
         });
       }
 
-      // Montamos la lista para el prompt
+      // 3.2) Construir texto para el prompt
       const lista = alertas
         .map(
           (a) =>
@@ -98,6 +104,7 @@ TU TAREA:
 - No inventes detalles que no estén en el título.
 - Máximo 3 frases por resumen.
 - Escribe en español sencillo.
+- IMPORTANTE: responde ÚNICAMENTE en formato JSON válido con la estructura indicada.
 
 Devuélveme SOLO un JSON con este formato EXACTO:
 
@@ -114,7 +121,7 @@ Lista de alertas:
 ${lista}
       `.trim();
 
-      // 2) Llamada a la API nueva de OpenAI: /v1/responses con gpt-5-nano
+      // 3.3) Llamar a la API nueva de OpenAI: /v1/responses
       const aiRes = await fetch('https://api.openai.com/v1/responses', {
         method: 'POST',
         headers: {
@@ -123,12 +130,13 @@ ${lista}
         },
         body: JSON.stringify({
           model: 'gpt-5-nano',
-          input: prompt, // texto entero
+          input: prompt,
           instructions:
-            'Eres un asistente experto en resumir disposiciones del BOE para el sector agrario. Responde SIEMPRE solo con JSON válido según el esquema indicado.',
+            'Eres un asistente experto en resumir disposiciones del BOE para el sector agrario. Devuelve SIEMPRE solo JSON válido con la clave "resumenes".',
           temperature: 0.2,
-          response_format: {
-            type: 'json_object', // forzamos JSON
+          text: {
+            // JSON mode en Responses API
+            format: { type: 'json_object' },
           },
         }),
       });
@@ -144,13 +152,10 @@ ${lista}
 
       const aiJson = await aiRes.json();
 
-      // 3) Sacar el texto JSON de la respuesta de la Responses API
+      // 3.4) Extraer el texto JSON de la respuesta
       let contenido = '';
 
-      // Algunos clientes exponen output_text, por si acaso
-      if (typeof aiJson.output_text === 'string') {
-        contenido = aiJson.output_text;
-      } else if (Array.isArray(aiJson.output) && aiJson.output.length > 0) {
+      if (Array.isArray(aiJson.output) && aiJson.output.length > 0) {
         const firstOutput = aiJson.output[0];
         if (
           firstOutput &&
@@ -187,7 +192,7 @@ ${lista}
         });
       }
 
-      // 4) Actualizar en BD
+      // 3.5) Actualizar en BD cada alerta con su resumen
       let actualizadas = 0;
 
       for (const item of resumenes) {
@@ -203,25 +208,4 @@ ${lista}
         } else {
           console.error(
             'Error actualizando alerta',
-            item.id,
-            updError.message
-          );
-        }
-      }
-
-      res.json({
-        success: true,
-        procesadas: alertas.length,
-        actualizadas,
-        ids: resumenes.map((r) => r.id),
-      });
-    } catch (err) {
-      console.error('Error en /alertas/procesar-ia', err);
-      res.status(500).json({ error: err.message });
-    }
-  };
-
-  // Acepta POST y GET para que no dé "Not Found"
-  app.post('/alertas/procesar-ia', procesarIAHandler);
-  app.get('/alertas/procesar-ia', procesarIAHandler);
-};
+            item
