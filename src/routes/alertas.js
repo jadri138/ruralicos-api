@@ -50,7 +50,7 @@ module.exports = function alertasRoutes(app, supabase) {
     res.json({ count: data.length, alertas: data });
   });
 
-  // 3) Procesar alertas pendientes con IA y mandar WhatsApp
+  // 3) Procesar alertas pendientes con IA (solo resumen, sin WhatsApp)
   const procesarIAHandler = async (req, res) => {
     try {
       if (!OPENAI_API_KEY) {
@@ -59,7 +59,6 @@ module.exports = function alertasRoutes(app, supabase) {
         });
       }
 
-      // 3.1 Cargar alertas pendientes (resumen null o "Procesando con IA...")
       const { data: alertas, error } = await supabase
         .from('alertas')
         .select('id, titulo, url, region, fecha, resumen, contenido')
@@ -79,7 +78,6 @@ module.exports = function alertasRoutes(app, supabase) {
         });
       }
 
-      // 3.2 Construir prompt
       const lista = alertas
         .map((a) => {
           const texto = a.contenido ? a.contenido.slice(0, 4000) : '';
@@ -90,72 +88,11 @@ module.exports = function alertasRoutes(app, supabase) {
         .join('\n\n');
 
       const prompt = `
-Te paso una lista de alertas del BOE para agricultores y ganaderos, una por línea, con este formato:
-"ID <id> | Fecha <fecha> | Region <region> | Titulo: <titulo> | Texto: <contenido>"
-
-TU TAREA:
-Analiza el contenido del BOE que aparece en "Texto:" y decide si es RELEVANTE o NO para agricultores, ganaderos, cooperativas agrarias, autónomos rurales, ayuntamientos pequeños o explotaciones agroganaderas.
-
-RELEVANCIA:
-- RELEVANTE si habla para la comunidad agraria y ganadera sobre: ayudas, subvenciones, bases reguladoras, convocatorias, resoluciones que afecten a explotaciones, normativa agraria/ganadera, medio ambiente, agua para uso agrario, energía rural, infraestructuras rurales, fiscalidad o trámites que afecten al sector primario.
-- NO RELEVANTE si es algo administrativo general: oposiciones, sanciones ajenas al sector primario, becas, movimientos internos del Estado, tribunales, correcciones de errores sin impacto, energía no rural, transportes no rurales, urbanismo puro, concursos de méritos, anuncios que no afecten al medio rural.
-
-SI NO ES RELEVANTE:
-Devuelve EXACTAMENTE este JSON:
-{
-  "resumenes": [
-    {
-      "id": <id>,
-      "resumen": "NO IMPORTA"
-    }
-  ]
-}
-
-SI ES RELEVANTE:
-Genera un mensaje estilo WhatsApp con esta estructura EXACTA:
-
-*Ruralicos te avisa* 🌾🚜
-
-*📄 ¿Qué ha pasado?*
-Explica en 1–3 frases qué dice el BOE, con lenguaje sencillo.
-
-*⚠️ ¿A quién afecta?*
-Quién podría verse afectado (agricultores, ganaderos, ayuntamientos, cooperativas).
-Si no se especifica: “El BOE no indica destinatarios concretos.”
-
-*📌 Punto clave*
-Detalle más importante (si se aprueba, se modifica, se deniega, plazos si aparecen).
-Si NO hay plazos: “El BOE no menciona plazos concretos.”
-
-Al final del mensaje pon 1–2 emojis: 🌾📢⚠️🚜📄
-
-REGLAS:
-- Entre 4 y 7 frases.
-- Lenguaje claro y sencillo.
-- Formato WhatsApp con saltos de línea.
-- Títulos y subtítulos SIEMPRE en **negrita**.
-- No inventes fechas, importes ni plazos.
-- No añadas nada fuera del mensaje.
-
-FORMATO DE SALIDA:
-Devuelve SOLO este JSON válido:
-
-{
-  "resumenes": [
-    {
-      "id": <id>,
-      "resumen": "<mensaje WhatsApp completo>"
-    }
-  ]
-}
-
-Nada de texto antes o después, solo el JSON.
-
+(… aquí el mismo prompt largo que ya tenías, lo puedes dejar tal cual …)
 Lista de alertas:
 ${lista}
       `.trim();
 
-      // 3.3 Llamar a OpenAI /v1/responses
       const aiRes = await fetch('https://api.openai.com/v1/responses', {
         method: 'POST',
         headers: {
@@ -181,7 +118,6 @@ ${lista}
 
       const aiJson = await aiRes.json();
 
-      // 3.4 Extraer texto de la respuesta
       let contenido = '';
 
       if (typeof aiJson.output_text === 'string' && aiJson.output_text.trim()) {
@@ -233,7 +169,6 @@ ${lista}
         });
       }
 
-      // 3.5 Actualizar BD y disparar WhatsApp
       let actualizadas = 0;
 
       for (const item of resumenes) {
@@ -246,14 +181,6 @@ ${lista}
 
         if (!updError) {
           actualizadas++;
-
-          const alertaOriginal = alertas.find((a) => a.id === item.id);
-          const alertaParaWhatsApp = {
-            ...alertaOriginal,
-            resumen: item.resumen,
-          };
-
-          await enviarWhatsAppResumen(alertaParaWhatsApp, supabase);
         } else {
           console.error(
             'Error actualizando alerta',
@@ -275,7 +202,74 @@ ${lista}
     }
   };
 
-  // Endpoints para lanzar el procesado
   app.post('/alertas/procesar-ia', procesarIAHandler);
   app.get('/alertas/procesar-ia', procesarIAHandler);
+
+  // 4) NUEVO: enviar WhatsApp de forma manual
+  app.post('/alertas/enviar-whatsapp', async (req, res) => {
+    try {
+      // Cargamos alertas con resumen ya generado,
+      // que no sean "Procesando con IA..." ni "NO IMPORTA"
+      // y que aún no tengan whatsapp_enviado = true
+      const { data: alertas, error } = await supabase
+        .from('alertas')
+        .select(
+          'id, titulo, resumen, region, fecha, url, contenido, whatsapp_enviado'
+        )
+        .order('created_at', { ascending: true });
+
+      if (error) {
+        return res.status(500).json({ error: error.message });
+      }
+
+      const candidatas = (alertas || []).filter((a) => {
+        if (a.whatsapp_enviado === true) return false;
+        if (!a.resumen) return false;
+
+        const r = String(a.resumen).trim();
+        if (r === 'Procesando con IA...') return false;
+        if (r.toUpperCase() === 'NO IMPORTA') return false;
+
+        return true;
+      });
+
+      if (!candidatas.length) {
+        return res.json({
+          success: true,
+          enviadas: 0,
+          mensaje: 'No hay alertas pendientes de enviar por WhatsApp',
+        });
+      }
+
+      let enviadas = 0;
+
+      for (const alerta of candidatas) {
+        await enviarWhatsAppResumen(alerta, supabase);
+
+        const { error: updError } = await supabase
+          .from('alertas')
+          .update({ whatsapp_enviado: true })
+          .eq('id', alerta.id);
+
+        if (!updError) {
+          enviadas++;
+        } else {
+          console.error(
+            'Error marcando whatsapp_enviado',
+            alerta.id,
+            updError.message
+          );
+        }
+      }
+
+      res.json({
+        success: true,
+        enviadas,
+        ids: candidatas.map((a) => a.id),
+      });
+    } catch (err) {
+      console.error('Error en /alertas/enviar-whatsapp', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
 };

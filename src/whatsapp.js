@@ -8,7 +8,7 @@ const ULTRAMSG_TOKEN = process.env.ULTRAMSG_TOKEN;
 
 /**
  * Qué usuarios reciben la alerta.
- * AHORA: todos los users con activo = true y telefono.
+ * AHORA: todos los activos con teléfono.
  * FUTURO: aquí filtras por edad, hectáreas, tipo_actividad, región, etc.
  */
 async function obtenerDestinatariosParaAlerta(alerta, supabase) {
@@ -86,9 +86,7 @@ function enviarMensajeUltraMsg(telefono, cuerpo) {
 
 /**
  * Envía el resumen de una alerta por WhatsApp.
- * NO envía nada si:
- *  - resumen = "NO IMPORTA"
- *  - resumen empieza por "Procesando con IA"
+ * (NO decide qué alertas, solo manda la que le pasas).
  */
 async function enviarWhatsAppResumen(alerta, supabase) {
   try {
@@ -102,17 +100,6 @@ async function enviarWhatsAppResumen(alerta, supabase) {
     if (!alerta || !alerta.resumen) return;
 
     const resumen = String(alerta.resumen || '').trim();
-    const limpio = resumen;
-
-    if (
-      limpio.toUpperCase() === 'NO IMPORTA' ||
-      limpio.startsWith('Procesando con IA')
-    ) {
-      console.log(
-        `[WhatsApp] Alerta ${alerta.id} no se envía (resumen = "${limpio}").`
-      );
-      return;
-    }
 
     console.log(
       `[WhatsApp] Preparando envío para alerta ${alerta.id}: "${alerta.titulo}"`
@@ -139,7 +126,7 @@ async function enviarWhatsAppResumen(alerta, supabase) {
         `[WhatsApp] Enviando a ${telefono} (usuario ${user.id || 'sin id'})`
       );
 
-      await enviarMensajeUltraMsg(telefono, limpio);
+      await enviarMensajeUltraMsg(telefono, resumen);
     }
   } catch (err) {
     console.error('[WhatsApp] Error general en enviarWhatsAppResumen:', err);
