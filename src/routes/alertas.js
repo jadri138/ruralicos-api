@@ -1,6 +1,8 @@
 // src/routes/alertas.js
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+// 👉 importa el helper de WhatsApp (ajusta la ruta si hace falta)
+const { sendWhatsAppMessage } = require('../whatsapp');
 
 module.exports = function alertasRoutes(app, supabase) {
   // ==========================
@@ -287,4 +289,85 @@ ${lista}
   // 4) Rutas para lanzar el procesado con IA
   app.post('/alertas/procesar-ia', procesarIAHandler);
   app.get('/alertas/procesar-ia', procesarIAHandler);
+
+  // =========================================
+  // 5) Enviar alertas de hoy por WhatsApp
+  // =========================================
+  const enviarWhatsAppHandler = async (req, res) => {
+    try {
+      const phone =
+        req.query.phone || process.env.WHATSAPP_TEST_PHONE || null;
+
+      if (!phone) {
+        return res.status(400).json({
+          error:
+            'Falta el número de destino. Usa ?phone=XXXXXXXXX o configura WHATSAPP_TEST_PHONE.',
+        });
+      }
+
+      // Fecha de hoy en formato YYYY-MM-DD (igual que en la columna "fecha")
+      const hoy = new Date().toISOString().slice(0, 10);
+
+      // Buscar alertas de hoy que:
+      // - no sean "NO IMPORTA"
+      // - no estén "Procesando con IA..."
+      // - no se hayan enviado aún por WhatsApp
+      const { data: alertas, error } = await supabase
+        .from('alertas')
+        .select('id, resumen, whatsapp_enviado, fecha')
+        .eq('fecha', hoy)
+        .neq('resumen', 'NO IMPORTA')
+        .neq('resumen', 'Procesando con IA...')
+        .or('whatsapp_enviado.is.null,whatsapp_enviado.eq.false');
+
+      if (error) {
+        return res.status(500).json({ error: error.message });
+      }
+
+      if (!alertas || alertas.length === 0) {
+        return res.json({
+          success: true,
+          enviadas: 0,
+          mensaje: 'No hay alertas nuevas para enviar hoy',
+          fecha: hoy,
+        });
+      }
+
+      let enviadas = 0;
+      const errores = [];
+
+      for (const alerta of alertas) {
+        try {
+          // Enviar resumen por WhatsApp
+          await sendWhatsAppMessage(phone, alerta.resumen);
+
+          // Marcar como enviada
+          await supabase
+            .from('alertas')
+            .update({ whatsapp_enviado: true })
+            .eq('id', alerta.id);
+
+          enviadas++;
+        } catch (err) {
+          console.error('Error enviando WhatsApp para alerta', alerta.id, err);
+          errores.push({ id: alerta.id, error: err.message });
+        }
+      }
+
+      res.json({
+        success: true,
+        fecha: hoy,
+        total: alertas.length,
+        enviadas,
+        errores,
+      });
+    } catch (err) {
+      console.error('Error en /alertas/enviar-whatsapp', err);
+      res.status(500).json({ error: err.message });
+    }
+  };
+
+  // Rutas para enviar WhatsApp
+  app.get('/alertas/enviar-whatsapp', enviarWhatsAppHandler);
+  app.post('/alertas/enviar-whatsapp', enviarWhatsAppHandler);
 };
