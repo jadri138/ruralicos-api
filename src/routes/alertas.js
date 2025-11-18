@@ -4,9 +4,7 @@ const { enviarWhatsAppResumen } = require('../whatsapp');
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
 module.exports = function alertasRoutes(app, supabase) {
-  // ==========================
-  // 1) Insertar alerta manual
-  // ==========================
+  // 1) Crear alerta manual
   app.post('/alertas', async (req, res) => {
     const { titulo, resumen, url, fecha, region } = req.body;
 
@@ -16,7 +14,6 @@ module.exports = function alertasRoutes(app, supabase) {
       });
     }
 
-    // Si no envías resumen, la marcamos como pendiente de IA
     const resumenFinal = resumen ?? 'Procesando con IA...';
 
     const { data, error } = await supabase
@@ -39,9 +36,7 @@ module.exports = function alertasRoutes(app, supabase) {
     res.json({ success: true, alerta: data[0] });
   });
 
-  // ==========================
-  // 2) Listar todas las alertas
-  // ==========================
+  // 2) Listar alertas
   app.get('/alertas', async (req, res) => {
     const { data, error } = await supabase
       .from('alertas')
@@ -55,9 +50,7 @@ module.exports = function alertasRoutes(app, supabase) {
     res.json({ count: data.length, alertas: data });
   });
 
-  // =========================================
-  // 3) Procesar alertas pendientes con la IA
-  // =========================================
+  // 3) Procesar alertas pendientes con IA y mandar WhatsApp
   const procesarIAHandler = async (req, res) => {
     try {
       if (!OPENAI_API_KEY) {
@@ -66,7 +59,7 @@ module.exports = function alertasRoutes(app, supabase) {
         });
       }
 
-      // 3.1) Cargar alertas pendientes (máx 10)
+      // 3.1 Cargar alertas pendientes (resumen null o "Procesando con IA...")
       const { data: alertas, error } = await supabase
         .from('alertas')
         .select('id, titulo, url, region, fecha, resumen, contenido')
@@ -86,7 +79,7 @@ module.exports = function alertasRoutes(app, supabase) {
         });
       }
 
-      // 3.2) Construir texto para el prompt
+      // 3.2 Construir prompt
       const lista = alertas
         .map((a) => {
           const texto = a.contenido ? a.contenido.slice(0, 4000) : '';
@@ -98,7 +91,7 @@ module.exports = function alertasRoutes(app, supabase) {
 
       const prompt = `
 Te paso una lista de alertas del BOE para agricultores y ganaderos, una por línea, con este formato:
-"ID <id> | Fecha <fecha> | Region <region> | Titulo: <titulo>"
+"ID <id> | Fecha <fecha> | Region <region> | Titulo: <titulo> | Texto: <contenido>"
 
 TU TAREA:
 Analiza el contenido del BOE que aparece en "Texto:" y decide si es RELEVANTE o NO para agricultores, ganaderos, cooperativas agrarias, autónomos rurales, ayuntamientos pequeños o explotaciones agroganaderas.
@@ -117,7 +110,6 @@ Devuelve EXACTAMENTE este JSON:
     }
   ]
 }
-(No incluyas nada más.)
 
 SI ES RELEVANTE:
 Genera un mensaje estilo WhatsApp con esta estructura EXACTA:
@@ -125,35 +117,34 @@ Genera un mensaje estilo WhatsApp con esta estructura EXACTA:
 *Ruralicos te avisa* 🌾🚜
 
 *📄 ¿Qué ha pasado?*
-Explica en 1–3 frases qué dice el BOE, con lenguaje sencillo sin tecnicismos.
+Explica en 1–3 frases qué dice el BOE, con lenguaje sencillo.
 
-*⚠️ ¿A quién afecta?*  
-Indica quién podría verse afectado (agricultores, ganaderos, ayuntamientos, cooperativas).  
-Si el BOE no lo especifica: “El BOE no indica destinatarios concretos.”
+*⚠️ ¿A quién afecta?*
+Quién podría verse afectado (agricultores, ganaderos, ayuntamientos, cooperativas).
+Si no se especifica: “El BOE no indica destinatarios concretos.”
 
 *📌 Punto clave*
-Explica el detalle más importante (si se aprueba, se modifica, se deniega, plazos si aparecen).  
-Si NO hay plazos en el texto: “El BOE no menciona plazos concretos.”
+Detalle más importante (si se aprueba, se modifica, se deniega, plazos si aparecen).
+Si NO hay plazos: “El BOE no menciona plazos concretos.”
 
-AL FINAL DEL MENSAJE pon 1–2 emojis: 🌾📢⚠️🚜📄
+Al final del mensaje pon 1–2 emojis: 🌾📢⚠️🚜📄
 
-REGLAS DE ESTILO:
+REGLAS:
 - Entre 4 y 7 frases.
 - Lenguaje claro y sencillo.
-- Formato WhatsApp con saltos de línea como si fueran párrafos reales.
-- Los títulos y subtítulos SIEMPRE en **negrita**.
+- Formato WhatsApp con saltos de línea.
+- Títulos y subtítulos SIEMPRE en **negrita**.
 - No inventes fechas, importes ni plazos.
-- Si el texto es muy técnico, simplifica.
 - No añadas nada fuera del mensaje.
 
-FORMATO OBLIGATORIO DE SALIDA:
+FORMATO DE SALIDA:
 Devuelve SOLO este JSON válido:
 
 {
   "resumenes": [
     {
       "id": <id>,
-      "resumen": "<mensaje WhatsApp completo con negritas, subtítulos y emojis>"
+      "resumen": "<mensaje WhatsApp completo>"
     }
   ]
 }
@@ -164,7 +155,7 @@ Lista de alertas:
 ${lista}
       `.trim();
 
-      // 3.3) Llamar a la API nueva de OpenAI: /v1/responses
+      // 3.3 Llamar a OpenAI /v1/responses
       const aiRes = await fetch('https://api.openai.com/v1/responses', {
         method: 'POST',
         headers: {
@@ -190,7 +181,7 @@ ${lista}
 
       const aiJson = await aiRes.json();
 
-      // 3.4) Extraer el texto de la respuesta
+      // 3.4 Extraer texto de la respuesta
       let contenido = '';
 
       if (typeof aiJson.output_text === 'string' && aiJson.output_text.trim()) {
@@ -242,8 +233,7 @@ ${lista}
         });
       }
 
-      // 3.5) Actualizar en BD cada alerta con su resumen
-      //      y ENVIAR WhatsApp solo para esos nuevos resúmenes
+      // 3.5 Actualizar BD y disparar WhatsApp
       let actualizadas = 0;
 
       for (const item of resumenes) {
@@ -257,14 +247,12 @@ ${lista}
         if (!updError) {
           actualizadas++;
 
-          // buscamos la alerta original para pasarle más info (region, fecha...)
           const alertaOriginal = alertas.find((a) => a.id === item.id);
           const alertaParaWhatsApp = {
             ...alertaOriginal,
             resumen: item.resumen,
           };
 
-          // 🔔 aquí se dispara el envío de WhatsApp
           await enviarWhatsAppResumen(alertaParaWhatsApp, supabase);
         } else {
           console.error(
@@ -287,7 +275,7 @@ ${lista}
     }
   };
 
-  // 4) Rutas para lanzar el procesado con IA
+  // Endpoints para lanzar el procesado
   app.post('/alertas/procesar-ia', procesarIAHandler);
   app.get('/alertas/procesar-ia', procesarIAHandler);
 };

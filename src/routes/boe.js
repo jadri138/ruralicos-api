@@ -205,18 +205,27 @@ module.exports = function boeRoutes(app, supabase) {
                 }
 
                 // Insertar alerta con contenido
+
                 const { error: errorInsert } = await supabase
-                  .from('alertas')
-                  .insert([
-                    {
-                      titulo,
-                      resumen: 'Procesando con IA...', // mantenemos como lo tenías
-                      url: url_pdf,
-                      fecha: fechaISO,
-                      region: nombreDept,
-                      contenido: contenidoPlano, // texto del BOE
-                    },
+                 .from('alertas')
+                 .insert([
+                      {
+                          titulo,
+                          resumen: 'Procesando con IA...',  // ←---- IMPORTANTÍSIMO
+                          url: url_pdf,
+                          fecha: fechaISO,
+                          region: nombreDept,
+                          contenido: contenidoPlano, // texto extraído del BOE
+                      },
                   ]);
+
+                  if (errorInsert) {
+                      console.error('Error insertando alerta', errorInsert.message);
+                      continue;
+                }
+
+                nuevas++;
+
 
                 if (errorInsert) {
                   console.error(
@@ -240,3 +249,4 @@ module.exports = function boeRoutes(app, supabase) {
     }
   });
 };
+

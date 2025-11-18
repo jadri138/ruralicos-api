@@ -1,70 +1,122 @@
-// whatsapp.js
+// src/whatsapp.js
+const qs = require('querystring');
+const https = require('https');
 
-// UltraMsg config
+// Credenciales UltraMsg desde .env
 const ULTRAMSG_INSTANCE_ID = process.env.ULTRAMSG_INSTANCE_ID;
 const ULTRAMSG_TOKEN = process.env.ULTRAMSG_TOKEN;
 
-// URL API UltraMsg (chat message)
-const ULTRAMSG_URL = ULTRAMSG_INSTANCE_ID
-  ? `https://api.ultramsg.com/${ULTRAMSG_INSTANCE_ID}/messages/chat`
-  : null;
-
 /**
- * Aquí decides qué usuarios reciben la alerta.
- * Ahora mismo: todos los usuarios activos.
- * En el futuro: filtrado por edad, terreno, tipo de actividad, región, etc.
+ * Qué usuarios reciben la alerta.
+ * AHORA: todos los users con activo = true y telefono.
+ * FUTURO: aquí filtras por edad, hectáreas, tipo_actividad, región, etc.
  */
 async function obtenerDestinatariosParaAlerta(alerta, supabase) {
   try {
-    // TODO (futuro): usar alerta.region, alerta.fecha, etc. para segmentar.
     const { data, error } = await supabase
       .from('users')
-      .select('id, nombre, telefono, activo, edad, region, tipo_actividad, hectareas')
+      .select(
+        'id, nombre, telefono, activo, edad, region, tipo_actividad, hectareas'
+      )
       .eq('activo', true);
 
     if (error) {
-      console.error('Error cargando destinatarios:', error.message);
+      console.error('[WhatsApp] Error cargando destinatarios:', error.message);
       return [];
     }
 
     return (data || []).filter((u) => !!u.telefono);
   } catch (err) {
-    console.error('Error inesperado en obtenerDestinatariosParaAlerta:', err);
+    console.error(
+      '[WhatsApp] Error inesperado en obtenerDestinatariosParaAlerta:',
+      err
+    );
     return [];
   }
 }
 
 /**
- * Envía el resumen de una alerta por WhatsApp a los destinatarios correspondientes.
+ * Llama a la API de UltraMsg para mandar un mensaje.
+ */
+function enviarMensajeUltraMsg(telefono, cuerpo) {
+  return new Promise((resolve) => {
+    const postData = qs.stringify({
+      token: ULTRAMSG_TOKEN,
+      to: telefono, // Ej: 34XXXXXXXXX
+      body: cuerpo,
+    });
+
+    const options = {
+      method: 'POST',
+      hostname: 'api.ultramsg.com',
+      port: 443,
+      path: `/${ULTRAMSG_INSTANCE_ID}/messages/chat`,
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded',
+        'content-length': Buffer.byteLength(postData),
+      },
+    };
+
+    const req = https.request(options, function (res) {
+      const chunks = [];
+
+      res.on('data', function (chunk) {
+        chunks.push(chunk);
+      });
+
+      res.on('end', function () {
+        const body = Buffer.concat(chunks).toString();
+        console.log(
+          `[WhatsApp] Respuesta UltraMsg ${telefono} (status ${res.statusCode}):`,
+          body
+        );
+        resolve({ statusCode: res.statusCode, body });
+      });
+    });
+
+    req.on('error', (err) => {
+      console.error(`[WhatsApp] Error HTTP con UltraMsg (${telefono}):`, err);
+      resolve({ statusCode: 500, body: String(err) });
+    });
+
+    req.write(postData);
+    req.end();
+  });
+}
+
+/**
+ * Envía el resumen de una alerta por WhatsApp.
  * NO envía nada si:
- *   - El resumen está en "Procesando con IA..." (cualquier variante).
- *   - El resumen es "NO IMPORTA".
+ *  - resumen = "NO IMPORTA"
+ *  - resumen empieza por "Procesando con IA"
  */
 async function enviarWhatsAppResumen(alerta, supabase) {
   try {
-    if (!ULTRAMSG_URL || !ULTRAMSG_TOKEN) {
+    if (!ULTRAMSG_INSTANCE_ID || !ULTRAMSG_TOKEN) {
       console.warn(
-        '[WhatsApp] Faltan ULTRAMSG_INSTANCE_ID o ULTRAMSG_TOKEN, no se envían mensajes.'
+        '[WhatsApp] Faltan ULTRAMSG_INSTANCE_ID o ULTRAMSG_TOKEN. No se envían mensajes.'
       );
       return;
     }
 
-    if (!alerta || !alerta.resumen) {
-      return;
-    }
+    if (!alerta || !alerta.resumen) return;
 
-    const resumen = String(alerta.resumen).trim();
+    const resumen = String(alerta.resumen || '').trim();
+    const limpio = resumen;
 
-    // Evitar enviar mientras está en cola o marcado como irrelevante
     if (
-      resumen.toUpperCase() === 'NO IMPORTA' ||
-      resumen.startsWith('Procesando con IA...')
+      limpio.toUpperCase() === 'NO IMPORTA' ||
+      limpio.startsWith('Procesando con IA')
     ) {
       console.log(
-        `[WhatsApp] Alerta ${alerta.id} no se envía (resumen = "${resumen}").`
+        `[WhatsApp] Alerta ${alerta.id} no se envía (resumen = "${limpio}").`
       );
       return;
     }
+
+    console.log(
+      `[WhatsApp] Preparando envío para alerta ${alerta.id}: "${alerta.titulo}"`
+    );
 
     const destinatarios = await obtenerDestinatariosParaAlerta(alerta, supabase);
 
@@ -83,39 +135,11 @@ async function enviarWhatsAppResumen(alerta, supabase) {
       const telefono = String(user.telefono || '').trim();
       if (!telefono) continue;
 
-      const body = new URLSearchParams();
-      body.append('token', ULTRAMSG_TOKEN);
-      body.append('to', telefono);
-      body.append('body', resumen);
+      console.log(
+        `[WhatsApp] Enviando a ${telefono} (usuario ${user.id || 'sin id'})`
+      );
 
-      try {
-        const res = await fetch(ULTRAMSG_URL, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-          },
-          body,
-        });
-
-        if (!res.ok) {
-          const txt = await res.text();
-          console.error(
-            `[WhatsApp] Error enviando a ${telefono} (status ${res.status}):`,
-            txt
-          );
-        } else {
-          const json = await res.json().catch(() => ({}));
-          console.log(
-            `[WhatsApp] Mensaje enviado a ${telefono}. Respuesta UltraMsg:`,
-            json?.id || json
-          );
-        }
-      } catch (err) {
-        console.error(
-          `[WhatsApp] Error de red enviando a ${telefono}:`,
-          err.message
-        );
-      }
+      await enviarMensajeUltraMsg(telefono, limpio);
     }
   } catch (err) {
     console.error('[WhatsApp] Error general en enviarWhatsAppResumen:', err);
