@@ -7,36 +7,38 @@ const ULTRAMSG_INSTANCE_ID = process.env.ULTRAMSG_INSTANCE_ID;
 const ULTRAMSG_TOKEN = process.env.ULTRAMSG_TOKEN;
 
 /**
- * Carga los usuarios que deben recibir la alerta.
- * AHORA: todos los activos con teléfono.
+ * Carga los destinatarios desde la tabla "users".
+ * Enviamos a todos los que tengan phone no vacío.
  */
-async function obtenerDestinatariosParaAlerta(alerta, supabase) {
+async function obtenerDestinatariosParaAlerta(supabase) {
   const { data, error } = await supabase
     .from('users')
-    .select(
-      'id, nombre, telefono, activo, edad, region, tipo_actividad, hectareas'
-    )
-    .eq('activo', true);
+    .select('id, phone, subscription, preferences, created_at');
 
   if (error) {
     console.error('[WhatsApp] Error cargando destinatarios:', error.message);
     throw new Error('Error leyendo destinatarios de la BD');
   }
 
-  return (data || []).filter((u) => !!u.telefono);
+  const usuarios = (data || []).filter((u) => !!u.phone);
+
+  if (!usuarios.length) {
+    throw new Error('No hay usuarios con teléfono en la tabla users');
+  }
+
+  return usuarios;
 }
 
 /**
  * Llama a la API de UltraMsg para mandar un mensaje.
- * DEVUELVE una promesa que:
- *  - se resuelve si statusCode === 200
- *  - se rechaza si statusCode !== 200 o hay error HTTP
+ * - resolve si statusCode === 200
+ * - reject si statusCode !== 200 o hay error HTTP
  */
 function enviarMensajeUltraMsg(telefono, cuerpo) {
   return new Promise((resolve, reject) => {
     const postData = qs.stringify({
       token: ULTRAMSG_TOKEN,
-      to: telefono, // Ej: 34XXXXXXXXX (asegúrate de incluir el prefijo 34)
+      to: telefono, // Ej: 346XXXXXXXX
       body: cuerpo,
     });
 
@@ -91,7 +93,7 @@ function enviarMensajeUltraMsg(telefono, cuerpo) {
 }
 
 /**
- * Envía el resumen de una alerta por WhatsApp a todos los usuarios activos.
+ * Envía el resumen de una alerta por WhatsApp a todos los usuarios de la tabla "users".
  */
 async function enviarWhatsAppResumen(alerta, supabase) {
   if (!ULTRAMSG_INSTANCE_ID || !ULTRAMSG_TOKEN) {
@@ -114,29 +116,46 @@ async function enviarWhatsAppResumen(alerta, supabase) {
     `[WhatsApp] Preparando envío para alerta ${alerta.id}: "${alerta.titulo}"`
   );
 
-  const destinatarios = await obtenerDestinatariosParaAlerta(alerta, supabase);
-
-  if (!destinatarios.length) {
-    console.log(
-      `[WhatsApp] No hay destinatarios activos para la alerta ${alerta.id}.`
-    );
-    return;
-  }
+  const destinatarios = await obtenerDestinatariosParaAlerta(supabase);
 
   console.log(
-    `[WhatsApp] Enviando alerta ${alerta.id} a ${destinatarios.length} destinatarios...`
+    `[WhatsApp] Enviando alerta ${alerta.id} a ${destinatarios.length} usuarios de la tabla users...`
   );
 
+  let enviados = 0;
+  const errores = [];
+
   for (const user of destinatarios) {
-    const telefono = String(user.telefono || '').trim();
+    const telefono = String(user.phone || '').trim();
     if (!telefono) continue;
 
     console.log(
-      `[WhatsApp] Enviando a ${telefono} (usuario ${user.id || 'sin id'})`
+      `[WhatsApp] Enviando a ${telefono} (user id ${user.id || 'sin id'})`
     );
 
-    // Si falla UltraMsg, esto lanza error y lo capturará /alertas/enviar-whatsapp
-    await enviarMensajeUltraMsg(telefono, resumen);
+    try {
+      await enviarMensajeUltraMsg(telefono, resumen);
+      enviados++;
+    } catch (err) {
+      console.error(
+        `[WhatsApp] Error enviando a ${telefono} (user ${user.id}):`,
+        err.message
+      );
+      errores.push({ userId: user.id, telefono, error: err.message });
+    }
+  }
+
+  if (enviados === 0) {
+    throw new Error(
+      `No se ha podido enviar la alerta ${alerta.id} a ningún destinatario`
+    );
+  }
+
+  if (errores.length) {
+    console.warn(
+      `[WhatsApp] Fallos parciales al enviar alerta ${alerta.id}:`,
+      errores
+    );
   }
 }
 
