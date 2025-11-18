@@ -37,7 +37,7 @@ async function obtenerDestinatariosParaAlerta(alerta, supabase) {
 /**
  * Envía el resumen de una alerta por WhatsApp a los destinatarios correspondientes.
  * NO envía nada si:
- *   - El resumen está en "Procesando con IA" (cualquier variante).
+ *   - El resumen está en "Procesando con IA..." (cualquier variante).
  *   - El resumen es "NO IMPORTA".
  */
 async function enviarWhatsAppResumen(alerta, supabase) {

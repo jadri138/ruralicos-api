@@ -18,7 +18,7 @@ module.exports = function alertasRoutes(app, supabase) {
     }
 
     // Si no envías resumen, la marcamos como pendiente de IA
-    const resumenFinal = resumen ?? 'Procesando con IA.';
+    const resumenFinal = resumen ?? 'Procesando con IA...';
 
     const { data, error } = await supabase
       .from('alertas')
@@ -69,11 +69,11 @@ module.exports = function alertasRoutes(app, supabase) {
 
       // 3.1) Cargar alertas pendientes (máx 10)
       //     - resumen = NULL
-      //     - o resumen = 'Procesando con IA.'
+      //     - o resumen = 'Procesando con IA...'
       const { data: alertas, error } = await supabase
         .from('alertas')
         .select('id, titulo, url, region, fecha, resumen, contenido')
-        .or('resumen.is.null,resumen.eq.Procesando con IA.')
+        .or('resumen.is.null,resumen.eq.Procesando con IA...')
         .order('created_at', { ascending: true })
         .limit(10);
 
