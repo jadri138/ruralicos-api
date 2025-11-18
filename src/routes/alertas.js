@@ -1,4 +1,6 @@
-// src/routes/alertas.js
+// routes/alertas.js
+
+const { enviarWhatsAppResumen } = require('../whatsapp');
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
@@ -16,7 +18,7 @@ module.exports = function alertasRoutes(app, supabase) {
     }
 
     // Si no envías resumen, la marcamos como pendiente de IA
-    const resumenFinal = resumen ?? 'Procesando con IA...';
+    const resumenFinal = resumen ?? 'Procesando con IA.';
 
     const { data, error } = await supabase
       .from('alertas')
@@ -67,11 +69,11 @@ module.exports = function alertasRoutes(app, supabase) {
 
       // 3.1) Cargar alertas pendientes (máx 10)
       //     - resumen = NULL
-      //     - o resumen = 'Procesando con IA...'
+      //     - o resumen = 'Procesando con IA.'
       const { data: alertas, error } = await supabase
         .from('alertas')
         .select('id, titulo, url, region, fecha, resumen, contenido')
-        .or('resumen.is.null,resumen.eq.Procesando con IA...')
+        .or('resumen.is.null,resumen.eq.Procesando con IA.')
         .order('created_at', { ascending: true })
         .limit(10);
 
@@ -88,17 +90,16 @@ module.exports = function alertasRoutes(app, supabase) {
       }
 
       // 3.2) Construir texto para el prompt
-     const lista = alertas
-     .map((a) => {
-           const texto = a.contenido
-          ? a.contenido.slice(0, 4000) // por si acaso limitamos un poco
-          : '';
-           return `ID ${a.id} | Fecha ${a.fecha} | Region ${
-             a.region || 'NACIONAL'
-         } | Titulo: ${a.titulo} | Texto: ${texto}`;
-    })
-     .join('\n\n');
-
+      const lista = alertas
+        .map((a) => {
+          const texto = a.contenido
+            ? a.contenido.slice(0, 4000) // por si acaso limitamos un poco
+            : '';
+          return `ID ${a.id} | Fecha ${a.fecha} | Region ${
+            a.region || 'NACIONAL'
+          } | Titulo: ${a.titulo} | Texto: ${texto}`;
+        })
+        .join('\n\n');
 
       const prompt = `
 Te paso una lista de alertas del BOE para agricultores y ganaderos, una por línea, con este formato:
@@ -161,8 +162,6 @@ Devuelve SOLO este JSON válido:
     }
   ]
 }
-
-
 
 Nada de texto antes o después, solo el JSON.
 
@@ -251,6 +250,7 @@ ${lista}
       }
 
       // 3.5) Actualizar en BD cada alerta con su resumen
+      //      y ENVIAR WhatsApp solo para esos nuevos resúmenes
       let actualizadas = 0;
 
       for (const item of resumenes) {
@@ -263,6 +263,16 @@ ${lista}
 
         if (!updError) {
           actualizadas++;
+
+          // buscamos la alerta original para pasarle más info (region, fecha...)
+          const alertaOriginal = alertas.find((a) => a.id === item.id);
+          const alertaParaWhatsApp = {
+            ...alertaOriginal,
+            resumen: item.resumen,
+          };
+
+          // 🔔 aquí se dispara el envío de WhatsApp
+          await enviarWhatsAppResumen(alertaParaWhatsApp, supabase);
         } else {
           console.error(
             'Error actualizando alerta',

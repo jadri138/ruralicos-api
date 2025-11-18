@@ -156,9 +156,8 @@ module.exports = function boeRoutes(app, supabase) {
 
                 if (!titulo || !url_pdf) continue;
 
-                // 8) FILTRO DE INTERÉS
+                // 8) FILTRO DE INTERÉS (solo positivas)
                 if (!keywordsInteres.test(titulo)) continue;
-                if (keywordsExcluir.test(titulo)) continue;
 
                 // Evitar duplicados por URL PDF
                 const { data: existe, error: errorExiste } = await supabase
@@ -215,7 +214,7 @@ module.exports = function boeRoutes(app, supabase) {
                       url: url_pdf,
                       fecha: fechaISO,
                       region: nombreDept,
-                      contenido: contenidoPlano, // NUEVO: texto del BOE
+                      contenido: contenidoPlano, // texto del BOE
                     },
                   ]);
 
