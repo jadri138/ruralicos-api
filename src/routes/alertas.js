@@ -1,5 +1,4 @@
-// routes/alertas.js
-
+// src/routes/alertas.js
 const { enviarWhatsAppResumen } = require('../whatsapp');
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
@@ -68,8 +67,6 @@ module.exports = function alertasRoutes(app, supabase) {
       }
 
       // 3.1) Cargar alertas pendientes (máx 10)
-      //     - resumen = NULL
-      //     - o resumen = 'Procesando con IA...'
       const { data: alertas, error } = await supabase
         .from('alertas')
         .select('id, titulo, url, region, fecha, resumen, contenido')
@@ -92,9 +89,7 @@ module.exports = function alertasRoutes(app, supabase) {
       // 3.2) Construir texto para el prompt
       const lista = alertas
         .map((a) => {
-          const texto = a.contenido
-            ? a.contenido.slice(0, 4000) // por si acaso limitamos un poco
-            : '';
+          const texto = a.contenido ? a.contenido.slice(0, 4000) : '';
           return `ID ${a.id} | Fecha ${a.fecha} | Region ${
             a.region || 'NACIONAL'
           } | Titulo: ${a.titulo} | Texto: ${texto}`;
@@ -198,11 +193,9 @@ ${lista}
       // 3.4) Extraer el texto de la respuesta
       let contenido = '';
 
-      // 1º: si existe output_text (algunos SDKs lo añaden)
       if (typeof aiJson.output_text === 'string' && aiJson.output_text.trim()) {
         contenido = aiJson.output_text.trim();
       } else if (Array.isArray(aiJson.output)) {
-        // 2º: buscar el primer elemento de tipo "message" con contenido
         for (const item of aiJson.output) {
           if (
             item &&
