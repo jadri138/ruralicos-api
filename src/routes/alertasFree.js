@@ -1,103 +1,172 @@
 // src/routes/alertasFree.js
 
-const OpenAI = require("openai");
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
-module.exports = function alertasFreeRoutes(app, supabase, enviarWhatsapp) {
+module.exports = function alertasFreeRoutes(app, supabase) {
 
-  const FREE_DIGEST_PROMPT = `
-Te paso una lista de alertas RELEVANTES del BOE sobre agricultura y ganadería, una por línea, con este formato:
-
-ID <id> | Fecha <fecha> | Titulo: <titulo> | ResumenPro: <resumen> | Url: <url>
-
-TU TAREA:
-Redacta UN SOLO mensaje de WhatsApp para usuarios GRATUITOS de Ruralicos.
-
-REQUISITOS:
-- Empieza con: "RURALICOS · Resumen BOE de hoy (agricultura y ganadería)"
-- 1 frase introductoria.
-- Luego lista numerada: 1), 2), 3)...
-- Cada línea: mini resumen CLARO basado en "ResumenPro" (máx 20 palabras).
-- Termina cada línea con "→ BOE: <url>"
-- No inventes datos.
-- Texto muy sencillo para agricultores.
-
-FORMATO:
-{
-  "mensaje": "<mensaje completo>"
-}
-`;
-
-  async function generarMensajeFreeDesdeIA(alertas) {
-    const lineas = alertas.map(a => {
-      const breve = (a.resumen || "").slice(0, 200); // usamos resumen PRO
-      return `ID ${a.id} | Fecha ${a.fecha} | Titulo: ${a.titulo} | ResumenPro: ${breve} | Url: ${a.url}`;
-    }).join("\n");
-
-    const promptFinal = `${FREE_DIGEST_PROMPT}\n\nALERTAS:\n${lineas}`;
-
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4.1-mini",
-      messages: [
-        { role: "system", content: "Eres un asistente experto en resúmenes cortos para WhatsApp." },
-        { role: "user", content: promptFinal }
-      ],
-      temperature: 0.25
-    });
-
-    const raw = completion.choices[0].message.content;
-    return JSON.parse(raw).mensaje;
-  }
-
-  app.post("/alertas/enviar-whatsapp-free", async (req, res) => {
+  // ============================================================
+  //   RUTA: Generar y guardar el RESUMEN FREE en cada alerta HOY
+  // ============================================================
+  app.post("/alertas/generar-resumen-free", async (req, res) => {
     try {
+      if (!OPENAI_API_KEY) {
+        return res.status(500).json({
+          error: "Falta OPENAI_API_KEY en variables de entorno",
+        });
+      }
+
       const hoy = new Date().toISOString().slice(0, 10);
 
-      const { data: alertas, error: errAlertas } = await supabase
+      // 1) Obtener alertas relevantes HOY con su resumen PRO
+      const { data: alertas, error } = await supabase
         .from("alertas")
-        .select("id, fecha, titulo, resumen, url")
+        .select("id, titulo, resumen, url, fecha")
         .eq("fecha", hoy)
-        .neq("resumen", "NO IMPORTA");
+        .neq("resumen", "NO IMPORTA")
+        .neq("resumen", "Procesando con IA...");
 
-      if (errAlertas)
-        return res.status(500).json({ error: "Error obteniendo alertas" });
+      if (error) {
+        return res.status(500).json({ error: error.message });
+      }
 
-      if (!alertas || alertas.length === 0)
-        return res.json({ ok: true, mensaje: "Hoy no hay alertas relevantes para FREE" });
+      if (!alertas || alertas.length === 0) {
+        return res.json({
+          success: true,
+          mensaje: "No hay alertas relevantes hoy para generar resumen FREE",
+        });
+      }
 
-      const seleccion = alertas.slice(0, 10);
+      // 2) Preparar lista para el prompt
+      const lista = alertas
+        .map((a) => {
+          const corto = (a.resumen || "").slice(0, 200);
+          return `ID ${a.id} | Titulo: ${a.titulo} | ResumenPro: ${corto} | Url: ${a.url}`;
+        })
+        .join("\n");
 
-      const mensaje = await generarMensajeFreeDesdeIA(seleccion);
+      // 3) Prompt especial FREE
+      const prompt = `
+Te paso una lista de alertas del BOE ya analizadas y resumidas por la IA PRO.
 
-      const { data: usuarios, error: errUsers } = await supabase
-        .from("users")
-        .select("phone")
-        .eq("subscription", "free");
+Cada línea tiene:
+ID <id> | Titulo: <titulo> | ResumenPro: <resumen corto> | Url: <url>
 
-      if (errUsers)
-        return res.status(500).json({ error: "Error obteniendo usuarios FREE" });
+TU TAREA:
+Genera un mensaje ÚNICO de WhatsApp para usuarios GRATUITOS de Ruralicos.
 
-      if (!usuarios || usuarios.length === 0)
-        return res.json({ ok: true, mensaje: "No hay usuarios FREE" });
+Formato EXACTO:
+RURALICOS · Resumen BOE de hoy (agricultura y ganadería)
 
-      for (const u of usuarios) {
-        try {
-          await enviarWhatsapp(u.phone, mensaje);
-        } catch (e) {
-          console.error("Error enviando WhatsApp FREE:", u.phone, e);
+1 frase introductoria.
+
+Lista numerada:
+1) mini resumen claro (basado en ResumenPro) → BOE: <url>
+2) ...
+3) ...
+
+NO inventes nada.
+NO pongas emojis.
+Texto muy sencillo para agricultores.
+
+Devuelve EXACTAMENTE este JSON:
+
+{
+  "mensaje": "<mensaje final>"
+}
+
+Lista:
+${lista}
+`.trim();
+
+      // 4) Llamada a OpenAI, igual que en alertas.js
+      const aiRes = await fetch("https://api.openai.com/v1/responses", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${OPENAI_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: "gpt-5-nano",
+          input: prompt,
+          instructions:
+            "Eres un asistente experto en resumir en formato lista para WhatsApp. Responde SOLO con el JSON pedido.",
+        }),
+      });
+
+      if (!aiRes.ok) {
+        const txt = await aiRes.text();
+        console.error("Error IA FREE:", aiRes.status, txt);
+        return res.status(500).json({
+          error: "Error OpenAI en resumen FREE",
+          detalle: txt,
+        });
+      }
+
+      const aiJson = await aiRes.json();
+
+      // 5) Extraer texto igual que alertas.js
+      let contenido = "";
+
+      if (typeof aiJson.output_text === "string" && aiJson.output_text.trim()) {
+        contenido = aiJson.output_text.trim();
+      } else if (Array.isArray(aiJson.output)) {
+        for (const item of aiJson.output) {
+          if (
+            item &&
+            item.type === "message" &&
+            Array.isArray(item.content) &&
+            item.content[0]
+          ) {
+            const c = item.content[0];
+            if (typeof c.text === "string") contenido = c.text.trim();
+            else if (typeof c.value === "string") contenido = c.value.trim();
+            break;
+          }
         }
       }
 
-      res.json({
-        ok: true,
-        alertas_usadas: seleccion.length,
-        usuarios_free: usuarios.length
-      });
+      if (!contenido) {
+        return res.status(500).json({
+          error: "La IA no devolvió texto válido en FREE",
+          bruto: aiJson,
+        });
+      }
 
-    } catch (e) {
-      console.error(e);
-      res.status(500).json({ error: "Error interno enviando FREE" });
+      let parsed;
+      try {
+        parsed = JSON.parse(contenido);
+      } catch (e) {
+        return res.status(500).json({
+          error: "El JSON generado por IA FREE no es válido",
+          bruto: contenido,
+        });
+      }
+
+      if (!parsed.mensaje) {
+        return res.status(500).json({
+          error: "La IA FREE no devolvió 'mensaje'",
+          bruto: parsed,
+        });
+      }
+
+      const resumenFree = parsed.mensaje;
+
+      // 6) Guardar en una nueva columna ResumenFree (crea la columna en Supabase)
+      for (const a of alertas) {
+        await supabase
+          .from("alertas")
+          .update({ ResumenFree: resumenFree })
+          .eq("id", a.id);
+      }
+
+      res.json({
+        success: true,
+        resumen_guardado_en: alertas.length,
+        mensaje_free: resumenFree,
+      });
+    } catch (err) {
+      console.error("Error FREE:", err);
+      res.status(500).json({ error: err.message });
     }
   });
-
 };
