@@ -55,19 +55,20 @@ TU TAREA:
 Genera un mensaje ÚNICO de WhatsApp para usuarios GRATUITOS de Ruralicos.
 
 Formato EXACTO:
-RURALICOS · Resumen BOE de hoy (agricultura y ganadería)
+*RURALICOS INFORMA* · Resumen BOE de hoy (agricultura y ganadería)
 
 1 frase introductoria.
 
 Lista numerada:
-1) mini resumen claro (basado en ResumenPro) → BOE: <url>
-2) ...
-3) ...
+*1)* mini resumen claro (basado en ResumenPro) → BOE: <url>
+*2)* ...
+*3)* ...
 
 NO inventes nada.
 NO pongas emojis.
 Texto muy sencillo para agricultores.
 
+Termina el mensaje poniendo: Alertas mas extensas y personalizadas en la version PRO. en negrita con 1 asterisco al principio y otro al final de la frase
 Devuelve EXACTAMENTE este JSON:
 
 {

@@ -6,39 +6,14 @@ const https = require('https');
 const ULTRAMSG_INSTANCE_ID = process.env.ULTRAMSG_INSTANCE_ID;
 const ULTRAMSG_TOKEN = process.env.ULTRAMSG_TOKEN;
 
-/**
- * Carga los destinatarios desde la tabla "users".
- * Enviamos a todos los que tengan phone no vacío.
- */
-async function obtenerDestinatariosParaAlerta(supabase) {
-  const { data, error } = await supabase
-    .from('users')
-    .select('id, phone, subscription, preferences, created_at');
-
-  if (error) {
-    console.error('[WhatsApp] Error cargando destinatarios:', error.message);
-    throw new Error('Error leyendo destinatarios de la BD');
-  }
-
-  const usuarios = (data || []).filter((u) => !!u.phone);
-
-  if (!usuarios.length) {
-    throw new Error('No hay usuarios con teléfono en la tabla users');
-  }
-
-  return usuarios;
-}
-
-/**
- * Llama a la API de UltraMsg para mandar un mensaje.
- * - resolve si statusCode === 200
- * - reject si statusCode !== 200 o hay error HTTP
- */
+/* ============================================================
+   FUNCIÓN BASE: Enviar mensaje con UltraMSG
+============================================================ */
 function enviarMensajeUltraMsg(telefono, cuerpo) {
   return new Promise((resolve, reject) => {
     const postData = qs.stringify({
       token: ULTRAMSG_TOKEN,
-      to: telefono, // Ej: 346XXXXXXXX
+      to: telefono,
       body: cuerpo,
     });
 
@@ -56,34 +31,21 @@ function enviarMensajeUltraMsg(telefono, cuerpo) {
     const req = https.request(options, (res) => {
       const chunks = [];
 
-      res.on('data', (chunk) => {
-        chunks.push(chunk);
-      });
-
+      res.on('data', (chunk) => chunks.push(chunk));
       res.on('end', () => {
         const body = Buffer.concat(chunks).toString();
         console.log(
-          `[WhatsApp] Respuesta UltraMsg ${telefono} (status ${res.statusCode}):`,
+          `[WhatsApp] UltraMsg ${telefono} (status ${res.statusCode}):`,
           body
         );
 
-        if (res.statusCode === 200) {
-          resolve({ statusCode: res.statusCode, body });
-        } else {
-          reject(
-            new Error(
-              `UltraMsg devolvió ${res.statusCode}: ${body || 'sin cuerpo'}`
-            )
-          );
-        }
+        if (res.statusCode === 200) resolve({ status: res.statusCode, body });
+        else reject(new Error(`UltraMsg ${res.statusCode}: ${body}`));
       });
     });
 
     req.on('error', (err) => {
-      console.error(
-        `[WhatsApp] Error HTTP con UltraMsg (${telefono}):`,
-        err
-      );
+      console.error(`[WhatsApp] Error envío a ${telefono}:`, err);
       reject(err);
     });
 
@@ -92,73 +54,86 @@ function enviarMensajeUltraMsg(telefono, cuerpo) {
   });
 }
 
-/**
- * Envía el resumen de una alerta por WhatsApp a todos los usuarios de la tabla "users".
- */
-async function enviarWhatsAppResumen(alerta, supabase) {
-  if (!ULTRAMSG_INSTANCE_ID || !ULTRAMSG_TOKEN) {
-    throw new Error(
-      'Faltan ULTRAMSG_INSTANCE_ID o ULTRAMSG_TOKEN en las variables de entorno'
-    );
+/* ============================================================
+   FUNCIÓN: Obtener usuarios desde Supabase
+============================================================ */
+async function obtenerDestinatariosParaAlerta(supabase) {
+  const { data, error } = await supabase
+    .from('users')
+    .select('id, phone, subscription');
+
+  if (error) {
+    console.error('[WhatsApp] Error BD usuarios:', error.message);
+    throw new Error('Error leyendo usuarios');
   }
 
+  return (data || []).filter((u) => !!u.phone);
+}
+
+/* ============================================================
+   1) ENVÍO PRO (mensaje individual por alerta)
+============================================================ */
+async function enviarWhatsAppResumen(alerta, supabase) {
   if (!alerta || !alerta.resumen) {
-    console.warn(
-      '[WhatsApp] Alerta sin resumen, no se envía nada. ID:',
-      alerta && alerta.id
-    );
+    console.warn('[WhatsApp] Alerta sin resumen PRO');
     return;
   }
 
-  const resumen = String(alerta.resumen || '').trim();
+  const resumen = String(alerta.resumen).trim();
+  const usuarios = await obtenerDestinatariosParaAlerta(supabase);
 
   console.log(
-    `[WhatsApp] Preparando envío para alerta ${alerta.id}: "${alerta.titulo}"`
+    `[WhatsApp PRO] Enviando alerta ${alerta.id} a ${usuarios.length} usuarios`
   );
 
-  const destinatarios = await obtenerDestinatariosParaAlerta(supabase);
-
-  console.log(
-    `[WhatsApp] Enviando alerta ${alerta.id} a ${destinatarios.length} usuarios de la tabla users...`
-  );
-
-  let enviados = 0;
-  const errores = [];
-
-  for (const user of destinatarios) {
-    const telefono = String(user.phone || '').trim();
-    if (!telefono) continue;
-
-    console.log(
-      `[WhatsApp] Enviando a ${telefono} (user id ${user.id || 'sin id'})`
-    );
-
+  for (const user of usuarios) {
     try {
-      await enviarMensajeUltraMsg(telefono, resumen);
-      enviados++;
-    } catch (err) {
-      console.error(
-        `[WhatsApp] Error enviando a ${telefono} (user ${user.id}):`,
-        err.message
-      );
-      errores.push({ userId: user.id, telefono, error: err.message });
+      await enviarMensajeUltraMsg(user.phone, resumen);
+    } catch (e) {
+      console.error(`[WhatsApp PRO] Error a ${user.phone}:`, e.message);
     }
-  }
-
-  if (enviados === 0) {
-    throw new Error(
-      `No se ha podido enviar la alerta ${alerta.id} a ningún destinatario`
-    );
-  }
-
-  if (errores.length) {
-    console.warn(
-      `[WhatsApp] Fallos parciales al enviar alerta ${alerta.id}:`,
-      errores
-    );
   }
 }
 
+/* ============================================================
+   2) ENVÍO FREE (un solo mensaje para todos los FREE)
+============================================================ */
+async function enviarWhatsAppFree(supabase, mensajeFree) {
+  if (!mensajeFree) {
+    console.error('[WhatsApp FREE] No hay mensaje FREE');
+    return;
+  }
+
+  // Solo usuarios FREE
+  const { data: usuarios, error } = await supabase
+    .from('users')
+    .select('id, phone, subscription')
+    .eq('subscription', 'free');
+
+  if (error) {
+    console.error('[WhatsApp FREE] Error BD usuarios:', error.message);
+    throw new Error('Error leyendo usuarios FREE');
+  }
+
+  const lista = usuarios.filter((u) => !!u.phone);
+
+  console.log(
+    `[WhatsApp FREE] Enviando resumen FREE a ${lista.length} usuarios FREE`
+  );
+
+  for (const u of lista) {
+    try {
+      await enviarMensajeUltraMsg(u.phone, mensajeFree);
+    } catch (e) {
+      console.error(`[WhatsApp FREE] Error a ${u.phone}:`, e.message);
+    }
+  }
+}
+
+/* ============================================================
+   EXPORTS
+============================================================ */
 module.exports = {
-  enviarWhatsAppResumen,
+  enviarWhatsAppResumen, // PRO
+  enviarWhatsAppFree,    // FREE
 };
