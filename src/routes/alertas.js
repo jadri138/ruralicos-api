@@ -70,7 +70,7 @@ module.exports = function alertasRoutes(app, supabase) {
         .select('id, titulo, url, region, fecha, resumen, contenido')
         .or('resumen.is.null,resumen.eq.Procesando con IA...')
         .order('created_at', { ascending: true })
-        .limit(5);
+        .limit(1);
 
       if (error) {
         return res.status(500).json({ error: error.message });
@@ -299,7 +299,7 @@ ${lista}
   // =========================================
   const enviarWhatsAppHandler = async (req, res) => {
     try {
-      const hoy = new Date().toISOString().slice(0, 5);
+      const hoy = new Date().toISOString().slice(0, 1);
 
       const { data: alertas, error } = await supabase
         .from('alertas')
