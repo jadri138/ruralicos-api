@@ -70,7 +70,7 @@ module.exports = function alertasRoutes(app, supabase) {
         .select('id, titulo, url, region, fecha, resumen, contenido')
         .or('resumen.is.null,resumen.eq.Procesando con IA...')
         .order('created_at', { ascending: true })
-        .limit(10);
+        .limit(5bugfix0);
 
       if (error) {
         return res.status(500).json({ error: error.message });
