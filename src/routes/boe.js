@@ -25,12 +25,11 @@ function htmlAtextoPlano(html) {
     .trim();
 }
 
-
 module.exports = function boeRoutes(app, supabase) {
   // Scraper BOE por ministerios relacionados con el medio rural
   app.get('/scrape-boe-oficial', async (req, res) => {
     if (!checkCronToken(req, res)) return;
-    
+
     try {
       // 1) Fecha: ?fecha=AAAAMMDD o hoy por defecto
       let fecha = req.query.fecha;
@@ -102,7 +101,10 @@ module.exports = function boeRoutes(app, supabase) {
 
       // 5) COSAS QUE INTERESAN
       const keywordsInteres =
-        /(ayudas?|subvenci[oó]n|subvenciones|convocatoria|bases reguladoras|extracto de la Orden|real decreto|ley\b|leyes\b|reglamento|reglamentos|modificaci[oó]n|modifica la|corrige errores|correcci[oó]n de errores|plazo|plazos|pr[oó]rroga|prorroga)/i;
+        /(ayudas?|subvenci[oó]n|subvenciones|convocatoria|bases reguladoras|extracto de la Orden|extracto|real decreto|ley\b|leyes\b|reglamento|reglamentos|modificaci[oó]n|modifica la|corrige errores|correcci[oó]n de errores|plazo|plazos|pr[oó]rroga|prorroga|autoriza|programa|acuerdo|establece|informe|plan|publica)/i;
+
+      // 6) Evitar duplicados internos por URL PDF en el mismo scrape
+      const vistosInternos = new Set();
 
       // 7) Recorrer todo el BOE
       for (const diario of diarios) {
@@ -127,6 +129,10 @@ module.exports = function boeRoutes(app, supabase) {
             for (const epi of epigrafes) {
               const itemsEpi = toArray(epi.item);
               if (itemsEpi.length) gruposItems.push(itemsEpi);
+
+              // También disposiciones dentro del epígrafe
+              const itemsDispo = toArray(epi.disposicion);
+              if (itemsDispo.length) gruposItems.push(itemsDispo);
             }
 
             // Items colgando directamente del departamento
@@ -160,14 +166,19 @@ module.exports = function boeRoutes(app, supabase) {
 
                 if (!titulo || !url_pdf) continue;
 
+                // Evitar duplicados internos por URL PDF en este scrape
+                if (vistosInternos.has(url_pdf)) continue;
+                vistosInternos.add(url_pdf);
+
                 // 8) FILTRO DE INTERÉS (solo positivas)
                 if (!keywordsInteres.test(titulo)) continue;
 
-                // Evitar duplicados por URL PDF
+                // Evitar duplicados por URL + título en BD
                 const { data: existe, error: errorExiste } = await supabase
                   .from('alertas')
                   .select('id')
                   .eq('url', url_pdf)
+                  .eq('titulo', titulo)
                   .limit(1);
 
                 if (errorExiste) {
@@ -183,7 +194,7 @@ module.exports = function boeRoutes(app, supabase) {
                 }
 
                 // 9) Descargar contenido HTML del BOE (si hay url_html)
-                let contenidoPlano = null;
+                let contenidoPlano = titulo;
                 if (url_html) {
                   try {
                     const respHtml = await fetch(url_html);

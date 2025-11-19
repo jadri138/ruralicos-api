@@ -16,7 +16,6 @@ module.exports = function alertasRoutes(app, supabase) {
       });
     }
 
-    // Lo que se ve en la BD antes de que la IA lo procese
     const resumenFinal = resumen ?? 'Procesando con IA...';
 
     const { data, error } = await supabase
@@ -66,9 +65,6 @@ module.exports = function alertasRoutes(app, supabase) {
         });
       }
 
-      // 3.1) Cargar alertas pendientes (máx 10)
-      //     - resumen = NULL
-      //     - o resumen = 'Procesando con IA...'
       const { data: alertas, error } = await supabase
         .from('alertas')
         .select('id, titulo, url, region, fecha, resumen, contenido')
@@ -88,16 +84,17 @@ module.exports = function alertasRoutes(app, supabase) {
         });
       }
 
-      // 3.2) Construir texto para el prompt
       const lista = alertas
-  .map((a) => {
-    const texto = a.contenido ? a.contenido.slice(0, 4000) : '';
-    return `ID ${a.id} | Fecha ${a.fecha} | Region ${a.region} | URL ${a.url} | Titulo: ${a.titulo} | Texto: ${texto}`;
-  })
-  .join('\n\n');
-
+        .map((a) => {
+          const texto = a.contenido ? a.contenido.slice(0, 4000) : '';
+          return `ID ${a.id} | Fecha ${a.fecha} | Region ${a.region} | URL ${a.url} | Titulo: ${a.titulo} | Texto: ${texto}`;
+        })
+        .join('\n\n');
 
       const prompt = `
+Te paso una lista de alertas del BOE para agricultores y ganaderos, una por línea, con este formato:
+"ID <id> | Fecha <fecha> | Region <region> | Titulo: <titulo> | Texto: <contenido>"
+
 Te paso una lista de alertas del BOE para agricultores y ganaderos, una por línea, con este formato:
 "ID <id> | Fecha <fecha> | Region <region> | Titulo: <titulo> | Texto: <contenido>"
 
@@ -169,7 +166,7 @@ Devuelve SOLO este JSON válido:
   "resumenes": [
     {
       "id": <id>,
-      "resumen": "<mensaje WhatsApp completo con negritas, subtítulos y emojis>"
+      "resumen": "<mensaje WhatsApp completo con subtítulos y emojis>"
     }
   ]
 }
@@ -180,7 +177,6 @@ Lista de alertas:
 ${lista}
       `.trim();
 
-      // 3.3) Llamar a la API nueva de OpenAI: /v1/responses
       const aiRes = await fetch('https://api.openai.com/v1/responses', {
         method: 'POST',
         headers: {
@@ -206,7 +202,6 @@ ${lista}
 
       const aiJson = await aiRes.json();
 
-      // 3.4) Extraer el texto de la respuesta
       let contenido = '';
 
       if (typeof aiJson.output_text === 'string' && aiJson.output_text.trim()) {
@@ -258,7 +253,6 @@ ${lista}
         });
       }
 
-      // 3.5) Actualizar en BD cada alerta con su resumen
       let actualizadas = 0;
 
       for (const item of resumenes) {
@@ -294,46 +288,26 @@ ${lista}
 
   // 4) Rutas para lanzar el procesado con IA
   app.post('/alertas/procesar-ia', procesarIAHandler);
+
   app.get('/alertas/procesar-ia', (req, res) => {
-     if (!checkCronToken(req, res)) return;
-     procesarIAHandler(req, res);
-    });
-
-
-    app.post('/alertas/procesar-ia', (req, res) => {
-        if (!checkCronToken(req, res)) return;
-        procesarIAHandler(req, res);
-    });
-
-
-    app.get('/alertas/enviar-whatsapp', (req, res) => {
-        if (!checkCronToken(req, res)) return;
-        enviarWhatsAppHandler(req, res);
-    });
-
-
-    app.post('/alertas/enviar-whatsapp', (req, res) => {
-        if (!checkCronToken(req, res)) return;
-        enviarWhatsAppHandler(req, res);
-    });
-
+    if (!checkCronToken(req, res)) return;
+    procesarIAHandler(req, res);
+  });
 
   // =========================================
   // 5) Enviar alertas de hoy por WhatsApp
   // =========================================
   const enviarWhatsAppHandler = async (req, res) => {
     try {
-      // Fecha de hoy en formato YYYY-MM-DD
       const hoy = new Date().toISOString().slice(0, 10);
 
-      // Alertas que queremos enviar:
       const { data: alertas, error } = await supabase
         .from('alertas')
         .select('*')
         .eq('fecha', hoy)
         .neq('resumen', 'NO IMPORTA')
         .neq('resumen', 'Procesando con IA...')
-        .or('whatsapp_enviado.is.null,whatsapp_enviado.eq.false');
+        .eq('whatsapp_enviado', false);
 
       if (error) {
         return res.status(500).json({ error: error.message });
@@ -353,10 +327,8 @@ ${lista}
 
       for (const alerta of alertas) {
         try {
-          // Envía la alerta a todos los usuarios activos (whatsapp.js)
           await enviarWhatsAppResumen(alerta, supabase);
 
-          // Marca en la tabla que ya se ha enviado por WhatsApp
           await supabase
             .from('alertas')
             .update({ whatsapp_enviado: true })
@@ -387,6 +359,15 @@ ${lista}
   };
 
   // 6) Rutas para enviar WhatsApp
-  app.get('/alertas/enviar-whatsapp', enviarWhatsAppHandler);
-  app.post('/alertas/enviar-whatsapp', enviarWhatsAppHandler);
+  app.get('/alertas/enviar-whatsapp', (req, res) => {
+    if (!checkCronToken(req, res)) return;
+    enviarWhatsAppHandler(req, res);
+  });
+
+  app.post('/alertas/enviar-whatsapp', (req, res) => {
+    if (!checkCronToken(req, res)) return;
+    enviarWhatsAppHandler(req, res);
+  });
 };
+
+

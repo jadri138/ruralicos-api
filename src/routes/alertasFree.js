@@ -69,7 +69,7 @@ NO inventes nada.
 NO pongas emojis.
 Texto muy sencillo para agricultores.
 
-Termina el mensaje poniendo: *Alertas mas extensas y personalizadas en la version PRO.*
+Termina con: *Alertas mas extensas y personalizadas en la version PRO.*
 
 Devuelve EXACTAMENTE este JSON:
 
@@ -79,9 +79,9 @@ Devuelve EXACTAMENTE este JSON:
 
 Lista:
 ${lista}
-`.trim();
+      `.trim();
 
-      // 4) Llamada a OpenAI, igual que en alertas.js
+      // 4) Llamada a OpenAI
       const aiRes = await fetch("https://api.openai.com/v1/responses", {
         method: "POST",
         headers: {
@@ -107,7 +107,7 @@ ${lista}
 
       const aiJson = await aiRes.json();
 
-      // 5) Extraer texto igual que alertas.js
+      // 5) Extraer texto
       let contenido = "";
 
       if (typeof aiJson.output_text === "string" && aiJson.output_text.trim()) {
@@ -154,11 +154,11 @@ ${lista}
 
       const resumenFree = parsed.mensaje;
 
-      // 6) Guardar en columna ResumenFree para TODAS las alertas de hoy
+      // 6) Guardar en columna resumenfree para TODAS las alertas de hoy
       for (const a of alertas) {
         await supabase
           .from("alertas")
-          .update({ ResumenFree: resumenFree })
+          .update({ resumenfree: resumenFree })
           .eq("id", a.id);
       }
 
@@ -180,28 +180,28 @@ ${lista}
     try {
       const hoy = new Date().toISOString().slice(0, 10);
 
-      // Sacamos UNA alerta de hoy que tenga ResumenFree
+      // Obtener UNA alerta que tenga resumenfree
       const { data, error } = await supabase
         .from("alertas")
-        .select("ResumenFree")
+        .select("resumenfree")
         .eq("fecha", hoy)
-        .not("ResumenFree", "is", null)
+        .not("resumenfree", "is", null)
         .limit(1);
 
       if (error) {
         return res.status(500).json({ error: error.message });
       }
 
-      if (!data || data.length === 0 || !data[0].ResumenFree) {
+      if (!data || data.length === 0 || !data[0].resumenfree) {
         return res.status(404).json({
           error:
-            "No hay ResumenFree generado hoy. Ejecuta antes /alertas/generar-resumen-free",
+            "No hay resumenfree generado hoy. Ejecuta antes /alertas/generar-resumen-free",
         });
       }
 
-      const mensajeFree = data[0].ResumenFree;
+      const mensajeFree = data[0].resumenfree;
 
-      // Usamos la función del módulo whatsapp
+      // Enviar a usuarios FREE
       await enviarWhatsAppFree(supabase, mensajeFree);
 
       return res.json({
