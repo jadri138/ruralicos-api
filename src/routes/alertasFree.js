@@ -1,6 +1,7 @@
 // src/routes/alertasFree.js
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const { enviarWhatsAppFree } = require('../whatsapp');
 
 module.exports = function alertasFreeRoutes(app, supabase) {
 
@@ -68,7 +69,8 @@ NO inventes nada.
 NO pongas emojis.
 Texto muy sencillo para agricultores.
 
-Termina el mensaje poniendo: Alertas mas extensas y personalizadas en la version PRO. en negrita con 1 asterisco al principio y otro al final de la frase
+Termina el mensaje poniendo: *Alertas mas extensas y personalizadas en la version PRO.*
+
 Devuelve EXACTAMENTE este JSON:
 
 {
@@ -152,7 +154,7 @@ ${lista}
 
       const resumenFree = parsed.mensaje;
 
-      // 6) Guardar en una nueva columna ResumenFree (crea la columna en Supabase)
+      // 6) Guardar en columna ResumenFree para TODAS las alertas de hoy
       for (const a of alertas) {
         await supabase
           .from("alertas")
@@ -168,6 +170,47 @@ ${lista}
     } catch (err) {
       console.error("Error FREE:", err);
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ============================================================
+  //   RUTA: Enviar el RESUMEN FREE por WhatsApp a usuarios FREE
+  // ============================================================
+  app.post("/alertas/enviar-resumen-free", async (req, res) => {
+    try {
+      const hoy = new Date().toISOString().slice(0, 10);
+
+      // Sacamos UNA alerta de hoy que tenga ResumenFree
+      const { data, error } = await supabase
+        .from("alertas")
+        .select("ResumenFree")
+        .eq("fecha", hoy)
+        .not("ResumenFree", "is", null)
+        .limit(1);
+
+      if (error) {
+        return res.status(500).json({ error: error.message });
+      }
+
+      if (!data || data.length === 0 || !data[0].ResumenFree) {
+        return res.status(404).json({
+          error:
+            "No hay ResumenFree generado hoy. Ejecuta antes /alertas/generar-resumen-free",
+        });
+      }
+
+      const mensajeFree = data[0].ResumenFree;
+
+      // Usamos la función del módulo whatsapp
+      await enviarWhatsAppFree(supabase, mensajeFree);
+
+      return res.json({
+        ok: true,
+        mensaje: "Resumen FREE enviado por WhatsApp a usuarios FREE",
+      });
+    } catch (e) {
+      console.error("Error enviar-resumen-free:", e);
+      return res.status(500).json({ error: "Error interno enviando FREE" });
     }
   });
 };
