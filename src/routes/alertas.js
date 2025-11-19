@@ -1,5 +1,5 @@
 // src/routes/alertas.js
-
+const { checkCronToken } = require('../utils/checkCronToken');
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const { enviarWhatsAppResumen } = require('../whatsapp');
 
@@ -288,7 +288,29 @@ ${lista}
 
   // 4) Rutas para lanzar el procesado con IA
   app.post('/alertas/procesar-ia', procesarIAHandler);
-  app.get('/alertas/procesar-ia', procesarIAHandler);
+  app.get('/alertas/procesar-ia', (req, res) => {
+     if (!checkCronToken(req, res)) return;
+     procesarIAHandler(req, res);
+    });
+
+
+    app.post('/alertas/procesar-ia', (req, res) => {
+        if (!checkCronToken(req, res)) return;
+        procesarIAHandler(req, res);
+    });
+
+
+    app.get('/alertas/enviar-whatsapp', (req, res) => {
+        if (!checkCronToken(req, res)) return;
+        enviarWhatsAppHandler(req, res);
+    });
+
+
+    app.post('/alertas/enviar-whatsapp', (req, res) => {
+        if (!checkCronToken(req, res)) return;
+        enviarWhatsAppHandler(req, res);
+    });
+
 
   // =========================================
   // 5) Enviar alertas de hoy por WhatsApp

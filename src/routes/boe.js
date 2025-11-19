@@ -1,5 +1,6 @@
 // src/routes/boe.js
 const { XMLParser } = require('fast-xml-parser');
+const { checkCronToken } = require('../utils/checkCronToken');
 
 const xmlParser = new XMLParser({ ignoreAttributes: false });
 
@@ -24,9 +25,12 @@ function htmlAtextoPlano(html) {
     .trim();
 }
 
+
 module.exports = function boeRoutes(app, supabase) {
   // Scraper BOE por ministerios relacionados con el medio rural
   app.get('/scrape-boe-oficial', async (req, res) => {
+    if (!checkCronToken(req, res)) return;
+    
     try {
       // 1) Fecha: ?fecha=AAAAMMDD o hoy por defecto
       let fecha = req.query.fecha;

@@ -1,4 +1,8 @@
 require('dotenv').config();
+require('./routes/boe')(app, supabase);
+require('./routes/tareas')(app, supabase);
+
+
 const express = require('express');
 const { supabase } = require('./supabaseClient');
 
@@ -14,4 +18,4 @@ usersRoutes(app, supabase);
 alertasRoutes(app, supabase);
 boeRoutes(app, supabase);
 
-app.listen(3000, () => console.log("La API de Ruralicos esta lista!!"));
+app.listen(3000, () => console.log("La API de Ruralicos estalista!!"));
