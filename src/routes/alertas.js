@@ -90,13 +90,12 @@ module.exports = function alertasRoutes(app, supabase) {
 
       // 3.2) Construir texto para el prompt
       const lista = alertas
-        .map((a) => {
-          const texto = a.contenido ? a.contenido.slice(0, 4000) : '';
-          return `ID ${a.id} | Fecha ${a.fecha} | Region ${
-            a.region || 'NACIONAL'
-          } | Titulo: ${a.titulo} | Texto: ${texto}`;
-        })
-        .join('\n\n');
+  .map((a) => {
+    const texto = a.contenido ? a.contenido.slice(0, 4000) : '';
+    return `ID ${a.id} | Fecha ${a.fecha} | Region ${a.region} | URL ${a.url} | Titulo: ${a.titulo} | Texto: ${texto}`;
+  })
+  .join('\n\n');
+
 
       const prompt = `
 Te paso una lista de alertas del BOE para agricultores y ganaderos, una por línea, con este formato:
@@ -146,7 +145,7 @@ Si el BOE no especifica, escribe: “El BOE no indica destinatarios concretos.�
 Detalle más importante (si se aprueba, se modifica, se deniega algo, plazos si aparecen).
 Si NO hay plazos, escribe: “El BOE no menciona plazos concretos.”
 
-Al final del mensaje añade 1–2 emojis (por ejemplo: 🌾📢⚠️🚜📄).
+Al final del mensaje añade 1–2 emojis (por ejemplo: 🌾📢⚠️🚜📄🐖🐷🐑🐓).
 
 REGLAS DE ESTILO:
 - Entre 4 y 7 frases en total.
@@ -155,6 +154,13 @@ REGLAS DE ESTILO:
 - Títulos y subtítulos SIEMPRE en **negrita**.
 - No inventes fechas, importes ni plazos.
 - No añadas nada fuera del mensaje.
+
+Al final del mensaje añade SIEMPRE esta línea:
+
+🔗 *Enlace al BOE completo:* <url>
+
+donde <url> es exactamente el valor de la propiedad "url" de la alerta correspondiente.
+NO inventes URLs, usa solo la que te paso en la lista.
 
 FORMATO OBLIGATORIO DE SALIDA:
 Devuelve SOLO este JSON válido:
