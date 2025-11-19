@@ -3,7 +3,6 @@ require('dotenv').config();
 
 const express = require('express');
 const { supabase } = require('./supabaseClient');
-const { openai } = require('./openaiClient');
 const enviarWhatsapp = require('./whatsapp');
 
 // Rutas
@@ -18,8 +17,8 @@ app.use(express.json());
 
 // Activamos rutas
 usersRoutes(app, supabase);
-alertasRoutes(app, supabase, enviarWhatsapp, openai);
-alertasFreeRoutes(app, supabase, enviarWhatsapp, openai);
+alertasRoutes(app, supabase, enviarWhatsapp);
+alertasFreeRoutes(app, supabase, enviarWhatsapp);
 boeRoutes(app, supabase);
 tareasRoutes(app, supabase);
 
