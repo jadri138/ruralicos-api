@@ -7,9 +7,9 @@ module.exports = function usersRoutes(app, supabase) {
     res.json({ message: 'La API de Ruralicos esta vivaa!! 🚜' });
   });
 
-  // Registrar usuario
+    // Registrar usuario
   app.post('/register', async (req, res) => {
-    let { phone } = req.body;
+    let { phone, name, email } = req.body;   // 👈 añadimos name y email
 
     if (!phone) {
       return res.status(400).json({ error: 'Falta el número de teléfono' });
@@ -24,40 +24,41 @@ module.exports = function usersRoutes(app, supabase) {
 
     if (soloDigitos.length !== LONGITUD_TELEFONO) {
       return res.status(400).json({
-        error: 'introduce un numero de teléfono válido'
+        error: `introduce un numero de teléfono válido`
       });
     }
 
-    // Aquí ya usamos solo los dígitos normalizados para guardar
     const telefonoNormalizado = soloDigitos;
 
-    // Insertar usuario
+    // Objeto a insertar
+    const nuevoUsuario = {
+      phone: telefonoNormalizado,
+      preferences: {},
+      subscription: 'free'
+    };
+
+    // Solo añadimos name/email si vienen
+    if (name) nuevoUsuario.name = name;
+    if (email) nuevoUsuario.email = email;
+
     const { data, error } = await supabase
       .from('users')
-      .insert([
-        {
-          phone: telefonoNormalizado,
-          preferences: {},      // jsonb vacío
-          subscription: 'free'  // plan por defecto
-        }
-      ])
+      .insert([nuevoUsuario])
       .select();
 
     if (error) {
-      // Si es un duplicado (ya existe ese número)
+      // Duplicado (teléfono o email)
       if (error.code === '23505') {
         return res.status(400).json({
-          error: 'Este número ya está registrado'
+          error: 'Este número o email ya está registrado'
         });
       }
 
       return res.status(500).json({ error: error.message });
     }
 
-    // Devolver usuario registrado
     res.json({ success: true, user: data[0] });
 
-    // Registrar acción en logs (esto no afecta a la respuesta)
     await supabase.from('logs').insert([
       { action: 'register', details: `phone: ${telefonoNormalizado}` }
     ]);
@@ -66,53 +67,64 @@ module.exports = function usersRoutes(app, supabase) {
   // ================================
   // OBTENER PREFERENCIAS (GET)
   // ================================
-  app.get('/users/:id/preferences', async (req, res) => {
-    const userId = req.params.id;
+  app.post('/users/get-preferences', async (req, res) => {
+    let { phone } = req.body;
+
+    if (!phone) {
+      return res.status(400).json({ error: 'Falta el número de teléfono' });
+    }
+
+    phone = String(phone).trim();
+    const soloDigitos = phone.replace(/\D/g, '');
 
     const { data, error } = await supabase
       .from('users')
-      .select('preferences')
-      .eq('id', userId)
+      .select('preferences, subscription, name, email')
+      .eq('phone', soloDigitos)
       .single();
 
     if (error || !data) {
       return res.status(404).json({ error: 'Usuario no encontrado' });
     }
 
-    res.json({ preferences: data.preferences });
+    res.json({ user: data });
   });
 
   // ================================
   // GUARDAR PREFERENCIAS (SOLO PRO)
   // ================================
-  app.put('/users/:id/preferences', async (req, res) => {
-    const userId = req.params.id;
+  app.put('/users/preferences', async (req, res) => {
+    let { phone, ...prefs } = req.body;
 
-    // 1) Comprobar si el usuario es PRO
+    if (!phone) {
+      return res.status(400).json({ error: 'Falta el número de teléfono' });
+    }
+
+    phone = String(phone).trim();
+    const soloDigitos = phone.replace(/\D/g, '');
+
+    // 1) Mirar usuario por teléfono
     const { data: user, error: errUser } = await supabase
       .from('users')
       .select('subscription')
-      .eq('id', userId)
+      .eq('phone', soloDigitos)
       .single();
 
     if (errUser || !user) {
       return res.status(404).json({ error: 'Usuario no encontrado' });
     }
 
-    // ❌ Si es free → no puede editar preferencias
     if (user.subscription !== 'pro') {
       return res.status(403).json({
         error: 'Solo los usuarios PRO pueden guardar preferencias.'
       });
     }
 
-    // 2) Si es PRO → guardamos lo que envía el front
-    const newPreferences = req.body;
-
+    // 2) Guardar preferencias
     const { data, error } = await supabase
       .from('users')
-      .update({ preferences: newPreferences })
-      .eq('id', userId)
+      .update({ preferences: prefs })
+      .eq('phone', soloDigitos)
       .single();
 
     if (error) {
@@ -125,21 +137,29 @@ module.exports = function usersRoutes(app, supabase) {
   // ================================
   // SUBIR A PRO
   // ================================
-  app.post('/users/:id/upgrade-to-pro', async (req, res) => {
-    const { id } = req.params;
+  app.post('/users/upgrade-to-pro', async (req, res) => {
+    let { phone } = req.body;
+
+    if (!phone) {
+      return res.status(400).json({ error: 'Falta el número de teléfono' });
+    }
+
+    phone = String(phone).trim();
+    const soloDigitos = phone.replace(/\D/g, '');
 
     const { data, error } = await supabase
       .from('users')
       .update({ subscription: 'pro' })
-      .eq('id', id)
+      .eq('phone', soloDigitos)
       .single();
 
-    if (error) {
-      return res.status(500).json({ error: 'No se ha podido pasar a PRO' });
+    if (error || !data) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
     }
 
     res.json({ success: true, user: data });
   });
+
 
   // ================================
   // BAJAR A FREE (NO BORRA PREFERENCIAS)
