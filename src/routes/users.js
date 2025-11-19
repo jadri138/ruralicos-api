@@ -7,9 +7,28 @@ module.exports = function usersRoutes(app, supabase) {
     res.json({ message: 'La API de Ruralicos esta vivaa!! 🚜' });
   });
 
-    // Registrar usuario
+  // --------------------------------------------------
+  // LISTAR USUARIOS (solo para depurar)
+  // --------------------------------------------------
+  app.get('/users', async (req, res) => {
+    const { data, error } = await supabase
+      .from('users')
+      .select('id, phone, subscription, preferences')
+      .order('id', { ascending: true });
+
+    if (error) {
+      console.error('Error listando usuarios:', error);
+      return res.status(500).json({ error: 'Error obteniendo usuarios' });
+    }
+
+    res.json({ users: data });
+  });
+
+  // --------------------------------------------------
+  // REGISTRAR USUARIO
+  // --------------------------------------------------
   app.post('/register', async (req, res) => {
-    let { phone, name, email } = req.body;   // 👈 añadimos name y email
+    let { phone } = req.body;
 
     if (!phone) {
       return res.status(400).json({ error: 'Falta el número de teléfono' });
@@ -30,43 +49,100 @@ module.exports = function usersRoutes(app, supabase) {
 
     const telefonoNormalizado = soloDigitos;
 
-    // Objeto a insertar
-    const nuevoUsuario = {
-      phone: telefonoNormalizado,
-      preferences: {},
-      subscription: 'free'
-    };
-
-    // Solo añadimos name/email si vienen
-    if (name) nuevoUsuario.name = name;
-    if (email) nuevoUsuario.email = email;
-
+    // Insertar usuario
     const { data, error } = await supabase
       .from('users')
-      .insert([nuevoUsuario])
+      .insert([
+        {
+          phone: telefonoNormalizado,
+          preferences: {},      // jsonb vacío
+          subscription: 'free'  // plan por defecto
+        }
+      ])
       .select();
 
     if (error) {
-      // Duplicado (teléfono o email)
+      // Si es un duplicado (ya existe ese número)
       if (error.code === '23505') {
         return res.status(400).json({
-          error: 'Este número o email ya está registrado'
+          error: 'Este número ya está registrado'
         });
       }
 
+      console.error('Error registrando usuario:', error);
       return res.status(500).json({ error: error.message });
     }
 
+    // Devolver usuario registrado
     res.json({ success: true, user: data[0] });
 
+    // Registrar acción en logs (esto no afecta a la respuesta)
     await supabase.from('logs').insert([
       { action: 'register', details: `phone: ${telefonoNormalizado}` }
     ]);
   });
 
-  // ================================
-  // OBTENER PREFERENCIAS (GET)
-  // ================================
+  // --------------------------------------------------
+  // SUBIR A PRO USANDO TELÉFONO
+  // --------------------------------------------------
+  app.post('/users/upgrade-to-pro', async (req, res) => {
+    let { phone } = req.body;
+
+    if (!phone) {
+      return res.status(400).json({ error: 'Falta el número de teléfono' });
+    }
+
+    phone = String(phone).trim();
+    const soloDigitos = phone.replace(/\D/g, '');
+
+    console.log('Upgrade PRO para phone:', soloDigitos);
+
+    const { data, error } = await supabase
+      .from('users')
+      .update({ subscription: 'pro' })
+      .eq('phone', soloDigitos)
+      .single();
+
+    if (error || !data) {
+      console.error('Error upgrade-to-pro:', error);
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+
+    res.json({ success: true, user: data });
+  });
+
+  // --------------------------------------------------
+  // BAJAR A FREE USANDO TELÉFONO (NO BORRA PREFERENCIAS)
+  // --------------------------------------------------
+  app.post('/users/downgrade-to-free', async (req, res) => {
+    let { phone } = req.body;
+
+    if (!phone) {
+      return res.status(400).json({ error: 'Falta el número de teléfono' });
+    }
+
+    phone = String(phone).trim();
+    const soloDigitos = phone.replace(/\D/g, '');
+
+    console.log('Downgrade FREE para phone:', soloDigitos);
+
+    const { data, error } = await supabase
+      .from('users')
+      .update({ subscription: 'free' })
+      .eq('phone', soloDigitos)
+      .single();
+
+    if (error || !data) {
+      console.error('Error downgrade-to-free:', error);
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+
+    res.json({ success: true, user: data });
+  });
+
+  // --------------------------------------------------
+  // OBTENER PREFERENCIAS USANDO TELÉFONO
+  // --------------------------------------------------
   app.post('/users/get-preferences', async (req, res) => {
     let { phone } = req.body;
 
@@ -79,7 +155,7 @@ module.exports = function usersRoutes(app, supabase) {
 
     const { data, error } = await supabase
       .from('users')
-      .select('preferences, subscription, name, email')
+      .select('phone, subscription, preferences')
       .eq('phone', soloDigitos)
       .single();
 
@@ -90,9 +166,9 @@ module.exports = function usersRoutes(app, supabase) {
     res.json({ user: data });
   });
 
-  // ================================
-  // GUARDAR PREFERENCIAS (SOLO PRO)
-  // ================================
+  // --------------------------------------------------
+  // GUARDAR PREFERENCIAS USANDO TELÉFONO (SOLO PRO)
+  // --------------------------------------------------
   app.put('/users/preferences', async (req, res) => {
     let { phone, ...prefs } = req.body;
 
@@ -128,57 +204,11 @@ module.exports = function usersRoutes(app, supabase) {
       .single();
 
     if (error) {
+      console.error('Error guardando preferencias:', error);
       return res.status(500).json({ error: 'Error guardando preferencias' });
     }
 
     res.json({ preferences: data.preferences });
-  });
-
-  // ================================
-  // SUBIR A PRO
-  // ================================
-  app.post('/users/upgrade-to-pro', async (req, res) => {
-    let { phone } = req.body;
-
-    if (!phone) {
-      return res.status(400).json({ error: 'Falta el número de teléfono' });
-    }
-
-    phone = String(phone).trim();
-    const soloDigitos = phone.replace(/\D/g, '');
-
-    const { data, error } = await supabase
-      .from('users')
-      .update({ subscription: 'pro' })
-      .eq('phone', soloDigitos)
-      .single();
-
-    if (error || !data) {
-      return res.status(404).json({ error: 'Usuario no encontrado' });
-    }
-
-    res.json({ success: true, user: data });
-  });
-
-
-  // ================================
-  // BAJAR A FREE (NO BORRA PREFERENCIAS)
-  // ================================
-  app.post('/users/:id/downgrade-to-free', async (req, res) => {
-    const { id } = req.params;
-
-    // NO tocamos preferences → se guardan para el futuro
-    const { data, error } = await supabase
-      .from('users')
-      .update({ subscription: 'free' })
-      .eq('id', id)
-      .single();
-
-    if (error) {
-      return res.status(500).json({ error: 'No se ha podido pasar a FREE' });
-    }
-
-    res.json({ success: true, user: data });
   });
 
 };
