@@ -20,13 +20,14 @@ module.exports = function alertasFreeRoutes(app, supabase) {
 
       // Alertas de HOY ya filtradas por la IA PRO (resumen listo y relevante)
       const { data: alertas, error } = await supabase
-        .from('alertas')
+  
+      .from('alertas')
         .select('id, titulo, resumen, url, fecha, resumenfree')
         .eq('fecha', hoy)
         .neq('resumen', 'NO IMPORTA')
-        .neq('resumen', 'Procesando con IA.')
-        // opcional: solo si aún no tienen resumenfree
-        .or('resumenfree.is.null,resumenfree.eq("")');
+        .neq('resumen', 'Procesando con IA...');
+        // sin .or → generamos/actualizamos resumenfree siempre
+
 
       if (error) {
         return res.status(500).json({ error: error.message });
