@@ -302,12 +302,13 @@ ${lista}
       const hoy = new Date().toISOString().slice(0, 1);
 
       const { data: alertas, error } = await supabase
-        .from('alertas')
+  
+      .from('alertas')
         .select('*')
         .eq('fecha', hoy)
         .neq('resumen', 'NO IMPORTA')
         .neq('resumen', 'Procesando con IA...')
-        .eq('whatsapp_enviado', false);
+        .or('whatsapp_enviado.is.null,whatsapp_enviado.eq.false');
 
       if (error) {
         return res.status(500).json({ error: error.message });
