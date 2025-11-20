@@ -237,6 +237,11 @@ ${lista}
 
       await enviarWhatsAppFree(supabase, mensajeFree);
 
+      await supabase
+       .from("alertas")
+       .update({ whatsapp_enviado_free: true })
+       .eq("fecha", hoy);
+
       return res.json({
         ok: true,
         fecha: hoy,
