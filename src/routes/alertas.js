@@ -91,15 +91,12 @@ module.exports = function alertasRoutes(app, supabase) {
         })
         .join('\n\n');
 
-      const prompt = `
+            const prompt = `
 Te paso una lista de alertas del BOE para agricultores y ganaderos, una por línea, con este formato:
-"ID <id> | Fecha <fecha> | Region <region> | Titulo: <titulo> | Texto: <contenido>"
-
-Te paso una lista de alertas del BOE para agricultores y ganaderos, una por línea, con este formato:
-"ID <id> | Fecha <fecha> | Region <region> | Titulo: <titulo> | Texto: <contenido>"
+"ID <id> | Fecha <fecha> | Region <region> | URL <url> | Titulo: <titulo> | Texto: <contenido>"
 
 TU TAREA:
-Analiza el contenido del BOE que aparece en "Texto:" y decide si es RELEVANTE o NO para:
+1) Analiza el contenido del BOE que aparece en "Texto:" y decide si es RELEVANTE o NO para:
 - agricultores
 - ganaderos
 - cooperativas agrarias
@@ -114,19 +111,25 @@ RELEVANTE si:
 NO RELEVANTE si:
 - Es pura administración general (oposiciones, sanciones no ligadas al sector, becas genéricas, movimientos internos del Estado, tribunales, concursos de méritos, etc.) sin impacto claro en el medio rural o el sector agrario/ganadero.
 
-SI UNA ALERTA NO ES RELEVANTE:
-Devuelve EXACTAMENTE este JSON (sin texto extra):
+2) CLASIFICACIÓN POR PROVINCIA Y TIPO:
+Para cada alerta RELEVANTE, además debes clasificarla así:
 
-{
-  "resumenes": [
-    {
-      "id": <id>,
-      "resumen": "NO IMPORTA"
-    }
-  ]
-}
+- "provincias": lista de provincias españolas afectadas, por ejemplo ["Huesca","Zaragoza"].
+  Si es algo de ámbito estatal y el texto no menciona provincias concretas, usa [] (array vacío).
 
-SI UNA ALERTA ES RELEVANTE:
+- "sectores": lista con una o varias de estas palabras:
+  ["ganaderia","agricultura","mixto","otros"].
+
+- "subsectores": lista de palabras MÁS concretas, escogidas de aquí:
+  ["ovino","vacuno","caprino","porcino","avicultura","cunicultura",
+   "trigo","cebada","cereal","maiz","hortalizas","frutales","olivar",
+   "viñedo","forrajes","forestal","agua","energia","medio_ambiente"].
+
+- "tipos_alerta": lista de uno o varios de estos tipos:
+  ["ayudas_subvenciones","normativa_general","agua_infraestructuras",
+   "fiscalidad","medio_ambiente"].
+
+3) MENSAJE WHATSAPP (solo si es RELEVANTE):
 Genera un mensaje estilo WhatsApp con esta estructura EXACTA:
 
 *Ruralicos te avisa* 🌾🚜
@@ -144,29 +147,48 @@ Si NO hay plazos, escribe: “El BOE no menciona plazos concretos.”
 
 Al final del mensaje añade 1–2 emojis (por ejemplo: 🌾📢⚠️🚜📄🐖🐷🐑🐓).
 
+Al final del mensaje añade SIEMPRE esta línea:
+🔗 *Enlace al BOE completo:* <url>
+
+donde <url> es exactamente el valor de la propiedad "URL" de esa alerta.
+NO inventes URLs.
+
 REGLAS DE ESTILO:
 - Entre 4 y 7 frases en total.
 - Lenguaje claro y sencillo, sin tecnicismos.
 - Formato WhatsApp con saltos de línea.
-- Títulos y subtítulos SIEMPRE en **negrita**.
+- Títulos y subtítulos SIEMPRE en *negrita*.
 - No inventes fechas, importes ni plazos.
 - No añadas nada fuera del mensaje.
 
-Al final del mensaje añade SIEMPRE esta línea:
-
-🔗 *Enlace al BOE completo:* <url>
-
-donde <url> es exactamente el valor de la propiedad "url" de la alerta correspondiente.
-NO inventes URLs, usa solo la que te paso en la lista.
-
-FORMATO OBLIGATORIO DE SALIDA:
-Devuelve SOLO este JSON válido:
+SI UNA ALERTA NO ES RELEVANTE:
+Devuelve EXACTAMENTE este JSON (sin texto extra):
 
 {
   "resumenes": [
     {
       "id": <id>,
-      "resumen": "<mensaje WhatsApp completo con subtítulos y emojis>"
+      "resumen": "NO IMPORTA",
+      "provincias": [],
+      "sectores": [],
+      "subsectores": [],
+      "tipos_alerta": []
+    }
+  ]
+}
+
+SI UNA ALERTA ES RELEVANTE:
+Devuelve EXACTAMENTE este JSON (sin texto extra):
+
+{
+  "resumenes": [
+    {
+      "id": <id>,
+      "resumen": "<mensaje WhatsApp completo con negritas, subtítulos y emojis>",
+      "provincias": [...],
+      "sectores": [...],
+      "subsectores": [...],
+      "tipos_alerta": [...]
     }
   ]
 }
@@ -176,6 +198,7 @@ Nada de texto antes o después, solo el JSON.
 Lista de alertas:
 ${lista}
       `.trim();
+
 
       const aiRes = await fetch('https://api.openai.com/v1/responses', {
         method: 'POST',
@@ -253,14 +276,30 @@ ${lista}
         });
       }
 
+            // 3.5) Actualizar en BD cada alerta con su resumen y clasificación
       let actualizadas = 0;
 
       for (const item of resumenes) {
         if (!item.id || !item.resumen) continue;
 
+        const updateData = { resumen: item.resumen };
+
+        if (Array.isArray(item.provincias)) {
+          updateData.provincias = item.provincias;
+        }
+        if (Array.isArray(item.sectores)) {
+          updateData.sectores = item.sectores;
+        }
+        if (Array.isArray(item.subsectores)) {
+          updateData.subsectores = item.subsectores;
+        }
+        if (Array.isArray(item.tipos_alerta)) {
+          updateData.tipos_alerta = item.tipos_alerta;
+        }
+
         const { error: updError } = await supabase
           .from('alertas')
-          .update({ resumen: item.resumen })
+          .update(updateData)
           .eq('id', item.id);
 
         if (!updError) {
@@ -273,6 +312,7 @@ ${lista}
           );
         }
       }
+
 
       res.json({
         success: true,
