@@ -214,11 +214,13 @@ ${lista}
 
       // Una alerta de hoy que tenga resumenfree
       const { data, error } = await supabase
-        .from('alertas')
-        .select('resumenfree')
-        .eq('fecha', hoy)
-        .not('resumenfree', 'is', null)
+        .from("alertas")
+        .select("id, resumenfree")
+        .eq("fecha", hoy)
+        .not("resumenfree", "is", null)
+        .or('whatsapp_enviado_free.is.null,whatsapp_enviado_free.eq.false')
         .limit(1);
+
 
       if (error) {
         return res.status(500).json({ error: error.message });
