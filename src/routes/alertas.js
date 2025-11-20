@@ -299,7 +299,7 @@ ${lista}
   // =========================================
   const enviarWhatsAppHandler = async (req, res) => {
     try {
-      const hoy = new Date().toISOString().slice(0, 1);
+      const hoy = new Date().toISOString().slice(0, 10);
 
       const { data: alertas, error } = await supabase
   
