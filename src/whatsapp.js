@@ -98,7 +98,7 @@ async function enviarWhatsAppResumen(alerta, supabase) {
   let enviados = 0;
   const errores = [];
 
-  for (const user of usuariosPro) {
+ for (const user of usuariosPro) {
   const telefono = user.phone.trim();
   const prefs = user.preferencias || {};
 
@@ -120,8 +120,8 @@ async function enviarWhatsAppResumen(alerta, supabase) {
 
   // 1. FILTRO PROVINCIA
   const okProvincia =
-    provinciasUser.length === 0 ||         // usuario no tiene preferencia -> OK
-    provinciasA.length === 0 ||            // alerta general -> OK
+    provinciasUser.length === 0 ||
+    provinciasA.length === 0 ||
     intersecta(provinciasUser, provinciasA);
 
   if (!okProvincia) continue; // no enviar a este usuario
@@ -134,18 +134,10 @@ async function enviarWhatsAppResumen(alerta, supabase) {
 
   if (!okSector) continue;
 
-  // 3. FILTRO SUBSECTOR
-  const okSubsector =
-    subsectoresUser.length === 0 ||
-    subsectoresA.length === 0 ||
-    intersecta(subsectoresUser, subsectoresA);
+  // (SUBSECTOR ya NO es obligatorio — solo informativo)
 
-  if (!okSubsector) continue;
-
-  // 4. FILTRO TIPO DE ALERTA
+  // 3. FILTRO TIPO DE ALERTA
   const okTipo = tiposA.some((tipo) => tiposUser[tipo] === true);
-
-  // Si el usuario no tiene tipos marcados → recibe todo
   const tiposVacios = Object.keys(tiposUser).length === 0;
 
   if (!okTipo && !tiposVacios) continue;
