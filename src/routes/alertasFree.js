@@ -171,7 +171,7 @@ ${lista}
       for (const a of alertas) {
         const { error: updError } = await supabase
           .from('alertas')
-          .update({ resumenfree: resumenFree })
+          .update({ resumenfree: resumenfree })
           .eq('id', a.id);
 
         if (!updError) {
