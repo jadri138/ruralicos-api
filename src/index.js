@@ -1,4 +1,3 @@
-// src/index.js
 require('dotenv').config();
 
 const express = require('express');
@@ -13,9 +12,14 @@ const boeRoutes = require('./routes/boe');
 const tareasRoutes = require('./routes/tareas');
 
 const app = express();
+
+// Para leer JSON del body
 app.use(express.json());
 
-// Activamos rutas
+// 👇 NUEVO: servir la carpeta "public" como web estática
+app.use(express.static('public'));
+
+// Activamos rutas de la API
 usersRoutes(app, supabase);
 alertasRoutes(app, supabase, enviarWhatsapp);
 alertasFreeRoutes(app, supabase, enviarWhatsapp);
