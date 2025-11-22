@@ -164,7 +164,7 @@ ${lista}
         });
       }
 
-      const resumenFree = parsed.mensaje.trim();
+      const resumenfree = parsed.mensaje.trim();
 
       // Guardar resumenFree en TODAS las alertas de hoy usadas en la lista
       let actualizadas = 0;
