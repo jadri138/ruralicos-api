@@ -18,8 +18,28 @@
 			.intro .image.fill img {
 				max-height: 330px;
 				object-fit: contain;
-				top: 28%;
+				top: 32%;
 			}
+			/* Arreglo móvil: quitar el 100vh y pegar el logo al texto */
+@media screen and (max-width: 736px) {
+    #wrapper > section.intro > .content {
+        height: auto;          /* fuera el 100vh */
+    }
+
+    .intro .image.fill {
+        position: relative;
+        height: auto;
+    }
+
+    .intro .image.fill img {
+        position: relative;
+        top: 0;                /* no lo empujamos hacia abajo en móvil */
+        margin-top: 1.5rem;    /* separación normal bajo el texto */
+        width: 100%;
+        max-height: 220px;     /* puedes subir o bajar esto */
+    }
+}
+
 
 			/* Opcional: reducir un poco el padding vertical de la intro */
 			.intro header {
