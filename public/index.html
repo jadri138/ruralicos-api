@@ -15,65 +15,32 @@
 		<!-- Estilos personalizados para adaptar la landing a Ruralicos -->
 		<style>
 			/* Reducir tamaño visual de la primera imagen (logo) */
-			.intro .image.fill img {
-				max-height: 260px;
-				object-fit: contain;
-			}
+			/* Hero: centrar el logo en la mitad derecha */
+.intro .content {
+	display: flex;
+	align-items: center; 
+	justify-content: center;
+	position: relative;
+	padding: 0;
+}
 
-			/* Opcional: reducir un poco el padding vertical de la intro */
-			.intro header {
-				padding-top: 2.5rem;
-				padding-bottom: 2.5rem;
-			}
+/* Anular el "fill" absoluto solo en la intro */
+.intro .image.fill {
+	position: static;
+	width: 70%;
+	max-width: 480px;
+	height: auto;
+}
 
-			/* Roadmap vertical sencillo */
-			.roadmap {
-				border-left: 3px solid rgba(255, 255, 255, 0.15);
-				margin-left: 0.75rem;
-				padding-left: 1.75rem;
-			}
+/* Tamaño del logo */
+.intro .image.fill img {
+	display: block;
+	width: 100%;
+	height: auto;
+	max-height: 260px;
+	object-fit: contain;
+}
 
-			.roadmap-item {
-				position: relative;
-				margin-bottom: 2.5rem;
-			}
-
-			.roadmap-item:last-child {
-				margin-bottom: 0;
-			}
-
-			.roadmap-item::before {
-				content: "";
-				position: absolute;
-				left: -1.1rem;
-				top: 0.35rem;
-				width: 0.9rem;
-				height: 0.9rem;
-				border-radius: 50%;
-				background: #ffffff;
-				box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.08);
-			}
-
-			.roadmap-item h3 {
-				margin-bottom: 0.3rem;
-			}
-
-			.roadmap-item span.tag {
-				display: inline-block;
-				font-size: 0.75rem;
-				letter-spacing: 0.08em;
-				text-transform: uppercase;
-				opacity: 0.7;
-				margin-bottom: 0.4rem;
-			}
-
-			/* Ajustes formulario */
-			form .field label {
-				font-size: 0.9rem;
-				opacity: 0.8;
-				margin-bottom: 0.25rem;
-				display: block;
-			}
 		</style>
 	</head>
 	<body class="is-preload">
