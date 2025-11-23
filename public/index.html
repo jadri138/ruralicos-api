@@ -9,472 +9,328 @@
 		<title>Ruralicos – Alertas del BOE para el campo</title>
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
-		<meta name="description" content="" />
-		<meta name="keywords" content="" />
+		<meta name="description" content="Ruralicos convierte el BOE y los boletines oficiales en alertas simples y claras para agricultores y ganaderos, directo a tu WhatsApp." />
+		<meta name="keywords" content="Ruralicos, BOE, ayudas, agricultura, ganadería, boletines oficiales, mundo rural, WhatsApp" />
 		<link rel="stylesheet" href="assets/css/main.css" />
+		<!-- Estilos personalizados para adaptar la landing a Ruralicos -->
+		<style>
+			/* Reducir tamaño visual de la primera imagen (logo) */
+			.intro .image.fill img {
+				max-height: 260px;
+				object-fit: contain;
+			}
+
+			/* Opcional: reducir un poco el padding vertical de la intro */
+			.intro header {
+				padding-top: 2.5rem;
+				padding-bottom: 2.5rem;
+			}
+
+			/* Roadmap vertical sencillo */
+			.roadmap {
+				border-left: 3px solid rgba(255, 255, 255, 0.15);
+				margin-left: 0.75rem;
+				padding-left: 1.75rem;
+			}
+
+			.roadmap-item {
+				position: relative;
+				margin-bottom: 2.5rem;
+			}
+
+			.roadmap-item:last-child {
+				margin-bottom: 0;
+			}
+
+			.roadmap-item::before {
+				content: "";
+				position: absolute;
+				left: -1.1rem;
+				top: 0.35rem;
+				width: 0.9rem;
+				height: 0.9rem;
+				border-radius: 50%;
+				background: #ffffff;
+				box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.08);
+			}
+
+			.roadmap-item h3 {
+				margin-bottom: 0.3rem;
+			}
+
+			.roadmap-item span.tag {
+				display: inline-block;
+				font-size: 0.75rem;
+				letter-spacing: 0.08em;
+				text-transform: uppercase;
+				opacity: 0.7;
+				margin-bottom: 0.4rem;
+			}
+
+			/* Ajustes formulario */
+			form .field label {
+				font-size: 0.9rem;
+				opacity: 0.8;
+				margin-bottom: 0.25rem;
+				display: block;
+			}
+		</style>
 	</head>
 	<body class="is-preload">
 
 		<!-- Wrapper -->
-			<div id="wrapper">
+		<div id="wrapper">
 
-				<!-- Intro -->
-					<section class="intro">
-						<header>
-							<h1>Ruralicos</h1>
-							<p><p>Alertas del BOE y boletines oficiales para agricultores y ganaderos, directo a tu WhatsApp.</p></p>
-							<ul class="actions">
-								<li><a href="#first" class="arrow scrolly"><span class="label">Next</span></a></li>
+			<!-- Intro -->
+			<section class="intro">
+				<header>
+					<h1>Ruralicos</h1>
+					<p>Alertas del BOE y boletines oficiales para agricultores y ganaderos, directo a tu WhatsApp.</p>
+					<ul class="actions">
+						<li><a href="#problema" class="arrow scrolly"><span class="label">Saber más</span></a></li>
+					</ul>
+				</header>
+				<div class="content">
+					<span class="image fill" data-position="center">
+						<img src="images/logo_portada.png" alt="Logo de Ruralicos" />
+					</span>
+				</div>
+			</section>
+
+			<!-- El problema -->
+			<section id="problema">
+				<header>
+					<h2>El problema: la información no llega al campo</h2>
+				</header>
+				<div class="content">
+					<p><strong>En el campo no falla la gente: falla la información.</strong></p>
+
+					<p>
+						Cada día salen nuevas normas, requisitos, inspecciones, cambios en ayudas, papeleo y sanciones que afectan directamente a agricultores y ganaderos.
+						Pero nadie tiene tiempo para leer 200 páginas del BOE, descifrar lenguaje jurídico o enterarse de todo antes de que sea tarde.
+					</p>
+
+					<p>
+						El resultado es siempre el mismo: <strong>o pierdes dinero, o pierdes tiempo, o te multan sin haber hecho nada “mal”.</strong>
+					</p>
+
+					<p>
+						Mientras tanto, la administración publica en su idioma… y tú trabajas en el tuyo.
+						Así, miles de personas en el mundo rural viven desinformadas sin ser culpa suya: simplemente no hay un sistema que les explique lo importante de forma clara, rápida y útil.
+					</p>
+
+					<p><strong>Ruralicos nace para cambiar eso.</strong></p>
+
+					<span class="image main">
+						<img src="images/pic02.jpg" alt="Mundo rural y normativa" />
+					</span>
+				</div>
+			</section>
+
+			<!-- Qué es Ruralicos -->
+			<section id="que-es">
+				<header>
+					<h2>¿Qué es Ruralicos?</h2>
+				</header>
+				<div class="content">
+					<p>
+						<strong>Ruralicos</strong> es un sistema que lee por ti el BOE y los boletines oficiales (estatales y autonómicos),
+						filtra solo lo que afecta al campo y te lo manda explicado en claro a tu WhatsApp.
+					</p>
+
+					<p>
+						En vez de tragarte páginas y páginas de PDF, recibes mensajes cortos del tipo:
+					</p>
+
+					<ul>
+						<li><strong>“Nueva ayuda para explotaciones de ovino en Aragón: requisitos, plazos y cómo solicitarla.”</strong></li>
+						<li><strong>“Cambios en normativa de purines para ganaderías de vacuno: resumen y puntos clave de inspección.”</strong></li>
+						<li><strong>“Actualización de seguros agrarios para cultivos herbáceos: novedades y qué te interesa revisar.”</strong></li>
+					</ul>
+
+					<p>
+						Tú sigues trabajando en el campo. Nosotros nos peleamos con el BOE.
+					</p>
+
+					<h3>Cómo funciona (versión sencilla)</h3>
+					<ul class="feature-icons">
+						<li class="icon solid fa-file-alt">Leemos BOE y boletines oficiales cada día</li>
+						<li class="icon solid fa-filter">Filtramos por sector, subsector y provincia</li>
+						<li class="icon solid fa-brain">Un sistema inteligente resume y traduce el lenguaje jurídico</li>
+						<li class="icon solid fa-check">Te mostramos solo lo que te afecta de verdad</li>
+						<li class="icon solid fa-whatsapp">Te lo enviamos directo a WhatsApp en forma de alerta</li>
+						<li class="icon solid fa-bell">Tú decides qué tipo de avisos quieres recibir</li>
+					</ul>
+				</div>
+			</section>
+
+			<!-- Roadmap -->
+			<section id="roadmap">
+				<header>
+					<h2>Roadmap de Ruralicos</h2>
+				</header>
+				<div class="content">
+					<p>
+						Ruralicos está en fase de construcción. Esta es la hoja de ruta que estamos siguiendo para llevar la información del BOE al móvil de
+						cada agricultor y ganadero.
+					</p>
+
+					<div class="roadmap">
+						<div class="roadmap-item">
+							<span class="tag">Fase 1 · En desarrollo</span>
+							<h3>Lectura y filtrado de BOE / boletines oficiales</h3>
+							<p>
+								Poner en marcha el motor que revisa automáticamente el BOE, el BOA y otros diarios oficiales, y detecta 
+								todo lo relacionado con agricultura, ganadería y mundo rural.
+							</p>
+						</div>
+
+						<div class="roadmap-item">
+							<span class="tag">Fase 2 · Beta privada</span>
+							<h3>Alertas básicas por WhatsApp</h3>
+							<p>
+								Enviar mensajes sencillos con el resumen de la norma o ayuda, a una lista reducida de usuarios beta que nos ayuden a mejorar
+								la claridad, el formato y la frecuencia de los avisos.
+							</p>
+						</div>
+
+						<div class="roadmap-item">
+							<span class="tag">Fase 3 · Personalización</span>
+							<h3>Filtros por sector, subsector y provincia</h3>
+							<p>
+								Permitir que cada usuario elija si es agricultor, ganadero, mixto, su subsector (ovino, vacuno, porcino, etc.) 
+								y su zona, para recibir solo lo que le afecta.
+							</p>
+						</div>
+
+						<div class="roadmap-item">
+							<span class="tag">Fase 4 · Versión PRO</span>
+							<h3>Alertas avanzadas y resumen accionable</h3>
+							<p>
+								Alertas más completas con: qué ha cambiado, a quién afecta, qué plazos hay y qué pasos concretos seguir. 
+								Además, histórico de avisos y acceso a un panel simple para revisarlo todo.
+							</p>
+						</div>
+
+						<div class="roadmap-item">
+							<span class="tag">Fase 5 · Ecosistema rural</span>
+							<h3>Conexión con asesores, seguros y servicios rurales</h3>
+							<p>
+								Conectar a los usuarios con asesorías rurales, técnicos, seguros y otros servicios de confianza para pasar de 
+								“estar informado” a “tener el problema resuelto”.
+							</p>
+						</div>
+					</div>
+				</div>
+			</section>
+
+			<!-- Para quién es -->
+			<section id="para-quien">
+				<header>
+					<h2>¿Para quién es Ruralicos?</h2>
+				</header>
+				<div class="content">
+					<p>
+						Ruralicos está pensado para cualquiera que viva del campo y no quiera perder tiempo con papeles ni con el BOE:
+					</p>
+					<ul>
+						<li>Agricultores de secano y regadío.</li>
+						<li>Ganaderos de ovino, vacuno, porcino, avícola, etc.</li>
+						<li>Explotaciones mixtas familiares.</li>
+						<li>Autónomos rurales y pequeñas empresas del sector.</li>
+						<li>Gente joven que se incorpora al campo y no quiere empezar ya con sanciones o ayudas perdidas.</li>
+					</ul>
+
+					<p>
+						Si trabajas en el campo y sientes que “algo se te escapa” con normas, ayudas y papeles, 
+						<strong>Ruralicos es para ti.</strong>
+					</p>
+				</div>
+			</section>
+
+			<!-- Prueba / Registro -->
+			<section id="registro">
+				<header>
+					<h2>PRUÉBALO</h2>
+				</header>
+				<div class="content">
+					<p>
+						<strong>Apúntate a la beta de Ruralicos PRO</strong> y sé de los primeros en recibir las alertas cuando el sistema esté listo.
+					</p>
+					<p>
+						Te avisaremos por email o WhatsApp para que puedas probarlo <strong>GRATIS</strong> al principio.
+					</p>
+
+					<form method="post" action="#">
+						<div class="fields">
+							<div class="field half">
+								<label for="name">Nombre</label>
+								<input type="text" name="name" id="name" placeholder="Tu nombre" />
+							</div>
+							<div class="field half">
+								<label for="email">Email</label>
+								<input type="email" name="email" id="email" placeholder="tucorreo@ejemplo.com" />
+							</div>
+							<div class="field half">
+								<label for="whatsapp">WhatsApp (opcional)</label>
+								<input type="text" name="whatsapp" id="whatsapp" placeholder="+34 6XX XX XX XX" />
+							</div>
+							<div class="field half">
+								<label for="perfil">Perfil</label>
+								<select name="perfil" id="perfil">
+									<option value="">Selecciona una opción</option>
+									<option value="agricultor">Agricultor</option>
+									<option value="ganadero">Ganadero</option>
+									<option value="mixto">Mixto (agricultura y ganadería)</option>
+									<option value="otro">Otro profesional del mundo rural</option>
+                                </select>
+							</div>
+							<div class="field">
+								<label for="message">Cuéntanos algo más (opcional)</label>
+								<textarea name="message" id="message" placeholder="Ej: zona, cultivos/ganado, qué tipo de alertas te interesan..." rows="5"></textarea>
+							</div>
+						</div>
+						<ul class="actions">
+							<li><input type="submit" value="Quiero inscribirme" class="button primary" /></li>
+						</ul>
+					</form>
+				</div>
+				<footer>
+					<ul class="items">
+						<li>
+							<h3>Email</h3>
+							<a href="mailto:soporteruralicos@gmail.com">soporteruralicos@gmail.com</a>
+						</li>
+						<li>
+							<h3>Teléfono</h3>
+							<a href="tel:+34614833266">(+34) 614 83 32 66</a>
+						</li>
+						<li>
+							<h3>Redes (próximamente)</h3>
+							<ul class="icons">
+								<li><span class="icon brands fa-instagram"><span class="label">Instagram</span></span></li>
+								<li><span class="icon brands fa-twitter"><span class="label">Twitter</span></span></li>
+								<li><span class="icon brands fa-linkedin-in"><span class="label">LinkedIn</span></span></li>
 							</ul>
-						</header>
-						<div class="content">
-							<span class="image fill" data-position="center"><img src="images/logo_portada.png" alt="" /></span>
-						</div>
-					</section>
+						</li>
+					</ul>
+				</footer>
+			</section>
 
-				<!-- Section -->
-					<section id="first">
-						<header>
-							<h2>¿Qué es Ruralicos?</h2>
-						</header>
-						<div class="content">
-							<p><strong>El problema:</strong> En el campo no falla la gente: <strong>falla la información.</strong>
-
-Cada día salen nuevas normas, requisitos, inspecciones, cambios en ayudas, papeleo y sanciones que afectan directamente a agricultores y ganaderos. Pero nadie tiene tiempo para leer 200 páginas del BOE, descifrar lenguaje jurídico o enterarse de todo antes de que sea tarde.
-
-El resultado es siempre el mismo:
-o pierdes dinero, o pierdes tiempo, o te multan sin haber hecho nada “mal”.
-
- </strong>Mientras tanto, la administración publica en su idioma… y tú trabajas en el tuyo.</strong>
-
-Y así, miles de personas en el mundo rural viven desinformadas sin ser culpa suya: simplemente no hay un sistema que les explique lo importante de forma clara, rápida y útil.
-
-</strong>Ruralicos nace para cambiar eso.</strong>
-</p>
-							<span class="image main"><img src="images/pic02.jpg" alt="" /></span>
-						</div>
-					</section>
-
-				<!-- Section -->
-					<section>
-						<header>
-							<h2>Feugiat consequat tempus ultrices</h2>
-						</header>
-						<div class="content">
-							<p><strong>Etiam tristique libero</strong> eu nibh porttitor amet fermentum. Nullam venenatis erat id vehicula ultrices sed ultricies condimentum.</p>
-							<ul class="feature-icons">
-								<li class="icon solid fa-laptop">Consequat tempus</li>
-								<li class="icon solid fa-bolt">Etiam adipiscing</li>
-								<li class="icon solid fa-signal">Libero nullam</li>
-								<li class="icon solid fa-cog">Blandit condimentum</li>
-								<li class="icon solid fa-map-marker-alt">Lorem ipsum dolor</li>
-								<li class="icon solid fa-code">Nibh amet venenatis</li>
-							</ul>
-							<p>Vehicula ultrices sed ultricies condimentum. Magna sed etiam consequat, et lorem adipiscing sed nulla. Volutpat nisl et tempus et dolor libero, feugiat magna tempus, sed et lorem adipiscing.</p>
-						</div>
-					</section>
-
-				<!-- Section -->
-					<section>
-						<header>
-							<h2>Ultrices erat magna sed condimentum</h2>
-						</header>
-						<div class="content">
-							<p><strong>Integer mollis egestas</strong> nam maximus erat id euismod egestas. Pellentesque sapien ac quam. Lorem ipsum dolor sit nullam.</p>
-
-							<!-- Section -->
-								<section>
-									<header>
-										<h3>Erat aliquam</h3>
-										<p>Vehicula ultrices dolor amet ultricies et condimentum. Magna sed etiam consequat, et lorem adipiscing sed dolor sit amet, consectetur amet do eiusmod tempor incididunt  ipsum suspendisse ultrices gravida.</p>
-									</header>
-									<div class="content">
-										<div class="gallery">
-											<a href="images/gallery/fulls/01.jpg" class="landscape"><img src="images/gallery/thumbs/01.jpg" alt="" /></a>
-											<a href="images/gallery/fulls/02.jpg"><img src="images/gallery/thumbs/02.jpg" alt="" /></a>
-											<a href="images/gallery/fulls/03.jpg"><img src="images/gallery/thumbs/03.jpg" alt="" /></a>
-											<a href="images/gallery/fulls/04.jpg" class="landscape"><img src="images/gallery/thumbs/04.jpg" alt="" /></a>
-										</div>
-									</div>
-								</section>
-
-							<!-- Section -->
-								<section>
-									<header>
-										<h3>Nisl consequat</h3>
-										<p>Aenean ornare velit lacus, ac varius enim ullamcorper eu. Proin aliquam sed facilisis ante interdum congue. Integer mollis, nisl amet convallis, porttitor magna ullamcorper, amet mauris. Ut magna finibus nisi nec lacinia ipsum maximus.</p>
-									</header>
-									<div class="content">
-										<div class="gallery">
-											<a href="images/gallery/fulls/05.jpg" class="landscape"><img src="images/gallery/thumbs/05.jpg" alt="" /></a>
-											<a href="images/gallery/fulls/06.jpg"><img src="images/gallery/thumbs/06.jpg" alt="" /></a>
-											<a href="images/gallery/fulls/07.jpg"><img src="images/gallery/thumbs/07.jpg" alt="" /></a>
-										</div>
-									</div>
-								</section>
-
-							<!-- Section -->
-								<section>
-									<header>
-										<h3>Lorem gravida</h3>
-										<p>Proin aliquam facilisis ante interdum. Sed nulla amet lorem feugiat tempus aenean ornare velit lacus, ac varius sed enim lorem ullamcorper dolore.  ac varius enim lorem ullamcorper dolore. Proin aliquam facilisis.</p>
-									</header>
-									<div class="content">
-										<div class="gallery">
-											<a href="images/gallery/fulls/08.jpg" class="portrait"><img src="images/gallery/thumbs/08.jpg" alt="" /></a>
-											<a href="images/gallery/fulls/09.jpg" class="portrait"><img src="images/gallery/thumbs/09.jpg" alt="" /></a>
-											<a href="images/gallery/fulls/10.jpg" class="landscape"><img src="images/gallery/thumbs/10.jpg" alt="" /></a>
-										</div>
-									</div>
-								</section>
-
-						</div>
-					</section>
-
-				<!-- Section -->
-					<section>
-						<header>
-							<h2>Duis sed adpiscing veroeros amet</h2>
-						</header>
-						<div class="content">
-							<p><strong>Proin tempus feugiat</strong> sed varius enim lorem ullamcorper dolore aliquam aenean ornare velit lacus, ac varius enim lorem ullamcorper dolore.</p>
-							<ul class="actions">
-								<li><a href="#" class="button primary large">Get Started</a></li>
-								<li><a href="#" class="button large">Learn More</a></li>
-							</ul>
-						</div>
-					</section>
-
-				<!-- Elements -->
-				<!--
-					<section>
-						<header>
-							<h2>Elements</h2>
-						</header>
-						<div class="content">
-
-							<section>
-								<header>
-									<h3>Text</h3>
-								</header>
-								<div class="content">
-									<p>This is <b>bold</b> and this is <strong>strong</strong>. This is <i>italic</i> and this is <em>emphasized</em>.
-									This is <sup>superscript</sup> text and this is <sub>subscript</sub> text.
-									This is <u>underlined</u> and this is code: <code>for (;;) { ... }</code>. Finally, <a href="#">this is a link</a>.</p>
-									<hr />
-									<h2>Heading Level 2</h2>
-									<h3>Heading Level 3</h3>
-									<h4>Heading Level 4</h4>
-									<h5>Heading Level 5</h5>
-									<hr />
-									<h5>Blockquote</h5>
-									<blockquote>Fringilla nisl. Donec accumsan interdum nisi, quis tincidunt felis sagittis eget tempus euismod. Vestibulum ante ipsum primis in faucibus vestibulum. Blandit adipiscing eu felis iaculis volutpat ac adipiscing accumsan faucibus. Vestibulum ante ipsum primis in faucibus lorem ipsum dolor sit amet nullam adipiscing eu felis.</blockquote>
-									<h5>Preformatted</h5>
-									<pre><code>i = 0;
-
-while (!deck.isInOrder()) {
-  print 'Iteration ' + i;
-  deck.shuffle();
-  i++;
-}
-
-print 'Sorted in ' + i + ' iterations.';</code></pre>
-								</div>
-							</section>
-
-							<section>
-								<header>
-									<h3>Lists</h3>
-								</header>
-								<div class="content">
-
-									<h4>Unordered</h4>
-									<ul>
-										<li>Dolor pulvinar etiam.</li>
-										<li>Sagittis adipiscing.</li>
-										<li>Felis enim feugiat.</li>
-									</ul>
-
-									<h4>Alternate</h4>
-									<ul class="alt">
-										<li>Dolor pulvinar etiam.</li>
-										<li>Sagittis adipiscing.</li>
-										<li>Felis enim feugiat.</li>
-									</ul>
-
-									<h4>Ordered</h4>
-									<ol>
-										<li>Dolor pulvinar etiam.</li>
-										<li>Etiam vel felis viverra.</li>
-										<li>Felis enim feugiat.</li>
-										<li>Dolor pulvinar etiam.</li>
-										<li>Etiam vel felis lorem.</li>
-										<li>Felis enim et feugiat.</li>
-									</ol>
-									<h4>Icons</h4>
-									<ul class="icons">
-										<li><a href="#" class="icon brands fa-twitter"><span class="label">Twitter</span></a></li>
-										<li><a href="#" class="icon brands fa-facebook-f"><span class="label">Facebook</span></a></li>
-										<li><a href="#" class="icon brands fa-instagram"><span class="label">Instagram</span></a></li>
-										<li><a href="#" class="icon brands fa-github"><span class="label">Github</span></a></li>
-									</ul>
-
-									<h4>Actions</h4>
-									<ul class="actions">
-										<li><a href="#" class="button primary">Default</a></li>
-										<li><a href="#" class="button">Default</a></li>
-									</ul>
-									<ul class="actions stacked">
-										<li><a href="#" class="button primary">Default</a></li>
-										<li><a href="#" class="button">Default</a></li>
-									</ul>
-								</div>
-							</section>
-
-							<section>
-								<header>
-									<h3>Table</h3>
-								</header>
-								<div class="content">
-									<h4>Default</h4>
-									<div class="table-wrapper">
-										<table>
-											<thead>
-												<tr>
-													<th>Name</th>
-													<th>Description</th>
-													<th>Price</th>
-												</tr>
-											</thead>
-											<tbody>
-												<tr>
-													<td>Item One</td>
-													<td>Ante turpis integer aliquet porttitor.</td>
-													<td>29.99</td>
-												</tr>
-												<tr>
-													<td>Item Two</td>
-													<td>Vis ac commodo adipiscing arcu aliquet.</td>
-													<td>19.99</td>
-												</tr>
-												<tr>
-													<td>Item Three</td>
-													<td> Morbi faucibus arcu accumsan lorem.</td>
-													<td>29.99</td>
-												</tr>
-												<tr>
-													<td>Item Four</td>
-													<td>Vitae integer tempus condimentum.</td>
-													<td>19.99</td>
-												</tr>
-												<tr>
-													<td>Item Five</td>
-													<td>Ante turpis integer aliquet porttitor.</td>
-													<td>29.99</td>
-												</tr>
-											</tbody>
-											<tfoot>
-												<tr>
-													<td colspan="2"></td>
-													<td>100.00</td>
-												</tr>
-											</tfoot>
-										</table>
-									</div>
-
-									<h4>Alternate</h4>
-									<div class="table-wrapper">
-										<table class="alt">
-											<thead>
-												<tr>
-													<th>Name</th>
-													<th>Description</th>
-													<th>Price</th>
-												</tr>
-											</thead>
-											<tbody>
-												<tr>
-													<td>Item One</td>
-													<td>Ante turpis integer aliquet porttitor.</td>
-													<td>29.99</td>
-												</tr>
-												<tr>
-													<td>Item Two</td>
-													<td>Vis ac commodo adipiscing arcu aliquet.</td>
-													<td>19.99</td>
-												</tr>
-												<tr>
-													<td>Item Three</td>
-													<td> Morbi faucibus arcu accumsan lorem.</td>
-													<td>29.99</td>
-												</tr>
-												<tr>
-													<td>Item Four</td>
-													<td>Vitae integer tempus condimentum.</td>
-													<td>19.99</td>
-												</tr>
-												<tr>
-													<td>Item Five</td>
-													<td>Ante turpis integer aliquet porttitor.</td>
-													<td>29.99</td>
-												</tr>
-											</tbody>
-											<tfoot>
-												<tr>
-													<td colspan="2"></td>
-													<td>100.00</td>
-												</tr>
-											</tfoot>
-										</table>
-									</div>
-								</div>
-							</section>
-
-							<section>
-								<header>
-									<h3>Buttons</h3>
-								</header>
-								<div class="content">
-									<ul class="actions">
-										<li><a href="#" class="button primary">Primary</a></li>
-										<li><a href="#" class="button">Default</a></li>
-									</ul>
-									<ul class="actions">
-										<li><a href="#" class="button large">Large</a></li>
-										<li><a href="#" class="button">Default</a></li>
-										<li><a href="#" class="button small">Small</a></li>
-									</ul>
-									<ul class="actions">
-										<li><a href="#" class="button primary icon solid fa-download">Icon</a></li>
-										<li><a href="#" class="button icon solid fa-download">Icon</a></li>
-									</ul>
-									<ul class="actions">
-										<li><span class="button primary disabled">Disabled</span></li>
-										<li><span class="button disabled">Disabled</span></li>
-									</ul>
-								</div>
-							</section>
-
-							<section>
-								<header>
-									<h3>Form</h3>
-								</header>
-								<div class="content">
-									<form method="post" action="#">
-										<div class="fields">
-											<div class="field half">
-												<label for="demo-name">Name</label>
-												<input type="text" name="demo-name" id="demo-name" value="" placeholder="Jane Doe" />
-											</div>
-											<div class="field half">
-												<label for="demo-email">Email</label>
-												<input type="email" name="demo-email" id="demo-email" value="" placeholder="jane@untitled.tld" />
-											</div>
-											<div class="field">
-												<label for="demo-category">Category</label>
-												<select name="demo-category" id="demo-category">
-													<option value="">-</option>
-													<option value="1">Manufacturing</option>
-													<option value="1">Shipping</option>
-													<option value="1">Administration</option>
-													<option value="1">Human Resources</option>
-												</select>
-											</div>
-											<div class="field half">
-												<input type="radio" id="demo-priority-low" name="demo-priority" checked>
-												<label for="demo-priority-low">Low</label>
-											</div>
-											<div class="field half">
-												<input type="radio" id="demo-priority-high" name="demo-priority">
-												<label for="demo-priority-high">High</label>
-											</div>
-											<div class="field half">
-												<input type="checkbox" id="demo-copy" name="demo-copy">
-												<label for="demo-copy">Email me a copy</label>
-											</div>
-											<div class="field half">
-												<input type="checkbox" id="demo-human" name="demo-human" checked>
-												<label for="demo-human">Not a robot</label>
-											</div>
-											<div class="field">
-												<label for="demo-message">Message</label>
-												<textarea name="demo-message" id="demo-message" placeholder="Enter your message" rows="6"></textarea>
-											</div>
-										</div>
-										<ul class="actions">
-											<li><input type="submit" value="Send Message" class="primary" /></li>
-											<li><input type="reset" value="Reset" /></li>
-										</ul>
-									</form>
-								</div>
-							</section>
-
-						</div>
-					</section>
-				-->
-
-				<!-- Section -->
-					<section>
-						<header>
-							<h2>PRUEBALO</h2>
-						</header>
-						<div class="content">
-							<p><strong>Prueba GRATIS!</strong> 👉 Quiero probar Ruralicos PRO (gratis en beta)</p>
-							<form>
-								<div class="fields">
-									<div class="field half">
-										<input type="text" name="name" id="name" placeholder="Name" />
-									</div>
-									<div class="field half">
-										<input type="email" name="email" id="email" placeholder="Email" />
-									</div>
-									<div class="field">
-										<textarea name="message" id="message" placeholder="Message" rows="7"></textarea>
-									</div>
-								</div>
-								<ul class="actions">
-									<li><input type="submit" value="Quiero inscribirme" class="button primary" /></li>
-								</ul>
-							</form>
-						</div>
-						<footer>
-							<ul class="items">
-								<li>
-									<h3>Email</h3>
-									<a href="#">soporteruralicos@gmail.com</a>
-								</li>
-								<li>
-									<h3>Teléfono</h3>
-									<a href="#">(+34) 614 83 32 66</a>
-								</li>
-								
-								<li>
-									<h3>Elsewhere</h3>
-									<ul class="icons">
-										<li><a href="#" class="icon brands fa-twitter"><span class="label">Twitter</span></a></li>
-										<li><a href="#" class="icon brands fa-facebook-f"><span class="label">Facebook</span></a></li>
-										<li><a href="#" class="icon brands fa-instagram"><span class="label">Instagram</span></a></li>
-										<li><a href="#" class="icon brands fa-linkedin-in"><span class="label">LinkedIn</span></a></li>
-										<li><a href="#" class="icon brands fa-github"><span class="label">GitHub</span></a></li>
-										<li><a href="#" class="icon brands fa-codepen"><span class="label">Codepen</span></a></li>
-									</ul>
-								</li>
-							</ul>
-						</footer>
-					</section>
-
-				<!-- Copyright -->
-					<div class="copyright">&copy; Ruralicos. Todos los derechos reservados. Design: <a href="https://html5up.net">HTML5 UP</a>.</div>
-
+			<!-- Copyright -->
+			<div class="copyright">
+				&copy; Ruralicos. Todos los derechos reservados. Design: <a href="https://html5up.net">HTML5 UP</a>.
 			</div>
 
+		</div>
+
 		<!-- Scripts -->
-			<script src="assets/js/jquery.min.js"></script>
-			<script src="assets/js/jquery.scrolly.min.js"></script>
-			<script src="assets/js/browser.min.js"></script>
-			<script src="assets/js/breakpoints.min.js"></script>
-			<script src="assets/js/util.js"></script>
-			<script src="assets/js/main.js"></script>
+		<script src="assets/js/jquery.min.js"></script>
+		<script src="assets/js/jquery.scrolly.min.js"></script>
+		<script src="assets/js/browser.min.js"></script>
+		<script src="assets/js/breakpoints.min.js"></script>
+		<script src="assets/js/util.js"></script>
+		<script src="assets/js/main.js"></script>
 
 	</body>
 </html>
