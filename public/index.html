@@ -9,121 +9,328 @@
 		<title>Ruralicos – Alertas del BOE para el campo</title>
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
-		<meta name="description" content="" />
-		<meta name="keywords" content="" />
+		<meta name="description" content="Ruralicos convierte el BOE y los boletines oficiales en alertas simples y claras para agricultores y ganaderos, directo a tu WhatsApp." />
+		<meta name="keywords" content="Ruralicos, BOE, ayudas, agricultura, ganadería, boletines oficiales, mundo rural, WhatsApp" />
 		<link rel="stylesheet" href="assets/css/main.css" />
-		
-		<!-- Overrides personalizados Ruralicos -->
+		<!-- Estilos personalizados para adaptar la landing a Ruralicos -->
 		<style>
-			/* Logo portada visible y centrado */
-			.intro .image.fill {
-				display: flex;
-				align-items: center;
-				justify-content: center;
-				padding: 1.5rem 0;
-			}
+			/* Reducir tamaño visual de la primera imagen (logo) */
 			.intro .image.fill img {
-				max-height: 380px;
-				width: auto;
+				max-height: 260px;
 				object-fit: contain;
 			}
 
-			/* Mover la línea verde y el bloque de contenido más a la izquierda */
-			#wrapper > section > header {
-				width: 23%;
-			}
-			#wrapper > section > .content {
-				margin-left: 23%;
-				border-left-width: 2px;
-				border-left-style: solid;
-				border-left-color: #2dd5ba; /* verde/turquesa */
+			/* Opcional: reducir un poco el padding vertical de la intro */
+			.intro header {
+				padding-top: 2.5rem;
+				padding-bottom: 2.5rem;
 			}
 
-			/* Que el texto del problema no quede demasiado ancho */
-			#first .content {
-				max-width: 36rem;
+			/* Roadmap vertical sencillo */
+			.roadmap {
+				border-left: 3px solid rgba(255, 255, 255, 0.15);
+				margin-left: 0.75rem;
+				padding-left: 1.75rem;
+			}
+
+			.roadmap-item {
+				position: relative;
+				margin-bottom: 2.5rem;
+			}
+
+			.roadmap-item:last-child {
+				margin-bottom: 0;
+			}
+
+			.roadmap-item::before {
+				content: "";
+				position: absolute;
+				left: -1.1rem;
+				top: 0.35rem;
+				width: 0.9rem;
+				height: 0.9rem;
+				border-radius: 50%;
+				background: #ffffff;
+				box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.08);
+			}
+
+			.roadmap-item h3 {
+				margin-bottom: 0.3rem;
+			}
+
+			.roadmap-item span.tag {
+				display: inline-block;
+				font-size: 0.75rem;
+				letter-spacing: 0.08em;
+				text-transform: uppercase;
+				opacity: 0.7;
+				margin-bottom: 0.4rem;
+			}
+
+			/* Ajustes formulario */
+			form .field label {
+				font-size: 0.9rem;
+				opacity: 0.8;
+				margin-bottom: 0.25rem;
+				display: block;
 			}
 		</style>
 	</head>
 	<body class="is-preload">
 
 		<!-- Wrapper -->
-			<div id="wrapper">
+		<div id="wrapper">
 
-				<!-- Intro -->
-					<section class="intro">
-						<header>
-							<h1>Ruralicos</h1>
-							<p><p>Alertas del BOE y boletines oficiales para agricultores y ganaderos, directo a tu WhatsApp.</p></p>
-							<ul class="actions">
-								<li><a href="#first" class="arrow scrolly"><span class="label">Next</span></a></li>
-							</ul>
-						</header>
-						<div class="content">
-							<span class="image fill" data-position="center"><img src="images/logo_portada.png" alt="Logo Ruralicos" /></span>
-						</div>
-					</section>
+			<!-- Intro -->
+			<section class="intro">
+				<header>
+					<h1>Ruralicos</h1>
+					<p>Alertas del BOE y boletines oficiales para agricultores y ganaderos, directo a tu WhatsApp.</p>
+					<ul class="actions">
+						<li><a href="#problema" class="arrow scrolly"><span class="label">Saber más</span></a></li>
+					</ul>
+				</header>
+				<div class="content">
+					<span class="image fill" data-position="center">
+						<img src="images/logo_portada.png" alt="Logo de Ruralicos" />
+					</span>
+				</div>
+			</section>
 
-				<!-- Section -->
-					<section id="first">
-						<header>
-							<h2>¿Qué es Ruralicos?</h2>
-						</header>
-						<div class="content">
-							<p><strong>El problema:</strong> En el campo no falla la gente: <strong>falla la información.</strong>
+			<!-- El problema -->
+			<section id="problema">
+				<header>
+					<h2>El problema: la información no llega al campo</h2>
+				</header>
+				<div class="content">
+					<p><strong>En el campo no falla la gente: falla la información.</strong></p>
 
-Cada día salen nuevas normas, requisitos, inspecciones, cambios en ayudas, papeleo y sanciones que afectan directamente a agricultores y ganaderos. Pero nadie tiene tiempo para leer 200 páginas del BOE, descifrar lenguaje jurídico o enterarse de todo antes de que sea tarde.
+					<p>
+						Cada día salen nuevas normas, requisitos, inspecciones, cambios en ayudas, papeleo y sanciones que afectan directamente a agricultores y ganaderos.
+						Pero nadie tiene tiempo para leer 200 páginas del BOE, descifrar lenguaje jurídico o enterarse de todo antes de que sea tarde.
+					</p>
 
-El resultado es siempre el mismo:
-o pierdes dinero, o pierdes tiempo, o te multan sin haber hecho nada “mal”.
+					<p>
+						El resultado es siempre el mismo: <strong>o pierdes dinero, o pierdes tiempo, o te multan sin haber hecho nada “mal”.</strong>
+					</p>
 
-<strong>Mientras tanto, la administración publica en su idioma… y tú trabajas en el tuyo.</strong>
+					<p>
+						Mientras tanto, la administración publica en su idioma… y tú trabajas en el tuyo.
+						Así, miles de personas en el mundo rural viven desinformadas sin ser culpa suya: simplemente no hay un sistema que les explique lo importante de forma clara, rápida y útil.
+					</p>
 
-Y así, miles de personas en el mundo rural viven desinformadas sin ser culpa suya: simplemente no hay un sistema que les explique lo importante de forma clara, rápida y útil.
+					<p><strong>Ruralicos nace para cambiar eso.</strong></p>
 
-<strong>Ruralicos nace para cambiar eso.</strong>
+					<span class="image main">
+						<img src="images/pic02.jpg" alt="Mundo rural y normativa" />
+					</span>
+				</div>
+			</section>
+
+			<!-- Qué es Ruralicos -->
+			<section id="que-es">
+				<header>
+					<h2>¿Qué es Ruralicos?</h2>
+				</header>
+				<div class="content">
+					<p>
+						<strong>Ruralicos</strong> es un sistema que lee por ti el BOE y los boletines oficiales (estatales y autonómicos),
+						filtra solo lo que afecta al campo y te lo manda explicado en claro a tu WhatsApp.
+					</p>
+
+					<p>
+						En vez de tragarte páginas y páginas de PDF, recibes mensajes cortos del tipo:
+					</p>
+
+					<ul>
+						<li><strong>“Nueva ayuda para explotaciones de ovino en Aragón: requisitos, plazos y cómo solicitarla.”</strong></li>
+						<li><strong>“Cambios en normativa de purines para ganaderías de vacuno: resumen y puntos clave de inspección.”</strong></li>
+						<li><strong>“Actualización de seguros agrarios para cultivos herbáceos: novedades y qué te interesa revisar.”</strong></li>
+					</ul>
+
+					<p>
+						Tú sigues trabajando en el campo. Nosotros nos peleamos con el BOE.
+					</p>
+
+					<h3>Cómo funciona (versión sencilla)</h3>
+					<ul class="feature-icons">
+						<li class="icon solid fa-file-alt">Leemos BOE y boletines oficiales cada día</li>
+						<li class="icon solid fa-filter">Filtramos por sector, subsector y provincia</li>
+						<li class="icon solid fa-brain">Un sistema inteligente resume y traduce el lenguaje jurídico</li>
+						<li class="icon solid fa-check">Te mostramos solo lo que te afecta de verdad</li>
+						<li class="icon solid fa-whatsapp">Te lo enviamos directo a WhatsApp en forma de alerta</li>
+						<li class="icon solid fa-bell">Tú decides qué tipo de avisos quieres recibir</li>
+					</ul>
+				</div>
+			</section>
+
+			<!-- Roadmap -->
+			<section id="roadmap">
+				<header>
+					<h2>Roadmap de Ruralicos</h2>
+				</header>
+				<div class="content">
+					<p>
+						Ruralicos está en fase de construcción. Esta es la hoja de ruta que estamos siguiendo para llevar la información del BOE al móvil de
+						cada agricultor y ganadero.
+					</p>
+
+					<div class="roadmap">
+						<div class="roadmap-item">
+							<span class="tag">Fase 1 · En desarrollo</span>
+							<h3>Lectura y filtrado de BOE / boletines oficiales</h3>
+							<p>
+								Poner en marcha el motor que revisa automáticamente el BOE, el BOA y otros diarios oficiales, y detecta 
+								todo lo relacionado con agricultura, ganadería y mundo rural.
 							</p>
-							<span class="image main"><img src="images/pic02.jpg" alt="" /></span>
 						</div>
-					</section>
 
-				<!-- Section -->
-					<section>
-						<header>
-							<h2>Sistema de alertas sencillas para gente del campo</h2>
-						</header>
-						<div class="content">
-							<p><strong>Ruralicos</strong> es un sistema que lee el BOE y los boletines oficiales por ti, filtra solo lo que afecta al campo, y te lo manda explicado en claro a tu WhatsApp.</p>
-							<p>En vez de tragarte páginas y páginas de PDF, recibes mensajes cortos del tipo:</p>
-							<ul>
-								<li><strong>“Nueva ayuda para explotaciones de ovino en Aragón: requisitos, plazos y cómo solicitarla.”</strong></li>
-								<li><strong>“Cambios en normativa de purines para ganaderías de vacuno: resumen y puntos clave de inspección.”</strong></li>
-								<li><strong>“Actualización de seguros agrarios para cultivos herbáceos: novedades y qué te interesa revisar.”</strong></li>
-							</ul>
-							<p>Tú sigues trabajando en el campo. Nosotros nos peleamos con el BOE.</p>
-							<ul class="feature-icons">
-								<li class="icon solid fa-file-alt">Leemos BOE y boletines oficiales cada día</li>
-								<li class="icon solid fa-filter">Filtramos por sector, subsector y provincia</li>
-								<li class="icon solid fa-brain">Un sistema inteligente resume y traduce el lenguaje jurídico</li>
-								<li class="icon solid fa-check">Te mostramos solo lo que te afecta de verdad</li>
-								<li class="icon solid fa-whatsapp">Te lo enviamos directo a WhatsApp en forma de alerta</li>
-								<li class="icon solid fa-bell">Tú decides qué tipo de avisos quieres recibir</li>
-							</ul>
+						<div class="roadmap-item">
+							<span class="tag">Fase 2 · Beta privada</span>
+							<h3>Alertas básicas por WhatsApp</h3>
+							<p>
+								Enviar mensajes sencillos con el resumen de la norma o ayuda, a una lista reducida de usuarios beta que nos ayuden a mejorar
+								la claridad, el formato y la frecuencia de los avisos.
+							</p>
 						</div>
-					</section>
 
-				<!-- Aquí seguirían el resto de secciones originales de la plantilla
-				     (roadmap, para quién es, formulario, etc.) tal y como las tengas ahora -->
+						<div class="roadmap-item">
+							<span class="tag">Fase 3 · Personalización</span>
+							<h3>Filtros por sector, subsector y provincia</h3>
+							<p>
+								Permitir que cada usuario elija si es agricultor, ganadero, mixto, su subsector (ovino, vacuno, porcino, etc.) 
+								y su zona, para recibir solo lo que le afecta.
+							</p>
+						</div>
 
+						<div class="roadmap-item">
+							<span class="tag">Fase 4 · Versión PRO</span>
+							<h3>Alertas avanzadas y resumen accionable</h3>
+							<p>
+								Alertas más completas con: qué ha cambiado, a quién afecta, qué plazos hay y qué pasos concretos seguir. 
+								Además, histórico de avisos y acceso a un panel simple para revisarlo todo.
+							</p>
+						</div>
+
+						<div class="roadmap-item">
+							<span class="tag">Fase 5 · Ecosistema rural</span>
+							<h3>Conexión con asesores, seguros y servicios rurales</h3>
+							<p>
+								Conectar a los usuarios con asesorías rurales, técnicos, seguros y otros servicios de confianza para pasar de 
+								“estar informado” a “tener el problema resuelto”.
+							</p>
+						</div>
+					</div>
+				</div>
+			</section>
+
+			<!-- Para quién es -->
+			<section id="para-quien">
+				<header>
+					<h2>¿Para quién es Ruralicos?</h2>
+				</header>
+				<div class="content">
+					<p>
+						Ruralicos está pensado para cualquiera que viva del campo y no quiera perder tiempo con papeles ni con el BOE:
+					</p>
+					<ul>
+						<li>Agricultores de secano y regadío.</li>
+						<li>Ganaderos de ovino, vacuno, porcino, avícola, etc.</li>
+						<li>Explotaciones mixtas familiares.</li>
+						<li>Autónomos rurales y pequeñas empresas del sector.</li>
+						<li>Gente joven que se incorpora al campo y no quiere empezar ya con sanciones o ayudas perdidas.</li>
+					</ul>
+
+					<p>
+						Si trabajas en el campo y sientes que “algo se te escapa” con normas, ayudas y papeles, 
+						<strong>Ruralicos es para ti.</strong>
+					</p>
+				</div>
+			</section>
+
+			<!-- Prueba / Registro -->
+			<section id="registro">
+				<header>
+					<h2>PRUÉBALO</h2>
+				</header>
+				<div class="content">
+					<p>
+						<strong>Apúntate a la beta de Ruralicos PRO</strong> y sé de los primeros en recibir las alertas cuando el sistema esté listo.
+					</p>
+					<p>
+						Te avisaremos por email o WhatsApp para que puedas probarlo <strong>GRATIS</strong> al principio.
+					</p>
+
+					<form method="post" action="#">
+						<div class="fields">
+							<div class="field half">
+								<label for="name">Nombre</label>
+								<input type="text" name="name" id="name" placeholder="Tu nombre" />
+							</div>
+							<div class="field half">
+								<label for="email">Email</label>
+								<input type="email" name="email" id="email" placeholder="tucorreo@ejemplo.com" />
+							</div>
+							<div class="field half">
+								<label for="whatsapp">WhatsApp</label>
+								<input type="text" name="whatsapp" id="whatsapp" placeholder="+34 6XX XX XX XX" />
+							</div>
+							<div class="field half">
+								<label for="perfil">Perfil</label>
+								<select name="perfil" id="perfil">
+									<option value="">Selecciona una opción</option>
+									<option value="agricultor">Agricultor</option>
+									<option value="ganadero">Ganadero</option>
+									<option value="mixto">Mixto (agricultura y ganadería)</option>
+									<option value="otro">Otro profesional del mundo rural</option>
+                                </select>
+							</div>
+							<div class="field">
+								<label for="message">Cuéntanos algo más (opcional)</label>
+								<textarea name="message" id="message" placeholder="Ej: zona, cultivos/ganado, qué tipo de alertas te interesan..." rows="5"></textarea>
+							</div>
+						</div>
+						<ul class="actions">
+							<li><input type="submit" value="Quiero inscribirme" class="button primary" /></li>
+						</ul>
+					</form>
+				</div>
+				<footer>
+					<ul class="items">
+						<li>
+							<h3>Email</h3>
+							<a href="mailto:soporteruralicos@gmail.com">soporteruralicos@gmail.com</a>
+						</li>
+						<li>
+							<h3>Teléfono</h3>
+							<a href="tel:+34614833266">(+34) 614 83 32 66</a>
+						</li>
+						<li>
+							<h3>Redes (próximamente)</h3>
+							<ul class="icons">
+								<li><span class="icon brands fa-instagram"><span class="label">Instagram</span></span></li>
+								<li><span class="icon brands fa-twitter"><span class="label">Twitter</span></span></li>
+								<li><span class="icon brands fa-linkedin-in"><span class="label">LinkedIn</span></span></li>
+							</ul>
+						</li>
+					</ul>
+				</footer>
+			</section>
+
+			<!-- Copyright -->
+			<div class="copyright">
+				&copy; Ruralicos. Todos los derechos reservados. Design: <a href="https://html5up.net">HTML5 UP</a>.
 			</div>
 
+		</div>
+
 		<!-- Scripts -->
-			<script src="assets/js/jquery.min.js"></script>
-			<script src="assets/js/jquery.scrolly.min.js"></script>
-			<script src="assets/js/browser.min.js"></script>
-			<script src="assets/js/breakpoints.min.js"></script>
-			<script src="assets/js/util.js"></script>
-			<script src="assets/js/main.js"></script>
+		<script src="assets/js/jquery.min.js"></script>
+		<script src="assets/js/jquery.scrolly.min.js"></script>
+		<script src="assets/js/browser.min.js"></script>
+		<script src="assets/js/breakpoints.min.js"></script>
+		<script src="assets/js/util.js"></script>
+		<script src="assets/js/main.js"></script>
 
 	</body>
 </html>
