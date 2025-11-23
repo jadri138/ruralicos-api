@@ -14,35 +14,16 @@
 		<link rel="stylesheet" href="assets/css/main.css" />
 		<!-- Estilos personalizados para adaptar la landing a Ruralicos -->
 		<style>
-			/* Intro / imagen portada centrada y un poco más grande */
-			.intro .image.fill {
-				display: flex;
-				align-items: center;
-				justify-content: center;
-				padding: 1.5rem 0;
-			}
-
+			/* Reducir tamaño visual de la primera imagen (logo) */
 			.intro .image.fill img {
-				max-height: 380px;
-				width: auto;
-				margin: 0 auto;
+				max-height: 260px;
 				object-fit: contain;
 			}
 
-			/* Reducir un poco el padding vertical de la intro */
+			/* Opcional: reducir un poco el padding vertical de la intro */
 			.intro header {
 				padding-top: 2.5rem;
 				padding-bottom: 2.5rem;
-			}
-
-			/* Recentrar la intro y estrechar la franja izquierda */
-			#wrapper > section.intro header,
-			#wrapper > section.intro .content {
-				padding-left: 2rem !important;
-				padding-right: 2rem !important;
-				margin-left: auto !important;
-				margin-right: auto !important;
-				max-width: 960px;
 			}
 
 			/* Roadmap vertical sencillo */
@@ -277,7 +258,7 @@
 						<strong>Apúntate a la beta de Ruralicos PRO</strong> y sé de los primeros en recibir las alertas cuando el sistema esté listo.
 					</p>
 					<p>
-						Te avisaremos por WhatsApp para que puedas probarlo <strong>GRATIS</strong> al principio.
+						Te avisaremos por email o WhatsApp para que puedas probarlo <strong>GRATIS</strong> al principio.
 					</p>
 
 					<form method="post" action="#">
@@ -344,4 +325,12 @@
 		</div>
 
 		<!-- Scripts -->
-		<script src="assets/
+		<script src="assets/js/jquery.min.js"></script>
+		<script src="assets/js/jquery.scrolly.min.js"></script>
+		<script src="assets/js/browser.min.js"></script>
+		<script src="assets/js/breakpoints.min.js"></script>
+		<script src="assets/js/util.js"></script>
+		<script src="assets/js/main.js"></script>
+
+	</body>
+</html>
