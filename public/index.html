@@ -358,22 +358,48 @@
 document.getElementById("registroForm").addEventListener("submit", async function (e) {
     e.preventDefault();
 
-    const btn = e.target.querySelector('input[type="submit"]');
+    const form = e.target;
+    const btn = form.querySelector('input[type="submit"]');
     if (btn) {
         btn.disabled = true;
         btn.value = "Enviando...";
     }
 
+    const name = document.getElementById("name").value.trim();
+    const email = document.getElementById("email").value.trim();
+    const whatsapp = document.getElementById("whatsapp").value.trim();
+    const perfil = document.getElementById("perfil").value;
+    const message = document.getElementById("message").value.trim();
+
+    // Construir preferencias básicas a partir del perfil
+    const sectores = [];
+    if (perfil === "agricultor" || perfil === "mixto") sectores.push("agricultura");
+    if (perfil === "ganadero" || perfil === "mixto") sectores.push("ganaderia");
+
+    const preferences = {
+        sectores,
+        provincias: [],        // de momento vacío
+        subsectores: [],       // de momento vacío
+        tipos_alerta: {
+            fiscalidad: true,
+            medio_ambiente: true,
+            normativa_general: true,
+            ayudas_subvenciones: true,
+            agua_infraestructuras: true,
+        },
+        perfil,
+        comentario: message,
+    };
+
     const data = {
-        name: document.getElementById("name").value.trim(),
-        email: document.getElementById("email").value.trim(),
-        whatsapp: document.getElementById("whatsapp").value.trim(),
-        perfil: document.getElementById("perfil").value,
-        message: document.getElementById("message").value.trim(),
+        name,
+        email,
+        phone: whatsapp,   // lo mapeamos al campo phone del backend
+        preferences,
     };
 
     try {
-        const res = await fetch("/api/registro", {
+        const res = await fetch("/register", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(data),
@@ -381,9 +407,9 @@ document.getElementById("registroForm").addEventListener("submit", async functio
 
         const json = await res.json();
 
-        if (json.ok) {
+        if (res.ok && json.success) {
             alert("¡Listo! Te has inscrito correctamente. Te avisaremos por WhatsApp o email cuando la beta esté lista.");
-            e.target.reset();
+            form.reset();
         } else {
             alert(json.error || "Ha habido un problema al registrar tus datos.");
         }
@@ -398,6 +424,7 @@ document.getElementById("registroForm").addEventListener("submit", async functio
     }
 });
 </script>
+
 
 	</body>
 </html>
