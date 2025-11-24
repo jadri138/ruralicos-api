@@ -35,16 +35,22 @@ module.exports = function usersRoutes(app, supabase) {
     }
 
     // Normalizar teléfono
-    phone = String(phone).trim();
-    const soloDigitos = phone.replace(/\D/g, '');
+phone = String(phone).trim();
+let soloDigitos = phone.replace(/\D/g, '');
 
-    const LONGITUD_TELEFONO = 11; // ej: 34 + 9 dígitos (34 + 6XXXXXXXX)
-    if (soloDigitos.length !== LONGITUD_TELEFONO) {
-      return res.status(400).json({
-        error: 'introduce un numero de teléfono válido'
-      });
-    }
-    const telefonoNormalizado = soloDigitos;
+// Si el usuario pone solo el número español (9 dígitos), añadimos 34 delante
+if (soloDigitos.length === 9) {
+  soloDigitos = '34' + soloDigitos;
+}
+
+const LONGITUD_TELEFONO = 11; // 34 + 9 dígitos
+if (soloDigitos.length !== LONGITUD_TELEFONO) {
+  return res.status(400).json({
+    error: 'introduce un numero de teléfono válido'
+  });
+}
+
+const telefonoNormalizado = soloDigitos;
 
     // Normalizar nombre y email
     if (name) name = String(name).trim();
