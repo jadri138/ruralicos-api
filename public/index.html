@@ -405,7 +405,19 @@
 document.getElementById("registroForm").addEventListener("submit", async function (e) {
     e.preventDefault();
 
+    const SECTORES = ["ganaderia","agricultura","mixto","otros"];
+    const SUBSECTORES = [
+        "ovino","vacuno","caprino","porcino","avicultura","cunicultura",
+        "trigo","cebada","cereal","maiz","hortalizas","frutales","olivar",
+        "viñedo","forrajes","forestal","agua","energia","medio_ambiente"
+    ];
+    const TIPOS_ALERTA = [
+        "ayudas_subvenciones","normativa_general",
+        "agua_infraestructuras","fiscalidad","medio_ambiente"
+    ];
+
     const form = e.target;
+
     const btn = form.querySelector('input[type="submit"]');
     if (btn) {
         btn.disabled = true;
@@ -416,33 +428,53 @@ document.getElementById("registroForm").addEventListener("submit", async functio
     const email = document.getElementById("email").value.trim();
     const whatsapp = document.getElementById("whatsapp").value.trim();
     const perfil = document.getElementById("perfil").value;
+    const subsectorSeleccionado = document.getElementById("subsector").value;
     const message = document.getElementById("message").value.trim();
 
-    // Construir preferencias básicas a partir del perfil
+    // Sectores a partir del perfil, usando exactamente los SECTORES permitidos
     const sectores = [];
-    if (perfil === "agricultor" || perfil === "mixto") sectores.push("agricultura");
-    if (perfil === "ganadero" || perfil === "mixto") sectores.push("ganaderia");
+    if (perfil === "agricultor" && SECTORES.includes("agricultura")) {
+        sectores.push("agricultura");
+    } else if (perfil === "ganadero" && SECTORES.includes("ganaderia")) {
+        sectores.push("ganaderia");
+    } else if (perfil === "mixto" && SECTORES.includes("mixto")) {
+        sectores.push("mixto");
+    } else if (perfil === "otro" && SECTORES.includes("otros")) {
+        sectores.push("otros");
+    }
+
+    // Subsectores: solo guardamos si el valor está en la lista oficial
+    const subsectores = [];
+    if (SUBSECTORES.includes(subsectorSeleccionado)) {
+        subsectores.push(subsectorSeleccionado);
+    }
+
+    // Tipos de alerta: construimos el objeto a partir de la lista oficial
+    const tipos_alerta = {};
+    TIPOS_ALERTA.forEach((clave) => {
+        tipos_alerta[clave] = false;
+    });
+
+    form.querySelectorAll('input[name="tipo_alerta"]:checked').forEach((cb) => {
+        if (TIPOS_ALERTA.includes(cb.value)) {
+            tipos_alerta[cb.value] = true;
+        }
+    });
 
     const preferences = {
         sectores,
-        provincias: [],        // de momento vacío
-        subsectores: [],       // de momento vacío
-        tipos_alerta: {
-            fiscalidad: true,
-            medio_ambiente: true,
-            normativa_general: true,
-            ayudas_subvenciones: true,
-            agua_infraestructuras: true,
-        },
+        provincias: [],          // ya lo rellenaremos en el futuro
+        subsectores,
+        tipos_alerta,
         perfil,
-        comentario: message,
+        comentario: message
     };
 
     const data = {
         name,
         email,
-        phone: whatsapp,   // lo mapeamos al campo phone del backend
-        preferences,
+        phone: whatsapp,   // el backend espera "phone"
+        preferences
     };
 
     try {
@@ -471,6 +503,7 @@ document.getElementById("registroForm").addEventListener("submit", async functio
     }
 });
 </script>
+
 
 
 	</body>
