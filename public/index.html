@@ -539,106 +539,111 @@ input[type="checkbox"] {
 
 		<script>
 document.getElementById("registroForm").addEventListener("submit", async function (e) {
-    e.preventDefault();
+  e.preventDefault();
 
-    const SECTORES = ["ganaderia","agricultura","mixto","otros"];
-    const SUBSECTORES = [
-        "ovino","vacuno","caprino","porcino","avicultura","cunicultura",
-        "trigo","cebada","cereal","maiz","hortalizas","frutales","olivar",
-        "viñedo","forrajes","forestal","agua","energia","medio_ambiente"
-    ];
-    const TIPOS_ALERTA = [
-        "ayudas_subvenciones","normativa_general",
-        "agua_infraestructuras","fiscalidad","medio_ambiente"
-    ];
+  const SECTORES = ["ganaderia","agricultura","mixto","otros"];
+  const SUBSECTORES = [
+    "ovino","vacuno","caprino","porcino","avicultura","cunicultura",
+    "trigo","cebada","cereal","maiz","hortalizas","frutales","olivar",
+    "viñedo","forrajes","forestal","agua","energia","medio_ambiente"
+  ];
+  const TIPOS_ALERTA = [
+    "ayudas_subvenciones","normativa_general",
+    "agua_infraestructuras","fiscalidad","medio_ambiente"
+  ];
+  const PROVINCIAS = [
+    "alava","albacete","alicante","almeria","asturias","avila","badajoz",
+    "barcelona","burgos","caceres","cadiz","cantabria","castellon","ciudad_real",
+    "cordoba","cuenca","girona","granada","guadalajara","guipuzcoa","huelva",
+    "huesca","illes_balears","jaen","a_coruna","la_rioja","las_palmas","leon",
+    "lleida","lugo","madrid","malaga","murcia","navarra","ourense","palencia",
+    "pontevedra","salamanca","s_c_tenerife","segovia","sevilla","soria",
+    "tarragona","teruel","toledo","valencia","valladolid","vizcaya","zamora",
+    "zaragoza","ceuta","melilla"
+  ];
 
-    const form = e.target;
+  const form = e.target;
+  const btn = form.querySelector('input[type="submit"]');
+  if (btn) {
+    btn.disabled = true;
+    btn.value = "Enviando...";
+  }
 
-    const btn = form.querySelector('input[type="submit"]');
+  const name = document.getElementById("name").value.trim();
+  const email = document.getElementById("email").value.trim();
+  const whatsapp = document.getElementById("whatsapp").value.trim();
+  const perfil = document.getElementById("perfil").value;
+  const message = document.getElementById("message").value.trim();
+
+  // sectores desde perfil
+  const sectores = [];
+  if (perfil === "agricultor" && SECTORES.includes("agricultura")) sectores.push("agricultura");
+  else if (perfil === "ganadero" && SECTORES.includes("ganaderia")) sectores.push("ganaderia");
+  else if (perfil === "mixto" && SECTORES.includes("mixto")) sectores.push("mixto");
+  else if (perfil === "otro" && SECTORES.includes("otros")) sectores.push("otros");
+
+  // subsectores (checkboxes)
+  const subsectores = [];
+  form.querySelectorAll('input[name="subsector"]:checked').forEach(cb => {
+    if (SUBSECTORES.includes(cb.value)) subsectores.push(cb.value);
+  });
+
+  // provincias (checkboxes)
+  const provincias = [];
+  form.querySelectorAll('input[name="provincia"]:checked').forEach(cb => {
+    if (PROVINCIAS.includes(cb.value)) provincias.push(cb.value);
+  });
+
+  // tipos de alerta
+  const tipos_alerta = {};
+  TIPOS_ALERTA.forEach(k => tipos_alerta[k] = false);
+  form.querySelectorAll('input[name="tipo_alerta"]:checked').forEach(cb => {
+    if (TIPOS_ALERTA.includes(cb.value)) tipos_alerta[cb.value] = true;
+  });
+
+  const preferences = {
+    sectores,
+    provincias,
+    subsectores,
+    tipos_alerta,
+    perfil,
+    comentario: message
+  };
+
+  const payload = {
+    name,
+    email,
+    phone: whatsapp,
+    preferences
+  };
+
+  try {
+    const res = await fetch("/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    const json = await res.json();
+
+    if (res.ok && json.success) {
+      alert("¡Listo! Te has inscrito correctamente. Te avisaremos por WhatsApp o email cuando la beta esté lista.");
+      form.reset();
+    } else {
+      alert(json.error || "Ha habido un problema al registrar tus datos.");
+    }
+  } catch (err) {
+    console.error(err);
+    alert("No se ha podido conectar con el servidor. Inténtalo más tarde.");
+  } finally {
     if (btn) {
-        btn.disabled = true;
-        btn.value = "Enviando...";
+      btn.disabled = false;
+      btn.value = "Quiero inscribirme";
     }
-
-    const name = document.getElementById("name").value.trim();
-    const email = document.getElementById("email").value.trim();
-    const whatsapp = document.getElementById("whatsapp").value.trim();
-    const perfil = document.getElementById("perfil").value;
-    const subsectorSeleccionado = document.getElementById("subsector").value;
-    const message = document.getElementById("message").value.trim();
-
-    // Sectores a partir del perfil, usando exactamente los SECTORES permitidos
-    const sectores = [];
-    if (perfil === "agricultor" && SECTORES.includes("agricultura")) {
-        sectores.push("agricultura");
-    } else if (perfil === "ganadero" && SECTORES.includes("ganaderia")) {
-        sectores.push("ganaderia");
-    } else if (perfil === "mixto" && SECTORES.includes("mixto")) {
-        sectores.push("mixto");
-    } else if (perfil === "otro" && SECTORES.includes("otros")) {
-        sectores.push("otros");
-    }
-
-    // Subsectores: solo guardamos si el valor está en la lista oficial
-    const subsectores = [];
-    if (SUBSECTORES.includes(subsectorSeleccionado)) {
-        subsectores.push(subsectorSeleccionado);
-    }
-
-    // Tipos de alerta: construimos el objeto a partir de la lista oficial
-    const tipos_alerta = {};
-    TIPOS_ALERTA.forEach((clave) => {
-        tipos_alerta[clave] = false;
-    });
-
-    form.querySelectorAll('input[name="tipo_alerta"]:checked').forEach((cb) => {
-        if (TIPOS_ALERTA.includes(cb.value)) {
-            tipos_alerta[cb.value] = true;
-        }
-    });
-
-    const preferences = {
-        sectores,
-        provincias: [],          // ya lo rellenaremos en el futuro
-        subsectores,
-        tipos_alerta,
-        perfil,
-        comentario: message
-    };
-
-    const data = {
-        name,
-        email,
-        phone: whatsapp,   // el backend espera "phone"
-        preferences
-    };
-
-    try {
-        const res = await fetch("/register", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(data),
-        });
-
-        const json = await res.json();
-
-        if (res.ok && json.success) {
-            alert("¡Listo! Te has inscrito correctamente. Te avisaremos por WhatsApp o email cuando la beta esté lista.");
-            form.reset();
-        } else {
-            alert(json.error || "Ha habido un problema al registrar tus datos.");
-        }
-    } catch (err) {
-        console.error(err);
-        alert("No se ha podido conectar con el servidor. Inténtalo más tarde.");
-    } finally {
-        if (btn) {
-            btn.disabled = false;
-            btn.value = "Quiero inscribirme";
-        }
-    }
+  }
 });
 </script>
+
 
 
 
