@@ -24,63 +24,89 @@ module.exports = function usersRoutes(app, supabase) {
     res.json({ users: data });
   });
 
-  // --------------------------------------------------
-  // REGISTRAR USUARIO
-  // --------------------------------------------------
-  app.post('/register', async (req, res) => {
-    let { phone } = req.body;
+// --------------------------------------------------
+// REGISTRAR USUARIO (web + bot)
+// --------------------------------------------------
+app.post('/register', async (req, res) => {
+  let { phone, name, email } = req.body;
 
-    if (!phone) {
-      return res.status(400).json({ error: 'Falta el número de teléfono' });
+  if (!phone) {
+    return res.status(400).json({ error: 'Falta el número de teléfono' });
+  }
+
+  // Normalizar teléfono: quitar espacios, guiones, paréntesis, +, etc.
+  phone = String(phone).trim();
+  const digits = phone.replace(/\D/g, '');
+
+  // Comprobación sencilla: mínimo 9 dígitos
+  if (digits.length < 9) {
+    return res.status(400).json({
+      error: 'Introduce un número de teléfono válido (incluye el prefijo del país si es posible)',
+    });
+  }
+
+  const phoneNormalized = digits;
+
+  // Normalizar nombre y email (si vienen)
+  if (name) name = String(name).trim();
+  if (email) email = String(email).trim().toLowerCase();
+
+  try {
+    // 1) Comprobar si ya existe ese teléfono
+    const { data: existing, error: existingError } = await supabase
+      .from('users')
+      .select('id')
+      .eq('phone', phoneNormalized)
+      .maybeSingle();
+
+    if (existingError) {
+      console.error('Error comprobando usuario existente:', existingError);
+      return res.status(500).json({ error: 'Error comprobando usuario' });
     }
 
-    // Normalizar: quitar espacios, guiones, +, etc.
-    phone = String(phone).trim();
-    const soloDigitos = phone.replace(/\D/g, '');
-
-    // 👉 Longitud exacta permitida (cámbiala si quieres otra)
-    const LONGITUD_TELEFONO = 11; // ej: 34 + 9 dígitos
-
-    if (soloDigitos.length !== LONGITUD_TELEFONO) {
+    if (existing) {
       return res.status(400).json({
-        error: `introduce un numero de teléfono válido`
+        error: 'Este número ya está registrado',
       });
     }
 
-    const telefonoNormalizado = soloDigitos;
-
-    // Insertar usuario
+    // 2) Insertar usuario nuevo
     const { data, error } = await supabase
       .from('users')
       .insert([
         {
-          phone: telefonoNormalizado,
+          phone: phoneNormalized,
+          name: name || null,
+          email: email || null,
           preferences: {},      // jsonb vacío
-          subscription: 'free'  // plan por defecto
-        }
+          subscription: 'free', // plan por defecto
+          // created_at lo rellena Supabase solo
+        },
       ])
-      .select();
+      .select()
+      .single();
 
     if (error) {
-      // Si es un duplicado (ya existe ese número)
-      if (error.code === '23505') {
-        return res.status(400).json({
-          error: 'Este número ya está registrado'
-        });
-      }
-
       console.error('Error registrando usuario:', error);
       return res.status(500).json({ error: error.message });
     }
 
-    // Devolver usuario registrado
-    res.json({ success: true, user: data[0] });
+    // 3) Respuesta al frontend/bot
+    return res.json({
+      success: true,
+      user: {
+        id: data.id,
+        phone: data.phone,
+        name: data.name,
+        email: data.email,
+      },
+    });
 
-    // Registrar acción en logs (esto no afecta a la respuesta)
-    await supabase.from('logs').insert([
-      { action: 'register', details: `phone: ${telefonoNormalizado}` }
-    ]);
-  });
+  } catch (err) {
+    console.error('Error inesperado en /register:', err);
+    return res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
 
   // --------------------------------------------------
   // SUBIR A PRO USANDO TELÉFONO

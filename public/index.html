@@ -283,7 +283,7 @@
 						Te avisaremos por email o WhatsApp para que puedas probarlo <strong>GRATIS</strong> al principio.
 					</p>
 
-					<form method="post" action="#">
+					<form id="registroForm">
 						<div class="fields">
 							<div class="field half">
 								<label for="name">Nombre</label>
@@ -353,6 +353,51 @@
 		<script src="assets/js/breakpoints.min.js"></script>
 		<script src="assets/js/util.js"></script>
 		<script src="assets/js/main.js"></script>
+
+		<script>
+document.getElementById("registroForm").addEventListener("submit", async function (e) {
+    e.preventDefault();
+
+    const btn = e.target.querySelector('input[type="submit"]');
+    if (btn) {
+        btn.disabled = true;
+        btn.value = "Enviando...";
+    }
+
+    const data = {
+        name: document.getElementById("name").value.trim(),
+        email: document.getElementById("email").value.trim(),
+        whatsapp: document.getElementById("whatsapp").value.trim(),
+        perfil: document.getElementById("perfil").value,
+        message: document.getElementById("message").value.trim(),
+    };
+
+    try {
+        const res = await fetch("/api/registro", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(data),
+        });
+
+        const json = await res.json();
+
+        if (json.ok) {
+            alert("¡Listo! Te has inscrito correctamente. Te avisaremos por WhatsApp o email cuando la beta esté lista.");
+            e.target.reset();
+        } else {
+            alert(json.error || "Ha habido un problema al registrar tus datos.");
+        }
+    } catch (err) {
+        console.error(err);
+        alert("No se ha podido conectar con el servidor. Inténtalo más tarde.");
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.value = "Quiero inscribirme";
+        }
+    }
+});
+</script>
 
 	</body>
 </html>
