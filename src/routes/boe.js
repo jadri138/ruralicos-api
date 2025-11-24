@@ -97,7 +97,7 @@ module.exports = function boeRoutes(app, supabase) {
 
       // 4) MINISTERIOS / DEPARTAMENTOS “del campo”
       const deptRelevanteRegex =
-        /(AGRICULTURA|GANADER[ÍI]A|DESARROLLO RURAL|MEDIO AMBIENTE|TRANSICI[ÓO]N ECOL[ÓO]GICA|ALIMENTACI[ÓO]N)/i;
+        /(HACIENDA|AGRICULTURA|GANADER[ÍI]A|DESARROLLO RURAL|MEDIO AMBIENTE|TRANSICI[ÓO]N ECOL[ÓO]GICA|ALIMENTACI[ÓO]N)/i;
 
       // 5) COSAS QUE INTERESAN
       const keywordsInteres =
