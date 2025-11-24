@@ -104,7 +104,7 @@ module.exports = function usersRoutes(app, supabase) {
             name: name || null,
             email,               // puede ser null o el email normalizado
             preferences,
-            subscription: 'free'
+            subscription: 'pro'
           }
         ])
         .select();
