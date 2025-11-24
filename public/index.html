@@ -383,8 +383,11 @@ input[type="checkbox"] {
 
 <div class="field">
     <label>Provincias donde te interesa recibir alertas</label>
-    <div class="fields">
-        <!-- FILA 1 -->
+    <div class="field">
+    <p class="toggle-provincias">📍 Provincias donde te interesa recibir alertas (pulsa para desplegar)</p>
+    <div id="provincias-wrapper" class="oculto">
+        <div class="fields">
+            <!-- FILA 1 -->
         <div class="field quarter"><label><input type="checkbox" name="provincia" value="alava"> Álava</label></div>
         <div class="field quarter"><label><input type="checkbox" name="provincia" value="albacete"> Albacete</label></div>
         <div class="field quarter"><label><input type="checkbox" name="provincia" value="alicante"> Alicante</label></div>
@@ -461,6 +464,7 @@ input[type="checkbox"] {
         <div class="field quarter"><label><input type="checkbox" name="provincia" value="zaragoza"> Zaragoza</label></div>
         <div class="field quarter"><label><input type="checkbox" name="provincia" value="ceuta"> Ceuta</label></div>
         <div class="field quarter"><label><input type="checkbox" name="provincia" value="melilla"> Melilla</label></div>
+        </div>
     </div>
 </div>
 
