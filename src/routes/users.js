@@ -24,94 +24,117 @@ module.exports = function usersRoutes(app, supabase) {
     res.json({ users: data });
   });
 
-// --------------------------------------------------
-// REGISTRAR USUARIO
-// --------------------------------------------------
-app.post('/register', async (req, res) => {
-  let { phone, name, email, preferences } = req.body;
+  // --------------------------------------------------
+  // REGISTRAR USUARIO (web + bot)
+  // --------------------------------------------------
+  app.post('/register', async (req, res) => {
+    let { phone, name, email, preferences } = req.body;
 
-  if (!phone) {
-    return res.status(400).json({ error: 'Falta el número de teléfono' });
-  }
-
-  // Normalizar: quitar espacios, guiones, +, etc.
-  phone = String(phone).trim();
-  const soloDigitos = phone.replace(/\D/g, '');
-
-  const LONGITUD_TELEFONO = 11; // ej: 34 + 9 dígitos
-
-  if (soloDigitos.length !== LONGITUD_TELEFONO) {
-    return res.status(400).json({
-      error: 'introduce un numero de teléfono válido'
-    });
-  }
-
-  const telefonoNormalizado = soloDigitos;
-
-  // Normalizar resto de campos
-  if (name) name = String(name).trim();
-  if (email) email = String(email).trim().toLowerCase();
-
-  // Asegurar que preferences es un objeto
-  if (!preferences || typeof preferences !== 'object') {
-    preferences = {}; // o pon aquí tu estructura por defecto
-  }
-
-  try {
-    // Comprobar duplicado por teléfono
-    const { data: existing, error: existingError } = await supabase
-      .from('users')
-      .select('id')
-      .eq('phone', telefonoNormalizado)
-      .maybeSingle();
-
-    if (existingError) {
-      console.error('Error comprobando usuario existente:', existingError);
-      return res.status(500).json({ error: 'Error comprobando usuario' });
+    if (!phone) {
+      return res.status(400).json({ error: 'Falta el número de teléfono' });
     }
 
-    if (existing) {
+    // Normalizar teléfono
+    phone = String(phone).trim();
+    const soloDigitos = phone.replace(/\D/g, '');
+
+    const LONGITUD_TELEFONO = 11; // ej: 34 + 9 dígitos (34 + 6XXXXXXXX)
+    if (soloDigitos.length !== LONGITUD_TELEFONO) {
       return res.status(400).json({
-        error: 'Este número ya está registrado'
+        error: 'introduce un numero de teléfono válido'
       });
     }
+    const telefonoNormalizado = soloDigitos;
 
-    // Insertar usuario
-    const { data, error } = await supabase
-      .from('users')
-      .insert([
-        {
-          phone: telefonoNormalizado,
-          name: name || null,
-          email: email || null,
-          preferences: preferences,  // 👈 AHORA SÍ GUARDAMOS LO QUE VIENE
-          subscription: 'free'
-        }
-      ])
-      .select()
-      .single();
-
-    if (error) {
-      console.error('Error registrando usuario:', error);
-      return res.status(500).json({ error: error.message });
+    // Normalizar nombre y email
+    if (name) name = String(name).trim();
+    if (email) {
+      email = String(email).trim().toLowerCase();
+      if (email === '') email = null;
+    } else {
+      email = null;
     }
 
-    return res.json({
-      success: true,
-      user: {
-        id: data.id,
-        phone: data.phone,
-        name: data.name,
-        email: data.email,
-        preferences: data.preferences
-      }
-    });
+    // Asegurar que preferences es un objeto
+    if (!preferences || typeof preferences !== 'object') {
+      preferences = {};
+    }
 
-  } catch (err) {
-    console.error('Error inesperado en /register:', err);
-    return res.status(500).json({ error: 'Error interno del servidor' });
-  }
-});
+    try {
+      // 1) Comprobar si ya existe ese teléfono
+      const { data: existingPhone, error: phoneError } = await supabase
+        .from('users')
+        .select('id')
+        .eq('phone', telefonoNormalizado)
+        .maybeSingle();
+
+      if (phoneError) {
+        console.error('Error comprobando teléfono existente:', phoneError);
+        return res.status(500).json({ error: 'Error comprobando teléfono' });
+      }
+
+      if (existingPhone) {
+        return res.status(400).json({ error: 'Este número ya está registrado' });
+      }
+
+      // 2) Comprobar si ya existe ese email (si lo han puesto)
+      if (email) {
+        const { data: existingEmail, error: emailError } = await supabase
+          .from('users')
+          .select('id')
+          .eq('email', email)
+          .maybeSingle();
+
+        if (emailError) {
+          console.error('Error comprobando email existente:', emailError);
+          return res.status(500).json({ error: 'Error comprobando email' });
+        }
+
+        if (existingEmail) {
+          return res.status(400).json({ error: 'Este email ya está registrado' });
+        }
+      }
+
+      // 3) Insertar usuario
+      const { data, error } = await supabase
+        .from('users')
+        .insert([
+          {
+            phone: telefonoNormalizado,
+            name: name || null,
+            email,               // puede ser null o el email normalizado
+            preferences,
+            subscription: 'free'
+          }
+        ])
+        .select();
+
+      if (error) {
+        // Por si se escapara algún duplicado
+        if (error.code === '23505') {
+          return res.status(400).json({
+            error: 'Ya existe un usuario con estos datos'
+          });
+        }
+
+        console.error('Error registrando usuario:', error);
+        return res.status(500).json({ error: 'Error registrando usuario' });
+      }
+
+      // 4) Devolver usuario registrado
+      res.json({ success: true, user: data[0] });
+
+      // 5) Registrar acción en logs (no afecta a la respuesta)
+      await supabase.from('logs').insert([
+        { action: 'register', details: `phone: ${telefonoNormalizado}` }
+      ]);
+
+    } catch (err) {
+      console.error('Error inesperado en /register:', err);
+      return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+  });
+
 
 
   // --------------------------------------------------
