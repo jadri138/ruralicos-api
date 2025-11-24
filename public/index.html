@@ -1,6 +1,22 @@
 <!DOCTYPE HTML>
+<!--
+	Paradigm Shift by HTML5 UP
+	html5up.net | @ajlkn
+	Free for personal and commercial use under the CCA 3.0 license (html5up.net/license)
+-->
 <html>
 	<head>
+		<style>
+input[type="checkbox"] {
+  -webkit-appearance: checkbox !important;
+  -moz-appearance: checkbox !important;
+  appearance: checkbox !important;
+  opacity: 1 !important;
+  position: static !important;
+  margin-right: 0.5rem !important;
+}
+</style>
+
 		<title>Ruralicos – Alertas del BOE para el campo</title>
 		<link rel="icon" type="image/png" href="assets/images/favicon.png">
 		<meta charset="utf-8" />
@@ -8,301 +24,628 @@
 		<meta name="description" content="Ruralicos convierte el BOE y los boletines oficiales en alertas simples y claras para agricultores y ganaderos, directo a tu WhatsApp." />
 		<meta name="keywords" content="Ruralicos, BOE, ayudas, agricultura, ganadería, boletines oficiales, mundo rural, WhatsApp" />
 		<link rel="stylesheet" href="assets/css/main.css" />
+		<!-- Estilos personalizados para adaptar la landing a Ruralicos -->
 		<style>
-			/* Checkbox nativo visible para la selección */
-			input[type="checkbox"] {
-			  -webkit-appearance: checkbox !important;
-			  -moz-appearance: checkbox !important;
-			  appearance: checkbox !important;
-			  opacity: 1 !important;
-			  position: static !important;
-			  margin-right: 0.5rem !important;
+			/* Reducir tamaño visual de la primera imagen (logo) */
+			.intro .image.fill img {
+				max-height: 330px;
+				object-fit: contain;
+				top: 32%;
 			}
-			/* Estilos de landing optimizados */
-			#intro .content .image { width: 10em; height: 10em; margin-bottom: 0; }
-			#intro .content h2 { margin-top: 0.5em; }
-			#form-registro .fields {
-				display: grid;
-				grid-template-columns: repeat(2, 1fr);
-				gap: 1.5rem;
+			/* Arreglo móvil: quitar el 100vh y pegar el logo al texto */
+@media screen and (max-width: 736px) {
+    #wrapper > section.intro > .content {
+        height: auto;          /* fuera el 100vh */
+    }
+
+    .intro .image.fill {
+        position: relative;
+        height: auto;
+    }
+
+    .intro .image.fill img {
+        position: relative;
+        top: 0;                /* no lo empujamos hacia abajo en móvil */
+        margin-top: 1.5rem;    /* separación normal bajo el texto */
+        width: 100%;
+        max-height: 340px;     /* puedes subir o bajar esto */
+    }
+}
+
+
+			/* Opcional: reducir un poco el padding vertical de la intro */
+			.intro header {
+				padding-top: 2.5rem;
+				padding-bottom: 2.5rem;
 			}
-			@media screen and (max-width: 980px) {
-				#form-registro .fields { grid-template-columns: 1fr; }
+
+			/* Roadmap vertical sencillo */
+			.roadmap {
+				border-left: 3px solid rgba(255, 255, 255, 0.15);
+				margin-left: 0.75rem;
+				padding-left: 1.75rem;
 			}
-			/* Contenedores de preferencias */
-			.preferences-container { border: 1px solid rgba(255, 255, 255, 0.2); padding: 1.5rem; border-radius: 4px; margin-bottom: 2rem; }
-			.preferences-container h3 { margin-top: 0; margin-bottom: 1rem; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-bottom: 0.5rem; }
-			.preferences-group { display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem; }
-			.preference-item { margin-right: 1.5rem; white-space: nowrap; }
+
+			.roadmap-item {
+				position: relative;
+				margin-bottom: 2.5rem;
+			}
+
+			.roadmap-item:last-child {
+				margin-bottom: 0;
+			}
+
+			.roadmap-item::before {
+				content: "";
+				position: absolute;
+				left: -1.1rem;
+				top: 0.35rem;
+				width: 0.9rem;
+				height: 0.9rem;
+				border-radius: 50%;
+				background: #ffffff;
+				box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.08);
+			}
+
+			.roadmap-item h3 {
+				margin-bottom: 0.3rem;
+			}
+
+			.roadmap-item span.tag {
+				display: inline-block;
+				font-size: 0.75rem;
+				letter-spacing: 0.08em;
+				text-transform: uppercase;
+				opacity: 0.7;
+				margin-bottom: 0.4rem;
+			}
+
+			/* Ajustes formulario */
+			form .field label {
+				font-size: 0.9rem;
+				opacity: 0.8;
+				margin-bottom: 0.25rem;
+				display: block;
+			}
 		</style>
 	</head>
 	<body class="is-preload">
 
+		<!-- Wrapper -->
 		<div id="wrapper">
 
-			<section id="intro" class="wrapper style1 fullscreen fade-up">
-				<div class="inner">
-					<div class="content">
-						<span class="image"><img src="assets/images/logo_ruralicos.png" alt="Logo de Ruralicos: Alertas BOE para el campo" /></span>
-						<h2>Ruralicos 🚜</h2>
-						<p>Convierte el **BOE** y los boletines oficiales en **alertas simples y claras** para **agricultores y ganaderos**, directo a tu WhatsApp.</p>
-						<ul class="actions">
-							<li><a href="#one" class="button scrolly">¡Quiero probar la Beta!</a></li>
-						</ul>
-					</div>
+			<!-- Intro -->
+			<section class="intro">
+				<header>
+					<h1>Ruralicos</h1>
+					<p>Alertas del BOE y boletines oficiales para agricultores y ganaderos, directo a tu WhatsApp.</p>
+					<ul class="actions">
+						<li><a href="#problema" class="arrow scrolly"><span class="label">Saber más</span></a></li>
+					</ul>
+				</header>
+				<div class="content">
+					<span class="image fill" data-position="center">
+						<img src="images/logo_portada.png" alt="Logo de Ruralicos" />
+					</span>
 				</div>
 			</section>
 
-			<section id="one" class="wrapper style2 spotlights">
-				<section>
-					<a href="#" class="image"><img src="assets/images/pic01.jpg" alt="" data-position="center center" /></a>
-					<div class="content">
-						<div class="inner">
-							<h2>Adiós a leer 50 páginas de BOE 📚</h2>
-							<p>Nuestro sistema de **Inteligencia Artificial** escanea diariamente los boletines oficiales y solo te envía lo que **realmente te afecta**: ayudas, subvenciones, convocatorias, y novedades legislativas. Olvídate de buscar, nosotros te avisamos.</p>
-						</div>
-					</div>
-				</section>
-				<section>
-					<a href="#" class="image"><img src="assets/images/pic02.jpg" alt="" data-position="top center" /></a>
-					<div class="content">
-						<div class="inner">
-							<h2>Alertas Personalizadas 🌾</h2>
-							<p>Elige tu **sector** (agricultura, ganadería, pesca...), tus **subsectores** (cítricos, vacuno de leche, etc.) y tus **provincias** de interés. De esta manera, garantizamos que solo recibas notificaciones relevantes para tu actividad. </p>
-						</div>
-					</div>
-				</section>
-				<section>
-					<a href="#" class="image"><img src="assets/images/pic03.jpg" alt="" data-position="25% 25%" /></a>
-					<div class="content">
-						<div class="inner">
-							<h2>Directo a tu WhatsApp 📲</h2>
-							<p>Recibe un resumen conciso y en lenguaje sencillo de las novedades cada mañana, directamente en tu móvil. **Rápido**, **fácil** y **sin papeleos** (por ahora). La información que necesitas, justo a tiempo.</p>
-						</div>
-					</div>
-				</section>
-			</section>
+			<!-- El problema -->
+			<section id="problema">
+				<header>
+					<h2>El problema: la información no llega al campo</h2>
+				</header>
+				<div class="content">
+					<p><strong>En el campo no falla la gente: falla la información.</strong></p>
 
-			<section id="two" class="wrapper style3 fade-up">
-				<div class="inner">
-					<h2>Registro a la Beta Gratuita</h2>
-					<p>Rellena el formulario para ser de los primeros en recibir las alertas en tu WhatsApp. Indica tus preferencias para recibir la información más ajustada a tu perfil.</p>
-					<div class="split style1">
-						<section>
-							<form method="post" id="registro-form">
-								<div class="fields">
-									<div class="field half">
-										<label for="name">Nombre y Apellidos</label>
-										<input type="text" name="name" id="name" required />
-									</div>
-									<div class="field half">
-										<label for="whatsapp">WhatsApp (solo dígitos)</label>
-										<input type="tel" name="whatsapp" id="whatsapp" placeholder="Ej: 612345678" required />
-									</div>
-									<div class="field half">
-										<label for="email">Email</label>
-										<input type="email" name="email" id="email" required />
-									</div>
-									<div class="field half">
-										<label for="perfil">Soy...</label>
-										<div style="display: flex; gap: 1rem; align-items: center; padding-top: 0.5rem;">
-											<input type="radio" id="agricultor" name="perfil" value="agricultor">
-											<label for="agricultor">Agricultor/Ganadero</label>
-											<input type="radio" id="tecnico" name="perfil" value="tecnico">
-											<label for="tecnico">Técnico/Consultor</label>
-										</div>
-									</div>
-								</div>
+					<p>
+						Cada día salen nuevas normas, requisitos, inspecciones, cambios en ayudas, papeleo y sanciones que afectan directamente a agricultores y ganaderos.
+						Pero nadie tiene tiempo para leer 200 páginas del BOE, descifrar lenguaje jurídico o enterarse de todo antes de que sea tarde.
+					</p>
 
-								<div class="preferences-container">
-									<h3>Mis Preferencias (¿Qué me interesa?)</h3>
-									<div class="field">
-										<label>Sectores Principales</label>
-										<div class="preferences-group">
-											<div class="preference-item"><input type="checkbox" id="agr-general" name="sector" value="Agricultura General"><label for="agr-general">Agricultura General</label></div>
-											<div class="preference-item"><input type="checkbox" id="gan-general" name="sector" value="Ganadería General"><label for="gan-general">Ganadería General</label></div>
-											<div class="preference-item"><input type="checkbox" id="pesca" name="sector" value="Pesca y Acuicultura"><label for="pesca">Pesca y Acuicultura</label></div>
-											<div class="preference-item"><input type="checkbox" id="medio-ambiente" name="sector" value="Medio Ambiente/Forestal"><label for="medio-ambiente">Medio Ambiente/Forestal</label></div>
-										</div>
-									</div>
+					<p>
+						El resultado es siempre el mismo: <strong>o pierdes dinero, o pierdes tiempo, o te multan sin haber hecho nada “mal”.</strong>
+					</p>
 
-									<div class="field">
-										<label>Subsectores Específicos (Opcional)</label>
-										<div class="preferences-group">
-											<div class="preference-item"><input type="checkbox" id="vacuno-leche" name="subsector" value="Vacuno de Leche"><label for="vacuno-leche">Vacuno de Leche</label></div>
-											<div class="preference-item"><input type="checkbox" id="citricos" name="subsector" value="Cítricos"><label for="citricos">Cítricos</label></div>
-											<div class="preference-item"><input type="checkbox" id="olivar" name="subsector" value="Olivar"><label for="olivar">Olivar</label></div>
-											<div class="preference-item"><input type="checkbox" id="cereal" name="subsector" value="Cereal"><label for="cereal">Cereal</label></div>
-											<div class="preference-item"><input type="checkbox" id="vino" name="subsector" value="Vino/Viticultura"><label for="vino">Vino/Viticultura</label></div>
-										</div>
-									</div>
+					<p>
+						Mientras tanto, la administración publica en su idioma… y tú trabajas en el tuyo.
+						Así, miles de personas en el mundo rural viven desinformadas sin ser culpa suya: simplemente no hay un sistema que les explique lo importante de forma clara, rápida y útil.
+					</p>
 
-									<div class="field">
-										<label>Provincias de Interés (Máximo 3)</label>
-										<div class="preferences-group">
-											<div class="preference-item"><input type="checkbox" id="sevilla" name="provincia" value="Sevilla"><label for="sevilla">Sevilla</label></div>
-											<div class="preference-item"><input type="checkbox" id="madrid" name="provincia" value="Madrid"><label for="madrid">Madrid</label></div>
-											<div class="preference-item"><input type="checkbox" id="valencia" name="provincia" value="Valencia"><label for="valencia">Valencia</label></div>
-											<div class="preference-item"><input type="checkbox" id="leon" name="provincia" value="León"><label for="leon">León</label></div>
-										</div>
-									</div>
+					<p><strong>Ruralicos nace para cambiar eso.</strong></p>
 
-									<div class="field">
-										<label>Tipos de Alerta</label>
-										<div class="preferences-group">
-											<div class="preference-item"><input type="checkbox" id="ayudas" name="tipo_alerta" value="Ayudas y Subvenciones"><label for="ayudas">Ayudas y Subvenciones</label></div>
-											<div class="preference-item"><input type="checkbox" id="convocatorias" name="tipo_alerta" value="Convocatorias y Plazos"><label for="convocatorias">Convocatorias y Plazos</label></div>
-											<div class="preference-item"><input type="checkbox" id="legislacion" name="tipo_alerta" value="Legislación"><label for="legislacion">Legislación</label></div>
-										</div>
-									</div>
-								</div>
-
-								<div class="field">
-									<label for="message">Comentario (Opcional, para que nos cuentes qué necesitas)</label>
-									<textarea name="message" id="message" rows="4"></textarea>
-								</div>
-								<ul class="actions">
-									<li><input type="submit" value="¡Quiero recibir las alertas!" class="button primary" /></li>
-								</ul>
-							</form>
-						</section>
-						<section>
-							<h3>Información de Contacto</h3>
-							<ul class="contact">
-								<li><h3>Email</h3><a href="mailto:info@ruralicos.es">info@ruralicos.es</a></li>
-								<li><h3>Ubicación</h3><span>España</span></li>
-								<li><h3>Redes Sociales</h3>
-									<ul class="icons">
-										<li><a href="#" class="icon brands fa-twitter"><span class="label">Twitter</span></a></li>
-										<li><a href="#" class="icon brands fa-facebook-f"><span class="label">Facebook</span></a></li>
-										<li><a href="#" class="icon brands fa-instagram"><span class="label">Instagram</span></a></li>
-									</ul>
-								</li>
-							</ul>
-						</section>
-					</div>
+					<span class="image main">
+						<img src="images/pic02.jpg" alt="Mundo rural y normativa" />
+					</span>
 				</div>
 			</section>
 
-			<footer id="footer" class="wrapper style1-alt">
-				<div class="inner">
-					<ul class="menu">
-						<li>&copy; Ruralicos. Todos los derechos reservados.</li><li>Diseño: <a href="http://html5up.net">HTML5 UP</a></li>
+			<!-- Qué es Ruralicos -->
+			<section id="que-es">
+				<header>
+					<h2>¿Qué es Ruralicos?</h2>
+				</header>
+				<div class="content">
+					<p>
+						<strong>Ruralicos</strong> es un sistema que lee por ti el BOE y los boletines oficiales (estatales y autonómicos),
+						filtra solo lo que afecta al campo y te lo manda explicado en claro a tu WhatsApp.
+					</p>
+
+					<p>
+						En vez de tragarte páginas y páginas de PDF, recibes mensajes cortos del tipo:
+					</p>
+
+					<ul>
+						<li><strong>“Nueva ayuda para explotaciones de ovino en Aragón: requisitos, plazos y cómo solicitarla.”</strong></li>
+						<li><strong>“Cambios en normativa de purines para ganaderías de vacuno: resumen y puntos clave de inspección.”</strong></li>
+						<li><strong>“Actualización de seguros agrarios para cultivos herbáceos: novedades y qué te interesa revisar.”</strong></li>
+					</ul>
+
+					<p>
+						Tú sigues trabajando en el campo. Nosotros nos peleamos con el BOE.
+					</p>
+
+					<h3>Cómo funciona (versión sencilla)</h3>
+					<ul class="feature-icons">
+						<li class="icon solid fa-file-alt">Leemos BOE y boletines oficiales cada día</li>
+						<li class="icon solid fa-filter">Filtramos por sector, subsector y provincia</li>
+						<li class="icon solid fa-brain">Un sistema inteligente resume y traduce el lenguaje jurídico</li>
+						<li class="icon solid fa-check">Te mostramos solo lo que te afecta de verdad</li>
+						<li class="icon solid fa-whatsapp">Te lo enviamos directo a WhatsApp en forma de alerta</li>
+						<li class="icon solid fa-bell">Tú decides qué tipo de avisos quieres recibir</li>
 					</ul>
 				</div>
-			</footer>
+			</section>
+
+			<!-- Roadmap -->
+			<section id="roadmap">
+				<header>
+					<h2>Roadmap de Ruralicos</h2>
+				</header>
+				<div class="content">
+					<p>
+						Ruralicos está en fase de construcción. Esta es la hoja de ruta que estamos siguiendo para llevar la información del BOE al móvil de
+						cada agricultor y ganadero.
+					</p>
+
+					<div class="roadmap">
+						<div class="roadmap-item">
+							<span class="tag">Fase 1 · En desarrollo</span>
+							<h3>Lectura y filtrado de BOE / boletines oficiales</h3>
+							<p>
+								Poner en marcha el motor que revisa automáticamente el BOE, el BOA y otros diarios oficiales, y detecta 
+								todo lo relacionado con agricultura, ganadería y mundo rural.
+							</p>
+						</div>
+
+						<div class="roadmap-item">
+							<span class="tag">Fase 2 · Beta privada</span>
+							<h3>Alertas básicas por WhatsApp</h3>
+							<p>
+								Enviar mensajes sencillos con el resumen de la norma o ayuda, a una lista reducida de usuarios beta que nos ayuden a mejorar
+								la claridad, el formato y la frecuencia de los avisos.
+							</p>
+						</div>
+
+						<div class="roadmap-item">
+							<span class="tag">Fase 3 · Personalización</span>
+							<h3>Filtros por sector, subsector y provincia</h3>
+							<p>
+								Permitir que cada usuario elija si es agricultor, ganadero, mixto, su subsector (ovino, vacuno, porcino, etc.) 
+								y su zona, para recibir solo lo que le afecta.
+							</p>
+						</div>
+
+						<div class="roadmap-item">
+							<span class="tag">Fase 4 · Versión PRO</span>
+							<h3>Alertas avanzadas y resumen accionable</h3>
+							<p>
+								Alertas más completas con: qué ha cambiado, a quién afecta, qué plazos hay y qué pasos concretos seguir. 
+								Además, histórico de avisos y acceso a un panel simple para revisarlo todo.
+							</p>
+						</div>
+
+						<div class="roadmap-item">
+							<span class="tag">Fase 5 · Ecosistema rural</span>
+							<h3>Conexión con asesores, seguros y servicios rurales</h3>
+							<p>
+								Conectar a los usuarios con asesorías rurales, técnicos, seguros y otros servicios de confianza para pasar de 
+								“estar informado” a “tener el problema resuelto”.
+							</p>
+						</div>
+					</div>
+				</div>
+			</section>
+
+			<!-- Para quién es -->
+			<section id="para-quien">
+				<header>
+					<h2>¿Para quién es Ruralicos?</h2>
+				</header>
+				<div class="content">
+					<p>
+						Ruralicos está pensado para cualquiera que viva del campo y no quiera perder tiempo con papeles ni con el BOE:
+					</p>
+					<ul>
+						<li>Agricultores de secano y regadío.</li>
+						<li>Ganaderos de ovino, vacuno, porcino, avícola, etc.</li>
+						<li>Explotaciones mixtas familiares.</li>
+						<li>Autónomos rurales y pequeñas empresas del sector.</li>
+						<li>Gente joven que se incorpora al campo y no quiere empezar ya con sanciones o ayudas perdidas.</li>
+					</ul>
+
+					<p>
+						Si trabajas en el campo y sientes que “algo se te escapa” con normas, ayudas y papeles, 
+						<strong>Ruralicos es para ti.</strong>
+					</p>
+				</div>
+			</section>
+
+			<!-- Prueba / Registro -->
+			<section id="registro">
+				<header>
+					<h2>PRUÉBALO</h2>
+				</header>
+				<div class="content">
+					<p>
+						<strong>Apúntate a la beta de Ruralicos PRO</strong> y sé de los primeros en recibir las alertas cuando el sistema esté listo.
+					</p>
+					<p>
+						Te avisaremos por email o WhatsApp para que puedas probarlo <strong>GRATIS</strong> al principio.
+					</p>
+
+					<form id="registroForm">
+						<div class="fields">
+							<div class="field half">
+								<label for="name">Nombre</label>
+								<input type="text" name="name" id="name" placeholder="Tu nombre" />
+							</div>
+							<div class="field half">
+								<label for="email">Email</label>
+								<input type="email" name="email" id="email" placeholder="tucorreo@ejemplo.com" />
+							</div>
+							<div class="field half">
+								<label for="whatsapp">WhatsApp</label>
+								<input type="text" name="whatsapp" id="whatsapp" placeholder="+34 6XX XX XX XX" />
+							</div>
+							<div class="field half">
+								<label for="perfil">Perfil</label>
+								<select name="perfil" id="perfil">
+									<option value="">Selecciona una opción</option>
+									<option value="agricultor">Agricultor</option>
+									<option value="ganadero">Ganadero</option>
+									<option value="mixto">Mixto (agricultura y ganadería)</option>
+									<option value="otro">Otro profesional del mundo rural</option>
+                                </select>
+							</div>
+							<div class="field">
+    <label>Subsectores</label>
+    <div class="fields">
+        <div class="field quarter">
+            <label><input type="checkbox" name="subsector" value="ovino"> Ovino</label>
+        </div>
+        <div class="field quarter">
+            <label><input type="checkbox" name="subsector" value="vacuno"> Vacuno</label>
+        </div>
+        <div class="field quarter">
+            <label><input type="checkbox" name="subsector" value="caprino"> Caprino</label>
+        </div>
+        <div class="field quarter">
+            <label><input type="checkbox" name="subsector" value="porcino"> Porcino</label>
+        </div>
+        <div class="field quarter">
+            <label><input type="checkbox" name="subsector" value="avicultura"> Avicultura</label>
+        </div>
+        <div class="field quarter">
+            <label><input type="checkbox" name="subsector" value="cunicultura"> Cunicultura</label>
+        </div>
+        <div class="field quarter">
+            <label><input type="checkbox" name="subsector" value="trigo"> Trigo</label>
+        </div>
+        <div class="field quarter">
+            <label><input type="checkbox" name="subsector" value="cebada"> Cebada</label>
+        </div>
+        <div class="field quarter">
+            <label><input type="checkbox" name="subsector" value="cereal"> Cereal (otros)</label>
+        </div>
+        <div class="field quarter">
+            <label><input type="checkbox" name="subsector" value="maiz"> Maíz</label>
+        </div>
+        <div class="field quarter">
+            <label><input type="checkbox" name="subsector" value="hortalizas"> Hortalizas</label>
+        </div>
+        <div class="field quarter">
+            <label><input type="checkbox" name="subsector" value="frutales"> Frutales</label>
+        </div>
+        <div class="field quarter">
+            <label><input type="checkbox" name="subsector" value="olivar"> Olivar</label>
+        </div>
+        <div class="field quarter">
+            <label><input type="checkbox" name="subsector" value="viñedo"> Viñedo</label>
+        </div>
+        <div class="field quarter">
+            <label><input type="checkbox" name="subsector" value="forrajes"> Forrajes</label>
+        </div>
+        <div class="field quarter">
+            <label><input type="checkbox" name="subsector" value="forestal"> Forestal</label>
+        </div>
+        <div class="field quarter">
+            <label><input type="checkbox" name="subsector" value="agua"> Agua</label>
+        </div>
+        <div class="field quarter">
+            <label><input type="checkbox" name="subsector" value="energia"> Energía</label>
+        </div>
+        <div class="field quarter">
+            <label><input type="checkbox" name="subsector" value="medio_ambiente"> Medio ambiente</label>
+        </div>
+    </div>
+</div>
+
+<div class="field">
+    <label>📍Provincias donde te interesa recibir alertas</label>
+    <div class="field">
+
+    <div id="provincias-wrapper" class="oculto">
+        <div class="fields">
+            <!-- FILA 1 -->
+        <div class="field quarter"><label><input type="checkbox" name="provincia" value="alava"> Álava</label></div>
+        <div class="field quarter"><label><input type="checkbox" name="provincia" value="albacete"> Albacete</label></div>
+        <div class="field quarter"><label><input type="checkbox" name="provincia" value="alicante"> Alicante</label></div>
+        <div class="field quarter"><label><input type="checkbox" name="provincia" value="almeria"> Almería</label></div>
+
+        <!-- FILA 2 -->
+        <div class="field quarter"><label><input type="checkbox" name="provincia" value="asturias"> Asturias</label></div>
+        <div class="field quarter"><label><input type="checkbox" name="provincia" value="avila"> Ávila</label></div>
+        <div class="field quarter"><label><input type="checkbox" name="provincia" value="badajoz"> Badajoz</label></div>
+        <div class="field quarter"><label><input type="checkbox" name="provincia" value="barcelona"> Barcelona</label></div>
+
+        <!-- FILA 3 -->
+        <div class="field quarter"><label><input type="checkbox" name="provincia" value="burgos"> Burgos</label></div>
+        <div class="field quarter"><label><input type="checkbox" name="provincia" value="caceres"> Cáceres</label></div>
+        <div class="field quarter"><label><input type="checkbox" name="provincia" value="cadiz"> Cádiz</label></div>
+        <div class="field quarter"><label><input type="checkbox" name="provincia" value="cantabria"> Cantabria</label></div>
+
+        <!-- FILA 4 -->
+        <div class="field quarter"><label><input type="checkbox" name="provincia" value="castellon"> Castellón</label></div>
+        <div class="field quarter"><label><input type="checkbox" name="provincia" value="ciudad_real"> Ciudad Real</label></div>
+        <div class="field quarter"><label><input type="checkbox" name="provincia" value="cordoba"> Córdoba</label></div>
+        <div class="field quarter"><label><input type="checkbox" name="provincia" value="cuenca"> Cuenca</label></div>
+
+        <!-- FILA 5 -->
+        <div class="field quarter"><label><input type="checkbox" name="provincia" value="girona"> Girona</label></div>
+        <div class="field quarter"><label><input type="checkbox" name="provincia" value="granada"> Granada</label></div>
+        <div class="field quarter"><label><input type="checkbox" name="provincia" value="guadalajara"> Guadalajara</label></div>
+        <div class="field quarter"><label><input type="checkbox" name="provincia" value="guipuzcoa"> Gipuzkoa</label></div>
+
+        <!-- FILA 6 -->
+        <div class="field quarter"><label><input type="checkbox" name="provincia" value="huelva"> Huelva</label></div>
+        <div class="field quarter"><label><input type="checkbox" name="provincia" value="huesca"> Huesca</label></div>
+        <div class="field quarter"><label><input type="checkbox" name="provincia" value="illes_balears"> Illes Balears</label></div>
+        <div class="field quarter"><label><input type="checkbox" name="provincia" value="jaen"> Jaén</label></div>
+
+        <!-- FILA 7 -->
+        <div class="field quarter"><label><input type="checkbox" name="provincia" value="a_coruna"> A Coruña</label></div>
+        <div class="field quarter"><label><input type="checkbox" name="provincia" value="la_rioja"> La Rioja</label></div>
+        <div class="field quarter"><label><input type="checkbox" name="provincia" value="las_palmas"> Las Palmas</label></div>
+        <div class="field quarter"><label><input type="checkbox" name="provincia" value="leon"> León</label></div>
+
+        <!-- FILA 8 -->
+        <div class="field quarter"><label><input type="checkbox" name="provincia" value="lleida"> Lleida</label></div>
+        <div class="field quarter"><label><input type="checkbox" name="provincia" value="lugo"> Lugo</label></div>
+        <div class="field quarter"><label><input type="checkbox" name="provincia" value="madrid"> Madrid</label></div>
+        <div class="field quarter"><label><input type="checkbox" name="provincia" value="malaga"> Málaga</label></div>
+
+        <!-- FILA 9 -->
+        <div class="field quarter"><label><input type="checkbox" name="provincia" value="murcia"> Murcia</label></div>
+        <div class="field quarter"><label><input type="checkbox" name="provincia" value="navarra"> Navarra</label></div>
+        <div class="field quarter"><label><input type="checkbox" name="provincia" value="ourense"> Ourense</label></div>
+        <div class="field quarter"><label><input type="checkbox" name="provincia" value="palencia"> Palencia</label></div>
+
+        <!-- FILA 10 -->
+        <div class="field quarter"><label><input type="checkbox" name="provincia" value="pontevedra"> Pontevedra</label></div>
+        <div class="field quarter"><label><input type="checkbox" name="provincia" value="salamanca"> Salamanca</label></div>
+        <div class="field quarter"><label><input type="checkbox" name="provincia" value="s_c_tenerife"> Santa Cruz de Tenerife</label></div>
+        <div class="field quarter"><label><input type="checkbox" name="provincia" value="segovia"> Segovia</label></div>
+
+        <!-- FILA 11 -->
+        <div class="field quarter"><label><input type="checkbox" name="provincia" value="sevilla"> Sevilla</label></div>
+        <div class="field quarter"><label><input type="checkbox" name="provincia" value="soria"> Soria</label></div>
+        <div class="field quarter"><label><input type="checkbox" name="provincia" value="tarragona"> Tarragona</label></div>
+        <div class="field quarter"><label><input type="checkbox" name="provincia" value="teruel"> Teruel</label></div>
+
+        <!-- FILA 12 -->
+        <div class="field quarter"><label><input type="checkbox" name="provincia" value="toledo"> Toledo</label></div>
+        <div class="field quarter"><label><input type="checkbox" name="provincia" value="valencia"> Valencia</label></div>
+        <div class="field quarter"><label><input type="checkbox" name="provincia" value="valladolid"> Valladolid</label></div>
+        <div class="field quarter"><label><input type="checkbox" name="provincia" value="vizcaya"> Bizkaia</label></div>
+
+        <!-- FILA 13 -->
+        <div class="field quarter"><label><input type="checkbox" name="provincia" value="zamora"> Zamora</label></div>
+        <div class="field quarter"><label><input type="checkbox" name="provincia" value="zaragoza"> Zaragoza</label></div>
+        <div class="field quarter"><label><input type="checkbox" name="provincia" value="ceuta"> Ceuta</label></div>
+        <div class="field quarter"><label><input type="checkbox" name="provincia" value="melilla"> Melilla</label></div>
+        </div>
+    </div>
+</div>
+
+
+<div class="field">
+    <label>¿Qué tipo de alertas te interesan?</label>
+    <div class="fields">
+        <div class="field quarter">
+            <label><input type="checkbox" name="tipo_alerta" value="ayudas_subvenciones" checked> Ayudas y subvenciones</label>
+        </div>
+        <div class="field quarter">
+            <label><input type="checkbox" name="tipo_alerta" value="normativa_general" checked> Normativa general</label>
+        </div>
+        <div class="field quarter">
+            <label><input type="checkbox" name="tipo_alerta" value="agua_infraestructuras" checked> Agua e infraestructuras</label>
+        </div>
+        <div class="field quarter">
+            <label><input type="checkbox" name="tipo_alerta" value="fiscalidad" checked> Fiscalidad</label>
+        </div>
+        <div class="field quarter">
+            <label><input type="checkbox" name="tipo_alerta" value="medio_ambiente" checked> Medio ambiente</label>
+        </div>
+    </div>
+</div>
+
+							<div class="field">
+								<label for="message">Cuéntanos algo más (opcional)</label>
+								<textarea name="message" id="message" placeholder="Ej: zona, cultivos/ganado, qué tipo de alertas te interesan..." rows="5"></textarea>
+							</div>
+						</div>
+						<ul class="actions">
+							<li><input type="submit" value="Quiero inscribirme" class="button primary" /></li>
+						</ul>
+					</form>
+				</div>
+				<footer>
+					<ul class="items">
+						<li>
+							<h3>Email</h3>
+							<a href="mailto:soporteruralicos@gmail.com">soporteruralicos@gmail.com</a>
+						</li>
+						<li>
+							<h3>Teléfono</h3>
+							<a href="tel:+34614833266">(+34) 614 83 32 66</a>
+						</li>
+						<li>
+							<h3>Redes (próximamente)</h3>
+							<ul class="icons">
+								<li><span class="icon brands fa-instagram"><span class="label">Instagram</span></span></li>
+								<li><span class="icon brands fa-twitter"><span class="label">Twitter</span></span></li>
+								<li><span class="icon brands fa-linkedin-in"><span class="label">LinkedIn</span></span></li>
+							</ul>
+						</li>
+					</ul>
+				</footer>
+			</section>
+
+			<!-- Copyright -->
+			<div class="copyright">
+				&copy; Ruralicos. Todos los derechos reservados. Design: <a href="https://html5up.net">HTML5 UP</a>.
+			</div>
 
 		</div>
 
+		<!-- Scripts -->
 		<script src="assets/js/jquery.min.js"></script>
 		<script src="assets/js/jquery.scrolly.min.js"></script>
-		<script src="assets/js/jquery.scrollex.min.js"></script>
 		<script src="assets/js/browser.min.js"></script>
 		<script src="assets/js/breakpoints.min.js"></script>
 		<script src="assets/js/util.js"></script>
 		<script src="assets/js/main.js"></script>
 
 		<script>
-			// Constantes para validar que los datos enviados existen en el sistema
-			const SECTORES = ["Agricultura General", "Ganadería General", "Pesca y Acuicultura", "Medio Ambiente/Forestal"];
-			const SUBSECTORES = ["Vacuno de Leche", "Cítricos", "Olivar", "Cereal", "Vino/Viticultura"];
-			const PROVINCIAS = ["Sevilla", "Madrid", "Valencia", "León"]; // Agregar el resto de provincias
-			const TIPOS_ALERTA = ["Ayudas y Subvenciones", "Convocatorias y Plazos", "Legislación"];
+document.getElementById("registroForm").addEventListener("submit", async function (e) {
+  e.preventDefault();
 
-			const handleSubmit = async (event) => {
-				event.preventDefault();
+  const SECTORES = ["ganaderia","agricultura","mixto","otros"];
+  const SUBSECTORES = [
+    "ovino","vacuno","caprino","porcino","avicultura","cunicultura",
+    "trigo","cebada","cereal","maiz","hortalizas","frutales","olivar",
+    "viñedo","forrajes","forestal","agua","energia","medio_ambiente"
+  ];
+  const TIPOS_ALERTA = [
+    "ayudas_subvenciones","normativa_general",
+    "agua_infraestructuras","fiscalidad","medio_ambiente"
+  ];
+  const PROVINCIAS = [
+    "alava","albacete","alicante","almeria","asturias","avila","badajoz",
+    "barcelona","burgos","caceres","cadiz","cantabria","castellon","ciudad_real",
+    "cordoba","cuenca","girona","granada","guadalajara","guipuzcoa","huelva",
+    "huesca","illes_balears","jaen","a_coruna","la_rioja","las_palmas","leon",
+    "lleida","lugo","madrid","malaga","murcia","navarra","ourense","palencia",
+    "pontevedra","salamanca","s_c_tenerife","segovia","sevilla","soria",
+    "tarragona","teruel","toledo","valencia","valladolid","vizcaya","zamora",
+    "zaragoza","ceuta","melilla"
+  ];
 
-				const form = document.getElementById("registro-form");
-				const submitButton = form.querySelector('input[type="submit"]');
+  const form = e.target;
+  const btn = form.querySelector('input[type="submit"]');
+  if (btn) {
+    btn.disabled = true;
+    btn.value = "Enviando...";
+  }
 
-				const name = form.querySelector('input[name="name"]').value.trim();
-				let whatsapp = form.querySelector('input[name="whatsapp"]').value;
-				const email = form.querySelector('input[name="email"]').value.trim();
-				const message = form.querySelector('textarea[name="message"]').value.trim();
-				const perfil = form.querySelector('input[name="perfil"]:checked')?.value || null;
+  const name = document.getElementById("name").value.trim();
+  const email = document.getElementById("email").value.trim();
+  const whatsapp = document.getElementById("whatsapp").value.trim();
+  const perfil = document.getElementById("perfil").value;
+  const message = document.getElementById("message").value.trim();
 
-				// 1. Validaciones básicas
-				if (!name || !whatsapp || !email) {
-					alert("Por favor, rellena todos los campos obligatorios: Nombre, Teléfono y Email.");
-					return;
-				}
+  // sectores desde perfil
+  const sectores = [];
+  if (perfil === "agricultor" && SECTORES.includes("agricultura")) sectores.push("agricultura");
+  else if (perfil === "ganadero" && SECTORES.includes("ganaderia")) sectores.push("ganaderia");
+  else if (perfil === "mixto" && SECTORES.includes("mixto")) sectores.push("mixto");
+  else if (perfil === "otro" && SECTORES.includes("otros")) sectores.push("otros");
 
-				// 2. Normalización y validación del teléfono
-				whatsapp = whatsapp.replace(/[^0-9]/g, "");
-				if (whatsapp.length < 9) {
-					alert("El número de WhatsApp no parece válido. Debe tener al menos 9 dígitos (ej. 6XXXXXXXX).");
-					return;
-				}
+  // subsectores (checkboxes)
+  const subsectores = [];
+  form.querySelectorAll('input[name="subsector"]:checked').forEach(cb => {
+    if (SUBSECTORES.includes(cb.value)) subsectores.push(cb.value);
+  });
 
-				// 3. Recolección de preferencias (función auxiliar para simplificar)
-				const getCheckedValues = (name, validArray) => {
-					const values = [];
-					form.querySelectorAll(`input[name="${name}"]:checked`).forEach(cb => {
-						if (validArray.includes(cb.value)) values.push(cb.value);
-					});
-					return values;
-				};
+  // provincias (checkboxes)
+  const provincias = [];
+  form.querySelectorAll('input[name="provincia"]:checked').forEach(cb => {
+    if (PROVINCIAS.includes(cb.value)) provincias.push(cb.value);
+  });
 
-				const tipos_alerta = {};
-				TIPOS_ALERTA.forEach(k => tipos_alerta[k] = false);
-				form.querySelectorAll('input[name="tipo_alerta"]:checked').forEach(cb => {
-					if (TIPOS_ALERTA.includes(cb.value)) tipos_alerta[cb.value] = true;
-				});
+  // tipos de alerta
+  const tipos_alerta = {};
+  TIPOS_ALERTA.forEach(k => tipos_alerta[k] = false);
+  form.querySelectorAll('input[name="tipo_alerta"]:checked').forEach(cb => {
+    if (TIPOS_ALERTA.includes(cb.value)) tipos_alerta[cb.value] = true;
+  });
 
-				const preferences = {
-					sectores: getCheckedValues('sector', SECTORES),
-					provincias: getCheckedValues('provincia', PROVINCIAS),
-					subsectores: getCheckedValues('subsector', SUBSECTORES),
-					tipos_alerta,
-					perfil,
-					comentario: message
-				};
+  const preferences = {
+    sectores,
+    provincias,
+    subsectores,
+    tipos_alerta,
+    perfil,
+    comentario: message
+  };
 
-				const payload = {
-					name,
-					email,
-					phone: whatsapp,
-					preferences
-				};
+  const payload = {
+    name,
+    email,
+    phone: whatsapp,
+    preferences
+  };
 
-				// 4. Desactivar botón y enviar feedback
-				submitButton.disabled = true;
-				submitButton.value = 'Enviando... por favor, espera.';
-				
-				try {
-					const res = await fetch("/register", {
-						method: "POST",
-						headers: { "Content-Type": "application/json" },
-						body: JSON.stringify(payload),
-					});
+  try {
+    const res = await fetch("/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
 
-					const json = await res.json();
+    const json = await res.json();
 
-					if (res.ok && json.success) {
-						alert("¡Listo! Te has inscrito correctamente. Te avisaremos por WhatsApp cuando empecemos con los envíos gratuitos.");
-						form.reset();
-					} else if (json.error && json.error.toLowerCase().includes("ya existe")) {
-						alert("Parece que ya estás registrado con ese teléfono o email. ¡Gracias por el interés!");
-					} 
-					else {
-						alert("Error al registrar: " + (json.error || "Error de servidor desconocido. Inténtalo más tarde."));
-					}
-				} catch (e) {
-					console.error("Error de red:", e);
-					alert("Error de conexión. Comprueba tu conexión o inténtalo más tarde.");
-				} finally {
-					// 5. Reactivar botón
-					submitButton.disabled = false;
-					submitButton.value = '¡Quiero recibir las alertas!';
-				}
-			};
+    if (res.ok && json.success) {
+      alert("¡Listo! Te has inscrito correctamente. Te avisaremos por WhatsApp o email cuando la beta esté lista.");
+      form.reset();
+    } else {
+      alert(json.error || "Ha habido un problema al registrar tus datos.");
+    }
+  } catch (err) {
+    console.error(err);
+    alert("No se ha podido conectar con el servidor. Inténtalo más tarde.");
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.value = "Quiero inscribirme";
+    }
+  }
+});
+</script>
 
-			// Asignar el event listener
-			document.addEventListener('DOMContentLoaded', () => {
-				document.getElementById("registro-form").addEventListener("submit", handleSubmit);
-			});
 
-		</script>
+
 
 	</body>
 </html>
