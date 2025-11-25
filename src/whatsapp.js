@@ -37,6 +37,54 @@ function enviarMensajeUltraMsg(telefono, cuerpo) {
           `[UltraMsg → ${telefono}] Status: ${res.statusCode} | Respuesta: ${body}`
         );
 
+        if (res.statusCode !== 200) {
+          return reject(new Error(`UltraMsg error HTTP ${res.statusCode}: ${body}`));
+        }
+
+        // Aquí comprobamos el JSON que devuelve UltraMsg
+        try {
+          const json = JSON.parse(body);
+
+          // Muchos proveedores devuelven { sent: true, ... } o { error: "..." }
+          if (json.error) {
+            return reject(new Error(`UltraMsg error lógico: ${json.error}`));
+          }
+
+          if (json.sent === false) {
+            return reject(new Error('UltraMsg: mensaje no enviado (sent=false)'));
+          }
+
+          // Si no hay error explícito, lo consideramos OK
+          return resolve({ status: 200, body: json });
+        } catch (e) {
+          // Si no es JSON válido, al menos que quede claro
+          return reject(
+            new Error(`UltraMsg devolvió respuesta no JSON: ${body}`)
+          );
+        }
+      });
+    });
+
+    req.on('error', (err) => {
+      console.error(`[UltraMsg] Error de conexión a ${telefono}:`, err.message);
+      reject(err);
+    });
+
+    req.write(postData);
+    req.end();
+  });
+}
+
+
+    const req = https.request(options, (res) => {
+      const chunks = [];
+      res.on('data', (chunk) => chunks.push(chunk));
+      res.on('end', () => {
+        const body = Buffer.concat(chunks).toString();
+        console.log(
+          `[UltraMsg → ${telefono}] Status: ${res.statusCode} | Respuesta: ${body}`
+        );
+
         if (res.statusCode === 200) {
           resolve({ status: 200, body });
         } else {
