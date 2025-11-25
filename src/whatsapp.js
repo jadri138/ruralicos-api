@@ -75,7 +75,7 @@ async function enviarWhatsAppResumen(alerta, supabase) {
   // SOLO usuarios PRO con teléfono válido
   const { data: usuariosPro, error } = await supabase
   .from('users')
-  .select('id, phone, preferencias')
+  .select('id, phone, preferences')
   .eq('subscription', 'pro')
   .not('phone', 'is', null)
   .neq('phone', '');
@@ -100,7 +100,7 @@ async function enviarWhatsAppResumen(alerta, supabase) {
 
  for (const user of usuariosPro) {
   const telefono = user.phone.trim();
-  const prefs = user.preferencias || {};
+  const prefs = user.preferences || {};
 
   // Preferencias del usuario
   const provinciasUser  = prefs.provincias  || [];
