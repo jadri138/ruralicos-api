@@ -76,33 +76,6 @@ function enviarMensajeUltraMsg(telefono, cuerpo) {
 }
 
 
-    const req = https.request(options, (res) => {
-      const chunks = [];
-      res.on('data', (chunk) => chunks.push(chunk));
-      res.on('end', () => {
-        const body = Buffer.concat(chunks).toString();
-        console.log(
-          `[UltraMsg → ${telefono}] Status: ${res.statusCode} | Respuesta: ${body}`
-        );
-
-        if (res.statusCode === 200) {
-          resolve({ status: 200, body });
-        } else {
-          reject(new Error(`UltraMsg error ${res.statusCode}: ${body}`));
-        }
-      });
-    });
-
-    req.on('error', (err) => {
-      console.error(`[UltraMsg] Error de conexión a ${telefono}:`, err.message);
-      reject(err);
-    });
-
-    req.write(postData);
-    req.end();
-  });
-}
-
 /**
  * ENVÍA ALERTA INDIVIDUAL → SOLO A USUARIOS PRO
  */
