@@ -16,6 +16,8 @@ const app = express();
 
 // Para leer JSON del body
 app.use(express.json());
+app.use(cors());     // 1️⃣ habilita CORS
+app.use(express.json()); // 2️⃣ permite recibir JSON
 
 // 👇 NUEVO: servir la carpeta "public" como web estática
 app.use(express.static('public'));
