@@ -12,6 +12,9 @@ const alertasFreeRoutes = require('./routes/alertasFree');
 const boeRoutes = require('./routes/boe');
 const tareasRoutes = require('./routes/tareas');
 const adminRoutes = require('./routes/admin');
+const authRoutes = require('./routes/auth');
+const adminRoutes = require('./routes/admin');
+
 
 
 const app = express();
@@ -30,6 +33,7 @@ alertasRoutes(app, supabase, enviarWhatsapp);
 alertasFreeRoutes(app, supabase, enviarWhatsapp);
 boeRoutes(app, supabase);
 tareasRoutes(app, supabase);
+authRoutes(app, supabase);
 adminRoutes(app, supabase);
 
 

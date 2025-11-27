@@ -1,7 +1,9 @@
 // routes/admin.js
 module.exports = (app, supabase) => {
+    const { requireAdmin } = require('../authMiddleware');
+
   // DASHBOARD RESUMEN
-  app.get('/admin/dashboard', async (req, res) => {
+  app.get('/admin/dashboard', requireAdmin, async (req, res) => {
     try {
       // === USUARIOS TOTALES ===
       const { data: users, error: usersError } = await supabase
@@ -81,7 +83,7 @@ module.exports = (app, supabase) => {
   });
 
   // LISTA DE USUARIOS PARA EL PANEL
-  app.get('/admin/users', async (req, res) => {
+  app.get('/admin/users', requireAdmin, async (req, res) => {
     try {
       const { data: users, error } = await supabase
         .from('users')
