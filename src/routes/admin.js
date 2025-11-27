@@ -1,6 +1,7 @@
+const { requireAdmin } = require('../authMiddleware');
+
 // routes/admin.js
 module.exports = (app, supabase) => {
-    const { requireAdmin } = require('../authMiddleware');
 
   // DASHBOARD RESUMEN
   app.get('/admin/dashboard', requireAdmin, async (req, res) => {
