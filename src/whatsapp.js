@@ -77,10 +77,16 @@ function enviarMensajeUltraMsg(telefono, cuerpo) {
   });
 }
 
-// Guarda un log de WhatsApp en la tabla "whatsapp_logs"
 async function guardarLogWhatsApp({ phone, status, message_type, error_msg }) {
+  console.log('[LOG WHATSAPP] Voy a guardar log', {
+    phone,
+    status,
+    message_type,
+    error_msg,
+  });
+
   try {
-    const { error } = await supabase.from('whatsapp_logs').insert([
+    const { data, error } = await supabase.from('whatsapp_logs').insert([
       {
         phone,
         status,
@@ -89,6 +95,8 @@ async function guardarLogWhatsApp({ phone, status, message_type, error_msg }) {
       },
     ]);
 
+    console.log('[LOG WHATSAPP] Resultado insert:', { data, error });
+
     if (error) {
       console.error('[LOG WHATSAPP] Error guardando log:', error.message);
     }
@@ -96,6 +104,7 @@ async function guardarLogWhatsApp({ phone, status, message_type, error_msg }) {
     console.error('[LOG WHATSAPP] Error inesperado:', e.message);
   }
 }
+
 
 
 /**
