@@ -1,4 +1,4 @@
-const { requireAdmin } = require('../authMiddleware');
+const { requireAdmin } = require('../../authMiddleware');
 
 // routes/admin.js
 module.exports = (app, supabase) => {
