@@ -1,6 +1,8 @@
 // src/whatsapp.js
 const qs = require('querystring');
 const https = require('https');
+const { supabase } = require('./supabaseClient');
+
 
 // Credenciales UltraMsg desde .env
 const ULTRAMSG_INSTANCE_ID = process.env.ULTRAMSG_INSTANCE_ID;
@@ -73,6 +75,26 @@ function enviarMensajeUltraMsg(telefono, cuerpo) {
     req.write(postData);
     req.end();
   });
+}
+
+// Guarda un log de WhatsApp en la tabla "whatsapp_logs"
+async function guardarLogWhatsApp({ phone, status, message_type, error_msg }) {
+  try {
+    const { error } = await supabase.from('whatsapp_logs').insert([
+      {
+        phone,
+        status,
+        message_type,
+        error_msg,
+      },
+    ]);
+
+    if (error) {
+      console.error('[LOG WHATSAPP] Error guardando log:', error.message);
+    }
+  } catch (e) {
+    console.error('[LOG WHATSAPP] Error inesperado:', e.message);
+  }
 }
 
 
@@ -167,10 +189,26 @@ async function enviarWhatsAppResumen(alerta, supabase) {
   try {
     await enviarMensajeUltraMsg(telefono, resumen);
     enviados++;
+          await guardarLogWhatsApp({
+        phone: telefono,
+        status: 'sent',
+        message_type: 'alerta_pro',
+        error_msg: null,
+      });
+
   } catch (err) {
     errores.push({ userId: user.id, telefono, error: err.message });
+    await guardarLogWhatsApp({
+  phone: telefono,
+  status: 'failed',
+  message_type: 'alerta_pro',
+  error_msg: err.message,
+});
+
   }
 }
+
+
 
   // ❌ Eliminado: NO se vuelve a marcar whatsapp_enviado aquí.
   // alertas.js se encarga de esto correctamente.
