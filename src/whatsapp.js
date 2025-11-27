@@ -273,6 +273,8 @@ async function enviarWhatsAppFree(supabase, mensajeFree) {
     try {
       await enviarMensajeUltraMsg(user.phone.trim(), mensajeFree);
       enviados++;
+      console.log('[WHATSAPP PRO] ENVIADO A', telefono);
+
     } catch (err) {
       console.error(`[FREE] Error enviando a ${user.phone}:`, err.message);
       errores.push({ userId: user.id, error: err.message });
