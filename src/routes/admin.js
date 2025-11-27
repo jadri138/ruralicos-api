@@ -85,7 +85,7 @@ module.exports = (app, supabase) => {
     try {
       const { data: users, error } = await supabase
         .from('users')
-        .select('id, phone, subscription, created_at, preferences')
+        .select('id, name, phone, subscription, created_at, preferences')
         .order('created_at', { ascending: false });
 
       if (error) {
@@ -98,6 +98,7 @@ module.exports = (app, supabase) => {
       // Por si algún campo viene null
       const usersSafe = (users || []).map((u) => ({
         id: u.id,
+        name: u.name || "",
         phone: u.phone || '',
         subscription: u.subscription || 'free',
         created_at: u.created_at,
