@@ -269,17 +269,35 @@ async function enviarWhatsAppFree(supabase, mensajeFree) {
   let enviados = 0;
   const errores = [];
 
-  for (const user of usuariosFree) {
+    for (const user of usuariosFree) {
+    const telefono = user.phone.trim();
+
     try {
-      await enviarMensajeUltraMsg(user.phone.trim(), mensajeFree);
+      await enviarMensajeUltraMsg(telefono, mensajeFree);
       enviados++;
-      console.log('[WHATSAPP PRO] ENVIADO A', telefono);
+
+      // ✅ Log de éxito
+      await guardarLogWhatsApp({
+        phone: telefono,
+        status: 'sent',
+        message_type: 'alerta_free',
+        error_msg: null,
+      });
 
     } catch (err) {
-      console.error(`[FREE] Error enviando a ${user.phone}:`, err.message);
+      console.error(`[FREE] Error enviando a ${telefono}:`, err.message);
       errores.push({ userId: user.id, error: err.message });
+
+      // ✅ Log de error
+      await guardarLogWhatsApp({
+        phone: telefono,
+        status: 'failed',
+        message_type: 'alerta_free',
+        error_msg: err.message,
+      });
     }
   }
+
 
   console.log(
     `[FREE] Resumen diario enviado a ${enviados}/${usuariosFree.length} usuarios FREE`
