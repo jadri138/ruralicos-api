@@ -1,5 +1,6 @@
 // routes/admin.js
 module.exports = (app, supabase) => {
+  // DASHBOARD RESUMEN
   app.get('/admin/dashboard', async (req, res) => {
     try {
       // === USUARIOS TOTALES ===
@@ -37,7 +38,9 @@ module.exports = (app, supabase) => {
 
       if (logsError) {
         console.error('Error obteniendo logs WhatsApp:', logsError.message);
-        return res.status(500).json({ error: 'Error obteniendo logs WhatsApp' });
+        return res
+          .status(500)
+          .json({ error: 'Error obteniendo logs WhatsApp' });
       }
 
       const enviadosHoyPro = logs.filter(
@@ -59,8 +62,7 @@ module.exports = (app, supabase) => {
       const enviadosHoy = enviadosHoyPro + enviadosHoyFree;
       const fallidosHoy = fallidosHoyPro + fallidosHoyFree;
 
-      // === INGRESOS MES (lo dejamos en 0 de momento) ===
-      const ingresosMes = 0;
+      const ingresosMes = 0; // ya lo montaremos con pagos
 
       return res.json({
         totalUsuarios,
@@ -75,6 +77,37 @@ module.exports = (app, supabase) => {
     } catch (err) {
       console.error('Error en /admin/dashboard:', err);
       return res.status(500).json({ error: 'Error interno en dashboard' });
+    }
+  });
+
+  // LISTA DE USUARIOS PARA EL PANEL
+  app.get('/admin/users', async (req, res) => {
+    try {
+      const { data: users, error } = await supabase
+        .from('users')
+        .select('id, phone, subscription, created_at, preferences')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Error obteniendo lista de usuarios:', error.message);
+        return res
+          .status(500)
+          .json({ error: 'Error obteniendo lista de usuarios' });
+      }
+
+      // Por si algún campo viene null
+      const usersSafe = (users || []).map((u) => ({
+        id: u.id,
+        phone: u.phone || '',
+        subscription: u.subscription || 'free',
+        created_at: u.created_at,
+        preferences: u.preferences || {},
+      }));
+
+      return res.json({ users: usersSafe });
+    } catch (err) {
+      console.error('Error en /admin/users:', err);
+      return res.status(500).json({ error: 'Error interno en /admin/users' });
     }
   });
 };
