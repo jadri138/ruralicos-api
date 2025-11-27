@@ -198,6 +198,8 @@ async function enviarWhatsAppResumen(alerta, supabase) {
   try {
     await enviarMensajeUltraMsg(telefono, resumen);
     enviados++;
+    console.log('[WHATSAPP PRO] ENVIADO A', telefono);
+
           await guardarLogWhatsApp({
         phone: telefono,
         status: 'sent',
