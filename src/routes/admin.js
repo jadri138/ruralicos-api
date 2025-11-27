@@ -31,7 +31,7 @@ module.exports = (app, supabase) => {
 
       const { data: logs, error: logsError } = await supabase
         .from('whatsapp_logs')
-        .select('status, created_at')
+        .select('status, created_at, message_type')
         .gte('created_at', inicioHoy)
         .lt('created_at', inicioManana);
 
@@ -40,10 +40,26 @@ module.exports = (app, supabase) => {
         return res.status(500).json({ error: 'Error obteniendo logs WhatsApp' });
       }
 
-      const enviadosHoy = logs.filter((l) => l.status === 'sent').length;
-      const fallidosHoy = logs.filter((l) => l.status === 'failed').length;
+      const enviadosHoyPro = logs.filter(
+        (l) => l.status === 'sent' && l.message_type === 'alerta_pro'
+      ).length;
 
-      // === INGRESOS MES (de momento 0, lo haremos luego) ===
+      const enviadosHoyFree = logs.filter(
+        (l) => l.status === 'sent' && l.message_type === 'alerta_free'
+      ).length;
+
+      const fallidosHoyPro = logs.filter(
+        (l) => l.status === 'failed' && l.message_type === 'alerta_pro'
+      ).length;
+
+      const fallidosHoyFree = logs.filter(
+        (l) => l.status === 'failed' && l.message_type === 'alerta_free'
+      ).length;
+
+      const enviadosHoy = enviadosHoyPro + enviadosHoyFree;
+      const fallidosHoy = fallidosHoyPro + fallidosHoyFree;
+
+      // === INGRESOS MES (lo dejamos en 0 de momento) ===
       const ingresosMes = 0;
 
       return res.json({
@@ -51,6 +67,10 @@ module.exports = (app, supabase) => {
         enviadosHoy,
         fallidosHoy,
         ingresosMes,
+        enviadosHoyPro,
+        enviadosHoyFree,
+        fallidosHoyPro,
+        fallidosHoyFree,
       });
     } catch (err) {
       console.error('Error en /admin/dashboard:', err);
