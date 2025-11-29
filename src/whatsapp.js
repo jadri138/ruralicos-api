@@ -186,7 +186,14 @@ async function enviarWhatsAppResumen(alerta, supabase) {
 
   if (!okSector) continue;
 
-  // (SUBSECTOR ya NO es obligatorio — solo informativo)
+  // 3. FILTRO SUBSECTOR (ahora SÍ obligatorio si el usuario los tiene definidos)
+const okSubsector =
+  subsectoresUser.length === 0 ||         // si el usuario no eligió subsector → recibe todos los subsectores de su sector
+  subsectoresA.length === 0 ||            // si la alerta no especifica subsectores → es genérica
+  intersecta(subsectoresUser, subsectoresA); // si ambos tienen valores → debe haber coincidencia
+
+if (!okSubsector) continue;
+
 
   // 3. FILTRO TIPO DE ALERTA
   const okTipo = tiposA.some((tipo) => tiposUser[tipo] === true);
