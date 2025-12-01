@@ -14,6 +14,7 @@ module.exports = function usersRoutes(app, supabase) {
   // LISTAR USUARIOS (solo para depurar)
   // --------------------------------------------------
   app.get('/users', async (req, res) => {
+    if (!checkCronToken(req, res)) return;
     const { data, error } = await supabase
       .from('users')
       .select('id, phone, subscription, preferences')
