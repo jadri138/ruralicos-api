@@ -1,4 +1,4 @@
-const { checkCronToken } = require('./utils/checkCronToken');
+const { checkCronToken } = require('./src/utils/checkCronToken');
 
 
 // src/routes/users.js
