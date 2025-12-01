@@ -54,7 +54,7 @@ app.use(
 // Limitador de peticiones por IP (anti ataques fuerza bruta)
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutos
-  max: 1000,                // puedes bajarlo si quieres ser más estricto
+  max: 100,                //bajar para ser más estricto
 });
 
 app.use(limiter);
