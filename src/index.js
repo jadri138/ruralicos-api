@@ -2,6 +2,8 @@ require('dotenv').config();
 
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const { supabase } = require('./supabaseClient');
 const enviarWhatsapp = require('./whatsapp');
 
@@ -14,21 +16,56 @@ const tareasRoutes = require('./routes/tareas');
 const authRoutes = require('./routes/auth');
 const adminRoutes = require('./routes/admin');
 
-
-
-
-
 const app = express();
 
-// Para leer JSON del body
-app.use(express.json());
-app.use(cors());     // 1️⃣ habilita CORS
-app.use(express.json()); // 2️⃣ permite recibir JSON
+/* ---------------------------------------------------
+   PROTECCIONES DE SEGURIDAD
+--------------------------------------------------- */
 
-// 👇 NUEVO: servir la carpeta "public" como web estática
+// Leer JSON del body (solo una vez)
+app.use(express.json());
+
+// Seguridad HTTP
+app.use(helmet());
+
+// CORS: solo permitir orígenes seguros
+const allowedOrigins = [
+  'https://ruralicos.es',
+  'https://www.ruralicos.es',
+  'http://localhost:3000',
+  'http://localhost:5173',
+];
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Peticiones internas o herramientas tipo Postman (sin origin)
+      if (!origin) return callback(null, true);
+
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      return callback(new Error('Origen no permitido por CORS'), false);
+    },
+  })
+);
+
+// Limitador de peticiones por IP (anti ataques fuerza bruta)
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutos
+  max: 1000,                // puedes bajarlo si quieres ser más estricto
+});
+
+app.use(limiter);
+
+// Servir archivos estáticos de la carpeta "public"
 app.use(express.static('public'));
 
-// Activamos rutas de la API
+/* ---------------------------------------------------
+   ACTIVAR RUTAS
+--------------------------------------------------- */
+
 usersRoutes(app, supabase);
 alertasRoutes(app, supabase, enviarWhatsapp);
 alertasFreeRoutes(app, supabase, enviarWhatsapp);
@@ -37,6 +74,9 @@ tareasRoutes(app, supabase);
 authRoutes(app, supabase);
 adminRoutes(app, supabase);
 
+/* ---------------------------------------------------
+   INICIAR SERVIDOR
+--------------------------------------------------- */
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
