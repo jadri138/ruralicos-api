@@ -1,3 +1,6 @@
+const { checkCronToken } = require('./utils/checkCronToken');
+
+
 // src/routes/users.js
 
 module.exports = function usersRoutes(app, supabase) {
