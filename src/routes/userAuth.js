@@ -1,7 +1,8 @@
 // src/routes/userAuth.js
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { requireAuth } = require('../authMiddleware');
+const { requireAuth } = require('../../authMiddleware');
+
 
 module.exports = (app, supabase) => {
   /**
