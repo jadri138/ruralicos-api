@@ -77,7 +77,7 @@ tareasRoutes(app, supabase);
 authRoutes(app, supabase);
 adminRoutes(app, supabase);
 preferencesRoutes(app, supabase);
-userAuthRoutes(app, supabase);
+
 
 /* ---------------------------------------------------
    INICIAR SERVIDOR
