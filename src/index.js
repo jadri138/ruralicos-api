@@ -70,8 +70,8 @@ app.use(express.static('public'));
 --------------------------------------------------- */
 
 usersRoutes(app, supabase);
-alertasRoutes(app, supabase, enviarWhatsapp);
-alertasFreeRoutes(app, supabase, enviarWhatsapp);
+alertasRoutes(app, supabase, enviarWhatsapp, enviarWhatsAppTodos);
+alertasFreeRoutes(app, supabase, enviarWhatsapp, enviarWhatsAppTodos);
 boeRoutes(app, supabase);
 tareasRoutes(app, supabase);
 authRoutes(app, supabase);
