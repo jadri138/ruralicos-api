@@ -62,55 +62,45 @@ module.exports = (app, supabase) => {
    * PRIMER ACCESO PARA ANTIGUOS: POST /first-login
    * Solo teléfono. Solo si password_hash es NULL.
    */
-  app.post('/first-login', async (req, res) => {
-    try {
-      const { phone } = req.body;
+  /**
+ * LOGIN POR TELÉFONO: POST /login-phone
+ * phone + password => token
+ */
 
-      if (!phone) {
-        return res.status(400).json({ error: 'Falta el teléfono' });
-      }
-
-      const { data, error } = await supabase
-        .from('users')
-        .select('id, email, phone, password_hash')
-        .eq('phone', phone)
-        .limit(1);
-
-      if (error) {
-        console.error('Error consultando users en first-login:', error.message);
-        return res.status(500).json({ error: 'Error interno' });
-      }
-
-      const user = data && data[0];
-
-      if (!user) {
-        return res.status(404).json({ error: 'No hay ningún usuario con ese teléfono' });
-      }
-
-      if (user.password_hash) {
-        return res
-          .status(400)
-          .json({ error: 'Este usuario ya tiene contraseña, usa el login normal' });
-      }
-
-      // Token temporal para que pueda crear contraseña
-      const token = jwt.sign(
-        {
-          sub: user.id,
-          email: user.email,
-          phone: user.phone,
-          role: 'user',
-        },
-        process.env.JWT_SECRET,
-        { expiresIn: '30m' } // 30 minutos
-      );
-
-      res.json({ token });
-    } catch (err) {
-      console.error('Error en /first-login:', err);
-      res.status(500).json({ error: 'Error interno' });
+app.post('/login-phone', async (req, res) => {
+  try {
+    const { phone, password } = req.body;
+    if (!phone || !password) {
+      return res.status(400).json({ error: 'Faltan teléfono o contraseña' });
     }
-  });
+    const normalizedPhone = String(phone).trim().replace(/\D/g, '');
+    const { data, error } = await supabase
+      .from('users')
+      .select('id, phone, password_hash')
+      .eq('phone', normalizedPhone)
+      .limit(1);
+    if (error) {
+      return res.status(500).json({ error: 'Error interno' });
+    }
+    const user = data && data[0];
+    if (!user || !user.password_hash) {
+      return res.status(401).json({ error: 'Credenciales incorrectas' });
+    }
+    const ok = await bcrypt.compare(password, user.password_hash);
+    if (!ok) {
+      return res.status(401).json({ error: 'Credenciales incorrectas' });
+    }
+    const token = jwt.sign(
+      { sub: user.id, phone: user.phone, role: 'user' },
+      process.env.JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+    res.json({ token });
+  } catch (err) {
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 
   /**
    * CREAR / CAMBIAR CONTRASEÑA: POST /set-password
