@@ -6,6 +6,8 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const { supabase } = require('./supabaseClient');
 const enviarWhatsapp = require('./whatsapp');
+const { enviarWhatsAppTodos } = require('./whatsapp');
+
 
 // Rutas
 const usersRoutes = require('./routes/users');
