@@ -15,6 +15,8 @@ const boeRoutes = require('./routes/boe');
 const tareasRoutes = require('./routes/tareas');
 const authRoutes = require('./routes/auth');
 const adminRoutes = require('./routes/admin');
+const preferencesRoutes = require('./routes/preferences');
+
 
 const app = express();
 
@@ -73,6 +75,7 @@ boeRoutes(app, supabase);
 tareasRoutes(app, supabase);
 authRoutes(app, supabase);
 adminRoutes(app, supabase);
+preferencesRoutes(app, supabase);
 
 /* ---------------------------------------------------
    INICIAR SERVIDOR

@@ -18,7 +18,7 @@ function verifyToken(req, res) {
 
   try {
     const payload = jwt.verify(token, process.env.JWT_SECRET);
-    return payload; // ej: { sub, name, role }
+    return payload; // ej: { sub, username, role }
   } catch (err) {
     console.error('Error verificando JWT:', err.message);
     res.status(401).json({ error: 'Token inválido o caducado' });
