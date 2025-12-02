@@ -8,17 +8,16 @@ module.exports = (app, supabase) => {
    */
   app.get('/me/preferences', requireAuth, async (req, res) => {
     try {
-      // suponemos que en el token guardas el id del usuario en "sub"
-      const userId = req.user.sub;
+      const userId = req.user.sub; // id del usuario en el JWT
 
       const { data, error } = await supabase
         .from('users')
-        .select('preferencias')
+        .select('preferences')   // 👈 columna correcta
         .eq('id', userId)
         .single();
 
       if (error) {
-        console.error('Error consultando preferencias:', error.message);
+        console.error('Error consultando preferences:', error.message);
         return res.status(500).json({ error: 'Error consultando preferencias' });
       }
 
@@ -26,8 +25,8 @@ module.exports = (app, supabase) => {
         return res.status(404).json({ error: 'Usuario no encontrado' });
       }
 
-      // si preferencias es null, devolvemos objeto vacío
-      res.json(data.preferencias || {});
+      // si preferences es null devolvemos {}
+      res.json(data.preferences || {});
     } catch (err) {
       console.error('Error en GET /me/preferences:', err);
       res.status(500).json({ error: 'Error interno' });
@@ -41,19 +40,19 @@ module.exports = (app, supabase) => {
   app.put('/me/preferences', requireAuth, async (req, res) => {
     try {
       const userId = req.user.sub;
-      const preferencias = req.body; // debe venir JSON
+      const preferences = req.body; // JSON tal cual
 
       const { error } = await supabase
         .from('users')
-        .update({ preferencias })
+        .update({ preferences })   // 👈 misma columna
         .eq('id', userId);
 
       if (error) {
-        console.error('Error actualizando preferencias:', error.message);
+        console.error('Error actualizando preferences:', error.message);
         return res.status(500).json({ error: 'Error guardando preferencias' });
       }
 
-      res.json({ ok: true, preferencias });
+      res.json({ ok: true, preferences });
     } catch (err) {
       console.error('Error en PUT /me/preferences:', err);
       res.status(500).json({ error: 'Error interno' });
