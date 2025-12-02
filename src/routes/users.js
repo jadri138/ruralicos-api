@@ -235,7 +235,7 @@ const telefonoNormalizado = soloDigitos;
   // GUARDAR PREFERENCIAS USANDO TELÉFONO (SOLO PRO)
   // --------------------------------------------------
   app.put('/users/preferences', async (req, res) => {
-    let { phone, ...prefs } = req.body;
+    let { phone, prefs } = req.body;
 
     if (!phone) {
       return res.status(400).json({ error: 'Falta el número de teléfono' });
