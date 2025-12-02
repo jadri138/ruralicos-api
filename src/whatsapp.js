@@ -312,7 +312,53 @@ async function enviarWhatsAppFree(supabase, mensajeFree) {
   if (errores.length > 0) console.warn(`[FREE] ${errores.length} errores`);
 }
 
+/**
+ * ENVÍA UN MENSAJE A TODOS LOS USUARIOS (PRO y FREE)
+ */
+async function enviarWhatsAppTodos(supabase, mensaje) {
+  if (!ULTRAMSG_INSTANCE_ID || !ULTRAMSG_TOKEN) {
+    throw new Error('Faltan credenciales UltraMsg');
+  }
+  if (!mensaje?.trim()) {
+    console.warn('Mensaje vacío → no se envía');
+    return;
+  }
+
+  // 1. Listar todos los usuarios con teléfono
+  const { data: users, error } = await supabase
+    .from('users')
+    .select('id, phone')
+    .not('phone', 'is', null)
+    .neq('phone', '');
+
+  if (error) {
+    console.error('Error consultando usuarios:', error.message);
+    throw error;
+  }
+
+  if (!users || users.length === 0) {
+    console.warn('No hay usuarios con teléfono → no se envía');
+    return;
+  }
+
+  console.log(`Enviando mensaje a ${users.length} usuarios...`);
+
+  for (const user of users) {
+    const telefono = user.phone.trim();
+    try {
+      await enviarMensajeUltraMsg(telefono, mensaje);
+      // Opcional: guarda log de éxito llamando a guardarLogWhatsApp() si lo deseas
+    } catch (err) {
+      console.error(`Error enviando a ${telefono}:`, err.message);
+      // Opcional: guarda log de error con guardarLogWhatsApp()
+    }
+  }
+
+  console.log('Mensaje enviado a todos los usuarios.');
+}
+
 module.exports = {
   enviarWhatsAppResumen, // Solo PRO
   enviarWhatsAppFree, // Solo FREE
+  enviarWhatsAppTodos, //mensaje a todos los numeros
 };
