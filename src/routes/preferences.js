@@ -1,5 +1,5 @@
 // src/routes/preferences.js
-const { requireAuth } = require('/authMiddleware');
+const { requireAuth } = require('../../authMiddleware');
 
 module.exports = (app, supabase) => {
   /**
