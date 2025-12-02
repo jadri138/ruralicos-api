@@ -6,57 +6,59 @@ const { requireAuth } = require('../../authMiddleware');
 
 
 module.exports = (app, supabase) => {
-  /**
-   * LOGIN NORMAL: POST /login
-   * email + password => token
-   */
-  app.post('/login', async (req, res) => {
-    try {
-      const { email, password } = req.body;
-
-      if (!email || !password) {
-        return res.status(400).json({ error: 'Faltan email o contraseña' });
-      }
-
-      const { data, error } = await supabase
-        .from('users')
-        .select('id, email, password_hash')
-        .eq('email', email)
-        .limit(1);
-
-      if (error) {
-        console.error('Error consultando users:', error.message);
-        return res.status(500).json({ error: 'Error interno' });
-      }
-
-      const user = data && data[0];
-
-      // No existe o aún no tiene contraseña
-      if (!user || !user.password_hash) {
-        return res.status(401).json({ error: 'Credenciales incorrectas' });
-      }
-
-      const ok = await bcrypt.compare(password, user.password_hash);
-      if (!ok) {
-        return res.status(401).json({ error: 'Credenciales incorrectas' });
-      }
-
-      const token = jwt.sign(
-        {
-          sub: user.id,
-          email: user.email,
-          role: 'user',
-        },
-        process.env.JWT_SECRET,
-        { expiresIn: '7d' }
-      );
-
-      res.json({ token });
-    } catch (err) {
-      console.error('Error en /login usuario:', err);
-      res.status(500).json({ error: 'Error interno' });
+ /**
+ * LOGIN POR TELÉFONO: POST /login-phone
+ * phone + password => token
+ */
+app.post('/login-phone', async (req, res) => {
+  try {
+    let { phone, password } = req.body;
+    if (!phone || !password) {
+      return res.status(400).json({ error: 'Faltan teléfono o contraseña' });
     }
-  });
+
+    // Normalizar teléfono: quitar símbolos y añadir 34 si son 9 dígitos
+    phone = String(phone).trim();
+    let soloDigitos = phone.replace(/\D/g, '');
+    if (soloDigitos.length === 9) {
+      soloDigitos = '34' + soloDigitos;
+    }
+    if (soloDigitos.length !== 11) {
+      return res.status(400).json({ error: 'Teléfono no válido' });
+    }
+
+    const { data: user, error } = await supabase
+      .from('users')
+      .select('id, phone, password_hash')
+      .eq('phone', soloDigitos)
+      .maybeSingle();
+
+    if (error) {
+      console.error('Error consultando users en login-phone:', error.message);
+      return res.status(500).json({ error: 'Error interno' });
+    }
+
+    if (!user || !user.password_hash) {
+      return res.status(401).json({ error: 'Credenciales incorrectas' });
+    }
+
+    const ok = await bcrypt.compare(password, user.password_hash);
+    if (!ok) {
+      return res.status(401).json({ error: 'Credenciales incorrectas' });
+    }
+
+    const token = jwt.sign(
+      { sub: user.id, phone: user.phone, role: 'user' },
+      process.env.JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    res.json({ token });
+  } catch (err) {
+    console.error('Error en /login-phone:', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
 
   /**
    * PRIMER ACCESO PARA ANTIGUOS: POST /first-login
