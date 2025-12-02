@@ -1,4 +1,4 @@
-// authMiddleware.js
+// authMiddleWare.js
 const jwt = require('jsonwebtoken');
 
 // Saca el token del header Authorization: Bearer xxx
@@ -18,7 +18,7 @@ function verifyToken(req, res) {
 
   try {
     const payload = jwt.verify(token, process.env.JWT_SECRET);
-    return payload; // ej: { sub, email, phone, role }
+    return payload; // { sub, email, role, ... }
   } catch (err) {
     console.error('Error verificando JWT:', err.message);
     res.status(401).json({ error: 'Token inválido o caducado' });
@@ -26,15 +26,15 @@ function verifyToken(req, res) {
   }
 }
 
-// 🔓 Para cualquier usuario logeado (panel usuario)
+// 🔓 Para cualquier usuario logeado
 function requireAuth(req, res, next) {
   const payload = verifyToken(req, res);
-  if (!payload) return; // ya se respondió con error
+  if (!payload) return;
   req.user = payload;
   next();
 }
 
-// 🔐 Solo admins (panel admin)
+// 🔐 Solo admins
 function requireAdmin(req, res, next) {
   const payload = verifyToken(req, res);
   if (!payload) return;
