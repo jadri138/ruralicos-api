@@ -52,8 +52,9 @@ async function sendBroadcast() {
   console.log(`Encontrados ${users.length} usuarios con teléfono.`);
 
   // 4. Mensaje que quieres enviar
-  const mensaje = `¡Hola! Ya puedes entrar en tu panel de Ruralicos y configurar tus alertas personalizadas.
-Entra aquí 👉 https://ruralicos.es/mis-alertas/`;
+  const mensaje = `¡Hola! Ya esta disponible *tu panel personal* de Ruralicos 
+  ya puedes configurar tus alertas personalizadas en cualquier momento!.🐄🐖🌾
+*Entra aquí* 👉 https://ruralicos.es/login/`;
 
   // 5. Enviar uno por uno
   for (const user of users) {
