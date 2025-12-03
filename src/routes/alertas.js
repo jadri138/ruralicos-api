@@ -122,7 +122,7 @@ Para cada alerta RELEVANTE, además debes clasificarla así:
 
 - "subsectores": lista de palabras MÁS concretas, escogidas de aquí:
   ["ovino","vacuno","caprino","porcino","avicultura","cunicultura",
-   "trigo","cebada","cereal","maiz","hortalizas","frutales","olivar",
+  "equinocultura","apicultura","trigo","cebada","cereal","maiz","hortalizas","frutales","olivar",
    "viñedo","forrajes","forestal","agua","energia","medio_ambiente"].
 
 - "tipos_alerta": lista de uno o varios de estos tipos:
@@ -131,6 +131,11 @@ Para cada alerta RELEVANTE, además debes clasificarla así:
 
 3) MENSAJE WHATSAPP (solo si es RELEVANTE):
 Genera un mensaje estilo WhatsApp con esta estructura EXACTA:
+
+IMPORTANTE: NO consideres RELEVANTES las concesiones de agua individuales, modificaciones de riego de explotaciones particulares, cambios de superficie, cambios de cultivo o renovaciones de pozos cuando solo afectan a un titular concreto. 
+Esos casos deben devolverse como "NO IMPORTA".
+Solo considera relevantes asuntos de impacto general: ayudas, normativa, convocatorias, obras públicas, planes hidrológicos o disposiciones que afecten a un conjunto amplio de agricultores/ganaderos.
+
 
 *Ruralicos te avisa* 🌾🚜
 
