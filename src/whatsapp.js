@@ -312,6 +312,43 @@ async function enviarWhatsAppFree(supabase, mensajeFree) {
   if (errores.length > 0) console.warn(`[FREE] ${errores.length} errores`);
 }
 
+async function enviarWhatsAppRegistro(telefono, mensajeTexto) {
+  if (!ULTRAMSG_INSTANCE_ID || !ULTRAMSG_TOKEN) {
+    throw new Error('Faltan credenciales UltraMsg');
+  }
+
+  if (!telefono || !telefono.trim()) {
+    console.warn('[REGISTRO] Usuario sin teléfono, no se manda WhatsApp');
+    return;
+  }
+
+  const mensaje =
+    mensajeTexto ||
+    '¡Bienvenido a Ruralicos! ✅ Tu registro se ha completado correctamente.';
+
+  try {
+    await enviarMensajeUltraMsg(telefono.trim(), mensaje);
+
+    await guardarLogWhatsApp({
+      phone: telefono.trim(),
+      status: 'sent',
+      message_type: 'registro',
+      error_msg: null,
+    });
+
+    console.log('[REGISTRO] WhatsApp enviado a', telefono);
+  } catch (err) {
+    console.error('[REGISTRO] Error enviando WhatsApp:', err.message);
+
+    await guardarLogWhatsApp({
+      phone: telefono.trim(),
+      status: 'failed',
+      message_type: 'registro',
+      error_msg: err.message,
+    });
+  }
+}
+
 /**
  * ENVÍA UN MENSAJE A TODOS LOS USUARIOS (PRO y FREE)
  */
@@ -360,5 +397,6 @@ async function enviarWhatsAppTodos(supabase, mensaje) {
 module.exports = {
   enviarWhatsAppResumen, // Solo PRO
   enviarWhatsAppFree, // Solo FREE
-  enviarWhatsAppTodos, //mensaje a todos los numeros
+  enviarWhatsAppTodos,
+  enviarWhatsAppRegistro, //mensaje a todos los numeros
 };
