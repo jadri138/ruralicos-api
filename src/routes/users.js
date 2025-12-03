@@ -1,4 +1,6 @@
 const { checkCronToken } = require('../utils/checkCronToken');
+const { enviarWhatsAppRegistro } = require('../whatsapp');
+
 
 
 // src/routes/users.js
@@ -132,12 +134,27 @@ const telefonoNormalizado = soloDigitos;
       }
 
       // 4) Devolver usuario registrado
-      res.json({ success: true, user: data[0] });
+res.json({ success: true, user: data[0] });
 
-      // 5) Registrar acción en logs (no afecta a la respuesta)
-      await supabase.from('logs').insert([
-        { action: 'register', details: `phone: ${telefonoNormalizado}` }
-      ]);
+// 5) Enviar WhatsApp de bienvenida (NO bloquea la respuesta)
+try {
+  const mensaje =
+    '¡Bienvenido a Ruralicos! 🌾 Tu registro se ha completado correctamente. ' +
+    'Desde hoy recibirás alertas agrícolas y ganaderas adaptadas a ti.';
+
+  enviarWhatsAppRegistro(telefonoNormalizado, mensaje).catch((err) => {
+    console.error('Error enviando WhatsApp de registro:', err.message);
+  });
+
+} catch (err) {
+  console.error('Error interno en envío de WhatsApp de registro:', err);
+}
+
+// 6) Registrar acción en logs (no afecta a la respuesta)
+await supabase.from('logs').insert([
+  { action: 'register', details: `phone: ${telefonoNormalizado}` }
+]);
+
 
     } catch (err) {
       console.error('Error inesperado en /register:', err);
