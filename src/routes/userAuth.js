@@ -103,6 +103,50 @@ app.post('/login-phone', async (req, res) => {
   }
 });
 
+// Crear contraseña en el primer acceso
+app.post('/first-login', async (req, res) => {
+  try {
+    let { phone } = req.body;
+    if (!phone) {
+      return res.status(400).json({ error: 'Falta el teléfono' });
+    }
+
+    // Normalizar teléfono: quitar espacios y símbolos; añadir 34 si solo tiene 9 dígitos
+    phone = String(phone).trim().replace(/\D/g, '');
+    if (phone.length === 9) {
+      phone = '34' + phone;
+    }
+    if (phone.length !== 11) {
+      return res.status(400).json({ error: 'Teléfono no válido' });
+    }
+
+    // Buscar al usuario por teléfono
+    const { data: user, error } = await supabase
+      .from('users')
+      .select('id, phone, password_hash')
+      .eq('phone', phone)
+      .maybeSingle();
+
+    if (error) {
+      return res.status(500).json({ error: 'Error interno' });
+    }
+    if (!user) {
+      return res.status(404).json({ error: 'No existe ningún usuario con ese teléfono' });
+    }
+
+    // Generar token temporal para crear contraseña
+    const token = jwt.sign(
+      { sub: user.id, phone: user.phone, firstLogin: true },
+      process.env.JWT_SECRET,
+      { expiresIn: '30m' }
+    );
+
+    res.json({ token });
+  } catch {
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 
   /**
    * CREAR / CAMBIAR CONTRASEÑA: POST /set-password
