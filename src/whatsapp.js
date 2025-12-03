@@ -107,9 +107,6 @@ async function guardarLogWhatsApp({ phone, status, message_type, error_msg }) {
 
 
 
-/**
- * ENVÍA ALERTA INDIVIDUAL → SOLO A USUARIOS PRO
- */
 async function enviarWhatsAppResumen(alerta, supabase) {
   if (!ULTRAMSG_INSTANCE_ID || !ULTRAMSG_TOKEN) {
     throw new Error('Faltan ULTRAMSG_INSTANCE_ID o ULTRAMSG_TOKEN en .env');
@@ -126,12 +123,11 @@ async function enviarWhatsAppResumen(alerta, supabase) {
 
   // SOLO usuarios PRO con teléfono válido
   const { data: usuariosPro, error } = await supabase
-  .from('users')
-  .select('id, phone, preferences')
-  .eq('subscription', 'pro')
-  .not('phone', 'is', null)
-  .neq('phone', '');
-
+    .from('users')
+    .select('id, phone, preferences')
+    .eq('subscription', 'pro')
+    .not('phone', 'is', null)
+    .neq('phone', '');
 
   if (error) {
     console.error('[PRO] Error consultando usuarios PRO:', error.message);
@@ -144,99 +140,104 @@ async function enviarWhatsAppResumen(alerta, supabase) {
   }
 
   console.log(
-    `[PRO] Enviando alerta ${alerta.id} a ${usuariosPro.length} usuarios PRO...`
+    `[PRO] Enviando alerta ${alerta.id} a ${usuariosPro.length} usuarios PRO.`
   );
 
   let enviados = 0;
   const errores = [];
 
- for (const user of usuariosPro) {
-  const telefono = user.phone.trim();
-  const prefs = user.preferences || {};
-
-  // Preferencias del usuario
-  const provinciasUser  = prefs.provincias  || [];
-  const sectoresUser    = prefs.sectores    || [];
-  const subsectoresUser = prefs.subsectores || [];
-  const tiposUser       = prefs.tipos_alerta || {};
-
-  // Etiquetas de la alerta
-  const provinciasA  = alerta.provincias  || [];
-  const sectoresA    = alerta.sectores    || [];
-  const subsectoresA = alerta.subsectores || [];
-  const tiposA       = alerta.tipos_alerta || [];
-
   const intersecta = (a, b) => a.some((x) => b.includes(x));
 
-  // ==== REGLAS DE ENVÍO ====
+  for (const user of usuariosPro) {
+    const telefono = (user.phone || '').trim();
+    const prefs = user.preferences || {};
 
-  // 1. FILTRO PROVINCIA
-  const okProvincia =
-    provinciasUser.length === 0 ||
-    provinciasA.length === 0 ||
-    intersecta(provinciasUser, provinciasA);
+    // Preferencias del usuario
+    const provinciasUser  = prefs.provincias  || [];
+    const sectoresUser    = prefs.sectores    || [];
+    const subsectoresUser = prefs.subsectores || [];
+    const tiposUser       = prefs.tipos_alerta || {};
 
-  if (!okProvincia) continue; // no enviar a este usuario
+    // Etiquetas de la alerta
+    const provinciasA  = alerta.provincias  || [];
+    const sectoresA    = alerta.sectores    || [];
+    const subsectoresA = alerta.subsectores || [];
+    const tiposA       = alerta.tipos_alerta || [];
 
-  // 2. FILTRO SECTOR
-  const okSector =
-    sectoresUser.length === 0 ||
-    sectoresA.length === 0 ||
-    intersecta(sectoresUser, sectoresA);
+    // ==== REGLAS DE ENVÍO ====
 
-  if (!okSector) continue;
+    // 1. FILTRO PROVINCIA
+    const okProvincia =
+      provinciasUser.length === 0 ||
+      provinciasA.length === 0 ||
+      intersecta(provinciasUser, provinciasA);
 
-  // 3. FILTRO SUBSECTOR (ahora SÍ obligatorio si el usuario los tiene definidos)
-const okSubsector =
-  subsectoresUser.length === 0 ||         // si el usuario no eligió subsector → recibe todos los subsectores de su sector
-  subsectoresA.length === 0 ||            // si la alerta no especifica subsectores → es genérica
-  intersecta(subsectoresUser, subsectoresA); // si ambos tienen valores → debe haber coincidencia
+    if (!okProvincia) continue;
 
-if (!okSubsector) continue;
+    // 2. FILTRO SECTOR
+    const okSector =
+      sectoresUser.length === 0 ||
+      sectoresA.length === 0 ||
+      intersecta(sectoresUser, sectoresA);
 
+    if (!okSector) continue;
 
-  // 3. FILTRO TIPO DE ALERTA
-  const okTipo = tiposA.some((tipo) => tiposUser[tipo] === true);
-  const tiposVacios = Object.keys(tiposUser).length === 0;
+    // 3. FILTRO SUBSECTOR
+    const okSubsector =
+      subsectoresUser.length === 0 ||
+      subsectoresA.length === 0 ||
+      intersecta(subsectoresUser, subsectoresA);
 
-  if (!okTipo && !tiposVacios) continue;
+    if (!okSubsector) continue;
 
-  // ==== SI PASA TODOS LOS FILTROS, SE ENVÍA ====
-  try {
-    await enviarMensajeUltraMsg(telefono, resumen);
-    enviados++;
-    console.log('[WHATSAPP PRO] ENVIADO A', telefono);
+    // 4. FILTRO TIPO DE ALERTA (normalizado y más flexible)
+    const tiposUserKeys = Object.keys(tiposUser || {});
+    const tiposUserActivos = tiposUserKeys
+      .filter((k) => tiposUser[k])
+      .map((k) => k.toString().trim().toLowerCase());
 
-          await guardarLogWhatsApp({
+    const tiposAlertaNorm = (tiposA || [])
+      .map((t) => (t ? t.toString().trim().toLowerCase() : ''))
+      .filter(Boolean);
+
+    const tiposVaciosUser   = tiposUserActivos.length === 0;
+    const tiposVaciosAlerta = tiposAlertaNorm.length === 0;
+
+    // 👉 Si la alerta NO tiene tipos → la consideramos genérica y NO filtramos por tipo
+    if (!tiposVaciosAlerta && !tiposVaciosUser) {
+      const okTipo = tiposAlertaNorm.some((t) => tiposUserActivos.includes(t));
+      if (!okTipo) continue;
+    }
+
+    // ==== SI PASA TODOS LOS FILTROS, SE ENVÍA ====
+    try {
+      await enviarMensajeUltraMsg(telefono, resumen);
+      enviados++;
+      console.log('[WHATSAPP PRO] ENVIADO A', telefono);
+
+      await guardarLogWhatsApp({
         phone: telefono,
         status: 'sent',
         message_type: 'alerta_pro',
         error_msg: null,
       });
 
-  } catch (err) {
-    errores.push({ userId: user.id, telefono, error: err.message });
-    await guardarLogWhatsApp({
-  phone: telefono,
-  status: 'failed',
-  message_type: 'alerta_pro',
-  error_msg: err.message,
-});
+    } catch (err) {
+      console.error('[WHATSAPP PRO] Error enviando a', telefono, err.message);
+      errores.push({ userId: user.id, telefono, error: err.message });
 
+      await guardarLogWhatsApp({
+        phone: telefono,
+        status: 'failed',
+        message_type: 'alerta_pro',
+        error_msg: err.message,
+      });
+    }
   }
-}
-
-
-
-  // ❌ Eliminado: NO se vuelve a marcar whatsapp_enviado aquí.
-  // alertas.js se encarga de esto correctamente.
 
   console.log(
-    `[PRO] Alerta ${alerta.id} enviada correctamente a ${enviados} usuarios PRO`
+    `[PRO] Alerta ${alerta.id} enviada a ${enviados} usuarios PRO (con ${errores.length} errores)`
   );
-  if (errores.length > 0) {
-    console.warn(`[PRO] Hubo ${errores.length} errores parciales`);
-  }
 }
 
 /**
