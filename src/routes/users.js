@@ -1,3 +1,4 @@
+const bcrypt = require('bcryptjs');
 const { checkCronToken } = require('../utils/checkCronToken');
 const { enviarWhatsAppVerificacion, enviarWhatsAppRegistro } = require('../whatsapp');
 
@@ -31,25 +32,31 @@ module.exports = function usersRoutes(app, supabase) {
     res.json({ users: data });
   });
 
-  // --------------------------------------------------
-// REGISTRAR USUARIO (web + bot) + CÓDIGO VERIFICACIÓN
+ // --------------------------------------------------
+// REGISTRAR USUARIO (web + bot) + CÓDIGO VERIFICACIÓN + PASSWORD HASH
 // --------------------------------------------------
 app.post('/register', async (req, res) => {
-  let { phone, name, email, preferences } = req.body;
+  let { phone, name, email, password, preferences } = req.body;
 
   if (!phone) {
     return res.status(400).json({ error: 'Falta el número de teléfono' });
+  }
+
+  // Validar contraseña (mínimo 6 caracteres)
+  if (!password || String(password).length < 6) {
+    return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres' });
   }
 
   // Normalizar teléfono
   phone = String(phone).trim();
   let soloDigitos = phone.replace(/\D/g, '');
 
+  // Si el usuario pone solo el número español (9 dígitos), añadimos 34 delante
   if (soloDigitos.length === 9) {
     soloDigitos = '34' + soloDigitos;
   }
 
-  const LONGITUD_TELEFONO = 11;
+  const LONGITUD_TELEFONO = 11; // 34 + 9 dígitos
   if (soloDigitos.length !== LONGITUD_TELEFONO) {
     return res.status(400).json({
       error: 'introduce un numero de teléfono válido'
@@ -67,6 +74,7 @@ app.post('/register', async (req, res) => {
     email = null;
   }
 
+  // Asegurar que preferences es un objeto
   if (!preferences || typeof preferences !== 'object') {
     preferences = {};
   }
@@ -76,7 +84,7 @@ app.post('/register', async (req, res) => {
   const verificacionCaducaEn = new Date(Date.now() + 15 * 60 * 1000).toISOString();
 
   try {
-    // 1) Teléfono ya registrado
+    // 1) Comprobar si ya existe ese teléfono
     const { data: existingPhone, error: phoneError } = await supabase
       .from('users')
       .select('id')
@@ -92,7 +100,7 @@ app.post('/register', async (req, res) => {
       return res.status(400).json({ error: 'Este número ya está registrado' });
     }
 
-    // 2) Email ya registrado (si lo hay)
+    // 2) Comprobar si ya existe ese email (si lo han puesto)
     if (email) {
       const { data: existingEmail, error: emailError } = await supabase
         .from('users')
@@ -110,16 +118,20 @@ app.post('/register', async (req, res) => {
       }
     }
 
-    // 3) Insertar usuario con datos de verificación
+    // 🔐 3) Calcular hash de la contraseña
+    const passwordHash = await bcrypt.hash(String(password), 10);
+
+    // 4) Insertar usuario (con password_hash y verificación)
     const { data, error } = await supabase
       .from('users')
       .insert([
         {
           phone: telefonoNormalizado,
           name: name || null,
-          email,
+          email,               // puede ser null o el email normalizado
           preferences,
           subscription: 'pro',
+          password_hash: passwordHash,
           phone_verified: false,
           phone_verification_code: codigoVerificacion,
           phone_verification_expires_at: verificacionCaducaEn
@@ -128,6 +140,7 @@ app.post('/register', async (req, res) => {
       .select();
 
     if (error) {
+      // Por si se escapara algún duplicado
       if (error.code === '23505') {
         return res.status(400).json({
           error: 'Ya existe un usuario con estos datos'
@@ -140,15 +153,15 @@ app.post('/register', async (req, res) => {
 
     const user = data[0];
 
-    // 4) Respuesta al cliente
+    // 5) Respuesta al cliente
     res.json({ success: true, user });
 
-    // 5) WhatsApp con CÓDIGO (solo esto en el registro)
+    // 6) Enviar WhatsApp con CÓDIGO (no bloquea la respuesta)
     enviarWhatsAppVerificacion(telefonoNormalizado, codigoVerificacion).catch((err) => {
       console.error('Error enviando WhatsApp de verificación:', err.message);
     });
 
-    // 6) Log
+    // 7) Log
     await supabase.from('logs').insert([
       { action: 'register', details: `phone: ${telefonoNormalizado}` }
     ]);
@@ -158,6 +171,7 @@ app.post('/register', async (req, res) => {
     return res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
+
 // --------------------------------------------------
 // VERIFICAR TELÉFONO CON CÓDIGO
 // --------------------------------------------------
