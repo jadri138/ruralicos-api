@@ -96,107 +96,92 @@ Te paso una lista de alertas del BOE para agricultores y ganaderos, una por lín
 "ID <id> | Fecha <fecha> | Region <region> | URL <url> | Titulo: <titulo> | Texto: <contenido>"
 
 TU TAREA:
-1) Analiza el contenido del BOE que aparece en "Texto:" y decide si es RELEVANTE o NO para:
-- agricultores
-- ganaderos
-- cooperativas agrarias
-- autónomos rurales
-- ayuntamientos pequeños
-- explotaciones agroganaderas.
 
-RELEVANTE si:
-- Trata sobre ayudas, subvenciones, bases reguladoras, convocatorias, resoluciones que afecten a explotaciones.
-- Normativa agraria o ganadera, medio ambiente ligado al campo, agua para riego o ganadería, energía en entornos rurales, infraestructuras rurales, fiscalidad o trámites que afecten al sector primario.
+Analiza el contenido del BOE (solo agricultura y ganadería). Decide si es RELEVANTE o NO para: agricultores, ganaderos, cooperativas agrarias, autónomos rurales, ayuntamientos pequeños, explotaciones agroganaderas.
 
-NO RELEVANTE si:
-- Es pura administración general (oposiciones, sanciones no ligadas al sector, becas genéricas, movimientos internos del Estado, tribunales, concursos de méritos, etc.) sin impacto claro en el medio rural o el sector agrario/ganadero.
-IMPORTANTE: NO consideres RELEVANTES las concesiones de agua individuales, modificaciones de riego de explotaciones particulares, cambios de superficie, cambios de cultivo o renovaciones de pozos cuando solo afectan a un titular concreto y nada que tenga que ver con la pesca. 
-Esos casos deben devolverse como "NO IMPORTA".
-Solo considera relevantes asuntos de impacto general: ayudas, normativa, convocatorias, obras públicas, planes hidrológicos o disposiciones que afecten a un conjunto amplio de agricultores/ganaderos.
+RELEVANTE si trata sobre ayudas, subvenciones, bases reguladoras, convocatorias, resoluciones, normativa agraria o ganadera, medio ambiente ligado al campo, agua para riego o ganadería, energía en entornos rurales, infraestructuras rurales, fiscalidad o trámites que afecten al sector primario.
 
-2) CLASIFICACIÓN POR PROVINCIA Y TIPO:
-Para cada alerta RELEVANTE, además debes clasificarla así:
+NO RELEVANTE si trata de administración general (oposiciones, sanciones no ligadas al sector, becas genéricas, concursos, tribunales, movimientos internos), si no tiene impacto claro en el medio rural, si es una concesión de agua individual, modificación de riego, cambio de superficie, cambio de cultivo o renovación de pozo que solo afecta a un titular concreto, o si tiene cualquier referencia a pesca (en ese caso siempre es NO IMPORTA).
 
-- "provincias": lista de provincias españolas afectadas, por ejemplo ["Huesca","Zaragoza"].
-  Si es algo de ámbito estatal y el texto no menciona provincias concretas, usa [] (array vacío).
+CLASIFICACIÓN (solo si es relevante):
 
-- "sectores": lista con una o varias de estas palabras:
-  ["ganaderia","agricultura","mixto","otros"].
+Para cada alerta relevante, generar:
 
-- "subsectores": lista de palabras MÁS concretas, escogidas de aquí:
-  ["ovino","vacuno","caprino","porcino","avicultura","cunicultura",
-  "equinocultura","apicultura","trigo","cebada","cereal","maiz","hortalizas","frutales","olivar",
-   "viñedo","forrajes","forestal","agua","energia","medio_ambiente"].
+"provincias": lista de provincias mencionadas. Si es estatal y no menciona ninguna → [].
 
-- "tipos_alerta": lista de uno o varios de estos tipos:
-  ["ayudas_subvenciones","normativa_general","agua_infraestructuras",
-   "fiscalidad","medio_ambiente"].
+"sectores": elegir entre: ["ganaderia","agricultura","mixto","otros"].
 
-3) MENSAJE WHATSAPP (solo si es RELEVANTE):
-Genera un mensaje estilo WhatsApp con esta estructura EXACTA:
+"subsectores": elegir entre: ["ovino","vacuno","caprino","porcino","avicultura","cunicultura","equinocultura","apicultura","trigo","cebada","cereal","maiz","hortalizas","frutales","olivar","viñedo","forrajes","forestal","agua","energia","medio_ambiente"].
 
-*Ruralicos te avisa* 🌾🚜
+"tipos_alerta": elegir entre: ["ayudas_subvenciones","normativa_general","agua_infraestructuras","fiscalidad","medio_ambiente"].
 
-*📄 ¿Qué ha pasado?*
-1–3 frases explicando qué dice el BOE, con lenguaje sencillo.
+MENSAJE WHATSAPP (solo si es relevante):
 
-*⚠️ ¿A quién afecta?*
-Quién podría verse afectado (agricultores, ganaderos, ayuntamientos, cooperativas, etc.).
-Si el BOE no especifica, escribe: “El BOE no indica destinatarios concretos.”
+Debe seguir esta estructura exacta:
 
-*📌 Punto clave*
-Detalle más importante (si se aprueba, se modifica, se deniega algo, plazos si aparecen).
-Si NO hay plazos, escribe: “El BOE no menciona plazos concretos.”
+Ruralicos te avisa 🌾🚜
 
-Al final del mensaje añade 1–2 emojis (por ejemplo: 🌾📢⚠️🚜📄🐖🐷🐑🐓).
+📄 ¿Qué ha pasado?
+1–3 frases claras explicando la alerta del BOE.
 
-Al final del mensaje añade SIEMPRE esta línea:
-🔗 *Enlace al BOE completo:* <url>
+⚠️ ¿A quién afecta?
+Indica colectivos afectados.
+Si no especifica: “El BOE no indica destinatarios concretos.”
 
-donde <url> es exactamente el valor de la propiedad "URL" de esa alerta.
-NO inventes URLs.
+📌 Punto clave
+Indica el dato más relevante.
+Si no hay plazos: “El BOE no menciona plazos concretos.”
 
-REGLAS DE ESTILO:
-- Entre 4 y 7 frases en total.
-- Lenguaje claro y sencillo, sin tecnicismos.
-- Formato WhatsApp con saltos de línea.
-- Títulos y subtítulos SIEMPRE en *negrita*.
-- No inventes fechas, importes ni plazos.
-- No añadas nada fuera del mensaje.
+Añade 1–2 emojis finales.
 
-SI UNA ALERTA NO ES RELEVANTE:
-Devuelve EXACTAMENTE este JSON (sin texto extra):
+Al final del mensaje SIEMPRE:
+🔗 Enlace al BOE completo: <url>
+
+Reglas de estilo:
+
+Entre 4 y 7 frases.
+
+Lenguaje sencillo.
+
+Formato WhatsApp con saltos de línea.
+
+Títulos en negrita no son necesarios en esta versión de texto plano, pero los marcados como subtítulos deben respetarse.
+
+No inventar datos.
+
+No añadir nada fuera del JSON final.
+
+SI LA ALERTA NO ES RELEVANTE:
+Devuelve exactamente este JSON:
 
 {
-  "resumenes": [
-    {
-      "id": <id>,
-      "resumen": "NO IMPORTA",
-      "provincias": [],
-      "sectores": [],
-      "subsectores": [],
-      "tipos_alerta": []
-    }
-  ]
+"resumenes": [
+{
+"id": <id>,
+"resumen": "NO IMPORTA",
+"provincias": [],
+"sectores": [],
+"subsectores": [],
+"tipos_alerta": []
+}
+]
 }
 
-SI UNA ALERTA ES RELEVANTE:
-Devuelve EXACTAMENTE este JSON (sin texto extra):
+SI LA ALERTA ES RELEVANTE:
+Devuelve exactamente este JSON:
 
 {
-  "resumenes": [
-    {
-      "id": <id>,
-      "resumen": "<mensaje WhatsApp completo con negritas, subtítulos y emojis>",
-      "provincias": [...],
-      "sectores": [...],
-      "subsectores": [...],
-      "tipos_alerta": [...]
-    }
-  ]
+"resumenes": [
+{
+"id": <id>,
+"resumen": "<mensaje WhatsApp completo>",
+"provincias": [...],
+"sectores": [...],
+"subsectores": [...],
+"tipos_alerta": [...]
 }
-
-Nada de texto antes o después, solo el JSON.
+]
+}
 
 Lista de alertas:
 ${lista}
