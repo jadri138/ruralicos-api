@@ -110,7 +110,7 @@ RELEVANTE si:
 
 NO RELEVANTE si:
 - Es pura administración general (oposiciones, sanciones no ligadas al sector, becas genéricas, movimientos internos del Estado, tribunales, concursos de méritos, etc.) sin impacto claro en el medio rural o el sector agrario/ganadero.
-IMPORTANTE: NO consideres RELEVANTES las concesiones de agua individuales, modificaciones de riego de explotaciones particulares, cambios de superficie, cambios de cultivo o renovaciones de pozos cuando solo afectan a un titular concreto. 
+IMPORTANTE: NO consideres RELEVANTES las concesiones de agua individuales, modificaciones de riego de explotaciones particulares, cambios de superficie, cambios de cultivo o renovaciones de pozos cuando solo afectan a un titular concreto y nada que tenga que ver con la pesca. 
 Esos casos deben devolverse como "NO IMPORTA".
 Solo considera relevantes asuntos de impacto general: ayudas, normativa, convocatorias, obras públicas, planes hidrológicos o disposiciones que afecten a un conjunto amplio de agricultores/ganaderos.
 
