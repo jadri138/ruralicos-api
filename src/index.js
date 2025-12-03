@@ -68,6 +68,23 @@ app.use(limiter);
 app.use(express.static('public'));
 
 
+/* ---------------------------------------------------
+   MENSAJES GENERALES
+--------------------------------------------------- */
+
+app.post('/admin/send-broadcast', async (req, res) => {
+  try {
+    const mensaje =
+      req.body?.mensaje ||
+      '¡Hola! Ya puedes iniciar sesión y configurar tus alertas en Ruralicos.';
+
+    await enviarWhatsAppTodos(supabase, mensaje);
+    res.json({ ok: true, mensajeEnviado: mensaje });
+  } catch (err) {
+    console.error('Error en /admin/send-broadcast:', err);
+    res.status(500).json({ error: 'Error enviando mensajes' });
+  }
+});
 
 
 /* ---------------------------------------------------
