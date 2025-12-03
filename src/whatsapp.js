@@ -439,4 +439,5 @@ module.exports = {
   enviarWhatsAppFree, // Solo FREE
   enviarWhatsAppTodos,
   enviarWhatsAppRegistro, //mensaje a todos los numeros
+   enviarWhatsAppVerificacion,
 };
