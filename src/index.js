@@ -76,7 +76,7 @@ app.post('/admin/send-broadcast', async (req, res) => {
   try {
     const mensaje =
       req.body?.mensaje ||
-      '¡Hola! Ya puedes iniciar sesión y configurar tus alertas en Ruralicos.';
+        'Ya esta operativo de nuevo el panel personal\n\nAccede aquí 👉 https://ruralicos.es/login \n\nSentimos las molestias. Podeis responder a este whatsapp si en algun momento teneis alguna duda o para dar vuestra opinión.\n\n Muchas Gracias!';
 
     await enviarWhatsAppTodos(supabase, mensaje);
     res.json({ ok: true, mensajeEnviado: mensaje });
