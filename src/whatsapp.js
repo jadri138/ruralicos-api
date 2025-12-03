@@ -394,6 +394,46 @@ async function enviarWhatsAppTodos(supabase, mensaje) {
   console.log('Mensaje enviado a todos los usuarios.');
 }
 
+async function enviarWhatsAppVerificacion(telefono, codigo) {
+  if (!ULTRAMSG_INSTANCE_ID || !ULTRAMSG_TOKEN) {
+    throw new Error('Faltan credenciales UltraMsg');
+  }
+
+  if (!telefono || !telefono.trim()) {
+    console.warn('[VERIFICACION] Usuario sin teléfono, no se manda WhatsApp');
+    return;
+  }
+
+  const mensaje = 
+    `Hola 👋, gracias por registrarte en Ruralicos.\n` +
+    `Tu código de verificación es: *${codigo}*.\n` +
+    `Úsalo en la web para confirmar tu número. ` +
+    `Caduca en 15 minutos. 🌾`;
+
+  try {
+    await enviarMensajeUltraMsg(telefono.trim(), mensaje);
+
+    await guardarLogWhatsApp({
+      phone: telefono.trim(),
+      status: 'sent',
+      message_type: 'verificacion',
+      error_msg: null,
+    });
+
+    console.log('[VERIFICACION] WhatsApp enviado a', telefono);
+  } catch (err) {
+    console.error('[VERIFICACION] Error enviando WhatsApp:', err.message);
+
+    await guardarLogWhatsApp({
+      phone: telefono.trim(),
+      status: 'failed',
+      message_type: 'verificacion',
+      error_msg: err.message,
+    });
+  }
+}
+
+
 module.exports = {
   enviarWhatsAppResumen, // Solo PRO
   enviarWhatsAppFree, // Solo FREE
