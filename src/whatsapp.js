@@ -125,7 +125,7 @@ async function enviarWhatsAppResumen(alerta, supabase) {
   const resumen = alerta.resumen.trim();
 
   // 👇 PON AQUÍ TU NÚMERO EN FORMATO 34XXXXXXXXX
-  const TEST_PHONE = '34XXXXXXXXX';
+  const TEST_PHONE = '34644899647';
 
   // 1) Buscar SOLO tu usuario PRO con ese teléfono
   const { data: usuariosPro, error } = await supabase
