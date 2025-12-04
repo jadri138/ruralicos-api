@@ -108,7 +108,7 @@ async function guardarLogWhatsApp({ phone, status, message_type, error_msg }) {
 
 
 /**
- * ENVÍA ALERTA INDIVIDUAL → SOLO A UN NÚMERO DE TEST
+ * ENVÍA ALERTA INDIVIDUAL → SOLO A USUARIOS PRO (CON FILTROS)
  */
 async function enviarWhatsAppResumen(alerta, supabase) {
   if (!ULTRAMSG_INSTANCE_ID || !ULTRAMSG_TOKEN) {
@@ -124,43 +124,102 @@ async function enviarWhatsAppResumen(alerta, supabase) {
 
   const resumen = alerta.resumen.trim();
 
-  // 👇 PON AQUÍ TU NÚMERO EN FORMATO 34XXXXXXXXX
-  const TEST_PHONE = '34644899647';
-
-  // 1) Buscar SOLO tu usuario PRO con ese teléfono
+  // 1) Obtener usuarios PRO con teléfono
   const { data: usuariosPro, error } = await supabase
     .from('users')
-    .select('id, phone')
+    .select('id, phone, preferences')
     .eq('subscription', 'pro')
-    .eq('phone', TEST_PHONE);
+    .not('phone', 'is', null)
+    .neq('phone', '');
 
   if (error) {
-    console.error('[PRO] Error consultando usuario PRO de test:', error.message);
+    console.error('[PRO] Error consultando usuarios PRO:', error.message);
     throw error;
   }
 
   if (!usuariosPro || usuariosPro.length === 0) {
-    console.log(
-      `[PRO] No se ha encontrado ningún usuario PRO con phone = ${TEST_PHONE} → no se envía nada`
-    );
+    console.log('[PRO] No hay usuarios PRO con teléfono → no se envía nada');
     return;
   }
 
   console.log(
-    `[PRO] Enviando alerta ${alerta.id} SOLO al número de test: ${TEST_PHONE}`
+    `[PRO] Enviando alerta ${alerta.id} a ${usuariosPro.length} usuarios PRO (con filtros).`
   );
 
   let enviados = 0;
   const errores = [];
 
+  const intersecta = (a, b) => a.some((x) => b.includes(x));
+
   for (const user of usuariosPro) {
     const telefono = (user.phone || '').trim();
     if (!telefono) continue;
 
+    const prefs = user.preferences || {};
+
+    // Preferencias del usuario
+    const provinciasUser  = Array.isArray(prefs.provincias)  ? prefs.provincias  : [];
+    const sectoresUser    = Array.isArray(prefs.sectores)    ? prefs.sectores    : [];
+    const subsectoresUser = Array.isArray(prefs.subsectores) ? prefs.subsectores : [];
+    const tiposUser       = prefs.tipos_alerta || {}; // objeto { tipo: true/false }
+
+    // Etiquetas de la alerta
+    const provinciasA  = Array.isArray(alerta.provincias)  ? alerta.provincias  : [];
+    const sectoresA    = Array.isArray(alerta.sectores)    ? alerta.sectores    : [];
+    const subsectoresA = Array.isArray(alerta.subsectores) ? alerta.subsectores : [];
+    const tiposA       = Array.isArray(alerta.tipos_alerta) ? alerta.tipos_alerta : [];
+
+    // ==== 1. FILTRO PROVINCIA ====
+    const okProvincia =
+      provinciasUser.length === 0 ||      // usuario sin provincias → recibe todas
+      provinciasA.length === 0 ||         // alerta sin provincias → genérica
+      intersecta(provinciasUser, provinciasA);
+
+    if (!okProvincia) continue;
+
+    // ==== 2. FILTRO SECTOR ====
+    const okSector =
+      sectoresUser.length === 0 ||
+      sectoresA.length === 0 ||
+      intersecta(sectoresUser, sectoresA);
+
+    if (!okSector) continue;
+
+    // ==== 3. FILTRO SUBSECTOR ====
+    const okSubsector =
+      subsectoresUser.length === 0 ||
+      subsectoresA.length === 0 ||
+      intersecta(subsectoresUser, subsectoresA);
+
+    if (!okSubsector) continue;
+
+    // ==== 4. FILTRO TIPO DE ALERTA (FLEXIBLE) ====
+    // Normalizamos tipos del usuario (solo los activos = true)
+    const tiposUserActivos = Object.entries(tiposUser)
+      .filter(([_, v]) => v === true)
+      .map(([k]) => k.toString().trim().toLowerCase());
+
+    const tiposAlertaNorm = tiposA
+      .map((t) => (t ? t.toString().trim().toLowerCase() : ''))
+      .filter(Boolean);
+
+    const hayTiposUsuario = tiposUserActivos.length > 0;
+    const hayTiposAlerta  = tiposAlertaNorm.length > 0;
+
+    let okTipo = true;
+
+    // Solo filtramos si AMBOS tienen tipos definidos
+    if (hayTiposUsuario && hayTiposAlerta) {
+      okTipo = tiposAlertaNorm.some((t) => tiposUserActivos.includes(t));
+    }
+
+    if (!okTipo) continue;
+
+    // ==== SI PASA TODOS LOS FILTROS, SE ENVÍA ====
     try {
       await enviarMensajeUltraMsg(telefono, resumen);
       enviados++;
-      console.log('[WHATSAPP PRO TEST] ENVIADO A', telefono);
+      console.log('[WHATSAPP PRO] ENVIADO A', telefono);
 
       await guardarLogWhatsApp({
         phone: telefono,
@@ -169,7 +228,7 @@ async function enviarWhatsAppResumen(alerta, supabase) {
         error_msg: null,
       });
     } catch (err) {
-      console.error('[WHATSAPP PRO TEST] Error enviando a', telefono, err.message);
+      console.error('[WHATSAPP PRO] Error enviando a', telefono, err.message);
       errores.push({ userId: user.id, telefono, error: err.message });
 
       await guardarLogWhatsApp({
@@ -182,8 +241,11 @@ async function enviarWhatsAppResumen(alerta, supabase) {
   }
 
   console.log(
-    `[PRO] Alerta ${alerta.id} enviada a ${enviados} usuario(s) de test (errores: ${errores.length})`
+    `[PRO] Alerta ${alerta.id} enviada correctamente a ${enviados} usuarios PRO`
   );
+  if (errores.length > 0) {
+    console.warn(`[PRO] Hubo ${errores.length} errores parciales`);
+  }
 }
 
 /**
