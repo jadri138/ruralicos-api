@@ -97,53 +97,60 @@ Te paso una lista de alertas del BOE para agricultores y ganaderos, una por lín
 
 TU TAREA:
 
-Analiza el contenido del BOE (solo agricultura y ganadería). Decide si es RELEVANTE o NO para: agricultores, ganaderos, cooperativas agrarias, autónomos rurales, explotaciones agroganaderas.
+Analiza el contenido del BOE y decide si es RELEVANTE PARA EL SECTOR AGRARIO O GANADERO (importante en general para agricultores, ganaderos, cooperativas agrarias o explotaciones agroganaderas).
 
-SERA RELEVANTE solo si, además de estar publicado en el BOE, cumple TODAS estas condiciones:
+✨ UNA ALERTA SERÁ RELEVANTE SOLO SI SE CUMPLE TODO ESTO:
 
-1) Está directamente relacionado con el sector primario (agricultura, ganadería o usos agrarios del agua).
-2) El propio texto menciona de forma clara como beneficiarios o destinatarios principales a uno o varios de estos colectivos:
+1) Trata específicamente sobre AGRICULTURA, GANADERÍA, REGADÍO o EXPLOTACIONES RURALES.  
+2) El texto menciona de forma explícita alguno de estos conceptos o destinatarios:
    - agricultores
    - ganaderos
-   - explotaciones agrarias, ganaderas o agroganaderas
+   - explotaciones agrarias o ganaderas
+   - comunidades de regantes, regadíos o infraestructuras de riego
+   - titulares de explotaciones
    - cooperativas agrarias
-   - comunidades de regantes
-   - sociedades agrarias de transformación (SAT) agrarias
-   - titulares de explotaciones prioritarias
-   - organizaciones profesionales agrarias
-   - industrias agroalimentarias ligadas al sector primario.
-3) Y trata sobre al menos uno de estos temas:
-   - ayudas o subvenciones específicamente agrarias/ganaderas o de regadío
-   - bases reguladoras o convocatorias de ayudas relacionadas con explotaciones agrarias o ganaderas
+   - sociedades agrarias de transformación (SAT)
+   - industrias agroalimentarias ligadas al campo
+3) Y además pertenece a una de estas categorías:
+   - ayudas o subvenciones AGRARIAS o GANADERAS
+   - bases reguladoras o convocatorias para explotaciones agrarias/ganaderas
    - normativa agraria o ganadera
-   - medio ambiente ligado a suelos agrarios, regadíos, fertilización, plagas, bienestar animal o gestión de explotaciones
-   - agua para riego o ganadería (embalses, regadíos, infraestructuras de riego)
-   - energía en explotaciones agrarias o ganaderas (riego, granjas, secaderos, etc.)
-   - fiscalidad o trámites que afecten directamente a explotaciones agrarias/ganaderas.
+   - agua para riego o ganadería (incluye modernización, infraestructuras, usos colectivos)
+   - energía para explotaciones (bombeo, autoconsumo en granjas, regadío)
+   - fiscalidad o trámites aplicables solo al sector primario
+   - medio ambiente relacionado directamente con el campo (plagas, fertilización, suelos, bienestar animal)
 
-SERA NO RELEVANTE (devolver "NO IMPORTA") si se da CUALQUIERA de estas situaciones:
+🚫 UNA ALERTA SERÁ "NO IMPORTA" (DESCARTADA) SI:
 
-- Es una ayuda, subvención o convocatoria general para PYMEs, autónomos, economía social, emprendedores, innovación, despoblación o transformación territorial que NO está dirigida específicamente al sector agrario/ganadero y NO menciona de forma clara explotaciones agrarias, ganaderas, regadíos o comunidades de regantes.
-- Trata de administración general (oposiciones, sanciones no ligadas al sector, becas genéricas, concursos, tribunales, movimientos internos, licitaciones personales).
-- No tiene impacto claro y directo en explotaciones agrarias, ganaderas o en el uso del agua para riego o ganadería.
-- Es una concesión de agua individual, modificación de riego, cambio de superficie, cambio de cultivo o renovación de pozo que solo afecta a un titular concreto.
-- Tiene cualquier referencia a pesca (en ese caso siempre será NO IMPORTA).
+- Es una ayuda para PYMEs, autónomos, innovación, transformación territorial o despoblación SIN mencionar directamente actividades agrarias o ganaderas.
+- Es una subvención generalista o multisectorial donde el sector agrario NO aparece como destinatario explícito.
+- Trata de administración general (oposiciones, sanciones, becas, tribunales, concursos, anuncios judiciales).
+- Habla de una concesión de agua individual, modificación de riego, cambio de cultivo o superficie que afecta SOLO a un titular concreto.
+- Cualquier contenido relacionado con PESCA (siempre NO IMPORTA).
+- Nombres, cambios administrativos o trámites que no afectan a la actividad agrícola o ganadera.
+
+⚠️ Regla clave:
+SI EL TEXTO NO MENCIONA EXPLÍCITAMENTE AGRICULTURA, GANADERÍA, EXPLOTACIONES, REGADÍO O DESTINATARIOS AGRARIOS → SIEMPRE ES "NO IMPORTA".
+
+---
 
 CLASIFICACIÓN (solo si es relevante):
 
-Para cada alerta relevante, generar:
-
-"provincias": lista de provincias mencionadas. Si es estatal y no menciona ninguna → [].
+"provincias": lista de provincias mencionadas. Si es estatal o no menciona ninguna → [].
 
 "sectores": elegir entre: ["ganaderia","agricultura","mixto","otros"].
 
-"subsectores": elegir entre: ["ovino","vacuno","caprino","porcino","avicultura","cunicultura","equinocultura","apicultura","trigo","cebada","cereal","maiz","hortalizas","frutales","olivar","viñedo","forrajes","forestal","agua","energia","medio_ambiente"].
+"subsectores": elegir entre:
+["ovino","vacuno","caprino","porcino","avicultura","cunicultura","equinocultura","apicultura",
+"trigo","cebada","cereal","maiz","hortalizas","frutales","olivar","viñedo","forrajes",
+"forestal","agua","energia","medio_ambiente"].
 
-"tipos_alerta": elegir entre: ["ayudas_subvenciones","normativa_general","agua_infraestructuras","fiscalidad","medio_ambiente"].
+"tipos_alerta": elegir entre:
+["ayudas_subvenciones","normativa_general","agua_infraestructuras","fiscalidad","medio_ambiente"].
+
+---
 
 MENSAJE WHATSAPP (solo si es relevante):
-
-Debe seguir esta estructura EXACTA:
 
 *Ruralicos te avisa* 🌾🚜
 
@@ -160,25 +167,15 @@ Si no hay plazos: “El BOE no menciona plazos concretos.”
 
 Añade 1–2 emojis finales.
 
-Al final del mensaje SIEMPRE:
 🔗 Enlace al BOE completo: <url>
 
-Reglas de estilo:
+Reglas:
+Entre 4–7 frases. Lenguaje sencillo. Formato WhatsApp. Sin inventar datos.
 
-Entre 4 y 7 frases.
-
-Lenguaje sencillo.
-
-Formato WhatsApp con saltos de línea.
-
-Títulos en negrita no son necesarios en esta versión de texto plano, pero los marcados como subtítulos deben respetarse.
-
-No inventar datos.
-
-No añadir nada fuera del JSON final.
+---
 
 SI LA ALERTA NO ES RELEVANTE:
-Devuelve exactamente este JSON:
+Devuelve EXACTAMENTE:
 
 {
 "resumenes": [
@@ -193,8 +190,8 @@ Devuelve exactamente este JSON:
 ]
 }
 
-SI LA ALERTA ES RELEVANTE:
-Devuelve exactamente este JSON:
+SI ES RELEVANTE:
+Devuelve EXACTAMENTE:
 
 {
 "resumenes": [
@@ -211,7 +208,8 @@ Devuelve exactamente este JSON:
 
 Lista de alertas:
 ${lista}
-      `.trim();
+`.trim();
+
 
 
 
