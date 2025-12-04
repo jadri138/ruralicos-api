@@ -119,16 +119,16 @@ MENSAJE WHATSAPP (solo si es relevante):
 
 Debe seguir esta estructura exacta:
 
-Ruralicos te avisa 🌾🚜
+*Ruralicos te avisa* 🌾🚜
 
-📄 ¿Qué ha pasado?
+📄 *¿Qué ha pasado?*
 1–3 frases claras explicando la alerta del BOE.
 
-⚠️ ¿A quién afecta?
+⚠️ *¿A quién afecta?*
 Indica colectivos afectados.
 Si no especifica: “El BOE no indica destinatarios concretos.”
 
-📌 Punto clave
+📌 *Punto clave*
 Indica el dato más relevante.
 Si no hay plazos: “El BOE no menciona plazos concretos.”
 
