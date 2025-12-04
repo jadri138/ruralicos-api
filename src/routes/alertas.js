@@ -97,11 +97,11 @@ Te paso una lista de alertas del BOE para agricultores y ganaderos, una por lín
 
 TU TAREA:
 
-Analiza el contenido del BOE (solo agricultura y ganadería). Decide si es RELEVANTE o NO para: agricultores, ganaderos, cooperativas agrarias, autónomos rurales, ayuntamientos pequeños, explotaciones agroganaderas.
+Analiza el contenido del BOE (solo agricultura y ganadería). Decide si es RELEVANTE o NO para: agricultores, ganaderos, cooperativas agrarias, autónomos rurales, explotaciones agroganaderas.
 
-RELEVANTE si trata sobre ayudas, subvenciones, bases reguladoras, convocatorias, resoluciones, normativa agraria o ganadera, medio ambiente ligado al campo, agua para riego o ganadería, energía en entornos rurales, infraestructuras rurales, fiscalidad o trámites que afecten al sector primario.
+SERA RELEVANTE si trata sobre ayudas, subvenciones, bases reguladoras, convocatorias, resoluciones, normativa agraria o ganadera, medio ambiente ligado al campo, agua para riego o ganadería, energía en entornos rurales, infraestructuras rurales, fiscalidad o trámites que afecten al sector primario.
 
-NO RELEVANTE si trata de administración general (oposiciones, sanciones no ligadas al sector, becas genéricas, concursos, tribunales, movimientos internos, licitaciones personales), si no tiene impacto claro en el medio rural, si es una concesión de agua individual, modificación de riego, cambio de superficie, cambio de cultivo o renovación de pozo que solo afecta a un titular concreto, o si tiene cualquier referencia a pesca (en ese caso siempre es NO IMPORTA).
+NO RELEVANTE si trata de administración general (oposiciones, sanciones no ligadas al sector, becas genéricas, concursos, tribunales, movimientos internos, licitaciones personales), si no tiene impacto claro en el medio rural, si es una concesión de agua individual, modificación de riego, cambio de superficie, cambio de cultivo o renovación de pozo que solo afecta a un titular concreto, o si tiene cualquier referencia a pesca (en ese caso siempre sera NO IMPORTA).
 
 CLASIFICACIÓN (solo si es relevante):
 
@@ -117,7 +117,7 @@ Para cada alerta relevante, generar:
 
 MENSAJE WHATSAPP (solo si es relevante):
 
-Debe seguir esta estructura exacta:
+Debe seguir esta estructura EXACTA:
 
 *Ruralicos te avisa* 🌾🚜
 
