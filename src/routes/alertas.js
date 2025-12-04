@@ -91,7 +91,7 @@ module.exports = function alertasRoutes(app, supabase) {
         })
         .join('\n\n');
 
-            const prompt = `
+            const prompt = ` 
 Te paso una lista de alertas del BOE para agricultores y ganaderos, una por línea, con este formato:
 "ID <id> | Fecha <fecha> | Region <region> | URL <url> | Titulo: <titulo> | Texto: <contenido>"
 
@@ -99,9 +99,35 @@ TU TAREA:
 
 Analiza el contenido del BOE (solo agricultura y ganadería). Decide si es RELEVANTE o NO para: agricultores, ganaderos, cooperativas agrarias, autónomos rurales, explotaciones agroganaderas.
 
-SERA RELEVANTE si trata sobre ayudas, subvenciones, bases reguladoras, convocatorias, resoluciones, normativa agraria o ganadera, medio ambiente ligado al campo, agua para riego o ganadería, energía en entornos rurales, infraestructuras rurales, fiscalidad o trámites que afecten al sector primario.
+SERA RELEVANTE solo si, además de estar publicado en el BOE, cumple TODAS estas condiciones:
 
-NO RELEVANTE si trata de administración general (oposiciones, sanciones no ligadas al sector, becas genéricas, concursos, tribunales, movimientos internos, licitaciones personales), si no tiene impacto claro en el medio rural, si es una concesión de agua individual, modificación de riego, cambio de superficie, cambio de cultivo o renovación de pozo que solo afecta a un titular concreto, o si tiene cualquier referencia a pesca (en ese caso siempre sera NO IMPORTA).
+1) Está directamente relacionado con el sector primario (agricultura, ganadería o usos agrarios del agua).
+2) El propio texto menciona de forma clara como beneficiarios o destinatarios principales a uno o varios de estos colectivos:
+   - agricultores
+   - ganaderos
+   - explotaciones agrarias, ganaderas o agroganaderas
+   - cooperativas agrarias
+   - comunidades de regantes
+   - sociedades agrarias de transformación (SAT) agrarias
+   - titulares de explotaciones prioritarias
+   - organizaciones profesionales agrarias
+   - industrias agroalimentarias ligadas al sector primario.
+3) Y trata sobre al menos uno de estos temas:
+   - ayudas o subvenciones específicamente agrarias/ganaderas o de regadío
+   - bases reguladoras o convocatorias de ayudas relacionadas con explotaciones agrarias o ganaderas
+   - normativa agraria o ganadera
+   - medio ambiente ligado a suelos agrarios, regadíos, fertilización, plagas, bienestar animal o gestión de explotaciones
+   - agua para riego o ganadería (embalses, regadíos, infraestructuras de riego)
+   - energía en explotaciones agrarias o ganaderas (riego, granjas, secaderos, etc.)
+   - fiscalidad o trámites que afecten directamente a explotaciones agrarias/ganaderas.
+
+SERA NO RELEVANTE (devolver "NO IMPORTA") si se da CUALQUIERA de estas situaciones:
+
+- Es una ayuda, subvención o convocatoria general para PYMEs, autónomos, economía social, emprendedores, innovación, despoblación o transformación territorial que NO está dirigida específicamente al sector agrario/ganadero y NO menciona de forma clara explotaciones agrarias, ganaderas, regadíos o comunidades de regantes.
+- Trata de administración general (oposiciones, sanciones no ligadas al sector, becas genéricas, concursos, tribunales, movimientos internos, licitaciones personales).
+- No tiene impacto claro y directo en explotaciones agrarias, ganaderas o en el uso del agua para riego o ganadería.
+- Es una concesión de agua individual, modificación de riego, cambio de superficie, cambio de cultivo o renovación de pozo que solo afecta a un titular concreto.
+- Tiene cualquier referencia a pesca (en ese caso siempre será NO IMPORTA).
 
 CLASIFICACIÓN (solo si es relevante):
 
@@ -186,6 +212,7 @@ Devuelve exactamente este JSON:
 Lista de alertas:
 ${lista}
       `.trim();
+
 
 
       const aiRes = await fetch('https://api.openai.com/v1/responses', {
