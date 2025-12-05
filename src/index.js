@@ -39,6 +39,8 @@ const allowedOrigins = [
   'https://www.ruralicos.es',
   'http://localhost:3000',
   'http://localhost:5173',
+  'https://ruralicos-panel.onrender.com',
+
 ];
 
 app.use(
