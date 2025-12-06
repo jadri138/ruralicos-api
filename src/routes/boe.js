@@ -96,12 +96,13 @@ module.exports = function boeRoutes(app, supabase) {
       let nuevas = 0;
 
       // 4) MINISTERIOS / DEPARTAMENTOS “del campo”
-      const deptRelevanteRegex =
-        /(HACIENDA|AGRICULTURA|GANADER[ÍI]A|DESARROLLO RURAL|MEDIO AMBIENTE|TRANSICI[ÓO]N ECOL[ÓO]GICA|ALIMENTACI[ÓO]N)/i;
+     const deptRelevanteRegex =
+  /(AGRICULTURA|GANADER[ÍI]A|DESARROLLO RURAL|MEDIO AMBIENTE|TRANSICI[ÓO]N ECOL[ÓO]GICA|ALIMENTACI[ÓO]N|PESCA|SANIDAD)/i;
+
 
       // 5) COSAS QUE INTERESAN
-      const keywordsInteres =
-        /(ayudas?|subvenci[oó]n|subvenciones|convocatoria|bases reguladoras|extracto de la Orden|extracto|real decreto|ley\b|leyes\b|reglamento|reglamentos|modificaci[oó]n|modifica la|corrige errores|correcci[oó]n de errores|plazo|plazos|pr[oó]rroga|prorroga|autoriza|programa|acuerdo|establece|informe|plan|publica)/i;
+     // const keywordsInteres =
+      //  /(ayudas?|subvenci[oó]n|subvenciones|convocatoria|bases reguladoras|extracto de la Orden|extracto|real decreto|ley\b|leyes\b|reglamento|reglamentos|modificaci[oó]n|modifica la|corrige errores|correcci[oó]n de errores|plazo|plazos|pr[oó]rroga|prorroga|autoriza|programa|acuerdo|establece|informe|plan|publica)/i;
 
       // 6) Evitar duplicados internos por URL PDF en el mismo scrape
       const vistosInternos = new Set();
@@ -171,7 +172,7 @@ module.exports = function boeRoutes(app, supabase) {
                 vistosInternos.add(url_pdf);
 
                 // 8) FILTRO DE INTERÉS (solo positivas)
-                if (!keywordsInteres.test(titulo)) continue;
+               // if (!keywordsInteres.test(titulo)) continue;
 
                 // Evitar duplicados por URL + título en BD
                 const { data: existe, error: errorExiste } = await supabase
