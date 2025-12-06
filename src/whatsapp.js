@@ -178,12 +178,26 @@ async function enviarWhatsAppResumen(alerta, supabase) {
     if (!okProvincia) continue;
 
     // ==== 2. FILTRO SECTOR ====
-    const okSector =
-      sectoresUser.length === 0 ||
-      sectoresA.length === 0 ||
-      intersecta(sectoresUser, sectoresA);
 
-    if (!okSector) continue;
+// normalizamos a minúsculas por si acaso
+const sectoresUserNorm = sectoresUser.map((s) =>
+  s.toString().trim().toLowerCase()
+);
+const sectoresANorm = sectoresA.map((s) =>
+  s.toString().trim().toLowerCase()
+);
+
+const tieneMixto = sectoresUserNorm.includes('mixto');
+
+const okSector =
+  sectoresUserNorm.length === 0 ||          // usuario sin sectores → recibe todo
+  sectoresANorm.length === 0 ||             // alerta sin sectores → genérica
+  intersecta(sectoresUserNorm, sectoresANorm) || // coincide exacto
+  (tieneMixto &&                            // mixto = acepta agricultura o ganaderia
+    intersecta(['agricultura', 'ganaderia'], sectoresANorm));
+
+if (!okSector) continue;
+
 
     // ==== 3. FILTRO SUBSECTOR ====
     const okSubsector =
