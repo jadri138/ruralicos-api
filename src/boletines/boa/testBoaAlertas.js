@@ -1,4 +1,5 @@
 // src/boletines/boa/testBoaAlertas.js
+require('dotenv').config();
 
 const { procesarBoaPorMlkobEnAlertas } = require('./boaAlertas');
 
