@@ -1,15 +1,12 @@
-// src/boletines/testBoaPdf.js
+// src/boletines/boa/testBoaPdf.js
 const { procesarBoaPdf } = require('./boaPdf');
 
-async function main() {
+(async () => {
   try {
-    // 👇 PON AQUÍ el MLKOB del sumario que tú sabes
+    // usa un MLKOB válido para probar
     const mlkob = '1424934780202';
-
     await procesarBoaPdf(mlkob);
   } catch (err) {
     console.error('Error al procesar PDF del BOA:', err.message);
   }
-}
-
-main();
+})();

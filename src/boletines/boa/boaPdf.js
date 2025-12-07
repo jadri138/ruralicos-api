@@ -93,8 +93,8 @@ async function procesarBoaPdf(mlkob) {
 
   const texto = await extraerTextoPdf(pdfBuffer);
 
-  console.log('Primeros 500 caracteres del PDF:\n');
-  console.log(texto.slice(0, 500));
+  console.log('Primeros 3000 caracteres del PDF:\n');
+  console.log(texto.slice(0, 3000));
 
   return texto;
 }
@@ -127,6 +127,42 @@ function extraerFechaBoletin(texto) {
 }
 
 // =============================
+//  DIVIDIR TEXTO EN DISPOSICIONES
+// =============================
+function dividirEnDisposiciones(texto) {
+  const patrones = [
+    /ORDEN\s+[A-ZÁÉÍÓÚ0-9\/\-]+/g,
+    /RESOLUCIÓN\s+de\s+/g,
+    /ANUNCIO\s+de\s+/g,
+    /DEPARTAMENTO\s+DE\s+[A-ZÁÉÍÓÚÑ ]+/g,
+  ];
+
+  const regex = new RegExp(patrones.map(p => p.source).join('|'), 'g');
+
+  const indices = [];
+  let match;
+  while ((match = regex.exec(texto)) !== null) {
+    indices.push(match.index);
+  }
+
+  if (indices.length === 0) return [texto];
+
+  const disposiciones = [];
+
+  for (let i = 0; i < indices.length; i++) {
+    const inicio = indices[i];
+    const fin = indices[i + 1] ?? texto.length;
+    const bloque = texto.slice(inicio, fin).trim();
+    if (bloque.length > 80) { // filtramos basura muy corta
+      disposiciones.push(bloque);
+    }
+  }
+
+  return disposiciones;
+}
+
+
+// =============================
 //  EXPORTS
 // =============================
 module.exports = {
@@ -137,4 +173,5 @@ module.exports = {
   procesarBoaPdf,
   procesarBoaDeHoy,
   extraerFechaBoletin,
+  dividirEnDisposiciones,
 };
