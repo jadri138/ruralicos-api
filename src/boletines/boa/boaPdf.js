@@ -1,4 +1,5 @@
-// src/boletines/boaPdf.js
+// src/boletines/boa/boaPdf.js
+
 const axios = require('axios');
 const cheerio = require('cheerio');
 const pdfjsLib = require('pdfjs-dist/build/pdf.js');
@@ -75,7 +76,7 @@ async function extraerTextoPdf(bufferPdf) {
   for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
     const page = await pdf.getPage(pageNum);
     const content = await page.getTextContent();
-    const strings = content.items.map(item => item.str).join(' ');
+    const strings = content.items.map((item) => item.str).join(' ');
     texto += strings + '\n';
   }
 
@@ -112,7 +113,7 @@ async function procesarBoaDeHoy() {
   // Si no hay PDF para hoy → no procesar
   if (!fechaBoletin || fechaBoletin !== hoy) {
     console.log(`⚠️ Hoy (${hoy}) NO hay BOA disponible. Último publicado: ${fechaBoletin}`);
-    console.log("⛔ No se guarda nada en la BD.");
+    console.log('⛔ No se guarda nada en la BD.');
     return null;
   }
 
@@ -137,7 +138,7 @@ function dividirEnDisposiciones(texto) {
     /DEPARTAMENTO\s+DE\s+[A-ZÁÉÍÓÚÑ ]+/g,
   ];
 
-  const regex = new RegExp(patrones.map(p => p.source).join('|'), 'g');
+  const regex = new RegExp(patrones.map((p) => p.source).join('|'), 'g');
 
   const indices = [];
   let match;
@@ -153,14 +154,14 @@ function dividirEnDisposiciones(texto) {
     const inicio = indices[i];
     const fin = indices[i + 1] ?? texto.length;
     const bloque = texto.slice(inicio, fin).trim();
-    if (bloque.length > 80) { // filtramos basura muy corta
+    if (bloque.length > 80) {
+      // filtramos basura muy corta
       disposiciones.push(bloque);
     }
   }
 
   return disposiciones;
 }
-
 
 // =============================
 //  EXPORTS

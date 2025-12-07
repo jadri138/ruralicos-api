@@ -1,4 +1,5 @@
 // src/boletines/boa/testBoaPdf.js
+
 const { procesarBoaPdf } = require('./boaPdf');
 
 (async () => {

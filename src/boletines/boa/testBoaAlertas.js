@@ -1,3 +1,5 @@
+// src/boletines/boa/testBoaAlertas.js
+
 const { procesarBoaDeHoyEnAlertas } = require('./boaAlertas');
 
 (async () => {

@@ -1,30 +1,21 @@
 // src/boletines/boa/boaAlertas.js
+
 const {
   procesarBoaDeHoy,
   dividirEnDisposiciones,
   extraerFechaBoletin,
 } = require('./boaPdf');
 
-// 👇 ajusta la ruta si tu supabaseClient está en otro sitio
-const supabase = require('../../supabaseClient');
+// ⚠️ NO cargamos supabaseClient arriba del todo
+// porque en los tests a veces no tienes SUPABASE_URL configurado
+// y no quieres que reviente todo.
 
 // 1) Llamar a la IA para convertir una disposición en "alerta Ruralicos"
 async function clasificarConIA(textoDisposicion) {
-  // 🧠 AQUÍ tienes que usar la MISMA lógica que ya tengas para el BOE:
-  //
-  // - Mandar `textoDisposicion` a tu IA (OpenAI, tu API, etc.)
-  // - Recibir algo tipo:
-  //   {
-  //     esRelevante: true/false,
-  //     titulo: '...',
-  //     resumen: '...',
-  //     provincia: 'Zaragoza',
-  //     sector: 'ganaderia',
-  //     subsector: 'porcino',
-  //     url_pdf: 'https://www.boa.aragon.es/...',
-  //   }
-  //
-  // De momento dejo una "plantilla" que NO guarda nada para que no ensucies la BD
+  // Aquí deberías usar la MISMA lógica de IA que ya tienes para el BOE.
+  // De momento lo dejamos como plantilla que nunca marca nada como relevante
+  // para no llenar la BD mientras pruebas.
+
   return {
     esRelevante: false,
     titulo: null,
@@ -38,29 +29,29 @@ async function clasificarConIA(textoDisposicion) {
 
 // 2) Guardar una alerta en Supabase
 async function guardarAlertaEnBD(alerta, fechaBoletin) {
-  const {
+  // Cargamos Supabase SOLO aquí, y con try/catch
+  let supabase;
+  try {
+    ({ supabase } = require('../../supabaseClient'));
+  } catch (err) {
+    console.error('Supabase no configurado, NO se guarda alerta en BD:', err.message);
+    return;
+  }
+
+  const { titulo, resumen, provincia, sector, subsector, url_pdf } = alerta;
+
+  const fuente = 'BOA';
+
+  const { error } = await supabase.from('alertas').insert({
+    fuente,
     titulo,
     resumen,
     provincia,
     sector,
     subsector,
     url_pdf,
-  } = alerta;
-
-  const fuente = 'BOA';
-
-  const { error } = await supabase
-    .from('alertas')
-    .insert({
-      fuente,
-      titulo,
-      resumen,
-      provincia,
-      sector,
-      subsector,
-      url_pdf,
-      fecha_boletin: fechaBoletin,
-    });
+    fecha_boletin: fechaBoletin,
+  });
 
   if (error) {
     console.error('Error guardando alerta BOA en BD:', error.message);

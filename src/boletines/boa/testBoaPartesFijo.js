@@ -1,8 +1,10 @@
+// src/boletines/boa/testBoaPartesFijo.js
+
 const { procesarBoaPdf, dividirEnDisposiciones } = require('./boaPdf');
 
 (async () => {
   try {
-    const mlkob = '1424934780202'; // BOA 2025-12-05 que ya sabes que funciona
+    const mlkob = '1424934780202'; // BOA concreto que sabes que funciona
     const texto = await procesarBoaPdf(mlkob);
 
     const partes = dividirEnDisposiciones(texto);

@@ -1,3 +1,5 @@
+// src/boletines/boa/testBoaPartes.js
+
 const { procesarBoaDeHoy, dividirEnDisposiciones } = require('./boaPdf');
 
 (async () => {
