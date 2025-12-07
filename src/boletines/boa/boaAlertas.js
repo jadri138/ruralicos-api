@@ -2,90 +2,102 @@
 
 const {
   procesarBoaDeHoy,
+  procesarBoaPdf,
   dividirEnDisposiciones,
   extraerFechaBoletin,
+  obtenerMlkobSumarioHoy,
 } = require('./boaPdf');
 
-// ⚠️ NO cargamos supabaseClient arriba del todo
-// porque en los tests a veces no tienes SUPABASE_URL configurado
-// y no quieres que reviente todo.
-
-// 1) Llamar a la IA para convertir una disposición en "alerta Ruralicos"
-async function clasificarConIA(textoDisposicion) {
-  // Aquí deberías usar la MISMA lógica de IA que ya tienes para el BOE.
-  // De momento lo dejamos como plantilla que nunca marca nada como relevante
-  // para no llenar la BD mientras pruebas.
-
-  return {
-    esRelevante: false,
-    titulo: null,
-    resumen: null,
-    provincia: null,
-    sector: null,
-    subsector: null,
-    url_pdf: null,
-  };
+// 🔹 Función auxiliar para formatear fecha a YYYY-MM-DD
+function formatearFechaYYYYMMDDaSQL(fecha) {
+  if (!fecha || fecha.length !== 8) return null;
+  const year = fecha.slice(0, 4);
+  const month = fecha.slice(4, 6);
+  const day = fecha.slice(6, 8);
+  return `${year}-${month}-${day}`;
 }
 
-// 2) Guardar una alerta en Supabase
-async function guardarAlertaEnBD(alerta, fechaBoletin) {
-  // Cargamos Supabase SOLO aquí, y con try/catch
+// 🔹 Inserta en la tabla "alertas" usando la MISMA estructura que el BOE
+async function insertarDisposicionesEnAlertas(disposiciones, fechaBoletinSQL, urlPdf) {
   let supabase;
   try {
     ({ supabase } = require('../../supabaseClient'));
   } catch (err) {
-    console.error('Supabase no configurado, NO se guarda alerta en BD:', err.message);
+    console.error('Supabase no configurado, NO se guardan alertas BOA:', err.message);
     return;
   }
 
-  const { titulo, resumen, provincia, sector, subsector, url_pdf } = alerta;
+  for (const disp of disposiciones) {
+    const tituloProvisional = disp.slice(0, 140).replace(/\s+/g, ' ').trim();
 
-  const fuente = 'BOA';
+    const { error } = await supabase
+      .from('alertas')
+      .insert({
+        fuente: 'BOA',
+        titulo: tituloProvisional || 'Disposición BOA',
+        resumen: 'Procesando con IA...',   // Igual que haces con el BOE
+        url: urlPdf || null,
+        fecha: fechaBoletinSQL,            // formato YYYY-MM-DD
+        region: 'Aragón',                  // la IA ya sacará provincias concretas
+        contenido: disp,                   // texto completo de la disposición
+      });
 
-  const { error } = await supabase.from('alertas').insert({
-    fuente,
-    titulo,
-    resumen,
-    provincia,
-    sector,
-    subsector,
-    url_pdf,
-    fecha_boletin: fechaBoletin,
-  });
-
-  if (error) {
-    console.error('Error guardando alerta BOA en BD:', error.message);
+    if (error) {
+      console.error('Error guardando disposición BOA en alertas:', error.message);
+    }
   }
+
+  console.log(`Insertadas ${disposiciones.length} disposiciones BOA en la tabla alertas.`);
 }
 
-// 3) Función principal: BOA de hoy → disposiciones → IA → BD
+// 1) BOA de HOY → trocear → insertar en alertas
 async function procesarBoaDeHoyEnAlertas() {
   const texto = await procesarBoaDeHoy();
   if (!texto) {
-    // procesarBoaDeHoy ya controla si no hay BOA nuevo
     console.log('No hay BOA nuevo hoy. No se crean alertas.');
     return;
   }
 
-  const fechaBoletin = extraerFechaBoletin(texto) || null;
-  console.log('Fecha boletín BOA detectada:', fechaBoletin);
+  const fechaBoletinRaw = extraerFechaBoletin(texto) || null;
+  const fechaBoletinSQL = formatearFechaYYYYMMDDaSQL(fechaBoletinRaw);
+  console.log('Fecha boletín BOA detectada:', fechaBoletinRaw, '→', fechaBoletinSQL);
+
+  // volvemos a pedir el MLKOB solo para construir la URL del PDF
+  let urlPdf = null;
+  try {
+    const mlkob = await obtenerMlkobSumarioHoy();
+    urlPdf = `https://www.boa.aragon.es/cgi-bin/EBOA/BRSCGI?CMD=VEROBJ&MLKOB=${mlkob}`;
+  } catch (err) {
+    console.error('No se pudo obtener MLKOB para construir URL PDF BOA:', err.message);
+  }
 
   const disposiciones = dividirEnDisposiciones(texto);
   console.log('Disposiciones detectadas en BOA de hoy:', disposiciones.length);
 
-  for (const disp of disposiciones) {
-    const alerta = await clasificarConIA(disp);
+  await insertarDisposicionesEnAlertas(disposiciones, fechaBoletinSQL, urlPdf);
 
-    if (!alerta || !alerta.esRelevante) {
-      continue; // saltamos las que la IA no considere relevantes
-    }
+  console.log('Fin de procesar BOA de hoy en alertas.');
+}
 
-    await guardarAlertaEnBD(alerta, fechaBoletin);
-  }
+// 2) BOA por MLKOB (para pruebas) → trocear → insertar en alertas
+async function procesarBoaPorMlkobEnAlertas(mlkob) {
+  const texto = await procesarBoaPdf(mlkob);
 
-  console.log('Fin de procesar alertas BOA de hoy.');
+  const fechaBoletinRaw = extraerFechaBoletin(texto) || null;
+  const fechaBoletinSQL = formatearFechaYYYYMMDDaSQL(fechaBoletinRaw);
+  console.log('Fecha boletín BOA detectada (fijo):', fechaBoletinRaw, '→', fechaBoletinSQL);
+
+  const urlPdf = `https://www.boa.aragon.es/cgi-bin/EBOA/BRSCGI?CMD=VEROBJ&MLKOB=${mlkob}`;
+
+  const disposiciones = dividirEnDisposiciones(texto);
+  console.log('Disposiciones detectadas en BOA (fijo):', disposiciones.length);
+
+  await insertarDisposicionesEnAlertas(disposiciones, fechaBoletinSQL, urlPdf);
+
+  console.log('Fin de procesar BOA fijo en alertas.');
 }
 
 module.exports = {
   procesarBoaDeHoyEnAlertas,
+  procesarBoaPorMlkobEnAlertas,
 };
