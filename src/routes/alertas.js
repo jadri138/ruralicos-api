@@ -92,12 +92,12 @@ module.exports = function alertasRoutes(app, supabase) {
         .join('\n\n');
 
             const prompt = ` 
-Te paso una lista de alertas del BOE para agricultores y ganaderos, una por línea, con este formato:
-"ID <id> | Fecha <fecha> | Region <region> | URL <url> | Titulo: <titulo> | Texto: <contenido>"
+Te paso una LISTA de alertas del BOE para agricultores y ganaderos, una por línea, con este formato EXACTO:
+"ID=<id> | Fecha=<fecha> | Region=<region> | URL=<url> | Titulo=<titulo> | Texto=<contenido>"
 
 TU TAREA:
 
-Analiza el contenido del BOE y decide si es RELEVANTE PARA EL SECTOR AGRARIO O GANADERO (importante en general para agricultores, ganaderos, cooperativas agrarias o explotaciones agroganaderas).
+1) Para CADA alerta, analiza si es RELEVANTE PARA EL SECTOR AGRARIO O GANADERO (importante para agricultores, ganaderos, cooperativas o explotaciones agroganaderas).
 
 ✨ UNA ALERTA SERÁ RELEVANTE SOLO SI SE CUMPLE TODO ESTO:
 
@@ -134,7 +134,7 @@ SI EL TEXTO NO MENCIONA EXPLÍCITAMENTE AGRICULTURA, GANADERÍA, EXPLOTACIONES, 
 
 ---
 
-CLASIFICACIÓN (solo si es relevante):
+CLASIFICACIÓN POR ALERTA (solo si es relevante):
 
 "provincias": lista de provincias mencionadas. Si es estatal o no menciona ninguna → [].
 
@@ -142,7 +142,8 @@ CLASIFICACIÓN (solo si es relevante):
 
 "subsectores": elegir entre:
 ["ovino","vacuno","caprino","porcino","avicultura","cunicultura","equinocultura","apicultura",
-"trigo","cebada","cereal","maiz","hortalizas","frutales","olivar","viñedo","forrajes",
+"trigo","cebada","cereal","maiz","arroz","hortalizas","frutales","olivar","viñedo",
+"almendro","citricos","frutos_secos","leguminosas","patata","forrajes",
 "forestal","agua","energia","medio_ambiente"].
 
 "tipos_alerta": elegir entre:
@@ -150,64 +151,73 @@ CLASIFICACIÓN (solo si es relevante):
 
 ---
 
-MENSAJE WHATSAPP (solo si es relevante):
+MENSAJE WHATSAPP (solo si ESA alerta es relevante):
 
-*Ruralicos te avisa* 🌾🚜
+EL CAMPO "resumen" DEBE TENER SIEMPRE ESTE FORMATO EXACTO (respetando asteriscos y líneas):
+
+"*Ruralicos te avisa* 🌾🚜
 
 📄 *¿Qué ha pasado?*
-1–3 frases claras explicando la alerta del BOE.
+<1–3 frases claras explicando la alerta del BOE.>
 
 ⚠️ *¿A quién afecta?*
-Indica colectivos afectados.
-Si no especifica: “El BOE no indica destinatarios concretos.”
+<colectivos afectados. Si no especifica: “El BOE no indica destinatarios concretos.”>
 
 📌 *Punto clave*
-Indica el dato más relevante.
-Si no hay plazos: “El BOE no menciona plazos concretos.”
+<dato más relevante. Si no hay plazos: “El BOE no menciona plazos concretos.”>
 
 Añade 1–2 emojis finales.
 
-🔗 Enlace al BOE completo: <url>
+🔗 Enlace al BOE completo: <url>"
 
-Reglas:
-Entre 4–7 frases. Lenguaje sencillo. Formato WhatsApp. Sin inventar datos.
+Reglas del mensaje:
+- Entre 4–7 frases.
+- Lenguaje sencillo.
+- Sin inventar datos.
+- Mantén EXACTAMENTE los asteriscos y textos fijos de la plantilla.
 
 ---
 
-SI LA ALERTA NO ES RELEVANTE:
-Devuelve EXACTAMENTE:
+SALIDA ÚNICA:
+
+Debes devolver SIEMPRE un ÚNICO objeto JSON con la forma:
 
 {
-"resumenes": [
-{
-"id": <id>,
-"resumen": "NO IMPORTA",
-"provincias": [],
-"sectores": [],
-"subsectores": [],
-"tipos_alerta": []
-}
-]
+  "resumenes": [
+    {
+      "id": "ID de la alerta 1",
+      "fuente": "BOE",
+      "resumen": "NO IMPORTA" o "<mensaje WhatsApp completo>",
+      "provincias": [ ... ],
+      "sectores": [ ... ],
+      "subsectores": [ ... ],
+      "tipos_alerta": [ ... ]
+    },
+    {
+      "id": "ID de la alerta 2",
+      "fuente": "BOE",
+      "resumen": "NO IMPORTA" o "<mensaje WhatsApp completo>",
+      "provincias": [ ... ],
+      "sectores": [ ... ],
+      "subsectores": [ ... ],
+      "tipos_alerta": [ ... ]
+    }
+    ...
+  ]
 }
 
-SI ES RELEVANTE:
-Devuelve EXACTAMENTE:
-
-{
-"resumenes": [
-{
-"id": <id>,
-"resumen": "<mensaje WhatsApp completo>",
-"provincias": [...],
-"sectores": [...],
-"subsectores": [...],
-"tipos_alerta": [...]
-}
-]
-}
+REGLAS FINALES IMPORTANTES:
+- Cada alerta de la lista de entrada debe tener EXACTAMENTE un objeto dentro de "resumenes".
+- Si una alerta NO es relevante → "resumen": "NO IMPORTA" y todos los arrays vacíos.
+- Si una alerta ES relevante → "resumen": mensaje WhatsApp con el formato indicado y clasificación rellenada.
+- El campo "fuente" SIEMPRE debe ser exactamente: "BOE".
+- Respeta SIEMPRE los asteriscos y el formato del mensaje WhatsApp.
+- NO añadas ningún texto fuera del JSON.
+- NO uses valores genéricos como <id> o <url>; usa siempre los reales.
 
 Lista de alertas:
 ${lista}
+
 `.trim();
 
 
