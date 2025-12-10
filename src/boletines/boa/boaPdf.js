@@ -16,17 +16,10 @@ function getFechaHoyYYYYMMDD() {
 }
 
 // =============================
-//  OBTENER MLKOB DEL BOA DE HOY (CGI clásica)
+//  OBTENER MLKOB DEL BOA DE HOY (probando varias URLs)
 // =============================
-async function obtenerMlkobSumarioHoy() {
-  const fecha = getFechaHoyYYYYMMDD();
-
-  const url =
-    'https://www.boa.aragon.es/cgi-bin/EBOA/BRSCGI' +
-    `?BASE=BZHT&CMD=VERLST&DOCS=1-200&PUBL=&PUBL-C=${fecha}` +
-    '&RNG=200&SEC=FIRMA&SECC-C=&SEPARADOR=';
-
-  console.log('Llamando a listado BOA (CGI):', url);
+async function buscarMlkobEnUrl(url) {
+  console.log('Probando listado BOA:', url);
 
   let response;
   try {
@@ -47,18 +40,48 @@ async function obtenerMlkobSumarioHoy() {
       const match = href.match(/MLKOB=(\d+)/);
       if (match) {
         mlkob = match[1];
-        return false; // corta el bucle
+        return false; // cortar el bucle
       }
     }
   });
 
   if (!mlkob) {
-    console.log('⚠️ No se ha encontrado ningún MLKOB en el listado del BOA de hoy');
+    console.log('⚠️ En este listado no se ha encontrado ningún MLKOB');
     return null;
   }
 
-  console.log('✅ MLKOB encontrado:', mlkob);
+  console.log('✅ MLKOB encontrado en este listado:', mlkob);
   return mlkob;
+}
+
+async function obtenerMlkobSumarioHoy() {
+  const fecha = getFechaHoyYYYYMMDD();
+  const base = 'https://www.boa.aragon.es/cgi-bin/EBOA/BRSCGI';
+
+  // Probamos varias combinaciones “razonables” que usa el CGI del BOA
+  const urls = [
+    // La que ya tenías
+    `${base}?BASE=BZHT&CMD=VERLST&DOCS=1-200&PUBL=&PUBL-C=${fecha}&RNG=200&SEC=FIRMA&SECC-C=&SEPARADOR=`,
+    // Misma pero usando PUBL=fecha
+    `${base}?BASE=BZHT&CMD=VERLST&DOCS=1-200&PUBL=${fecha}&RNG=200&SEC=FIRMA&SECC-C=&SEPARADOR=`,
+    // Sin SEC=FIRMA, por si el sumario está en otra sección
+    `${base}?BASE=BZHT&CMD=VERLST&DOCS=1-200&PUBL=${fecha}&RNG=200&SEPARADOR=`,
+    // Variante sin PUBL (por si usan PUBL-C internamente)
+    `${base}?BASE=BZHT&CMD=VERLST&DOCS=1-200&PUBL-C=${fecha}&RNG=200&SEPARADOR=`
+  ];
+
+  for (const url of urls) {
+    const mlkob = await buscarMlkobEnUrl(url);
+    if (mlkob) {
+      console.log('✅ Usaremos este MLKOB para el BOA de hoy:', mlkob);
+      return mlkob;
+    }
+  }
+
+  console.log(
+    `⚠️ No se ha podido encontrar ningún MLKOB para la fecha ${fecha} en ninguno de los listados probados`
+  );
+  return null;
 }
 
 // =============================
