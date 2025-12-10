@@ -175,18 +175,15 @@ async function procesarBoaDeHoy() {
   }
 
   const texto = await procesarBoaPdf(mlkob);
-  if (!texto) return null;
-
-  const fechaBoletin = extraerFechaBoletin(texto);
-
-  // Si no hay PDF para hoy → no procesar
-  if (!fechaBoletin || fechaBoletin !== hoy) {
-    console.log(`⚠️ Hoy (${hoy}) NO hay BOA disponible. Último publicado: ${fechaBoletin}`);
-    console.log('⛔ No se guarda nada en la BD.');
+  if (!texto) {
+    console.log('⚠️ No se ha podido extraer texto del PDF del BOA');
     return null;
   }
 
-  console.log(`✅ BOA de hoy ${hoy} confirmado.`);
+  const fechaBoletin = extraerFechaBoletin(texto);
+  console.log(`ℹ️ Fecha detectada dentro del PDF: ${fechaBoletin} (hoy ${hoy})`);
+  // IMPORTANTE: ya NO bloqueamos aunque fechaBoletin !== hoy
+
   return texto;
 }
 
