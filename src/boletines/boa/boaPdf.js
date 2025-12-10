@@ -16,7 +16,7 @@ function getFechaHoyYYYYMMDD() {
 }
 
 // =============================
-//  OBTENER MLKOB DEL BOA DE HOY (vía CGI clásica)
+//  OBTENER MLKOB DEL BOA DE HOY (CGI clásica)
 // =============================
 async function obtenerMlkobSumarioHoy() {
   const fecha = getFechaHoyYYYYMMDD();
@@ -47,7 +47,7 @@ async function obtenerMlkobSumarioHoy() {
       const match = href.match(/MLKOB=(\d+)/);
       if (match) {
         mlkob = match[1];
-        return false; // cortar el bucle
+        return false; // corta el bucle
       }
     }
   });
@@ -97,7 +97,7 @@ async function extraerTextoPdf(bufferPdf) {
 }
 
 // =============================
-//  PROCESAR PDF COMPLETO
+//  PROCESAR PDF COMPLETO (por MLKOB)
 // =============================
 async function procesarBoaPdf(mlkob) {
   if (!mlkob) {
@@ -165,6 +165,10 @@ function dividirEnDisposiciones(texto) {
 // =============================
 //  PROCESAR BOA DE HOY COMPLETO
 // =============================
+//
+// Devuelve { mlkob, texto, fechaBoletin } o null
+// ya NO bloqueamos si la fecha del PDF no coincide con hoy.
+//
 async function procesarBoaDeHoy() {
   const hoy = getFechaHoyYYYYMMDD();
   const mlkob = await obtenerMlkobSumarioHoy();
@@ -182,9 +186,8 @@ async function procesarBoaDeHoy() {
 
   const fechaBoletin = extraerFechaBoletin(texto);
   console.log(`ℹ️ Fecha detectada dentro del PDF: ${fechaBoletin} (hoy ${hoy})`);
-  // IMPORTANTE: ya NO bloqueamos aunque fechaBoletin !== hoy
 
-  return texto;
+  return { mlkob, texto, fechaBoletin };
 }
 
 // =============================
