@@ -16,7 +16,7 @@ function getFechaHoyYYYYMMDD() {
 }
 
 // =============================
-//  OBTENER MLKOB DEL BOA DE HOY (probando varias URLs)
+//  BUSCAR MLKOB EN UN LISTADO CGI
 // =============================
 async function buscarMlkobEnUrl(url) {
   console.log('Probando listado BOA:', url);
@@ -54,20 +54,20 @@ async function buscarMlkobEnUrl(url) {
   return mlkob;
 }
 
+// =============================
+//  OBTENER MLKOB DEL BOA DE HOY (probando varias bases)
+// =============================
 async function obtenerMlkobSumarioHoy() {
   const fecha = getFechaHoyYYYYMMDD();
-  const base = 'https://www.boa.aragon.es/cgi-bin/EBOA/BRSCGI';
+  const baseUrl = 'https://www.boa.aragon.es/cgi-bin/EBOA/BRSCGI';
 
-  // Probamos varias combinaciones “razonables” que usa el CGI del BOA
+  // 1) Lo que ya tenías: BASE=BZHT + VERLST
   const urls = [
-    // La que ya tenías
-    `${base}?BASE=BZHT&CMD=VERLST&DOCS=1-200&PUBL=&PUBL-C=${fecha}&RNG=200&SEC=FIRMA&SECC-C=&SEPARADOR=`,
-    // Misma pero usando PUBL=fecha
-    `${base}?BASE=BZHT&CMD=VERLST&DOCS=1-200&PUBL=${fecha}&RNG=200&SEC=FIRMA&SECC-C=&SEPARADOR=`,
-    // Sin SEC=FIRMA, por si el sumario está en otra sección
-    `${base}?BASE=BZHT&CMD=VERLST&DOCS=1-200&PUBL=${fecha}&RNG=200&SEPARADOR=`,
-    // Variante sin PUBL (por si usan PUBL-C internamente)
-    `${base}?BASE=BZHT&CMD=VERLST&DOCS=1-200&PUBL-C=${fecha}&RNG=200&SEPARADOR=`
+    `${baseUrl}?BASE=BZHT&CMD=VERLST&DOCS=1-200&PUBL=&PUBL-C=${fecha}&RNG=200&SEC=FIRMA&SECC-C=&SEPARADOR=`,
+    `${baseUrl}?BASE=BZHT&CMD=VERLST&DOCS=1-200&PUBL=${fecha}&RNG=200&SEC=FIRMA&SECC-C=&SEPARADOR=`,
+    // 2) Probar ahora con BASE=BOLE y VERDOC (sumario “moderno” en CGI)
+    `${baseUrl}?BASE=BOLE&CMD=VERDOC&PIECE=BOLE&DOCS=1-200&DOCR=1&PUBL=${fecha}&RNG=200&SEC=FIRMA&SEPARADOR=`,
+    `${baseUrl}?BASE=BOLE&CMD=VERDOC&PIECE=BOLE&DOCS=1-200&DOCR=1&PUBL-C=${fecha}&RNG=200&SEC=FIRMA&SEPARADOR=`,
   ];
 
   for (const url of urls) {
@@ -83,6 +83,7 @@ async function obtenerMlkobSumarioHoy() {
   );
   return null;
 }
+
 
 // =============================
 //  DESCARGAR PDF POR MLKOB
@@ -184,6 +185,8 @@ function dividirEnDisposiciones(texto) {
 
   return disposiciones;
 }
+
+
 
 // =============================
 //  PROCESAR BOA DE HOY COMPLETO
