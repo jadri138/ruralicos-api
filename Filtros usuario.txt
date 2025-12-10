@@ -3,9 +3,10 @@ SECTORES:
     ["ganaderia","agricultura","mixto","otros"]
 
 SUBSECTORES:
-    ["ovino","vacuno","caprino","porcino","avicultura","cunicultura",
- "trigo","cebada","cereal","maiz","hortalizas","frutales","olivar",
- "viñedo","forrajes","forestal","agua","energia","medio_ambiente"]
+["ovino","vacuno","caprino","porcino","avicultura","cunicultura","equinocultura","apicultura",
+"trigo","cebada","cereal","maiz","arroz","hortalizas","frutales","olivar","viñedo",
+"almendro","citricos","frutos_secos","leguminosas","patata","forrajes",
+"forestal","agua","energia","medio_ambiente"].
 
 TIPOS DE ALERTA:
     ["ayudas_subvenciones","normativa_general", "agua_infraestructuras","fiscalidad","medio_ambiente"]
