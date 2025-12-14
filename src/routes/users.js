@@ -265,6 +265,177 @@ app.post('/verify-phone', async (req, res) => {
 
 
 
+// --------------------------------------------------
+// RECUPERAR CONTRASEÑA: ENVIAR CÓDIGO POR WHATSAPP
+// POST /password-reset
+// --------------------------------------------------
+app.post('/password-reset', async (req, res) => {
+  let { phone } = req.body;
+
+  if (!phone) {
+    return res.status(400).json({ error: 'Falta el número de teléfono' });
+  }
+
+  // Normalizar teléfono (igual que /register)
+  phone = String(phone).trim();
+  let soloDigitos = phone.replace(/\D/g, '');
+  if (soloDigitos.length === 9) soloDigitos = '34' + soloDigitos;
+
+  const LONGITUD_TELEFONO = 11;
+  if (soloDigitos.length !== LONGITUD_TELEFONO) {
+    return res.status(400).json({ error: 'introduce un numero de teléfono válido' });
+  }
+
+  const telefonoNormalizado = soloDigitos;
+
+  // Código 6 dígitos + caducidad 15 minutos (igual que /register)
+  const codigoReset = Math.floor(100000 + Math.random() * 900000).toString();
+  const caducaEn = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+
+  try {
+    // 1) Comprobar que existe el usuario
+    const { data: user, error } = await supabase
+      .from('users')
+      .select('id, phone')
+      .eq('phone', telefonoNormalizado)
+      .maybeSingle();
+
+    if (error) {
+      console.error('Error buscando usuario en password-reset:', error);
+      return res.status(500).json({ error: 'Error interno' });
+    }
+
+    // Por seguridad, no decimos si existe o no. Respondemos success igual.
+    // (pero internamente si no existe, no mandamos WhatsApp)
+    if (!user) {
+      return res.json({ success: true });
+    }
+
+    // 2) Guardar código y caducidad en el usuario (reutilizamos columnas existentes)
+    const { error: updateError } = await supabase
+      .from('users')
+      .update({
+        phone_verification_code: codigoReset,
+        phone_verification_expires_at: caducaEn
+      })
+      .eq('id', user.id);
+
+    if (updateError) {
+      console.error('Error guardando código reset:', updateError);
+      return res.status(500).json({ error: 'Error guardando código' });
+    }
+
+    // 3) Responder rápido al cliente
+    res.json({ success: true });
+
+    // 4) Enviar WhatsApp (reutilizamos tu función actual)
+    enviarWhatsAppVerificacion(telefonoNormalizado, codigoReset).catch((err) => {
+      console.error('Error enviando WhatsApp reset:', err.message);
+    });
+
+    // 5) Log opcional
+    await supabase.from('logs').insert([
+      { action: 'password_reset_request', details: `phone: ${telefonoNormalizado}` }
+    ]);
+
+  } catch (err) {
+    console.error('Error inesperado en /password-reset:', err);
+    return res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
+
+// --------------------------------------------------
+// RECUPERAR CONTRASEÑA: VERIFICAR CÓDIGO Y CAMBIAR PASSWORD
+// POST /password-reset/verify
+// --------------------------------------------------
+app.post('/password-reset/verify', async (req, res) => {
+  let { phone, code, password } = req.body;
+
+  if (!phone || !code || !password) {
+    return res.status(400).json({ error: 'Faltan teléfono, código o contraseña' });
+  }
+
+  // Validar contraseña (mínimo 6)
+  if (String(password).length < 6) {
+    return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres' });
+  }
+
+  // Normalizar teléfono
+  phone = String(phone).trim();
+  let soloDigitos = phone.replace(/\D/g, '');
+  if (soloDigitos.length === 9) soloDigitos = '34' + soloDigitos;
+
+  const LONGITUD_TELEFONO = 11;
+  if (soloDigitos.length !== LONGITUD_TELEFONO) {
+    return res.status(400).json({ error: 'Número de teléfono no válido' });
+  }
+
+  const telefonoNormalizado = soloDigitos;
+
+  try {
+    // 1) Buscar usuario con su código y caducidad
+    const { data: user, error } = await supabase
+      .from('users')
+      .select('id, phone_verification_code, phone_verification_expires_at')
+      .eq('phone', telefonoNormalizado)
+      .maybeSingle();
+
+    if (error) {
+      console.error('Error buscando usuario en password-reset/verify:', error);
+      return res.status(500).json({ error: 'Error interno' });
+    }
+
+    if (!user) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+
+    // 2) Validar código
+    if (String(user.phone_verification_code || '') !== String(code).trim()) {
+      return res.status(400).json({ error: 'Código incorrecto' });
+    }
+
+    // 3) Validar caducidad
+    if (user.phone_verification_expires_at) {
+      const ahora = new Date();
+      const caduca = new Date(user.phone_verification_expires_at);
+      if (caduca < ahora) {
+        return res.status(400).json({ error: 'Código caducado' });
+      }
+    }
+
+    // 4) Hash y update password (igual que /set-password)
+    const passwordHash = await bcrypt.hash(String(password), 10);
+
+    const { error: updateError } = await supabase
+      .from('users')
+      .update({
+        password_hash: passwordHash,
+        phone_verification_code: null,
+        phone_verification_expires_at: null
+      })
+      .eq('id', user.id);
+
+    if (updateError) {
+      console.error('Error actualizando password_hash en reset:', updateError);
+      return res.status(500).json({ error: 'Error cambiando contraseña' });
+    }
+
+    // 5) Log opcional
+    await supabase.from('logs').insert([
+      { action: 'password_reset_done', details: `phone: ${telefonoNormalizado}` }
+    ]);
+
+    return res.json({ success: true });
+
+  } catch (err) {
+    console.error('Error inesperado en /password-reset/verify:', err);
+    return res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
+
+
   // --------------------------------------------------
   // SUBIR A PRO USANDO TELÉFONO
   // --------------------------------------------------
