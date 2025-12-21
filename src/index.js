@@ -20,6 +20,7 @@ const authRoutes = require('./routes/auth');
 const adminRoutes = require('./routes/admin');
 const preferencesRoutes = require('./routes/preferences');
 const userAuthRoutes = require('./routes/userAuth');
+const revisarAlertasRoutes = require("./routes/revisarAlertas");
 
 
 const app = express();
@@ -104,6 +105,7 @@ authRoutes(app, supabase);
 adminRoutes(app, supabase);
 preferencesRoutes(app, supabase);
 userAuthRoutes(app, supabase);
+revisarAlertasRoutes(app, supabase);
 
 
 /* ---------------------------------------------------
