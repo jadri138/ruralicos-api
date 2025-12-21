@@ -1,9 +1,37 @@
+// src/routes/revisarAlertas.js
 const { checkCronToken } = require("../utils/checkCronToken");
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
-module.exports = function revisarAlertasRoutes(app, supabase) {
+function extractOutputText(aiJson) {
+  // 1) output_text (a veces viene)
+  if (typeof aiJson?.output_text === "string" && aiJson.output_text.trim()) {
+    return aiJson.output_text.trim();
+  }
 
+  // 2) Recorremos output[] (Responses API)
+  if (Array.isArray(aiJson?.output)) {
+    for (const item of aiJson.output) {
+      if (!item || item.type !== "message" || !Array.isArray(item.content)) continue;
+
+      for (const c of item.content) {
+        // Formato: { text: "..." }
+        if (typeof c?.text === "string" && c.text.trim()) return c.text.trim();
+
+        // Formato: { text: { value: "..." } }
+        if (typeof c?.text?.value === "string" && c.text.value.trim()) return c.text.value.trim();
+
+        // Formato alterno: { value: "..." }
+        if (typeof c?.value === "string" && c.value.trim()) return c.value.trim();
+      }
+    }
+  }
+
+  // 3) Nada encontrado
+  return "";
+}
+
+module.exports = function revisarAlertasRoutes(app, supabase) {
   const revisarFinalHandler = async (req, res) => {
     try {
       if (!OPENAI_API_KEY) {
@@ -12,13 +40,14 @@ module.exports = function revisarAlertasRoutes(app, supabase) {
         });
       }
 
-      // 1️⃣ Seleccionar TODO lo que tenga resumen válido y NO esté revisado
+      // 1) Seleccionar TODO lo que tenga resumen válido y NO esté revisado
       const { data: alertas, error } = await supabase
         .from("alertas")
         .select("id, titulo, url, resumen, provincias, sectores, subsectores, tipos_alerta")
         .neq("resumen", "NO IMPORTA")
         .neq("resumen", "Procesando con IA...")
         .or("revision_final.is.null,revision_final.eq.false")
+        .order("created_at", { ascending: true })
         .limit(10);
 
       if (error) {
@@ -33,50 +62,49 @@ module.exports = function revisarAlertasRoutes(app, supabase) {
         });
       }
 
-      // 2️⃣ Preparar input para la IA
+      // 2) Input para IA (solo lo necesario)
       const input = {
         alertas: alertas.map((a) => ({
           id: a.id,
           titulo: a.titulo,
           url: a.url,
           resumen: a.resumen,
-          provincias: a.provincias ?? [],
-          sectores: a.sectores ?? [],
-          subsectores: a.subsectores ?? [],
-          tipos_alerta: a.tipos_alerta ?? [],
+          provincias: Array.isArray(a.provincias) ? a.provincias : [],
+          sectores: Array.isArray(a.sectores) ? a.sectores : [],
+          subsectores: Array.isArray(a.subsectores) ? a.subsectores : [],
+          tipos_alerta: Array.isArray(a.tipos_alerta) ? a.tipos_alerta : [],
         })),
       };
 
-      // 3️⃣ PROMPT FINAL (revisor total)
+      // 3) Prompt revisor total
       const prompt = `
 Eres el REVISOR FINAL de Ruralicos.
 
-Para CADA alerta debes:
-1) Revisar y mejorar el resumen WhatsApp:
-   - lenguaje claro
-   - sin paja
-   - sin inventar datos
-2) Decidir si aporta valor real:
-   - enviar = false si no sirve
-3) Corregir si es necesario:
-   - provincias
-   - sectores
-   - subsectores
-   - tipos_alerta
+OBJETIVO:
+Revisar TODO lo que ya tiene resumen (no "NO IMPORTA" ni "Procesando con IA...") y corregir:
+- resumen (mensaje WhatsApp)
+- provincias
+- sectores
+- subsectores
+- tipos_alerta
 
-REGLAS:
-- Si NO aporta valor → enviar=false y no inventes nada.
-- Si enviar=true → devuelve el resumen completo en formato WhatsApp Ruralicos.
-- Devuelve SOLO JSON válido.
-- No añadas texto fuera del JSON.
+PARA CADA ALERTA:
+1) Decide si aporta valor real para agricultores/ganaderos:
+   - enviar: true/false
+   - Si el mensaje es genérico, redundante o no aporta utilidad práctica -> enviar=false
+2) Si enviar=true:
+   - corrige ortografía y claridad
+   - reduce paja
+   - NO inventes datos (si falta algo: "El BOE no lo indica")
+   - Mantén el formato del WhatsApp y sus apartados
+3) Corrige clasificación si procede (puedes añadir/quitar elementos)
 
-FORMATO DE SALIDA OBLIGATORIO:
-
+SALIDA (OBLIGATORIA, SOLO JSON VÁLIDO):
 {
   "revisiones": [
     {
       "id": "id",
-      "enviar": true | false,
+      "enviar": true,
       "resumen_corregido": "texto",
       "provincias": [],
       "sectores": [],
@@ -85,6 +113,13 @@ FORMATO DE SALIDA OBLIGATORIO:
     }
   ]
 }
+
+REGLAS:
+- Devuelve exactamente 1 objeto en "revisiones" por cada alerta de entrada.
+- Si enviar=false:
+  - "resumen_corregido" puede ser "" (vacío)
+  - y los arrays deben ser []
+- NO añadas nada fuera del JSON.
 
 ENTRADA:
 ${JSON.stringify(input)}
@@ -99,24 +134,26 @@ ${JSON.stringify(input)}
         body: JSON.stringify({
           model: "gpt-5-nano",
           input: prompt,
+          // Añadimos instructions para forzar JSON
+          instructions: "Devuelve SOLO JSON válido, sin texto adicional.",
         }),
       });
 
       if (!aiRes.ok) {
         const text = await aiRes.text();
-        return res.status(500).json({ error: text });
+        return res.status(500).json({
+          error: "Error al llamar a OpenAI",
+          detalle: text,
+        });
       }
 
       const aiJson = await aiRes.json();
-
-      const contenido =
-        aiJson.output_text ||
-        aiJson.output?.[0]?.content?.[0]?.text ||
-        "";
+      const contenido = extractOutputText(aiJson);
 
       if (!contenido) {
         return res.status(500).json({
           error: "La IA no devolvió contenido",
+          bruto: aiJson, // ayuda a depurar
         });
       }
 
@@ -130,23 +167,39 @@ ${JSON.stringify(input)}
         });
       }
 
-      const revisiones = parsed.revisiones || [];
-      let actualizadas = 0;
+      const revisiones = parsed?.revisiones;
+      if (!Array.isArray(revisiones) || revisiones.length === 0) {
+        return res.status(500).json({
+          error: "La IA no devolvió revisiones válidas",
+          bruto: parsed,
+        });
+      }
 
-      // 4️⃣ Actualizar BD
+      // 4) Actualizar BD
+      let actualizadas = 0;
+      const errores = [];
+
       for (const rev of revisiones) {
-        if (!rev.id) continue;
+        if (!rev || !rev.id) continue;
 
         const updateData = { revision_final: true };
 
         if (rev.enviar === false) {
           updateData.resumen = "NO IMPORTA";
+          updateData.provincias = [];
+          updateData.sectores = [];
+          updateData.subsectores = [];
+          updateData.tipos_alerta = [];
         } else {
-          updateData.resumen = rev.resumen_corregido;
-          updateData.provincias = rev.provincias ?? [];
-          updateData.sectores = rev.sectores ?? [];
-          updateData.subsectores = rev.subsectores ?? [];
-          updateData.tipos_alerta = rev.tipos_alerta ?? [];
+          // Validaciones mínimas para no meter nulls raros
+          if (typeof rev.resumen_corregido === "string" && rev.resumen_corregido.trim()) {
+            updateData.resumen = rev.resumen_corregido.trim();
+          }
+
+          if (Array.isArray(rev.provincias)) updateData.provincias = rev.provincias;
+          if (Array.isArray(rev.sectores)) updateData.sectores = rev.sectores;
+          if (Array.isArray(rev.subsectores)) updateData.subsectores = rev.subsectores;
+          if (Array.isArray(rev.tipos_alerta)) updateData.tipos_alerta = rev.tipos_alerta;
         }
 
         const { error: updError } = await supabase
@@ -154,15 +207,20 @@ ${JSON.stringify(input)}
           .update(updateData)
           .eq("id", rev.id);
 
-        if (!updError) actualizadas++;
+        if (updError) {
+          errores.push({ id: rev.id, error: updError.message });
+        } else {
+          actualizadas++;
+        }
       }
 
       return res.json({
         success: true,
         candidatas: alertas.length,
+        revisiones: revisiones.length,
         actualizadas,
+        errores,
       });
-
     } catch (err) {
       return res.status(500).json({ error: err.message });
     }
