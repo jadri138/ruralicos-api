@@ -23,6 +23,35 @@ function extractOutputText(aiJson) {
   return "";
 }
 
+// Limpieza defensiva por si la IA mete metatexto/instrucciones internas
+function sanitizeResumen(resumen) {
+  if (!resumen || typeof resumen !== "string") return resumen;
+
+  const bannedPatterns = [
+    /Añade\s*1\s*[–-]\s*2\s*emojis\s*finales\.?/gi,
+    /Añade\s+.*emojis.*\.?/gi,
+    /Reglas del mensaje:.*$/gims,
+    /^REGLAS:.*$/gims,
+    /^ENTRADA:.*$/gims,
+    /^SALIDA.*$/gims,
+    /^Debes.*$/gims,
+    /^No añadas.*$/gims,
+  ];
+
+  let out = resumen;
+  for (const re of bannedPatterns) out = out.replace(re, "");
+
+  // Limpieza de líneas vacías múltiples
+  out = out
+    .split("\n")
+    .map((l) => l.replace(/\s+$/g, "")) // trimEnd manual
+    .filter((l, idx, arr) => !(l === "" && arr[idx - 1] === ""))
+    .join("\n")
+    .trim();
+
+  return out;
+}
+
 module.exports = function revisarAlertasRoutes(app, supabase) {
   const revisarFinalHandler = async (req, res) => {
     try {
@@ -32,9 +61,7 @@ module.exports = function revisarAlertasRoutes(app, supabase) {
         });
       }
 
-      // 1) Seleccionar resúmenes válidos NO revisados (los más recientes primero)
-      // Nota: pedimos created_at para poder ordenar y depurar.
-      // Si tu tabla NO tiene created_at, quita ese campo y el order correspondiente.
+      // 1) Seleccionar resúmenes válidos NO revisados (más recientes primero)
       let query = supabase
         .from("alertas")
         .select("id, titulo, url, fecha, resumen, provincias, sectores, subsectores, tipos_alerta, created_at")
@@ -42,9 +69,10 @@ module.exports = function revisarAlertasRoutes(app, supabase) {
         .neq("resumen", "Procesando con IA...")
         .or("revision_final.is.null,revision_final.eq.false");
 
-      // Orden: primero por fecha BOE si existe/está rellena; luego por created_at
-      // Si "fecha" es texto YYYY-MM-DD o date, esto te pondrá lo más reciente arriba.
-      query = query.order("fecha", { ascending: false }).order("created_at", { ascending: false }).limit(10);
+      query = query
+        .order("fecha", { ascending: false })
+        .order("created_at", { ascending: false })
+        .limit(10);
 
       const { data: alertas, error } = await query;
 
@@ -75,21 +103,33 @@ module.exports = function revisarAlertasRoutes(app, supabase) {
         })),
       };
 
-      // 3) Prompt revisor total (corrige texto + clasificación)
+      // 3) Prompt revisor (ENDURECIDO)
       const prompt = `
-Eres el REVISOR FINAL de Ruralicos.
+Eres el REVISOR FINAL de Ruralicos (antes de enviar WhatsApp).
 
-Vas a revisar alertas ya resumidas. Para CADA alerta:
-1) Decide si aporta valor real para agricultores/ganaderos:
+VAS A RECIBIR alertas YA resumidas. Para CADA alerta:
+A) Decide si aporta valor real para agricultores/ganaderos:
    - enviar: true/false
    - Si es genérica, redundante o no aporta utilidad práctica -> enviar=false
-2) Si enviar=true:
+
+B) Si enviar=true:
    - corrige ortografía y claridad
    - reduce paja
    - NO inventes datos (si falta algo: "El BOE no lo indica")
    - conserva el formato del WhatsApp Ruralicos y sus apartados
-3) Corrige clasificación si es necesario:
+
+C) Corrige si hace falta la clasificación:
    - provincias, sectores, subsectores, tipos_alerta
+
+REGLAS DURAS (OBLIGATORIAS):
+- PROHIBIDO incluir instrucciones internas o metatexto en el mensaje final.
+  Ejemplos prohibidos: "Añade 1–2 emojis finales", "Reglas del mensaje", "SALIDA", "ENTRADA", "Debes...".
+  Si aparecen en el resumen, ELIMÍNALOS.
+- Si enviar=true:
+  - El mensaje final debe incluir 1 línea con 1–2 emojis (solo emojis) antes del enlace.
+  - NO escribas la frase "Añade 1–2 emojis finales." (nunca).
+- Si enviar=false:
+  - resumen_corregido debe ser "" (vacío) y arrays [].
 
 SALIDA OBLIGATORIA (SOLO JSON VÁLIDO):
 {
@@ -106,12 +146,9 @@ SALIDA OBLIGATORIA (SOLO JSON VÁLIDO):
   ]
 }
 
-REGLAS:
+REGLAS DE CONSISTENCIA:
 - Exactamente 1 objeto en "revisiones" por cada alerta de entrada.
-- Si enviar=false:
-  - "resumen_corregido" puede ser ""
-  - y los arrays deben ser []
-- No añadas nada fuera del JSON.
+- NO añadas nada fuera del JSON.
 
 ENTRADA:
 ${JSON.stringify(input)}
@@ -185,7 +222,7 @@ ${JSON.stringify(input)}
           updateData.tipos_alerta = [];
         } else {
           if (typeof rev.resumen_corregido === "string" && rev.resumen_corregido.trim()) {
-            updateData.resumen = rev.resumen_corregido.trim();
+            updateData.resumen = sanitizeResumen(rev.resumen_corregido).trim();
           }
 
           if (Array.isArray(rev.provincias)) updateData.provincias = rev.provincias;
