@@ -72,7 +72,7 @@ module.exports = function revisarAlertasRoutes(app, supabase) {
       query = query
         .order("fecha", { ascending: false })
         .order("created_at", { ascending: false })
-        .limit(10);
+        .limit(5);
 
       const { data: alertas, error } = await query;
 
