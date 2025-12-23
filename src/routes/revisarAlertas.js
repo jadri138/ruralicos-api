@@ -105,39 +105,118 @@ module.exports = function revisarAlertasRoutes(app, supabase) {
 
       // 3) Prompt revisor (ENDURECIDO)
       const prompt = `
-Eres el REVISOR FINAL de Ruralicos (antes de enviar WhatsApp).
+Eres el REVISOR FINAL DE CALIDAD de Ruralicos.
 
-VAS A RECIBIR alertas YA resumidas. Para CADA alerta:
-A) Decide si aporta valor real para agricultores/ganaderos:
-   - enviar: true/false
-   - Si es genérica, redundante o no aporta utilidad práctica -> enviar=false
+Vas a recibir alertas YA PROCESADAS previamente:
+- ya tienen un resumen en formato WhatsApp Ruralicos
+- ya tienen provincias, sectores, subsectores y tipos_alerta
 
-B) Si enviar=true:
-   - corrige ortografía y claridad
-   - reduce paja
-   - NO inventes datos (si falta algo: "El BOE no lo indica")
-   - conserva el formato del WhatsApp Ruralicos y sus apartados
+Tu función NO es reinterpretar el BOE desde cero.
+Tu función es decidir si el mensaje FINAL es digno de enviarse a agricultores y ganaderos.
 
-C) Corrige si hace falta la clasificación:
-   - provincias, sectores, subsectores, tipos_alerta
+────────────────────────────
+OBJETIVO DEL REVISOR
+────────────────────────────
 
-REGLAS DURAS (OBLIGATORIAS):
-- PROHIBIDO incluir instrucciones internas o metatexto en el mensaje final.
-  Ejemplos prohibidos: "Añade 1–2 emojis finales", "Reglas del mensaje", "SALIDA", "ENTRADA", "Debes...".
-  Si aparecen en el resumen, ELIMÍNALOS.
-- Si enviar=true:
-  - El mensaje final debe incluir 1 línea con 1–2 emojis (solo emojis) antes del enlace.
-  - NO escribas la frase "Añade 1–2 emojis finales." (nunca).
-- Si enviar=false:
-  - resumen_corregido debe ser "" (vacío) y arrays [].
+Para CADA alerta debes:
 
-SALIDA OBLIGATORIA (SOLO JSON VÁLIDO):
+1) DECIDIR SI SE ENVÍA O NO
+2) CORREGIR el resumen si se envía
+3) CORREGIR la clasificación si es necesario
+
+Tú tienes la ÚLTIMA PALABRA.
+
+────────────────────────────
+CRITERIO CLAVE DE ENVÍO
+────────────────────────────
+
+Una alerta SOLO debe enviarse si:
+- Aporta VALOR REAL al conjunto del sector
+- Informa de algo que un agricultor o ganadero medio debería conocer
+
+DEBE MARCARSE COMO enviar = false SI:
+- Afecta únicamente a un TITULAR CONCRETO
+  (concesión individual, expediente individual, explotación concreta)
+- Es puramente informativa sin utilidad práctica
+- No genera obligación, oportunidad, riesgo ni cambio relevante
+- Es ruido legal sin impacto general
+
+⚠️ Regla importante:
+Concesiones de agua INDIVIDUALES → normalmente NO SE ENVÍAN.
+Solo envíalas si tienen valor excepcional (ej. cambio de criterio, doctrina, precedente relevante).
+
+────────────────────────────
+SI enviar = true
+────────────────────────────
+
+Debes:
+
+A) CORREGIR EL RESUMEN
+- Lenguaje claro y profesional
+- Eliminar paja
+- NO inventar datos
+- Si algo no consta en el BOE, escribe:
+  “El BOE no indica destinatarios concretos.”
+  “El BOE no menciona plazos concretos.”
+
+B) LIMPIAR TEXTO BASURA
+- Elimina CUALQUIER instrucción interna o metatexto.
+- NUNCA debe aparecer texto como:
+  “Añade 1–2 emojis finales”
+  “Reglas del mensaje”
+  “Formato”
+  “Debes…”
+  “SALIDA / ENTRADA”
+
+C) FORMATO WHATSAPP (OBLIGATORIO)
+El resumen DEBE respetar EXACTAMENTE esta estructura:
+
+"*Ruralicos te avisa* 🌾🚜
+
+📄 *¿Qué ha pasado?*
+<1–3 frases claras>
+
+⚠️ *¿A quién afecta?*
+<colectivos afectados o texto estándar si no se indica>
+
+📌 *Punto clave*
+<dato más relevante o texto estándar>
+
+<UNA línea con 1–2 emojis, solo emojis>
+
+🔗 Enlace al BOE completo: <url>"
+
+- NO escribas la frase “Añade 1–2 emojis finales”.
+- Los emojis deben ir solos en su propia línea.
+
+────────────────────────────
+CLASIFICACIÓN (OBLIGATORIA)
+────────────────────────────
+
+Puedes CORREGIR libremente:
+- provincias
+- sectores
+- subsectores
+- tipos_alerta
+
+Si enviar = false:
+- provincias = []
+- sectores = []
+- subsectores = []
+- tipos_alerta = []
+
+────────────────────────────
+SALIDA OBLIGATORIA
+────────────────────────────
+
+Devuelve SIEMPRE y SOLO JSON válido con este formato exacto:
+
 {
   "revisiones": [
     {
-      "id": "id",
-      "enviar": true,
-      "resumen_corregido": "texto",
+      "id": "id_real",
+      "enviar": true | false,
+      "resumen_corregido": "texto o string vacío",
       "provincias": [],
       "sectores": [],
       "subsectores": [],
@@ -146,9 +225,11 @@ SALIDA OBLIGATORIA (SOLO JSON VÁLIDO):
   ]
 }
 
-REGLAS DE CONSISTENCIA:
-- Exactamente 1 objeto en "revisiones" por cada alerta de entrada.
-- NO añadas nada fuera del JSON.
+REGLAS FINALES:
+- Exactamente UNA revisión por cada alerta de entrada
+- NO añadas texto fuera del JSON
+- NO expliques decisiones
+- NO inventes información
 
 ENTRADA:
 ${JSON.stringify(input)}
@@ -161,7 +242,7 @@ ${JSON.stringify(input)}
           Authorization: `Bearer ${OPENAI_API_KEY}`,
         },
         body: JSON.stringify({
-          model: "gpt-5-nano",
+          model: "gpt-5",
           input: prompt,
           instructions: "Devuelve SOLO JSON válido, sin texto adicional.",
         }),
