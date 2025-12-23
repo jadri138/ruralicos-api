@@ -1,76 +1,101 @@
-```md
-# Ruralicos API 🚜
+# Ruralicos
 
-**Alertas del BOE por WhatsApp para el campo.**
+![Status](https://img.shields.io/badge/status-beta-green)
+![License](https://img.shields.io/badge/license-MIT-blue)
+![Node](https://img.shields.io/badge/node-%3E%3D18.x-brightgreen)
+![API](https://img.shields.io/badge/type-REST_API-orange)
+![IA](https://img.shields.io/badge/IA-OpenAI-purple)
 
-Envía subvenciones, normativas y ayudas del BOE a agricultores por WhatsApp.  
-Solo necesitas un móvil.
+Ruralicos es un sistema de **procesado y filtrado de boletines oficiales** orientado al sector agrario y rural.
 
----
-
-## Estado del proyecto
-**MVP 100% funcional**  
-- Registro de usuarios  
-- Base de datos en Supabase  
-- API en producción (Render)  
-- Lectura/escritura de alertas  
+El objetivo del proyecto es **extraer, resumir y clasificar información relevante** de boletines oficiales y generar alertas personalizadas para los usuarios.
 
 ---
 
-## Endpoints
+## Qué hace el proyecto
 
-| Método | Ruta | Descripción |
-|-------|------|-------------|
-| `GET` | `/` | Estado de la API |
-| `POST` | `/register` | Registrar usuario por teléfono |
-| `GET` | `/users` | Listar usuarios registrados |
-| `POST` | `/alertas` | Guardar alerta del BOE |
-| `GET` | `/alertas` | Ver todas las alertas |
+- Procesa boletines oficiales (BOE y autonómicos)
+- Genera resúmenes en lenguaje claro mediante IA
+- Detecta provincias y sectores afectados
+- Clasifica alertas por temática
+- Permite marcar alertas como revisadas o no relevantes
+- Sirve como backend para una plataforma de alertas rurales
 
 ---
 
-## Pruebas rápidas (copia-pega)
+## Qué NO hace
 
-#Utilizar https://reqbin.com/ para ejecutar bash
+- No sustituye asesoramiento legal o técnico
+- No publica textos oficiales completos
+- No incluye datos personales ni claves privadas
+- No es un producto final cerrado (está en beta)
 
-```bash
-# 1. Registrar usuario
-curl -X POST https://ruralicos-api.onrender.com/register \
-  -H "Content-Type: application/json" \
-  -d '{"phone": "+34666123456"}'
+---
 
-# 2. Ver usuarios
-curl https://ruralicos-api.onrender.com/users
+## Funcionamiento general
 
-# 3. Guardar alerta
-curl -X POST https://ruralicos-api.onrender.com/alertas \
-  -H "Content-Type: application/json" \
-  -d '{
-    "titulo": "Subvención tractores",
-    "resumen": "Hasta 50.000€",
-    "url": "https://boe.es/boe/2025/12345",
-    "fecha": "2025-11-13",
-    "region": "castilla"
-  }'
-```
+1. Descarga de boletines oficiales
+2. Identificación de nuevos anuncios
+3. Procesado mediante IA:
+   - Resumen
+   - Clasificación territorial
+   - Clasificación sectorial
+4. Almacenamiento en base de datos
+5. Consulta y filtrado según preferencias del usuario
 
+---
 
-### Tecnologías
+## Estados de las alertas
 
-Backend: Node.js + Express
+- `procesando IA`
+- `no importa`
+- `pendiente de revisión`
+- `revisada`
 
-Base de datos: Supabase (PostgreSQL)
+Las alertas se revisan automáticamente salvo que se marquen como no relevantes.
 
-Hosting: Render (despliegue automático)
+---
 
-Futuro: Twilio (WhatsApp), scraper BOE, cron diario
+## Tecnologías utilizadas
 
+- Node.js
+- Express
+- Supabase
+- OpenAI API
+- Cron jobs
+- WordPress (frontend externo)
 
+---
 
-### Variables de entorno (en Render)
+## Estructura del proyecto
 
-SUPABASE_URL=https://yojivxkeuwpjucwzmbzp.supabase.co
-SUPABASE_ANON_KEY=eyJhbgc1...
+```text
+ruralicos-api
+├─ src
+│  ├─ boletines
+│  ├─ alertas
+│  ├─ ia
+│  ├─ cron
+│  ├─ supabaseClient.js
+│  └─ index.js
+│
+├─ README.md
+├─ LICENSE
+└─ CONTRIBUTING.md
+Variables de entorno
+env
+Copiar código
+SUPABASE_URL=...
+SUPABASE_SERVICE_ROLE_KEY=...
+OPENAI_API_KEY=...
+Estado del proyecto
+Beta activa con usuarios reales y ajustes continuos en clasificación y resúmenes.
 
+Licencia
+MIT
 
-¿Quieres colaborar? Escribe a soporteruralicos@gmail.com
+Contribuciones
+Las contribuciones son bienvenidas mediante issues o pull requests.
+
+Nota: este repositorio contiene únicamente la lógica del sistema.
+
