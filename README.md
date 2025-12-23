@@ -69,8 +69,5 @@ Futuro: Twilio (WhatsApp), scraper BOE, cron diario
 
 ### Variables de entorno (en Render)
 
-SUPABASE_URL=https://yojivxkeuwpjucwzmbzp.supabase.co
-SUPABASE_ANON_KEY=eyJhbgc1...
-
 
 ¿Quieres colaborar? Escribe a soporteruralicos@gmail.com
