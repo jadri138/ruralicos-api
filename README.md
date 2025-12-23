@@ -99,18 +99,3 @@ Las contribuciones son bienvenidas mediante issues o pull requests.
 
 Nota: este repositorio contiene únicamente la lógica del sistema.
 
-yaml
-Copiar código
-
----
-
-## 4️⃣ Resultado
-
-Con este README:
-- ✅ Se ve bien en GitHub
-- ✅ No suena a marketing
-- ✅ Es creíble como proyecto técnico
-- ✅ No promete más de lo que hace
-- ✅ Protege legalmente
-
-
