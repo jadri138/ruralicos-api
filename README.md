@@ -113,12 +113,4 @@ Con este README:
 - ✅ No promete más de lo que hace
 - ✅ Protege legalmente
 
----
 
-Siguiente paso lógico (elige uno):
-1. Hacerlo **aún más técnico** (orientado a devs)
-2. Hacer un README **mínimo** (muy limpio)
-3. Ajustarlo para que **atraiga estrellas**
-4. Revisar **nombres de carpetas y coherencia real**
-
-Dime cuál y lo afinamos.
