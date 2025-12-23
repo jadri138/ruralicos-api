@@ -1,7 +1,6 @@
 // src/boletines/boa/boaPdf.js
 
 const axios = require('axios');
-const cheerio = require('cheerio');
 const pdfjsLib = require('pdfjs-dist/build/pdf.js');
 
 // =============================
@@ -16,85 +15,75 @@ function getFechaHoyYYYYMMDD() {
 }
 
 // =============================
-//  BUSCAR MLKOB EN UN LISTADO CGI
+//  OBTENER MLKOB DEL BOA DE HOY (OpenData JSON)
 // =============================
-async function buscarMlkobEnUrl(url) {
-  console.log('Probando listado BOA:', url);
-
-  let response;
-  try {
-    response = await axios.get(url);
-  } catch (e) {
-    console.error('❌ Error HTTP al pedir listado BOA:', e.message);
-    return null;
-  }
-
-  const html = response.data;
-  const $ = cheerio.load(html);
-
-  let mlkob = null;
-
-  $('a').each((i, el) => {
-    const href = $(el).attr('href') || '';
-    if (href.includes('CMD=VEROBJ') && href.includes('MLKOB=')) {
-      const match = href.match(/MLKOB=(\d+)/);
-      if (match) {
-        mlkob = match[1];
-        return false; // cortar el bucle
-      }
-    }
-  });
-
-  if (!mlkob) {
-    console.log('⚠️ En este listado no se ha encontrado ningún MLKOB');
-    return null;
-  }
-
-  console.log('✅ MLKOB encontrado en este listado:', mlkob);
-  return mlkob;
-}
-
-// =============================
-//  OBTENER MLKOB DEL BOA DE HOY (probando varias bases)
-// =============================
+// Motivo: la web "#/resultados-fecha" es SPA; rascar HTML no siempre funciona.
+// Usamos el CGI del BOA en modo JSON para localizar MLKOB de forma robusta.
 async function obtenerMlkobSumarioHoy() {
   const fecha = getFechaHoyYYYYMMDD();
   const baseUrl = 'https://www.boa.aragon.es/cgi-bin/EBOA/BRSCGI';
 
-  // 1) Lo que ya tenías: BASE=BZHT + VERLST
+  // Probamos varias combinaciones por si cambian parámetros internos.
   const urls = [
-    `${baseUrl}?BASE=BZHT&CMD=VERLST&DOCS=1-200&PUBL=&PUBL-C=${fecha}&RNG=200&SEC=FIRMA&SECC-C=&SEPARADOR=`,
-    `${baseUrl}?BASE=BZHT&CMD=VERLST&DOCS=1-200&PUBL=${fecha}&RNG=200&SEC=FIRMA&SECC-C=&SEPARADOR=`,
-    // 2) Probar ahora con BASE=BOLE y VERDOC (sumario “moderno” en CGI)
-    `${baseUrl}?BASE=BOLE&CMD=VERDOC&PIECE=BOLE&DOCS=1-200&DOCR=1&PUBL=${fecha}&RNG=200&SEC=FIRMA&SEPARADOR=`,
-    `${baseUrl}?BASE=BOLE&CMD=VERDOC&PIECE=BOLE&DOCS=1-200&DOCR=1&PUBL-C=${fecha}&RNG=200&SEC=FIRMA&SEPARADOR=`,
+    // Rango exacto del día (GE/LE)
+    `${baseUrl}?CMD=VERLST&OUTPUTMODE=JSON&BASE=BOLE&DOCS=1-200&SEC=OPENDATABOAJSON&SORT=-PUBL&SEPARADOR=&@PUBL-GE=${fecha}&@PUBL-LE=${fecha}`,
+    `${baseUrl}?CMD=VERLST&OUTPUTMODE=JSON&BASE=BZHT&DOCS=1-200&SEC=OPENDATABOAJSON&SORT=-PUBL&SEPARADOR=&@PUBL-GE=${fecha}&@PUBL-LE=${fecha}`,
+
+    // Fallback: algunas instalaciones aceptan PUBL o PUBL-C
+    `${baseUrl}?CMD=VERLST&OUTPUTMODE=JSON&BASE=BOLE&DOCS=1-200&SEC=OPENDATABOAJSON&PUBL=${fecha}`,
+    `${baseUrl}?CMD=VERLST&OUTPUTMODE=JSON&BASE=BZHT&DOCS=1-200&SEC=OPENDATABOAJSON&PUBL-C=${fecha}`,
   ];
 
   for (const url of urls) {
-    const mlkob = await buscarMlkobEnUrl(url);
-    if (mlkob) {
-      console.log('✅ Usaremos este MLKOB para el BOA de hoy:', mlkob);
-      return mlkob;
+    try {
+      console.log('BOA OPENDATA →', url);
+      const resp = await axios.get(url, { timeout: 20000 });
+
+      // A veces devuelve objeto, a veces string JSON.
+      const payload =
+        typeof resp.data === 'string' ? JSON.parse(resp.data) : resp.data;
+
+      // Estrategia robusta: buscamos el primer MLKOB numérico dentro del payload.
+      const plano = JSON.stringify(payload);
+      const m1 = plano.match(/"MLKOB"\s*:\s*"(\d+)"/);
+      if (m1 && m1[1]) {
+        console.log('✅ MLKOB encontrado (JSON):', m1[1]);
+        return m1[1];
+      }
+
+      // Fallback: por si viene como MLKOB=12345
+      const m2 = plano.match(/MLKOB=(\d+)/);
+      if (m2 && m2[1]) {
+        console.log('✅ MLKOB encontrado (texto):', m2[1]);
+        return m2[1];
+      }
+
+      console.log('⚠️ OPENDATA respondió pero sin MLKOB detectado.');
+    } catch (e) {
+      console.error('❌ Error OPENDATA BOA:', e.message);
     }
   }
 
-  console.log(
-    `⚠️ No se ha podido encontrar ningún MLKOB para la fecha ${fecha} en ninguno de los listados probados`
-  );
+  console.log(`⚠️ No se ha podido encontrar MLKOB para la fecha ${fecha}`);
   return null;
 }
 
-
 // =============================
-//  DESCARGAR PDF POR MLKOB
+//  DESCARGAR PDF POR MLKOB (forzando type=pdf)
 // =============================
 async function descargarBoaPdf(mlkob) {
-  const url = `https://www.boa.aragon.es/cgi-bin/EBOA/BRSCGI?CMD=VEROBJ&MLKOB=${mlkob}`;
+  // Nota: forzamos PDF para evitar respuestas HTML.
+  const url = `https://www.boa.aragon.es/cgi-bin/EBOA/BRSCGI?CMD=VEROBJ&MLKOB=${mlkob}&type=pdf`;
 
   console.log('Descargando PDF del BOA:', url);
 
   const response = await axios.get(url, {
     responseType: 'arraybuffer',
+    timeout: 30000,
+    headers: {
+      // A veces ayuda con servidores quisquillosos
+      Accept: 'application/pdf,*/*',
+    },
   });
 
   return Buffer.from(response.data);
@@ -109,14 +98,12 @@ async function extraerTextoPdf(bufferPdf) {
   const pdf = await loadingTask.promise;
 
   let texto = '';
-
   for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
     const page = await pdf.getPage(pageNum);
     const content = await page.getTextContent();
     const strings = content.items.map((item) => item.str).join(' ');
     texto += strings + '\n';
   }
-
   return texto;
 }
 
@@ -129,15 +116,15 @@ async function procesarBoaPdf(mlkob) {
     return null;
   }
 
-  console.log('Descargando PDF del BOA con MLKOB:', mlkob);
+  console.log('Procesando PDF del BOA con MLKOB:', mlkob);
 
   const pdfBuffer = await descargarBoaPdf(mlkob);
   console.log('PDF descargado, tamaño:', pdfBuffer.byteLength);
 
   const texto = await extraerTextoPdf(pdfBuffer);
 
-  console.log('Primeros 1000 caracteres del PDF:\n');
-  console.log(texto.slice(0, 1000));
+  console.log('Primeros 600 caracteres del PDF:\n');
+  console.log(texto.slice(0, 600));
 
   return texto;
 }
@@ -146,7 +133,6 @@ async function procesarBoaPdf(mlkob) {
 //  EXTRAER FECHA DEL BOLETÍN
 // =============================
 function extraerFechaBoletin(texto) {
-  // Busca BOA20251205 dentro del texto
   const match = texto && texto.match(/BOA(\d{8})/);
   return match ? match[1] : null;
 }
@@ -173,28 +159,20 @@ function dividirEnDisposiciones(texto) {
   if (indices.length === 0) return [texto];
 
   const disposiciones = [];
-
   for (let i = 0; i < indices.length; i++) {
     const inicio = indices[i];
     const fin = indices[i + 1] ?? texto.length;
     const bloque = texto.slice(inicio, fin).trim();
-    if (bloque.length > 80) {
-      disposiciones.push(bloque);
-    }
+    if (bloque.length > 80) disposiciones.push(bloque);
   }
 
   return disposiciones;
 }
 
-
-
 // =============================
 //  PROCESAR BOA DE HOY COMPLETO
 // =============================
-//
 // Devuelve { mlkob, texto, fechaBoletin } o null
-// ya NO bloqueamos si la fecha del PDF no coincide con hoy.
-//
 async function procesarBoaDeHoy() {
   const hoy = getFechaHoyYYYYMMDD();
   const mlkob = await obtenerMlkobSumarioHoy();
@@ -216,9 +194,6 @@ async function procesarBoaDeHoy() {
   return { mlkob, texto, fechaBoletin };
 }
 
-// =============================
-//  EXPORTS
-// =============================
 module.exports = {
   getFechaHoyYYYYMMDD,
   obtenerMlkobSumarioHoy,
