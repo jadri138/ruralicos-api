@@ -15,20 +15,15 @@ function getFechaHoyYYYYMMDD() {
 }
 
 // =============================
-//  OBTENER TODOS LOS MLKOB DE UN DÍA (OpenData JSON)
+//  OBTENER TODOS LOS MLKOB DEL BOA DE UNA FECHA (OpenData JSON)
 // =============================
-// Motivo: la web "#/resultados-fecha" es SPA.
-// Usamos OPENDATA JSON para sacar TODOS los documentos del día.
 async function obtenerMlkobsPorFecha(fechaYYYYMMDD) {
   const fecha = fechaYYYYMMDD;
   const baseUrl = 'https://www.boa.aragon.es/cgi-bin/EBOA/BRSCGI';
 
-  // Subimos DOCS por si hay muchos resultados (boletines largos).
   const urls = [
     `${baseUrl}?CMD=VERLST&OUTPUTMODE=JSON&BASE=BOLE&DOCS=1-800&SEC=OPENDATABOAJSON&SORT=-PUBL&SEPARADOR=&@PUBL-GE=${fecha}&@PUBL-LE=${fecha}`,
     `${baseUrl}?CMD=VERLST&OUTPUTMODE=JSON&BASE=BZHT&DOCS=1-800&SEC=OPENDATABOAJSON&SORT=-PUBL&SEPARADOR=&@PUBL-GE=${fecha}&@PUBL-LE=${fecha}`,
-
-    // Fallbacks por si el servidor acepta otros filtros
     `${baseUrl}?CMD=VERLST&OUTPUTMODE=JSON&BASE=BOLE&DOCS=1-800&SEC=OPENDATABOAJSON&PUBL=${fecha}`,
     `${baseUrl}?CMD=VERLST&OUTPUTMODE=JSON&BASE=BZHT&DOCS=1-800&SEC=OPENDATABOAJSON&PUBL-C=${fecha}`,
   ];
@@ -40,11 +35,9 @@ async function obtenerMlkobsPorFecha(fechaYYYYMMDD) {
       console.log('BOA OPENDATA →', url);
       const resp = await axios.get(url, { timeout: 20000 });
 
-      // A veces devuelve objeto, a veces string JSON.
       const payload =
         typeof resp.data === 'string' ? JSON.parse(resp.data) : resp.data;
 
-      // Estrategia robusta: extraer TODOS los MLKOB del JSON serializado.
       const plano = JSON.stringify(payload);
 
       // Caso estándar: "MLKOB":"123..."
@@ -63,7 +56,7 @@ async function obtenerMlkobsPorFecha(fechaYYYYMMDD) {
 
   const lista = Array.from(mlkobs);
 
-  // Ordenar numéricamente (como strings largas, usamos BigInt)
+  // Orden estable (numérico si se puede)
   lista.sort((a, b) => {
     try {
       return BigInt(a) < BigInt(b) ? -1 : BigInt(a) > BigInt(b) ? 1 : 0;
@@ -72,33 +65,44 @@ async function obtenerMlkobsPorFecha(fechaYYYYMMDD) {
     }
   });
 
-  console.log(`✅ MLKOB encontrados para ${fecha}:`, lista.length);
+  console.log(`✅ MLKOB encontrados para ${fecha}: ${lista.length}`);
   return lista;
 }
 
-// Conveniencia: hoy
 async function obtenerMlkobsSumarioHoy() {
   const fecha = getFechaHoyYYYYMMDD();
   return obtenerMlkobsPorFecha(fecha);
 }
 
 // =============================
-//  DESCARGAR PDF POR MLKOB (forzando type=pdf)
+//  DESCARGAR PDF POR MLKOB (forzando type=pdf) + VALIDACIÓN
 // =============================
 async function descargarBoaPdf(mlkob) {
   const url = `https://www.boa.aragon.es/cgi-bin/EBOA/BRSCGI?CMD=VEROBJ&MLKOB=${mlkob}&type=pdf`;
-
   console.log('Descargando PDF del BOA:', url);
 
   const response = await axios.get(url, {
     responseType: 'arraybuffer',
     timeout: 30000,
+    maxRedirects: 5,
     headers: {
       Accept: 'application/pdf,*/*',
+      'User-Agent': 'Mozilla/5.0 (RuralicosBot)',
     },
+    validateStatus: (s) => s >= 200 && s < 400,
   });
 
-  return Buffer.from(response.data);
+  const buf = Buffer.from(response.data);
+
+  // Comprobar que es PDF real (evita "Invalid PDF structure")
+  const magic = buf.slice(0, 4).toString('utf8');
+  if (magic !== '%PDF') {
+    const head = buf.slice(0, 250).toString('utf8').replace(/\s+/g, ' ');
+    console.error('❌ No es PDF válido (MLKOB:', mlkob, ') →', head);
+    return null;
+  }
+
+  return buf;
 }
 
 // =============================
@@ -123,26 +127,21 @@ async function extraerTextoPdf(bufferPdf) {
 //  PROCESAR PDF COMPLETO (por MLKOB)
 // =============================
 async function procesarBoaPdf(mlkob) {
-  if (!mlkob) {
-    console.log('⚠️ procesarBoaPdf llamado sin MLKOB');
-    return null;
-  }
-
-  console.log('Procesando PDF del BOA con MLKOB:', mlkob);
+  if (!mlkob) return null;
 
   const pdfBuffer = await descargarBoaPdf(mlkob);
-  console.log('PDF descargado, tamaño:', pdfBuffer.byteLength);
+  if (!pdfBuffer) return null;
 
-  const texto = await extraerTextoPdf(pdfBuffer);
-
-  console.log('Primeros 600 caracteres del PDF:\n');
-  console.log(texto.slice(0, 600));
-
-  return texto;
+  try {
+    return await extraerTextoPdf(pdfBuffer);
+  } catch (e) {
+    console.error('❌ pdfjs error (MLKOB:', mlkob, '):', e.message);
+    return null;
+  }
 }
 
 // =============================
-//  EXTRAER FECHA DEL BOLETÍN (si aparece como BOAYYYYMMDD)
+//  EXTRAER FECHA DEL BOLETÍN
 // =============================
 function extraerFechaBoletin(texto) {
   const match = texto && texto.match(/BOA(\d{8})/);
@@ -164,9 +163,7 @@ function dividirEnDisposiciones(texto) {
 
   const indices = [];
   let match;
-  while ((match = regex.exec(texto)) !== null) {
-    indices.push(match.index);
-  }
+  while ((match = regex.exec(texto)) !== null) indices.push(match.index);
 
   if (indices.length === 0) return [texto];
 
@@ -182,30 +179,24 @@ function dividirEnDisposiciones(texto) {
 }
 
 // =============================
-//  PROCESAR UN MLKOB (descarga + texto + fecha detectada)
+//  PROCESAR UN MLKOB (PDF→texto + fecha detectada)
 // =============================
 async function procesarBoaPorMlkob(mlkob) {
   const texto = await procesarBoaPdf(mlkob);
   if (!texto) return null;
+
   const fechaBoletin = extraerFechaBoletin(texto);
   return { mlkob, texto, fechaBoletin };
 }
 
 module.exports = {
-  // fecha
   getFechaHoyYYYYMMDD,
-
-  // mlkobs
   obtenerMlkobsPorFecha,
   obtenerMlkobsSumarioHoy,
-
-  // pdf/texto
   descargarBoaPdf,
   extraerTextoPdf,
   procesarBoaPdf,
   procesarBoaPorMlkob,
-
-  // util
   extraerFechaBoletin,
   dividirEnDisposiciones,
 };

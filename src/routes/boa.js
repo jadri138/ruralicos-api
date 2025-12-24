@@ -6,21 +6,20 @@ const {
   dividirEnDisposiciones,
 } = require('../boletines/boa/boaPdf');
 
-// =============================
-//  UTILIDADES
-// =============================
+// Convierte AAAAMMDD → AAAA-MM-DD
 function formatearFecha(fecha) {
   if (!fecha || fecha.length !== 8) return null;
   return `${fecha.slice(0, 4)}-${fecha.slice(4, 6)}-${fecha.slice(6, 8)}`;
 }
 
-// Recorte para IA
+// Recorte para IA (evita PDFs gigantes)
 const HEAD_CHARS = 2500;
 const TAIL_CHARS = 400;
 
 function recortarContenido(texto) {
   if (!texto) return '';
   const limpio = texto.replace(/\s+/g, ' ').trim();
+
   if (limpio.length <= HEAD_CHARS + TAIL_CHARS + 50) return limpio;
 
   return (
@@ -30,37 +29,43 @@ function recortarContenido(texto) {
   );
 }
 
-// =============================
-//  RUTA BOA
-// =============================
 module.exports = function boaRoutes(app, supabase) {
   app.get('/scrape-boa-oficial', async (req, res) => {
     if (!checkCronToken(req, res)) return;
 
+    let documentos = 0;
     let detectadas = 0;
     let nuevas = 0;
     let duplicadas = 0;
     let errores = 0;
+    let saltadasNoPdf = 0;
 
     try {
-      // 1️⃣ Obtener TODOS los MLKOB del día
       const mlkobs = await obtenerMlkobsSumarioHoy();
 
       if (!mlkobs || mlkobs.length === 0) {
         return res.json({
           success: true,
+          documentos: 0,
           detectadas: 0,
           nuevas: 0,
           duplicadas: 0,
           errores: 0,
+          saltadasNoPdf: 0,
           mensaje: 'No se han encontrado documentos BOA hoy',
         });
       }
 
-      // 2️⃣ Procesar MLKOB por MLKOB
       for (const mlkob of mlkobs) {
         const resultado = await procesarBoaPorMlkob(mlkob);
-        if (!resultado) continue;
+
+        // Si no devuelve texto, casi seguro era HTML/no-PDF o pdfjs falló
+        if (!resultado) {
+          saltadasNoPdf++;
+          continue;
+        }
+
+        documentos++;
 
         const { texto, fechaBoletin } = resultado;
 
@@ -78,7 +83,6 @@ module.exports = function boaRoutes(app, supabase) {
             disp.slice(0, 140).replace(/\s+/g, ' ').trim() ||
             'Disposición BOA';
 
-          // 3️⃣ Duplicados reales (URL + título)
           const { data: existe, error: errDup } = await supabase
             .from('alertas')
             .select('id')
@@ -96,20 +100,17 @@ module.exports = function boaRoutes(app, supabase) {
             continue;
           }
 
-          // 4️⃣ Insertar alerta
-          const { error: errInsert } = await supabase
-            .from('alertas')
-            .insert([
-              {
-                titulo,
-                resumen: 'Procesando con IA...',
-                url: urlOficial,
-                fecha: fechaSQL,
-                region: 'Aragón',
-                fuente: 'BOA',
-                contenido: recortarContenido(disp),
-              },
-            ]);
+          const { error: errInsert } = await supabase.from('alertas').insert([
+            {
+              titulo,
+              resumen: 'Procesando con IA...',
+              url: urlOficial,
+              fecha: fechaSQL,
+              region: 'Aragón',
+              fuente: 'BOA',
+              contenido: recortarContenido(disp),
+            },
+          ]);
 
           if (errInsert) {
             errores++;
@@ -122,12 +123,14 @@ module.exports = function boaRoutes(app, supabase) {
 
       return res.json({
         success: true,
-        documentos: mlkobs.length,
+        documentos,
+        mlkobs_totales: mlkobs.length,
         detectadas,
         nuevas,
         duplicadas,
         errores,
-        mensaje: 'BOA procesado completamente',
+        saltadasNoPdf,
+        mensaje: 'BOA procesado (multi-MLKOB)',
       });
     } catch (e) {
       console.error('Error en /scrape-boa-oficial', e);
