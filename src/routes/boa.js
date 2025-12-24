@@ -1,32 +1,27 @@
 // src/routes/boa.js
 const { checkCronToken } = require('../utils/checkCronToken');
 const {
-  procesarBoaDeHoy,
+  obtenerMlkobsSumarioHoy,
+  procesarBoaPorMlkob,
   dividirEnDisposiciones,
 } = require('../boletines/boa/boaPdf');
 
 // =============================
 //  UTILIDADES
 // =============================
-
-// Convierte AAAAMMDD → AAAA-MM-DD
 function formatearFecha(fecha) {
   if (!fecha || fecha.length !== 8) return null;
   return `${fecha.slice(0, 4)}-${fecha.slice(4, 6)}-${fecha.slice(6, 8)}`;
 }
 
-// Recorta contenido para IA (evita PDFs gigantes)
-const HEAD_CHARS = 2500; // inicio del texto
-const TAIL_CHARS = 400;  // final del texto
+// Recorte para IA
+const HEAD_CHARS = 2500;
+const TAIL_CHARS = 400;
 
 function recortarContenido(texto) {
   if (!texto) return '';
-
   const limpio = texto.replace(/\s+/g, ' ').trim();
-
-  if (limpio.length <= HEAD_CHARS + TAIL_CHARS + 50) {
-    return limpio;
-  }
+  if (limpio.length <= HEAD_CHARS + TAIL_CHARS + 50) return limpio;
 
   return (
     limpio.slice(0, HEAD_CHARS) +
@@ -42,93 +37,97 @@ module.exports = function boaRoutes(app, supabase) {
   app.get('/scrape-boa-oficial', async (req, res) => {
     if (!checkCronToken(req, res)) return;
 
-    try {
-      const resultado = await procesarBoaDeHoy();
+    let detectadas = 0;
+    let nuevas = 0;
+    let duplicadas = 0;
+    let errores = 0;
 
-      if (!resultado) {
+    try {
+      // 1️⃣ Obtener TODOS los MLKOB del día
+      const mlkobs = await obtenerMlkobsSumarioHoy();
+
+      if (!mlkobs || mlkobs.length === 0) {
         return res.json({
           success: true,
           detectadas: 0,
           nuevas: 0,
           duplicadas: 0,
           errores: 0,
-          mensaje: 'No se ha encontrado BOA procesable',
+          mensaje: 'No se han encontrado documentos BOA hoy',
         });
       }
 
-      const { mlkob, texto, fechaBoletin } = resultado;
+      // 2️⃣ Procesar MLKOB por MLKOB
+      for (const mlkob of mlkobs) {
+        const resultado = await procesarBoaPorMlkob(mlkob);
+        if (!resultado) continue;
 
-      const fechaSQL =
-        formatearFecha(fechaBoletin) ||
-        new Date().toISOString().slice(0, 10);
+        const { texto, fechaBoletin } = resultado;
 
-      // URL OFICIAL que verá el usuario
-      const urlOficial = `https://www.boa.aragon.es/cgi-bin/EBOA/BRSCGI?CMD=VEROBJ&MLKOB=${mlkob}`;
+        const fechaSQL =
+          formatearFecha(fechaBoletin) ||
+          new Date().toISOString().slice(0, 10);
 
-      const disposiciones = dividirEnDisposiciones(texto);
-      const detectadas = disposiciones.length;
+        const urlOficial = `https://www.boa.aragon.es/cgi-bin/EBOA/BRSCGI?CMD=VEROBJ&MLKOB=${mlkob}`;
 
-      let nuevas = 0;
-      let duplicadas = 0;
-      let errores = 0;
+        const disposiciones = dividirEnDisposiciones(texto);
+        detectadas += disposiciones.length;
 
-      for (const disp of disposiciones) {
-        const titulo =
-          disp.slice(0, 140).replace(/\s+/g, ' ').trim() ||
-          'Disposición BOA';
+        for (const disp of disposiciones) {
+          const titulo =
+            disp.slice(0, 140).replace(/\s+/g, ' ').trim() ||
+            'Disposición BOA';
 
-        // 1️⃣ Comprobar duplicado (igual que BOE)
-        const { data: existe, error: errorExiste } = await supabase
-          .from('alertas')
-          .select('id')
-          .eq('url', urlOficial)
-          .eq('titulo', titulo)
-          .limit(1);
+          // 3️⃣ Duplicados reales (URL + título)
+          const { data: existe, error: errDup } = await supabase
+            .from('alertas')
+            .select('id')
+            .eq('url', urlOficial)
+            .eq('titulo', titulo)
+            .limit(1);
 
-        if (errorExiste) {
-          errores++;
-          console.error('BOA duplicado check error:', errorExiste.message);
-          continue;
+          if (errDup) {
+            errores++;
+            continue;
+          }
+
+          if (existe && existe.length > 0) {
+            duplicadas++;
+            continue;
+          }
+
+          // 4️⃣ Insertar alerta
+          const { error: errInsert } = await supabase
+            .from('alertas')
+            .insert([
+              {
+                titulo,
+                resumen: 'Procesando con IA...',
+                url: urlOficial,
+                fecha: fechaSQL,
+                region: 'Aragón',
+                fuente: 'BOA',
+                contenido: recortarContenido(disp),
+              },
+            ]);
+
+          if (errInsert) {
+            errores++;
+            continue;
+          }
+
+          nuevas++;
         }
-
-        if (existe && existe.length > 0) {
-          duplicadas++;
-          continue;
-        }
-
-        // 2️⃣ Insertar alerta con contenido recortado
-        const { error: errorInsert } = await supabase
-          .from('alertas')
-          .insert([
-            {
-              titulo,
-              resumen: 'Procesando con IA...',
-              url: urlOficial,
-              fecha: fechaSQL,
-              region: 'Aragón',
-              fuente: 'BOA',
-              contenido: recortarContenido(disp),
-            },
-          ]);
-
-        if (errorInsert) {
-          errores++;
-          console.error('BOA insert error:', errorInsert.message);
-          continue;
-        }
-
-        nuevas++;
       }
 
       return res.json({
         success: true,
-        mlkob,
-        fecha: fechaSQL,
+        documentos: mlkobs.length,
         detectadas,
         nuevas,
         duplicadas,
         errores,
-        mensaje: 'BOA procesado correctamente',
+        mensaje: 'BOA procesado completamente',
       });
     } catch (e) {
       console.error('Error en /scrape-boa-oficial', e);
