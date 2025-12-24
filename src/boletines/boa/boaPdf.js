@@ -15,24 +15,25 @@ function getFechaHoyYYYYMMDD() {
 }
 
 // =============================
-//  OBTENER MLKOB DEL BOA DE HOY (OpenData JSON)
+//  OBTENER TODOS LOS MLKOB DE UN DÍA (OpenData JSON)
 // =============================
-// Motivo: la web "#/resultados-fecha" es SPA; rascar HTML no siempre funciona.
-// Usamos el CGI del BOA en modo JSON para localizar MLKOB de forma robusta.
-async function obtenerMlkobSumarioHoy() {
-  const fecha = getFechaHoyYYYYMMDD();
+// Motivo: la web "#/resultados-fecha" es SPA.
+// Usamos OPENDATA JSON para sacar TODOS los documentos del día.
+async function obtenerMlkobsPorFecha(fechaYYYYMMDD) {
+  const fecha = fechaYYYYMMDD;
   const baseUrl = 'https://www.boa.aragon.es/cgi-bin/EBOA/BRSCGI';
 
-  // Probamos varias combinaciones por si cambian parámetros internos.
+  // Subimos DOCS por si hay muchos resultados (boletines largos).
   const urls = [
-    // Rango exacto del día (GE/LE)
-    `${baseUrl}?CMD=VERLST&OUTPUTMODE=JSON&BASE=BOLE&DOCS=1-200&SEC=OPENDATABOAJSON&SORT=-PUBL&SEPARADOR=&@PUBL-GE=${fecha}&@PUBL-LE=${fecha}`,
-    `${baseUrl}?CMD=VERLST&OUTPUTMODE=JSON&BASE=BZHT&DOCS=1-200&SEC=OPENDATABOAJSON&SORT=-PUBL&SEPARADOR=&@PUBL-GE=${fecha}&@PUBL-LE=${fecha}`,
+    `${baseUrl}?CMD=VERLST&OUTPUTMODE=JSON&BASE=BOLE&DOCS=1-800&SEC=OPENDATABOAJSON&SORT=-PUBL&SEPARADOR=&@PUBL-GE=${fecha}&@PUBL-LE=${fecha}`,
+    `${baseUrl}?CMD=VERLST&OUTPUTMODE=JSON&BASE=BZHT&DOCS=1-800&SEC=OPENDATABOAJSON&SORT=-PUBL&SEPARADOR=&@PUBL-GE=${fecha}&@PUBL-LE=${fecha}`,
 
-    // Fallback: algunas instalaciones aceptan PUBL o PUBL-C
-    `${baseUrl}?CMD=VERLST&OUTPUTMODE=JSON&BASE=BOLE&DOCS=1-200&SEC=OPENDATABOAJSON&PUBL=${fecha}`,
-    `${baseUrl}?CMD=VERLST&OUTPUTMODE=JSON&BASE=BZHT&DOCS=1-200&SEC=OPENDATABOAJSON&PUBL-C=${fecha}`,
+    // Fallbacks por si el servidor acepta otros filtros
+    `${baseUrl}?CMD=VERLST&OUTPUTMODE=JSON&BASE=BOLE&DOCS=1-800&SEC=OPENDATABOAJSON&PUBL=${fecha}`,
+    `${baseUrl}?CMD=VERLST&OUTPUTMODE=JSON&BASE=BZHT&DOCS=1-800&SEC=OPENDATABOAJSON&PUBL-C=${fecha}`,
   ];
+
+  const mlkobs = new Set();
 
   for (const url of urls) {
     try {
@@ -43,36 +44,48 @@ async function obtenerMlkobSumarioHoy() {
       const payload =
         typeof resp.data === 'string' ? JSON.parse(resp.data) : resp.data;
 
-      // Estrategia robusta: buscamos el primer MLKOB numérico dentro del payload.
+      // Estrategia robusta: extraer TODOS los MLKOB del JSON serializado.
       const plano = JSON.stringify(payload);
-      const m1 = plano.match(/"MLKOB"\s*:\s*"(\d+)"/);
-      if (m1 && m1[1]) {
-        console.log('✅ MLKOB encontrado (JSON):', m1[1]);
-        return m1[1];
+
+      // Caso estándar: "MLKOB":"123..."
+      for (const m of plano.matchAll(/"MLKOB"\s*:\s*"(\d+)"/g)) {
+        if (m[1]) mlkobs.add(m[1]);
       }
 
-      // Fallback: por si viene como MLKOB=12345
-      const m2 = plano.match(/MLKOB=(\d+)/);
-      if (m2 && m2[1]) {
-        console.log('✅ MLKOB encontrado (texto):', m2[1]);
-        return m2[1];
+      // Fallback: MLKOB=123...
+      for (const m of plano.matchAll(/MLKOB=(\d+)/g)) {
+        if (m[1]) mlkobs.add(m[1]);
       }
-
-      console.log('⚠️ OPENDATA respondió pero sin MLKOB detectado.');
     } catch (e) {
       console.error('❌ Error OPENDATA BOA:', e.message);
     }
   }
 
-  console.log(`⚠️ No se ha podido encontrar MLKOB para la fecha ${fecha}`);
-  return null;
+  const lista = Array.from(mlkobs);
+
+  // Ordenar numéricamente (como strings largas, usamos BigInt)
+  lista.sort((a, b) => {
+    try {
+      return BigInt(a) < BigInt(b) ? -1 : BigInt(a) > BigInt(b) ? 1 : 0;
+    } catch {
+      return a.localeCompare(b);
+    }
+  });
+
+  console.log(`✅ MLKOB encontrados para ${fecha}:`, lista.length);
+  return lista;
+}
+
+// Conveniencia: hoy
+async function obtenerMlkobsSumarioHoy() {
+  const fecha = getFechaHoyYYYYMMDD();
+  return obtenerMlkobsPorFecha(fecha);
 }
 
 // =============================
 //  DESCARGAR PDF POR MLKOB (forzando type=pdf)
 // =============================
 async function descargarBoaPdf(mlkob) {
-  // Nota: forzamos PDF para evitar respuestas HTML.
   const url = `https://www.boa.aragon.es/cgi-bin/EBOA/BRSCGI?CMD=VEROBJ&MLKOB=${mlkob}&type=pdf`;
 
   console.log('Descargando PDF del BOA:', url);
@@ -81,7 +94,6 @@ async function descargarBoaPdf(mlkob) {
     responseType: 'arraybuffer',
     timeout: 30000,
     headers: {
-      // A veces ayuda con servidores quisquillosos
       Accept: 'application/pdf,*/*',
     },
   });
@@ -130,7 +142,7 @@ async function procesarBoaPdf(mlkob) {
 }
 
 // =============================
-//  EXTRAER FECHA DEL BOLETÍN
+//  EXTRAER FECHA DEL BOLETÍN (si aparece como BOAYYYYMMDD)
 // =============================
 function extraerFechaBoletin(texto) {
   const match = texto && texto.match(/BOA(\d{8})/);
@@ -170,37 +182,30 @@ function dividirEnDisposiciones(texto) {
 }
 
 // =============================
-//  PROCESAR BOA DE HOY COMPLETO
+//  PROCESAR UN MLKOB (descarga + texto + fecha detectada)
 // =============================
-// Devuelve { mlkob, texto, fechaBoletin } o null
-async function procesarBoaDeHoy() {
-  const hoy = getFechaHoyYYYYMMDD();
-  const mlkob = await obtenerMlkobSumarioHoy();
-
-  if (!mlkob) {
-    console.log(`⚠️ No se ha encontrado MLKOB para hoy (${hoy}), no se procesa nada.`);
-    return null;
-  }
-
+async function procesarBoaPorMlkob(mlkob) {
   const texto = await procesarBoaPdf(mlkob);
-  if (!texto) {
-    console.log('⚠️ No se ha podido extraer texto del PDF del BOA');
-    return null;
-  }
-
+  if (!texto) return null;
   const fechaBoletin = extraerFechaBoletin(texto);
-  console.log(`ℹ️ Fecha detectada dentro del PDF: ${fechaBoletin} (hoy ${hoy})`);
-
   return { mlkob, texto, fechaBoletin };
 }
 
 module.exports = {
+  // fecha
   getFechaHoyYYYYMMDD,
-  obtenerMlkobSumarioHoy,
+
+  // mlkobs
+  obtenerMlkobsPorFecha,
+  obtenerMlkobsSumarioHoy,
+
+  // pdf/texto
   descargarBoaPdf,
   extraerTextoPdf,
   procesarBoaPdf,
-  procesarBoaDeHoy,
+  procesarBoaPorMlkob,
+
+  // util
   extraerFechaBoletin,
   dividirEnDisposiciones,
 };
