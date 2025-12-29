@@ -494,6 +494,30 @@ app.post('/password-reset/verify', async (req, res) => {
     res.json({ success: true, user: data });
   });
 
+
+  // ELIMINACION DE USUARIO
+router.delete('/users/:id', async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    // 1. Eliminar de supabase.auth (requiere Service Role Key)
+    const { error: deleteAuthError } = await supabase.auth.admin.deleteUser(id);
+    if (deleteAuthError) throw deleteAuthError;
+
+    // 2. Eliminar de tabla 'users' y tablas relacionadas
+    await supabase.from('preferences').delete().eq('user_id', id);
+    await supabase.from('alertas_vistas').delete().eq('user_id', id);
+    await supabase.from('users').delete().eq('id', id);
+
+    res.status(200).json({ message: 'Cuenta eliminada correctamente' });
+  } catch (err) {
+    console.error('Error eliminando usuario:', err);
+    res.status(500).json({ error: 'No se pudo eliminar la cuenta' });
+  }
+});
+
+
+
   // --------------------------------------------------
   // OBTENER PREFERENCIAS USANDO TELÉFONO
   // --------------------------------------------------
