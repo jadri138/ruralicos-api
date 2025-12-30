@@ -2,6 +2,8 @@ const bcrypt = require('bcryptjs');
 const { checkCronToken } = require('../utils/checkCronToken');
 const { enviarWhatsAppVerificacion, enviarWhatsAppRegistro } = require('../whatsapp');
 
+// ===== AÑADIDO (sin modificar lo anterior): auth middleware =====
+const { requireAuth } = require('../authMiddleware');
 
 
 
@@ -30,6 +32,34 @@ module.exports = function usersRoutes(app, supabase) {
     }
 
     res.json({ users: data });
+  });
+
+  // ===== AÑADIDO (sin modificar lo anterior): MI CUENTA =====
+  // GET /me -> devuelve phone/email/subscription reales usando JWT
+  app.get('/me', requireAuth, async (req, res) => {
+    try {
+      const userId = req.user.sub;
+
+      const { data, error } = await supabase
+        .from('users')
+        .select('phone, email, subscription')
+        .eq('id', userId)
+        .single();
+
+      if (error) {
+        console.error('Error /me:', error);
+        return res.status(500).json({ error: 'Error leyendo usuario' });
+      }
+
+      if (!data) {
+        return res.status(404).json({ error: 'Usuario no encontrado' });
+      }
+
+      return res.json({ user: data });
+    } catch (e) {
+      console.error('Error interno /me:', e);
+      return res.status(500).json({ error: 'Error interno' });
+    }
   });
 
  // --------------------------------------------------
