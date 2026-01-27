@@ -87,10 +87,10 @@ module.exports = function alertasRoutes(app, supabase) {
       const lista = alertas
         .map((a) => {
           const texto = a.contenido ? a.contenido.slice(0, 4000) : '';
-          return `ID ${a.id} | Fecha ${a.fecha} | Region ${a.region} | URL ${a.url} | Titulo: ${a.titulo} | Texto: ${texto}`;
+          return `ID=${a.id} | Fecha=${a.fecha} | Region=${a.region} | URL=${a.url} | Titulo=${a.titulo} | Texto=${texto}`;
         })
         .join('\n\n');
-
+        
             const prompt = ` 
 Te paso una LISTA de alertas del BOE para agricultores y ganaderos, una por línea, con este formato EXACTO:
 "ID=<id> | Fecha=<fecha> | Region=<region> | URL=<url> | Titulo=<titulo> | Texto=<contenido>"
