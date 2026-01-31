@@ -22,6 +22,8 @@ const preferencesRoutes = require('./routes/preferences');
 const userAuthRoutes = require('./routes/userAuth');
 const revisarAlertasRoutes = require("./routes/revisarAlertas");
 const bocylRoutes = require('./routes/bocyl');
+const bojaRoutes = require('./routes/boja');
+
 
 
 const app = express();
@@ -108,6 +110,8 @@ preferencesRoutes(app, supabase);
 userAuthRoutes(app, supabase);
 revisarAlertasRoutes(app, supabase);
 bocylRoutes(app, supabase);
+bojaRoutes(app, supabase);
+
 
 
 /* ---------------------------------------------------
