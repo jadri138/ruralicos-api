@@ -1,11 +1,11 @@
 // src/routes/bocyl.js
-const { checkCronToken } = require('../utils/checkCronToken');
 const {
   getFechaHoyYYYYMMDD,
   obtenerDocumentosBocylPorFecha,
   procesarBocylPdf,
   extraerFechaBoletin,
 } = require('./boletines/bocyl/bocylScraper');
+
 
 /**
  * Convierte AAAAMMDD en AAAA-MM-DD para almacenarlo en la base de datos.
