@@ -1,10 +1,15 @@
 // src/routes/bocyl.js
+// src/routes/bocyl.js
+const { checkCronToken } = require('../utils/checkCronToken');  // importa el token de cron correctamente
 const {
   getFechaHoyYYYYMMDD,
   obtenerDocumentosBocylPorFecha,
   procesarBocylPdf,
   extraerFechaBoletin,
-} = require('./boletines/bocyl/bocylScraper');
+} = require('../boletines/BOCYL/bocylScraper');  // sube un nivel y respeta mayúsculas
+
+// … el resto del código se mantiene igual …
+
 
 
 /**
