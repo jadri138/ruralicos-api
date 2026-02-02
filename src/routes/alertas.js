@@ -142,7 +142,7 @@ CLASIFICACIÓN POR ALERTA (solo si es relevante):
 
 "subsectores": elegir entre:
 ["ovino","vacuno","caprino","porcino","avicultura","cunicultura","equinocultura","apicultura",
-"trigo","cebada","cereal","maiz","arroz","hortalizas","frutales","olivar","viñedo",
+"trigo","cebada","cereal","maiz","arroz","hortalizas","frutales","olivar","trufas","viñedo",
 "almendro","citricos","frutos_secos","leguminosas","patata","forrajes",
 "forestal","agua","energia","medio_ambiente"].
 
