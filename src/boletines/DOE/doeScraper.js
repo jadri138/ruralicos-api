@@ -1,6 +1,9 @@
 // src/boletines/DOE/doeScraper.js
 const axios = require('axios');
+const { XMLParser } = require('fast-xml-parser');
 const pdfjsLib = require('pdfjs-dist/build/pdf.js');
+
+const xmlParser = new XMLParser({ ignoreAttributes: false });
 
 /**
  * Devuelve la fecha actual en formato YYYYMMDD.
@@ -18,19 +21,76 @@ function getFechaHoyYYYYMMDD() {
  * REEMPLAZA la URL base y el parseo según el servicio oficial del DOE.
  */
 async function obtenerDocumentosDoePorFecha(fechaYYYYMMDD) {
-  const fecha = fechaYYYYMMDD;
-  const baseUrl = 'https://<url-del-doe>/api'; // TODO: ajustar
+  const baseUrl =
+    process.env.DOE_RSS_URL ||
+    process.env.DOE_API_URL ||
+    '';
+
+  if (!baseUrl) {
+    console.warn(
+      'DOE: no hay DOE_RSS_URL ni DOE_API_URL configuradas. Devuelvo lista vacía.'
+    );
+    return [];
+  }
+
+  const shouldAppendFecha = process.env.DOE_APPEND_FECHA === 'true';
+
+  const url = baseUrl.includes('{fecha}')
+    ? baseUrl.replace('{fecha}', fechaYYYYMMDD)
+    : shouldAppendFecha
+      ? `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}fecha=${fechaYYYYMMDD}`
+      : baseUrl;
+
+  const resp = await axios.get(url, {
+    timeout: 30000,
+    headers: {
+      Accept: 'application/xml,application/json,text/xml,*/*',
+      'User-Agent': 'Mozilla/5.0 (RuralicosBot)',
+    },
+    validateStatus: (s) => s >= 200 && s < 400,
+  });
+
   const listaUrls = [];
+  const contentType = `${resp.headers['content-type'] || ''}`.toLowerCase();
 
-  // Ejemplo genérico de llamada. Ajusta según la estructura real del DOE.
-  /*
-  const url = `${baseUrl}?fecha=${fecha}`;
-  const resp = await axios.get(url);
-  // Analiza resp.data y extrae las URLs de los documentos.
-  resp.data.items.forEach(item => listaUrls.push(item.pdfUrl));
-  */
+  if (contentType.includes('xml') || typeof resp.data === 'string') {
+    const xml = typeof resp.data === 'string' ? resp.data : '';
+    if (xml) {
+      const json = xmlParser.parse(xml);
+      const items =
+        json?.rss?.channel?.item ||
+        json?.feed?.entry ||
+        [];
+      const arrayItems = Array.isArray(items) ? items : [items].filter(Boolean);
 
-  return listaUrls;
+      for (const item of arrayItems) {
+        const enclosureUrl = item?.enclosure?.['@_url'];
+        const link =
+          item?.link?.['@_href'] ||
+          item?.link?.['#text'] ||
+          item?.link ||
+          item?.guid?.['#text'] ||
+          item?.guid ||
+          null;
+        const candidato = enclosureUrl || link;
+        if (typeof candidato === 'string') listaUrls.push(candidato);
+      }
+    }
+  } else if (resp.data && typeof resp.data === 'object') {
+    const items = resp.data.items || resp.data.results || [];
+    const arrayItems = Array.isArray(items) ? items : [];
+    for (const item of arrayItems) {
+      const candidato =
+        item?.pdfUrl ||
+        item?.pdf ||
+        item?.url ||
+        item?.link ||
+        null;
+      if (typeof candidato === 'string') listaUrls.push(candidato);
+    }
+  }
+
+  return [...new Set(listaUrls.filter(Boolean))];
 }
 
 /**
