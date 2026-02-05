@@ -1,15 +1,10 @@
-// Doe Scraper reescrito para Ruralicos
-// Este módulo obtiene los PDF del DOE desde la página de últimas publicaciones
-
+// Scraper del DOE que obtiene automáticamente la fecha de hoy en formato AAAAMMDD
 const axios = require('axios');
 const pdfjsLib = require('pdfjs-dist/build/pdf.js');
 
-/**
- * Devuelve la fecha actual en formato YYYYMMDD. Ajusta si el servidor no está en zona horaria de Madrid.
- */
+// 1. Obtener la fecha de hoy en formato YYYYMMDD usando la zona horaria de Madrid
 function getFechaHoyYYYYMMDD() {
   const now = new Date();
-  // Convertir a hora de Europa/Madrid usando la API Intl
   const formatter = new Intl.DateTimeFormat('es-ES', {
     timeZone: 'Europe/Madrid',
     year: 'numeric',
@@ -20,18 +15,13 @@ function getFechaHoyYYYYMMDD() {
   return `${year}${month}${day}`;
 }
 
-/**
- * Obtiene la lista de URLs de PDFs del DOE para una fecha dada.
- * Utiliza la página HTML de Últimos DOE para extraer enlaces a PDFs.
- * La URL base debe tener el marcador {fecha} para ser sustituido por YYYYMMDD.
- */
+// 2. Construir la URL del DOE y extraer los enlaces a PDF para la fecha dada
 async function obtenerDocumentosDoePorFecha(fechaYYYYMMDD) {
   const baseUrl = process.env.DOE_API_URL || process.env.DOE_RSS_URL || '';
   if (!baseUrl) {
-    console.warn('DOE: no hay DOE_API_URL ni DOE_RSS_URL configuradas. Devuelvo lista vacía.');
+    console.warn('DOE: falta DOE_API_URL o DOE_RSS_URL');
     return [];
   }
-  // Construir la URL reemplazando {fecha}
   const url = baseUrl.includes('{fecha}')
     ? baseUrl.replace('{fecha}', fechaYYYYMMDD)
     : `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}fecha=${fechaYYYYMMDD}`;
@@ -56,7 +46,6 @@ async function obtenerDocumentosDoePorFecha(fechaYYYYMMDD) {
       }
       pdfUrls.push(link);
     }
-    // Devolver sin duplicados
     return [...new Set(pdfUrls)];
   } catch (err) {
     console.error('Error obteniendo listado de DOE:', err.message);
@@ -64,9 +53,7 @@ async function obtenerDocumentosDoePorFecha(fechaYYYYMMDD) {
   }
 }
 
-/**
- * Descarga un PDF del DOE y comprueba que sea un PDF válido.
- */
+// 3. Descargar un PDF del DOE y verificar que es válido
 async function descargarDoePdf(url) {
   const response = await axios.get(url, {
     responseType: 'arraybuffer',
@@ -79,14 +66,10 @@ async function descargarDoePdf(url) {
     validateStatus: (s) => s >= 200 && s < 400,
   });
   const buf = Buffer.from(response.data);
-  const magic = buf.slice(0, 4).toString('utf8');
-  if (magic !== '%PDF') return null;
-  return buf;
+  return buf.slice(0, 4).toString('utf8') === '%PDF' ? buf : null;
 }
 
-/**
- * Extrae el texto de un PDF utilizando pdfjs.
- */
+// 4. Extraer el texto de un PDF usando pdfjs
 async function extraerTextoPdf(bufferPdf) {
   const uint8Array = new Uint8Array(bufferPdf);
   const loadingTask = pdfjsLib.getDocument({ data: uint8Array });
@@ -101,9 +84,7 @@ async function extraerTextoPdf(bufferPdf) {
   return texto;
 }
 
-/**
- * Procesa un PDF completo: lo descarga y extrae su texto.
- */
+// 5. Descargar y procesar cada PDF
 async function procesarDoePdf(url) {
   const pdfBuffer = await descargarDoePdf(url);
   if (!pdfBuffer) return null;
@@ -114,9 +95,7 @@ async function procesarDoePdf(url) {
   }
 }
 
-/**
- * Extrae la fecha del boletín a partir del texto. Formato: AAAAMMDD.
- */
+// 6. Extraer la fecha del boletín a partir de su texto (DD/MM/AAAA -> AAAAMMDD)
 function extraerFechaBoletin(texto) {
   const match = texto && texto.match(/DOE\s*(\d{2})\/(\d{2})\/(\d{4})/);
   if (match) {
@@ -126,9 +105,7 @@ function extraerFechaBoletin(texto) {
   return null;
 }
 
-/**
- * Divide el texto en disposiciones (órdenes, resoluciones, anuncios, consejerías).
- */
+// 7. Dividir el texto en disposiciones (órdenes, resoluciones, anuncios, consejerías)
 function dividirEnDisposiciones(texto) {
   const patrones = [
     /ORDEN\s+[A-ZÁÉÍÓÚ0-9\/\-]+/g,
