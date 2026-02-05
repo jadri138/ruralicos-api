@@ -33,6 +33,23 @@ async function obtenerDocumentosDoePorFecha(fechaYYYYMMDD) {
     return [];
   }
 
+  const shouldAppendFecha = process.env.DOE_APPEND_FECHA === 'true';
+
+  const url = baseUrl.includes('{fecha}')
+    ? baseUrl.replace('{fecha}', fechaYYYYMMDD)
+    : shouldAppendFecha
+      ? `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}fecha=${fechaYYYYMMDD}`
+      : baseUrl;
+
+  const resp = await axios.get(url, {
+    timeout: 30000,
+    headers: {
+      Accept: 'application/xml,application/json,text/xml,*/*',
+      'User-Agent': 'Mozilla/5.0 (RuralicosBot)',
+    },
+    validateStatus: (s) => s >= 200 && s < 400,
+  });
+
   const url = baseUrl.includes('{fecha}')
     ? baseUrl.replace('{fecha}', fechaYYYYMMDD)
     : `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}fecha=${fechaYYYYMMDD}`;
@@ -56,6 +73,7 @@ async function obtenerDocumentosDoePorFecha(fechaYYYYMMDD) {
       const items =
         json?.rss?.channel?.item ||
         json?.feed?.entry ||
+        json?.['rdf:RDF']?.item ||
         [];
       const arrayItems = Array.isArray(items) ? items : [items].filter(Boolean);
 
@@ -63,11 +81,19 @@ async function obtenerDocumentosDoePorFecha(fechaYYYYMMDD) {
         const enclosureUrl = item?.enclosure?.['@_url'];
         const link =
           item?.link?.['@_href'] ||
+          item?.link?.['#text'] ||
+          item?.link ||
+          item?.guid?.['#text'] ||
           item?.link ||
           item?.guid ||
           null;
         const candidato = enclosureUrl || link;
         if (typeof candidato === 'string') listaUrls.push(candidato);
+      }
+
+      if (listaUrls.length === 0) {
+        const pdfMatches = xml.match(/https?:\/\/[^"'\s>]+\.pdf/gi) || [];
+        for (const match of pdfMatches) listaUrls.push(match);
       }
     }
   } else if (resp.data && typeof resp.data === 'object') {
