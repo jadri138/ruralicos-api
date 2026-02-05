@@ -50,6 +50,19 @@ async function obtenerDocumentosDoePorFecha(fechaYYYYMMDD) {
     validateStatus: (s) => s >= 200 && s < 400,
   });
 
+  const url = baseUrl.includes('{fecha}')
+    ? baseUrl.replace('{fecha}', fechaYYYYMMDD)
+    : `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}fecha=${fechaYYYYMMDD}`;
+
+  const resp = await axios.get(url, {
+    timeout: 30000,
+    headers: {
+      Accept: 'application/xml,application/json,text/xml,*/*',
+      'User-Agent': 'Mozilla/5.0 (RuralicosBot)',
+    },
+    validateStatus: (s) => s >= 200 && s < 400,
+  });
+
   const listaUrls = [];
   const contentType = `${resp.headers['content-type'] || ''}`.toLowerCase();
 
@@ -71,6 +84,7 @@ async function obtenerDocumentosDoePorFecha(fechaYYYYMMDD) {
           item?.link?.['#text'] ||
           item?.link ||
           item?.guid?.['#text'] ||
+          item?.link ||
           item?.guid ||
           null;
         const candidato = enclosureUrl || link;
