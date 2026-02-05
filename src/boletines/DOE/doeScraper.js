@@ -60,6 +60,7 @@ async function obtenerDocumentosDoePorFecha(fechaYYYYMMDD) {
       const items =
         json?.rss?.channel?.item ||
         json?.feed?.entry ||
+        json?.['rdf:RDF']?.item ||
         [];
       const arrayItems = Array.isArray(items) ? items : [items].filter(Boolean);
 
@@ -74,6 +75,11 @@ async function obtenerDocumentosDoePorFecha(fechaYYYYMMDD) {
           null;
         const candidato = enclosureUrl || link;
         if (typeof candidato === 'string') listaUrls.push(candidato);
+      }
+
+      if (listaUrls.length === 0) {
+        const pdfMatches = xml.match(/https?:\/\/[^"'\s>]+\.pdf/gi) || [];
+        for (const match of pdfMatches) listaUrls.push(match);
       }
     }
   } else if (resp.data && typeof resp.data === 'object') {
