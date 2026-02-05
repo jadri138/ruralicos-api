@@ -170,19 +170,21 @@ async function enviarWhatsAppResumen(alerta, supabase) {
     const tiposA       = Array.isArray(alerta.tipos_alerta) ? alerta.tipos_alerta : [];
 
     // ==== 1. FILTRO PROVINCIA ====
-    const normaliza = (str) =>
-  str
-    .toString()
+    // ==== 1. FILTRO PROVINCIA ====
+const normalize = (str) =>
+  str.toString()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .trim()
     .toLowerCase();
-const provinciasUserNorm = provinciasUser.map(normaliza);
-const provinciasANorm = provinciasA.map(normaliza);
 
-    const okProvincia =
+const provinciasUserNorm = provinciasUser.map(normalize);
+const provinciasANorm = provinciasA.map(normalize);
+
+const okProvincia =
   provinciasUserNorm.length === 0 ||
   (provinciasANorm.length > 0 && intersecta(provinciasUserNorm, provinciasANorm));
+
 
 
     if (!okProvincia) continue;
