@@ -23,6 +23,7 @@ const userAuthRoutes = require('./routes/userAuth');
 const revisarAlertasRoutes = require("./routes/revisarAlertas");
 const bocylRoutes = require('./routes/bocyl');
 const bojaRoutes = require('./routes/boja');
+const doeRoutes = require('./routes/doe');
 
 
 
@@ -111,6 +112,7 @@ userAuthRoutes(app, supabase);
 revisarAlertasRoutes(app, supabase);
 bocylRoutes(app, supabase);
 bojaRoutes(app, supabase);
+doeRoutes(app, supabase);
 
 
 
