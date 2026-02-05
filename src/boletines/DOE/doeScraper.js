@@ -1,90 +1,67 @@
-// src/boletines/DOE/doeScraper.js
+// Doe Scraper reescrito para Ruralicos
+// Este módulo obtiene los PDF del DOE desde la página de últimas publicaciones
+
 const axios = require('axios');
-const { XMLParser } = require('fast-xml-parser');
 const pdfjsLib = require('pdfjs-dist/build/pdf.js');
 
-const xmlParser = new XMLParser({ ignoreAttributes: false });
-
 /**
- * Devuelve la fecha actual en formato YYYYMMDD.
+ * Devuelve la fecha actual en formato YYYYMMDD. Ajusta si el servidor no está en zona horaria de Madrid.
  */
 function getFechaHoyYYYYMMDD() {
-  const d = new Date();
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
+  const now = new Date();
+  // Convertir a hora de Europa/Madrid usando la API Intl
+  const formatter = new Intl.DateTimeFormat('es-ES', {
+    timeZone: 'Europe/Madrid',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  const [day, month, year] = formatter.format(now).split('/');
   return `${year}${month}${day}`;
 }
 
 /**
- * Obtiene la lista de URLs de publicaciones del DOE para una fecha dada.
- * REEMPLAZA la URL base y el parseo según el servicio oficial del DOE.
+ * Obtiene la lista de URLs de PDFs del DOE para una fecha dada.
+ * Utiliza la página HTML de Últimos DOE para extraer enlaces a PDFs.
+ * La URL base debe tener el marcador {fecha} para ser sustituido por YYYYMMDD.
  */
 async function obtenerDocumentosDoePorFecha(fechaYYYYMMDD) {
-  const baseUrl =
-    process.env.DOE_RSS_URL ||
-    process.env.DOE_API_URL ||
-    '';
-
+  const baseUrl = process.env.DOE_API_URL || process.env.DOE_RSS_URL || '';
   if (!baseUrl) {
-    console.warn(
-      'DOE: no hay DOE_RSS_URL ni DOE_API_URL configuradas. Devuelvo lista vacía.'
-    );
+    console.warn('DOE: no hay DOE_API_URL ni DOE_RSS_URL configuradas. Devuelvo lista vacía.');
     return [];
   }
-
+  // Construir la URL reemplazando {fecha}
   const url = baseUrl.includes('{fecha}')
     ? baseUrl.replace('{fecha}', fechaYYYYMMDD)
     : `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}fecha=${fechaYYYYMMDD}`;
-
-  const resp = await axios.get(url, {
-    timeout: 30000,
-    headers: {
-      Accept: 'application/xml,application/json,text/xml,*/*',
-      'User-Agent': 'Mozilla/5.0 (RuralicosBot)',
-    },
-    validateStatus: (s) => s >= 200 && s < 400,
-  });
-
-  const listaUrls = [];
-  const contentType = `${resp.headers['content-type'] || ''}`.toLowerCase();
-
-  if (contentType.includes('xml') || typeof resp.data === 'string') {
-    const xml = typeof resp.data === 'string' ? resp.data : '';
-    if (xml) {
-      const json = xmlParser.parse(xml);
-      const items =
-        json?.rss?.channel?.item ||
-        json?.feed?.entry ||
-        [];
-      const arrayItems = Array.isArray(items) ? items : [items].filter(Boolean);
-
-      for (const item of arrayItems) {
-        const enclosureUrl = item?.enclosure?.['@_url'];
-        const link =
-          item?.link?.['@_href'] ||
-          item?.link ||
-          item?.guid ||
-          null;
-        const candidato = enclosureUrl || link;
-        if (typeof candidato === 'string') listaUrls.push(candidato);
+  try {
+    const resp = await axios.get(url, { timeout: 30000 });
+    const html = typeof resp.data === 'string' ? resp.data : '';
+    const pdfUrls = [];
+    const regex = /href\s*=\s*["']([^"']+\.pdf)["']/gi;
+    let m;
+    while ((m = regex.exec(html)) !== null) {
+      let link = m[1];
+      // Convertir rutas relativas en absolutas
+      if (!/^https?:\/\//i.test(link)) {
+        const { origin, pathname } = new URL(url);
+        if (link.startsWith('/')) {
+          link = origin + link;
+        } else {
+          const pathParts = pathname.split('/');
+          pathParts.pop();
+          link = origin + pathParts.join('/') + '/' + link;
+        }
       }
+      pdfUrls.push(link);
     }
-  } else if (resp.data && typeof resp.data === 'object') {
-    const items = resp.data.items || resp.data.results || [];
-    const arrayItems = Array.isArray(items) ? items : [];
-    for (const item of arrayItems) {
-      const candidato =
-        item?.pdfUrl ||
-        item?.pdf ||
-        item?.url ||
-        item?.link ||
-        null;
-      if (typeof candidato === 'string') listaUrls.push(candidato);
-    }
+    // Devolver sin duplicados
+    return [...new Set(pdfUrls)];
+  } catch (err) {
+    console.error('Error obteniendo listado de DOE:', err.message);
+    return [];
   }
-
-  return [...new Set(listaUrls.filter(Boolean))];
 }
 
 /**
@@ -101,11 +78,9 @@ async function descargarDoePdf(url) {
     },
     validateStatus: (s) => s >= 200 && s < 400,
   });
-
   const buf = Buffer.from(response.data);
   const magic = buf.slice(0, 4).toString('utf8');
   if (magic !== '%PDF') return null;
-
   return buf;
 }
 
@@ -116,7 +91,6 @@ async function extraerTextoPdf(bufferPdf) {
   const uint8Array = new Uint8Array(bufferPdf);
   const loadingTask = pdfjsLib.getDocument({ data: uint8Array });
   const pdf = await loadingTask.promise;
-
   let texto = '';
   for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
     const page = await pdf.getPage(pageNum);
@@ -133,7 +107,6 @@ async function extraerTextoPdf(bufferPdf) {
 async function procesarDoePdf(url) {
   const pdfBuffer = await descargarDoePdf(url);
   if (!pdfBuffer) return null;
-
   try {
     return await extraerTextoPdf(pdfBuffer);
   } catch {
@@ -142,8 +115,7 @@ async function procesarDoePdf(url) {
 }
 
 /**
- * Extrae la fecha del boletín a partir del texto.
- * Ajusta la expresión regular según cómo la indica el DOE.
+ * Extrae la fecha del boletín a partir del texto. Formato: AAAAMMDD.
  */
 function extraerFechaBoletin(texto) {
   const match = texto && texto.match(/DOE\s*(\d{2})\/(\d{2})\/(\d{4})/);
@@ -168,9 +140,7 @@ function dividirEnDisposiciones(texto) {
   const indices = [];
   let match;
   while ((match = regex.exec(texto)) !== null) indices.push(match.index);
-
   if (indices.length === 0) return [texto.trim()];
-
   const disposiciones = [];
   for (let i = 0; i < indices.length; i++) {
     const inicio = indices[i];
