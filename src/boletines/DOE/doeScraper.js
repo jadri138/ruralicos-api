@@ -72,24 +72,36 @@ async function obtenerDocumentosDoePorFecha(fechaYYYYMMDD) {
     `https://doe.juntaex.es/diario/`,
   ];
 
+  const proxyCandidates = (url) => [
+    url,
+    `https://r.jina.ai/http://r.jina.ai/http://${url.replace(/^https?:\/\//, '')}`,
+    `https://r.jina.ai/http://${url.replace(/^https?:\/\//, '')}`,
+  ];
+
+  const intentarDescarga = async (url) => {
+    const resp = await axios.get(url, {
+      timeout: 20000,
+      headers: {
+        Accept: '*/*',
+        'User-Agent': 'Mozilla/5.0 (RuralicosBot)',
+      },
+      validateStatus: (s) => s >= 200 && s < 400,
+    });
+
+    const data = resp.data;
+    const html = typeof data === 'string' ? data : '';
+    const urlsHtml = extraerUrlsPdfDesdeHtml(html, url);
+    const urlsJson =
+      typeof data === 'object' && data ? extraerUrlsPdfDesdeJson(data, url) : [];
+    return Array.from(new Set([...urlsHtml, ...urlsJson]));
+  };
+
   for (const url of candidatos) {
     try {
-      const resp = await axios.get(url, {
-        timeout: 20000,
-        headers: {
-          Accept: 'text/html,application/xhtml+xml',
-          'User-Agent': 'Mozilla/5.0 (RuralicosBot)',
-        },
-        validateStatus: (s) => s >= 200 && s < 400,
-      });
-
-      const data = resp.data;
-      const html = typeof data === 'string' ? data : '';
-      const urlsHtml = extraerUrlsPdfDesdeHtml(html, url);
-      const urlsJson =
-        typeof data === 'object' && data ? extraerUrlsPdfDesdeJson(data, url) : [];
-      const urls = Array.from(new Set([...urlsHtml, ...urlsJson]));
-      if (urls.length > 0) return urls;
+      for (const candidate of proxyCandidates(url)) {
+        const urls = await intentarDescarga(candidate);
+        if (urls.length > 0) return urls;
+      }
     } catch (e) {
       console.error('❌ Error DOE sumario:', url, e.message);
     }
