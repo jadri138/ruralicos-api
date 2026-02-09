@@ -16,11 +16,13 @@ function getFechaHoyYYYYMMDD() {
 /**
  * Obtiene la lista de URLs de las publicaciones del BOJA para una fecha dada.
  * Intenta RSS y listados HTML públicos.
+ * * Intenta RSS y listados HTML públicos.
  */
 async function obtenerDocumentosBojaPorFecha(fechaYYYYMMDD) {
   const fecha = fechaYYYYMMDD;
 
   const variantesFecha = [
+   const variantesFecha = [
     fecha,
     `${fecha.slice(0, 4)}/${fecha.slice(4, 6)}/${fecha.slice(6, 8)}`,
     `${fecha.slice(6, 8)}/${fecha.slice(4, 6)}/${fecha.slice(0, 4)}`,
@@ -151,85 +153,3 @@ async function descargarBojaPdf(url) {
 
   return buf;
 }
-
-/**
- * Extrae el texto de un PDF utilizando pdfjs.
- */
-async function extraerTextoPdf(bufferPdf) {
-  const uint8Array = new Uint8Array(bufferPdf);
-  const loadingTask = pdfjsLib.getDocument({ data: uint8Array });
-  const pdf = await loadingTask.promise;
-
-  let texto = '';
-  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-    const page = await pdf.getPage(pageNum);
-    const content = await page.getTextContent();
-    const strings = content.items.map((item) => item.str).join(' ');
-    texto += strings + '\n';
-  }
-  return texto;
-}
-
-/**
- * Procesa un PDF completo: lo descarga y extrae su texto.
- */
-async function procesarBojaPdf(url) {
-  const pdfBuffer = await descargarBojaPdf(url);
-  if (!pdfBuffer) return null;
-  try {
-    return await extraerTextoPdf(pdfBuffer);
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Extrae la fecha del boletín a partir del texto.
- * Ajusta la expresión regular según cómo la indica el BOJA.
- */
-function extraerFechaBoletin(texto) {
-  const match = texto && texto.match(/BOJA\s*(\d{2})\/(\d{2})\/(\d{4})/);
-  if (match) {
-    // Convierte DD/MM/AAAA a AAAAMMDD
-    const [ , dd, mm, yyyy ] = match;
-    return `${yyyy}${mm}${dd}`;
-  }
-  return null;
-}
-
-/**
- * Divide el texto en disposiciones (órdenes, resoluciones, anuncios, consejerías).
- */
-function dividirEnDisposiciones(texto) {
-  const patrones = [
-    /ORDEN\s+[A-ZÁÉÍÓÚ0-9\/\-]+/g,
-    /RESOLUCIÓN\s+de\s+/g,
-    /ANUNCIO\s+de\s+/g,
-    /CONSEJERÍA\s+DE\s+[A-ZÁÉÍÓÚÑ ]+/g,
-  ];
-  const regex = new RegExp(patrones.map((p) => p.source).join('|'), 'g');
-  const indices = [];
-  let match;
-  while ((match = regex.exec(texto)) !== null) indices.push(match.index);
-
-  if (indices.length === 0) return [texto.trim()];
-
-  const disposiciones = [];
-  for (let i = 0; i < indices.length; i++) {
-    const inicio = indices[i];
-    const fin = indices[i + 1] ?? texto.length;
-    const bloque = texto.slice(inicio, fin).trim();
-    if (bloque.length > 80) disposiciones.push(bloque);
-  }
-  return disposiciones;
-}
-
-module.exports = {
-  getFechaHoyYYYYMMDD,
-  obtenerDocumentosBojaPorFecha,
-  descargarBojaPdf,
-  extraerTextoPdf,
-  procesarBojaPdf,
-  extraerFechaBoletin,
-  dividirEnDisposiciones,
-};
