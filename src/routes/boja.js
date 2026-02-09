@@ -1,11 +1,20 @@
 // src/routes/boja.js
 const { checkCronToken } = require('../utils/checkCronToken');
+const bojaScraper = require('../boletines/BOJA/bojaScraper');
 const {
-  getFechaHoyYYYYMMDD,
   obtenerDocumentosBojaPorFecha,
   procesarBojaPdf,
   extraerFechaBoletin,
-} = require('../boletines/BOJA/bojaScraper');
+} = bojaScraper;
+const getFechaHoyYYYYMMDD = typeof bojaScraper.getFechaHoyYYYYMMDD === 'function'
+  ? bojaScraper.getFechaHoyYYYYMMDD
+  : () => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}${month}${day}`;
+  };
 
 function formatearFecha(fecha) {
   if (!fecha || fecha.length !== 8) return null;

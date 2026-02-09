@@ -15,11 +15,13 @@ function getFechaHoyYYYYMMDD() {
 
 /**
  * Obtiene la lista de URLs de las publicaciones del BOJA para una fecha dada.
+ * Intenta RSS y listados HTML públicos.
  * * Intenta RSS y listados HTML públicos.
  */
 async function obtenerDocumentosBojaPorFecha(fechaYYYYMMDD) {
   const fecha = fechaYYYYMMDD;
 
+  const variantesFecha = [
    const variantesFecha = [
     fecha,
     `${fecha.slice(0, 4)}/${fecha.slice(4, 6)}/${fecha.slice(6, 8)}`,
