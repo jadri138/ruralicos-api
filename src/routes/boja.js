@@ -1,20 +1,24 @@
 // src/routes/boja.js
 const { checkCronToken } = require('../utils/checkCronToken');
 const bojaScraper = require('../boletines/BOJA/bojaScraper');
+
 const {
   obtenerDocumentosBojaPorFecha,
+  descargarBojaPdf,
   procesarBojaPdf,
-  extraerFechaBoletin,
+  extraerFechaBoletin, // puede no existir, lo gestionamos abajo
 } = bojaScraper;
-const getFechaHoyYYYYMMDD = typeof bojaScraper.getFechaHoyYYYYMMDD === 'function'
-  ? bojaScraper.getFechaHoyYYYYMMDD
-  : () => {
-    const d = new Date();
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${year}${month}${day}`;
-  };
+
+const getFechaHoyYYYYMMDD =
+  typeof bojaScraper.getFechaHoyYYYYMMDD === 'function'
+    ? bojaScraper.getFechaHoyYYYYMMDD
+    : () => {
+        const d = new Date();
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${year}${month}${day}`;
+      };
 
 function formatearFecha(fecha) {
   if (!fecha || fecha.length !== 8) return null;
@@ -23,12 +27,25 @@ function formatearFecha(fecha) {
 
 // Filtra ruido y busca palabras clave agrarias.
 const EXCLUIR_FUERTE = [
-  'boletín oficial de la provincia', 'ayuntamiento', 'diputación',
-  'presupuesto', 'recurso contencioso', 'nombramiento',
+  'boletín oficial de la provincia',
+  'ayuntamiento',
+  'diputación',
+  'presupuesto',
+  'recurso contencioso',
+  'nombramiento',
 ];
 const INCLUIR_RURAL = [
-  'agricultur', 'ganader', 'agrari', 'rural', 'forest', 'subvenc',
-  'ayuda', 'modificación de bases', 'regad', 'riego', 'pac',
+  'agricultur',
+  'ganader',
+  'agrari',
+  'rural',
+  'forest',
+  'subvenc',
+  'ayuda',
+  'modificación de bases',
+  'regad',
+  'riego',
+  'pac',
 ];
 
 function normalizar(s) {
@@ -46,7 +63,8 @@ function esRuralRelevante(texto) {
 
 function generarTituloBoja(texto, fechaSQL) {
   const t = (texto || '').replace(/\r/g, '').trim();
-  const lineas = t.split('\n').map(l => l.trim()).filter(Boolean);
+  const lineas = t.split('\n').map((l) => l.trim()).filter(Boolean);
+
   const primera =
     lineas.find((l) => {
       const n = normalizar(l);
@@ -54,9 +72,25 @@ function generarTituloBoja(texto, fechaSQL) {
       if (n.includes('num.') || n.includes('boja')) return false;
       if (n.includes('seccion') || n.includes('sección')) return false;
       return l.length >= 12;
-    }) || lineas[0] || 'Documento BOJA';
+    }) ||
+    lineas[0] ||
+    'Documento BOJA';
+
   const corto = primera.replace(/\s+/g, ' ').slice(0, 140).trim();
   return `BOJA Andalucía – ${corto} (${fechaSQL})`;
+}
+
+/**
+ * Fallback por si no tienes extraerFechaBoletin en bojaScraper
+ * Intenta encontrar una fecha tipo dd/mm/aaaa y convertirla a YYYYMMDD
+ */
+function extraerFechaBoletinLocal(texto) {
+  const m = (texto || '').match(/\b(\d{1,2})\/(\d{1,2})\/(\d{4})\b/);
+  if (!m) return null;
+  const dd = String(m[1]).padStart(2, '0');
+  const mm = String(m[2]).padStart(2, '0');
+  const yyyy = m[3];
+  return `${yyyy}${mm}${dd}`;
 }
 
 module.exports = function bojaRoutes(app, supabase) {
@@ -89,55 +123,85 @@ module.exports = function bojaRoutes(app, supabase) {
       }
 
       for (const url of urls) {
-        const texto = await procesarBojaPdf(url);
-        if (!texto) {
-          saltadasNoPdf++;
-          continue;
-        }
+        try {
+          // 1) Descargar PDF
+          if (typeof descargarBojaPdf !== 'function') {
+            errores++;
+            console.error('BOJA: descargarBojaPdf no existe en bojaScraper');
+            continue;
+          }
 
-        const check = texto.slice(0, 3500);
-        if (!esRuralRelevante(check)) {
-          saltadasFiltro++;
-          continue;
-        }
+          const pdfBuffer = await descargarBojaPdf(url);
+          if (!pdfBuffer) {
+            saltadasNoPdf++;
+            continue;
+          }
 
-        documentos++;
-        const fechaDoc = extraerFechaBoletin(texto) || fechaHoy;
-        const fechaSQL = formatearFecha(fechaDoc) || new Date().toISOString().slice(0, 10);
+          // 2) Procesar PDF -> texto
+          const texto = await procesarBojaPdf(pdfBuffer);
+          if (!texto) {
+            saltadasNoPdf++;
+            continue;
+          }
 
-        const { data: existe, error: errDup } = await supabase
-          .from('alertas')
-          .select('id')
-          .eq('url', url)
-          .limit(1);
+          // 3) Filtro rural
+          const check = texto.slice(0, 3500);
+          if (!esRuralRelevante(check)) {
+            saltadasFiltro++;
+            continue;
+          }
 
-        if (errDup) {
+          documentos++;
+
+          // 4) Fecha del doc (si existe extractor, úsalo; si no, fallback)
+          const fechaDoc =
+            (typeof extraerFechaBoletin === 'function'
+              ? extraerFechaBoletin(texto)
+              : extraerFechaBoletinLocal(texto)) || fechaHoy;
+
+          const fechaSQL =
+            formatearFecha(fechaDoc) || new Date().toISOString().slice(0, 10);
+
+          // 5) Duplicados por URL
+          const { data: existe, error: errDup } = await supabase
+            .from('alertas')
+            .select('id')
+            .eq('url', url)
+            .limit(1);
+
+          if (errDup) {
+            errores++;
+            continue;
+          }
+          if (existe && existe.length > 0) {
+            duplicadas++;
+            continue;
+          }
+
+          // 6) Insert
+          const titulo = generarTituloBoja(texto, fechaSQL);
+          const { error: errInsert } = await supabase.from('alertas').insert([
+            {
+              titulo,
+              resumen: 'Procesando con IA...',
+              url,
+              fecha: fechaSQL,
+              region: 'Andalucía',
+              fuente: 'BOJA',
+              contenido: texto,
+            },
+          ]);
+
+          if (errInsert) {
+            errores++;
+            continue;
+          }
+          nuevas++;
+        } catch (eUrl) {
           errores++;
+          console.error('BOJA: error procesando URL:', url, eUrl?.message || eUrl);
           continue;
         }
-        if (existe && existe.length > 0) {
-          duplicadas++;
-          continue;
-        }
-
-        const titulo = generarTituloBoja(texto, fechaSQL);
-        const { error: errInsert } = await supabase.from('alertas').insert([
-          {
-            titulo,
-            resumen: 'Procesando con IA...',
-            url,
-            fecha: fechaSQL,
-            region: 'Andalucía',
-            fuente: 'BOJA',
-            contenido: texto,
-          },
-        ]);
-
-        if (errInsert) {
-          errores++;
-          continue;
-        }
-        nuevas++;
       }
 
       return res.json({
