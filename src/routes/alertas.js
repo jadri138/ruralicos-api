@@ -136,9 +136,9 @@ SI EL TEXTO NO MENCIONA EXPLÍCITAMENTE AGRICULTURA, GANADERÍA, EXPLOTACIONES, 
 
 CLASIFICACIÓN POR ALERTA (solo si es relevante):
 
-"provincias": lista de provincias mencionadas. Si es estatal o no menciona ninguna → [].
+"provincias": lista de provincias mencionadas (si se refiere a la comunidad autonoma, poner todas las provincias). Si es estatal o no menciona ninguna → [].
 
-"sectores": elegir entre: ["ganaderia","agricultura","mixto","otros"].
+"sectores": elegir obligatoriamente entre: ["ganaderia","agricultura","mixto","otros"].
 
 "subsectores": elegir entre:
 ["ovino","vacuno","caprino","porcino","avicultura","cunicultura","equinocultura","apicultura",
@@ -146,7 +146,7 @@ CLASIFICACIÓN POR ALERTA (solo si es relevante):
 "almendro","citricos","frutos_secos","leguminosas","patata","forrajes",
 "forestal","agua","energia","medio_ambiente"].
 
-"tipos_alerta": elegir entre:
+"tipos_alerta": elegir obligatoriamente entre:
 ["ayudas_subvenciones","normativa_general","agua_infraestructuras","fiscalidad","medio_ambiente"].
 
 ---
