@@ -158,17 +158,17 @@ EL CAMPO "resumen" DEBE TENER SIEMPRE ESTE FORMATO EXACTO (respetando asteriscos
 "*Ruralicos te avisa* 🌾🚜
 
 📄 *¿Qué ha pasado?*
-<1–3 frases claras explicando la alerta del BOE.>
+<1–3 frases claras explicando la alerta del boletin.>
 
 ⚠️ *¿A quién afecta?*
-<colectivos afectados. Si no especifica: “El BOE no indica destinatarios concretos.”>
+<colectivos afectados. Si no especifica: “El Boletin no indica destinatarios concretos.”>
 
 📌 *Punto clave*
-<dato más relevante. Si no hay plazos: “El BOE no menciona plazos concretos.”>
+<dato más relevante. Si no hay plazos: “El Boletin no menciona plazos concretos.”>
 
-Añade 1–2 emojis finales.
+En esta linea Añade 1–2 emojis finales siempre.
 
-🔗 Enlace al BOE completo: <url>"
+🔗 Enlace al Boletin completo: <url>"
 
 Reglas del mensaje:
 - Entre 4–7 frases.
