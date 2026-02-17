@@ -221,6 +221,13 @@ REGLAS FINALES IMPORTANTES:
 - NO añadir texto fuera del JSON.
 - NO usar valores genéricos como <id> o <url>; usar siempre los reales.
 
+IMPORTANTE:
+- RESPONDE ÚNICAMENTE CON JSON VÁLIDO.
+- NO escribas explicaciones.
+- NO escribas texto fuera del objeto JSON.
+- Si no devuelves JSON válido, la respuesta será inválida.
+
+
 Lista de alertas:
 ${lista}
 
