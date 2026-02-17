@@ -91,54 +91,71 @@ module.exports = function alertasRoutes(app, supabase) {
         })
         .join('\n\n');
         
-            const prompt = ` 
-Te paso una LISTA de alertas del BOE para agricultores y ganaderos, una por línea, con este formato EXACTO:
-"ID=<id> | Fecha=<fecha> | Region=<region> | URL=<url> | Titulo=<titulo> | Texto=<contenido>"
+             
+const prompt = ` 
+Te paso una LISTA de alertas de boletines oficiales, una por línea, con este formato EXACTO:
+"ID=<id> | Fecha=<fecha> | Fuente=<fuente> | Region=<region> | URL=<url> | Titulo=<titulo> | Texto=<contenido>"
 
 TU TAREA:
 
-1) Para CADA alerta, analiza si es RELEVANTE PARA EL SECTOR AGRARIO O GANADERO (importante para agricultores, ganaderos, cooperativas o explotaciones agroganaderas).
+1) Para CADA alerta, analiza si es RELEVANTE PARA EL SECTOR AGRARIO O GANADERO.
+Debe ser información realmente útil para agricultores, ganaderos, cooperativas, comunidades de regantes, industrias agroalimentarias o explotaciones rurales.
 
-✨ UNA ALERTA SERÁ RELEVANTE SOLO SI SE CUMPLE TODO ESTO:
+Una alerta será RELEVANTE si cumple al menos UNA de estas dos vías:
 
-1) Trata específicamente sobre AGRICULTURA, GANADERÍA, REGADÍO o EXPLOTACIONES RURALES.  
-2) El texto menciona de forma explícita alguno de estos conceptos o destinatarios:
-   - agricultores
-   - ganaderos
-   - explotaciones agrarias o ganaderas
-   - comunidades de regantes, regadíos o infraestructuras de riego
-   - titulares de explotaciones
-   - cooperativas agrarias
-   - sociedades agrarias de transformación (SAT)
-   - industrias agroalimentarias ligadas al campo
-3) Y además pertenece a una de estas categorías:
-   - ayudas o subvenciones AGRARIAS o GANADERAS
-   - bases reguladoras o convocatorias para explotaciones agrarias/ganaderas
-   - normativa agraria o ganadera
-   - agua para riego o ganadería (incluye modernización, infraestructuras, usos colectivos)
-   - energía para explotaciones (bombeo, autoconsumo en granjas, regadío)
-   - fiscalidad o trámites aplicables solo al sector primario
-   - medio ambiente relacionado directamente con el campo (plagas, fertilización, suelos, bienestar animal)
+────────────────────────────
+VÍA A — AGRARIO EXPLÍCITO
+────────────────────────────
+El texto menciona claramente:
+- agricultores
+- ganaderos
+- explotaciones agrarias o ganaderas
+- comunidades de regantes
+- regadíos o infraestructuras de riego
+- titulares de explotaciones
+- cooperativas agrarias
+- sociedades agrarias de transformación (SAT)
+- industria agroalimentaria ligada al sector primario
 
-🚫 UNA ALERTA SERÁ "NO IMPORTA" (DESCARTADA) SI:
+────────────────────────────
+VÍA B — AGRARIO IMPLÍCITO PERO EVIDENTE
+────────────────────────────
+Aunque no mencione literalmente "agricultores" o "ganaderos", el contenido trata claramente sobre:
 
-- Es una ayuda para PYMEs, autónomos, innovación, transformación territorial o despoblación SIN mencionar directamente actividades agrarias o ganaderas.
-- Es una subvención generalista o multisectorial donde el sector agrario NO aparece como destinatario explícito.
-- Trata de administración general (oposiciones, sanciones, becas, tribunales, concursos, anuncios judiciales).
-- Habla de una concesión de agua individual, modificación de riego, cambio de cultivo o superficie que afecta SOLO a un titular concreto.
-- Cualquier contenido relacionado con PESCA (siempre NO IMPORTA).
-- Nombres, cambios administrativos o trámites que no afectan a la actividad agrícola o ganadera.
+- PAC, FEGA, Solicitud Única, SIGPAC
+- sanidad animal, movimientos de animales, bienestar animal
+- plagas, fitosanitarios, fertilización, cuaderno de campo
+- modernización de regadíos, balsas, infraestructuras agrarias
+- ayudas al sector agroalimentario
+- vitivinicultura, olivar, frutales, cereal, ganadería específica
+- licitaciones de obras rurales o agrarias
+- cursos obligatorios para el sector (bienestar animal, transporte, aplicador fitosanitario, etc.)
+- normativa que afecte directamente a la actividad agrícola o ganadera
 
-⚠️ Regla clave:
-SI EL TEXTO NO MENCIONA EXPLÍCITAMENTE AGRICULTURA, GANADERÍA, EXPLOTACIONES, REGADÍO O DESTINATARIOS AGRARIOS → SIEMPRE ES "NO IMPORTA".
+────────────────────────────
+
+🚫 UNA ALERTA SERÁ "NO IMPORTA" SI:
+
+- Es ayuda generalista para PYMEs o autónomos sin mención al sector agrario.
+- Es subvención multisectorial sin referencia clara al campo.
+- Es administración general (oposiciones, tribunales, becas, nombramientos).
+- Es concesión individual a un único titular concreto.
+- Es contenido relacionado exclusivamente con PESCA.
+- No guarda relación clara con la actividad agrícola o ganadera.
+
+Regla clave:
+Si el contenido no tiene relación directa o evidente con la actividad agrícola o ganadera → "NO IMPORTA".
 
 ---
 
 CLASIFICACIÓN POR ALERTA (solo si es relevante):
 
-"provincias": lista de provincias mencionadas (si se refiere a la comunidad autonoma, poner todas las provincias). Si es estatal o no menciona ninguna → [].
+"provincias": lista de provincias mencionadas.
+Si se refiere a toda la comunidad autónoma → incluir todas sus provincias.
+Si es estatal o no menciona ninguna → [].
 
-"sectores": elegir obligatoriamente entre: ["ganaderia","agricultura","mixto","otros"].
+"sectores": elegir obligatoriamente entre:
+["ganaderia","agricultura","mixto","otros"].
 
 "subsectores": elegir entre:
 ["ovino","vacuno","caprino","porcino","avicultura","cunicultura","equinocultura","apicultura",
@@ -153,70 +170,61 @@ CLASIFICACIÓN POR ALERTA (solo si es relevante):
 
 MENSAJE WHATSAPP (solo si ESA alerta es relevante):
 
-EL CAMPO "resumen" DEBE TENER SIEMPRE ESTE FORMATO EXACTO (respetando asteriscos y líneas):
+El campo "resumen" debe tener SIEMPRE este formato EXACTO:
 
 "*Ruralicos te avisa* 🌾🚜
 
 📄 *¿Qué ha pasado?*
-<1–3 frases claras explicando la alerta del boletin.>
+<1–3 frases claras explicando la alerta del boletín.>
 
 ⚠️ *¿A quién afecta?*
-<colectivos afectados. Si no especifica: “El Boletin no indica destinatarios concretos.”>
+<colectivos afectados. Si no especifica: “El boletín no indica destinatarios concretos.”>
 
 📌 *Punto clave*
-<dato más relevante. Si no hay plazos: “El Boletin no menciona plazos concretos.”>
+<dato más relevante. Si no hay plazos: “El boletín no menciona plazos concretos.”>
 
-En esta linea Añade 1–2 emojis finales siempre.
+Añade 1–2 emojis finales en esta línea siempre.
 
-🔗 Enlace al Boletin completo: <url>"
+🔗 Enlace al *<fuente>* completo: <url>"
 
 Reglas del mensaje:
 - Entre 4–7 frases.
 - Lenguaje sencillo.
-- Sin inventar datos.
-- Mantén EXACTAMENTE los asteriscos y textos fijos de la plantilla.
+- No inventar datos.
+- Mantener EXACTAMENTE los asteriscos y estructura.
+- Sustituir <fuente> por el valor real de Fuente=<fuente> (BOE, BOA, BOJA, BOCYL, etc.).
 
 ---
 
 SALIDA ÚNICA:
 
-Debes devolver SIEMPRE un ÚNICO objeto JSON con la forma:
+Debes devolver SIEMPRE un ÚNICO objeto JSON con esta forma:
 
 {
   "resumenes": [
     {
-      "id": "ID de la alerta 1",
-      "fuente": "BOE",
+      "id": "ID real",
+      "fuente": "valor real de Fuente",
       "resumen": "NO IMPORTA" o "<mensaje WhatsApp completo>",
-      "provincias": [ ... ],
-      "sectores": [ ... ],
-      "subsectores": [ ... ],
-      "tipos_alerta": [ ... ]
-    },
-    {
-      "id": "ID de la alerta 2",
-      "fuente": "BOE",
-      "resumen": "NO IMPORTA" o "<mensaje WhatsApp completo>",
-      "provincias": [ ... ],
-      "sectores": [ ... ],
-      "subsectores": [ ... ],
-      "tipos_alerta": [ ... ]
+      "provincias": [],
+      "sectores": [],
+      "subsectores": [],
+      "tipos_alerta": []
     }
-    ...
   ]
 }
 
 REGLAS FINALES IMPORTANTES:
-- Cada alerta de la lista de entrada debe tener EXACTAMENTE un objeto dentro de "resumenes".
-- Si una alerta NO es relevante → "resumen": "NO IMPORTA" y todos los arrays vacíos.
-- Si una alerta ES relevante → "resumen": mensaje WhatsApp con el formato indicado y clasificación rellenada.
-- El campo "fuente" SIEMPRE debe ser exactamente: "BOE".
-- Respeta SIEMPRE los asteriscos y el formato del mensaje WhatsApp.
-- NO añadas ningún texto fuera del JSON.
-- NO uses valores genéricos como <id> o <url>; usa siempre los reales.
+- Cada alerta de entrada debe tener EXACTAMENTE un objeto dentro de "resumenes".
+- Si NO es relevante → "resumen": "NO IMPORTA" y todos los arrays vacíos.
+- Si ES relevante → resumen completo + clasificación rellenada.
+- NO añadir texto fuera del JSON.
+- NO usar valores genéricos como <id> o <url>; usar siempre los reales.
 
 Lista de alertas:
 ${lista}
+
+
 
 `.trim();
 
