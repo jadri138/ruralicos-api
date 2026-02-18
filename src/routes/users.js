@@ -608,4 +608,46 @@ module.exports = function usersRoutes(app, supabase) {
 
     res.json({ preferences: data.preferences });
   });
+
+  // --------------------------------------------------
+  // ACTUALIZAR MIS DATOS (Email y Teléfono)
+  // PUT /me -> permite al usuario logueado editar su perfil
+  // --------------------------------------------------
+  app.put('/me', requireAuth, async (req, res) => {
+    try {
+      const userId = req.user.sub;
+      let { email, phone } = req.body;
+
+      // Objeto con los campos a actualizar
+      const updates = {};
+      
+      if (email !== undefined) {
+        updates.email = email === '' ? null : String(email).trim().toLowerCase();
+      }
+      
+      if (phone !== undefined) {
+        // Normalizamos el teléfono igual que en el registro
+        let soloDigitos = String(phone).replace(/\D/g, '');
+        if (soloDigitos.length === 9) soloDigitos = '34' + soloDigitos;
+        updates.phone = soloDigitos;
+      }
+
+      const { data, error } = await supabase
+        .from('users')
+        .update(updates)
+        .eq('id', userId)
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Error actualizando usuario:', error.message);
+        return res.status(500).json({ error: 'Error al actualizar los datos' });
+      }
+
+      res.json({ ok: true, user: data });
+    } catch (err) {
+      console.error('Error en PUT /me:', err);
+      res.status(500).json({ error: 'Error interno' });
+    }
+  });
 };
