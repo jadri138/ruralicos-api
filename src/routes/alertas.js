@@ -345,21 +345,24 @@ module.exports = function alertasRoutes(app, supabase) {
         return res.json({ success: true, procesadas: 0, mensaje: 'No hay alertas pendientes de resumir' });
       }
 
-      const lista = alertas.map((a) => {
-        const texto = a.contenido ? a.contenido.slice(0, 4000) : '';
-        return `ID=${a.id} | Fecha=${a.fecha} | Region=${a.region} | URL=${a.url} | Titulo=${a.titulo} | Texto=${texto}`;
-      }).join('\n\n');
+      // Procesamos UNA A UNA — el mensaje WhatsApp tiene asteriscos, emojis y
+      // saltos de línea que rompen el JSON cuando van en lote dentro de un string.
+      // La IA devuelve directamente el texto del mensaje, sin envolver en JSON.
+      const instructions = 'Eres un redactor experto en comunicación agraria. Responde SOLO con el texto del mensaje WhatsApp, sin JSON, sin explicaciones, sin nada más.';
 
-      const prompt = `
-Eres un redactor experto en comunicación agraria. Tu ÚNICA tarea es redactar el mensaje WhatsApp final para cada alerta.
-Ya se ha confirmado que todas son relevantes para el sector agrario. NO clasifiques ni decidas relevancia.
+      let actualizadas = 0;
 
-Para CADA alerta redacta un mensaje con EXACTAMENTE este formato (máximo 1200 caracteres por mensaje):
+      for (const a of alertas) {
+        try {
+          const texto = a.contenido ? a.contenido.slice(0, 4000) : '';
+
+          const prompt = `
+Redacta el mensaje WhatsApp para esta alerta agraria. Usa EXACTAMENTE este formato:
 
 *Ruralicos te avisa* 🌾🚜
 
 📄 *¿Qué ha pasado?*
-[1–3 frases claras explicando la alerta. Si no hay datos suficientes: "El boletín no lo especifica."]
+[1–3 frases claras explicando la alerta. Si no hay datos: "El boletín no lo especifica."]
 
 ⚠️ *¿A quién afecta?*
 [Colectivos afectados. Si no se especifica: "El boletín no lo especifica."]
@@ -369,63 +372,51 @@ Para CADA alerta redacta un mensaje con EXACTAMENTE este formato (máximo 1200 c
 
 [1–2 emojis relevantes al tema]
 
-🔗 Enlace al boletín completo: [URL real]
+🔗 Enlace al boletín completo: ${a.url}
 
-Reglas estrictas:
-- Máximo 1200 caracteres por mensaje.
-- Lenguaje sencillo y directo para agricultores y ganaderos.
-- NO inventar datos, plazos ni colectivos que no aparezcan en el texto.
-- Mantener EXACTAMENTE los asteriscos (*) y la estructura de secciones.
-- Si falta información en alguna sección → usar "El boletín no lo especifica."
-- Sustituir [URL real] por la URL real de la alerta.
+Reglas:
+- Máximo 1200 caracteres en total.
+- Lenguaje sencillo para agricultores y ganaderos.
+- NO inventar datos que no estén en el texto.
+- Mantener EXACTAMENTE los asteriscos (*) y la estructura.
 
-SALIDA: devuelve ÚNICAMENTE este JSON válido, sin texto extra:
+Alerta:
+ID=${a.id} | Fecha=${a.fecha} | Region=${a.region} | Titulo=${a.titulo}
+Texto=${texto}
 
-{
-  "resumenes": [
-    {
-      "id": "ID real",
-      "resumen_borrador": "<mensaje WhatsApp completo>"
-    }
-  ]
-}
-
-Lista de alertas:
-${lista}
+Responde ÚNICAMENTE con el mensaje WhatsApp. Sin JSON, sin explicaciones, sin nada más.
 `.trim();
 
-      const instructions = 'Eres un redactor experto en comunicación agraria. Responde SOLO con JSON válido, sin explicaciones ni texto extra.';
-      const contenido = await llamarIA(prompt, instructions, 'gpt-4o-mini');
-      const parsed = parsearJSON(contenido);
+          const borrador = await llamarIA(prompt, instructions, 'gpt-4o-mini');
 
-      const resumenes = parsed.resumenes || [];
-      if (!Array.isArray(resumenes) || resumenes.length === 0) {
-        return res.status(500).json({ error: 'La IA no devolvió resumenes válidos', bruto: parsed });
-      }
+          if (!borrador || !borrador.trim()) {
+            console.error(`[resumir] IA devolvió vacío para alerta ${a.id}`);
+            continue;
+          }
 
-      let actualizadas = 0;
+          const { error: updError } = await supabase
+            .from('alertas')
+            .update({
+              estado_ia: 'pendiente_revisar',
+              resumen_borrador: borrador.trim(),
+            })
+            .eq('id', a.id)
+            .eq('estado_ia', 'pendiente_resumir');
 
-      for (const item of resumenes) {
-        if (!item.id || !item.resumen_borrador) continue;
+          if (!updError) actualizadas++;
+          else console.error('Error actualizando alerta', a.id, updError.message);
 
-        const { error: updError } = await supabase
-          .from('alertas')
-          .update({
-            estado_ia: 'pendiente_revisar',
-            resumen_borrador: item.resumen_borrador,
-          })
-          .eq('id', item.id)
-          .eq('estado_ia', 'pendiente_resumir'); // seguridad: solo si sigue en este estado
-
-        if (!updError) actualizadas++;
-        else console.error('Error actualizando alerta', item.id, updError.message);
+        } catch (errAlerta) {
+          console.error(`[resumir] Error procesando alerta ${a.id}:`, errAlerta.message);
+          // Se queda en pendiente_resumir para el siguiente cron
+        }
       }
 
       res.json({
         success: true,
         procesadas: alertas.length,
         actualizadas,
-        ids: resumenes.map((r) => r.id),
+        ids: alertas.map((a) => a.id),
       });
 
     } catch (err) {
@@ -462,23 +453,29 @@ ${lista}
         return res.json({ success: true, procesadas: 0, mensaje: 'No hay borradores pendientes de revisión' });
       }
 
-      const lista = alertas.map((a) => {
-        const textoOriginal = a.contenido ? a.contenido.slice(0, 2000) : '';
-        return `ID=${a.id} | Titulo=${a.titulo} | TextoOriginal=${textoOriginal}\n\nBORRADOR:\n${a.resumen_borrador ?? ''}`;
-      }).join('\n\n---\n\n');
+      // Mismo motivo que en resumir: texto WhatsApp con asteriscos y saltos
+      // de línea rompe el JSON en lote. La IA devuelve el texto directamente.
+      const instructions = 'Eres un revisor experto en comunicación agraria. Responde SOLO con el mensaje WhatsApp corregido, sin JSON, sin explicaciones, sin nada más.';
 
-      const prompt = `
-Eres un revisor de calidad para mensajes de alerta agraria. Revisa cada borrador y devuélvelo corregido si es necesario.
+      let aprobadas = 0;
 
-Para cada alerta comprueba que el borrador:
+      for (const a of alertas) {
+        try {
+          const textoOriginal = a.contenido ? a.contenido.slice(0, 2000) : '';
+          const borrador = a.resumen_borrador ?? '';
+
+          const prompt = `
+Eres un revisor de calidad para mensajes de alerta agraria.
+
+Revisa este borrador y devuélvelo corregido si es necesario. Comprueba que:
 1. Tiene exactamente esta estructura:
    - "*Ruralicos te avisa* 🌾🚜"
    - "📄 *¿Qué ha pasado?*" con 1–3 frases
    - "⚠️ *¿A quién afecta?*"
    - "📌 *Punto clave*"
    - 1–2 emojis en línea propia
-   - "🔗 Enlace al boletín completo: <url real>"
-2. No inventa datos, plazos ni colectivos que no estén en el texto original
+   - "🔗 Enlace al boletín completo: ${a.url}"
+2. No inventa datos que no estén en el texto original
 3. Es claro para agricultores y ganaderos
 4. Usa "El boletín no lo especifica." donde no haya datos
 5. Mantiene los asteriscos (*) en los títulos de sección
@@ -487,54 +484,46 @@ Para cada alerta comprueba que el borrador:
 Si está bien → devuélvelo tal cual.
 Si tiene errores → corrígelo.
 
-SALIDA: devuelve ÚNICAMENTE este JSON válido, sin texto extra:
+Texto original de la alerta:
+${textoOriginal}
 
-{
-  "revisados": [
-    {
-      "id": "ID real",
-      "resumen_final": "<mensaje WhatsApp final, corregido y listo para enviar>"
-    }
-  ]
-}
+Borrador a revisar:
+${borrador}
 
-Lista de alertas a revisar:
-${lista}
+Responde ÚNICAMENTE con el mensaje WhatsApp final. Sin JSON, sin explicaciones, sin nada más.
 `.trim();
 
-      const instructions = 'Eres un revisor experto en comunicación agraria. Responde SOLO con JSON válido, sin explicaciones.';
-      const contenido = await llamarIA(prompt, instructions, 'gpt-4o-mini');
-      const parsed = parsearJSON(contenido);
+          const resumenFinal = await llamarIA(prompt, instructions, 'gpt-4o-mini');
 
-      const revisados = parsed.revisados || [];
-      if (!Array.isArray(revisados) || revisados.length === 0) {
-        return res.status(500).json({ error: 'La IA no devolvió revisados válidos', bruto: parsed });
-      }
+          if (!resumenFinal || !resumenFinal.trim()) {
+            console.error(`[revisar] IA devolvió vacío para alerta ${a.id}`);
+            continue;
+          }
 
-      let aprobadas = 0;
+          const { error: updError } = await supabase
+            .from('alertas')
+            .update({
+              estado_ia: 'listo',
+              resumen_final: resumenFinal.trim(),
+              resumen: resumenFinal.trim(), // sync para compatibilidad con whatsapp.js
+            })
+            .eq('id', a.id)
+            .eq('estado_ia', 'pendiente_revisar');
 
-      for (const item of revisados) {
-        if (!item.id || !item.resumen_final) continue;
+          if (!updError) aprobadas++;
+          else console.error('Error aprobando alerta', a.id, updError.message);
 
-        const { error: updError } = await supabase
-          .from('alertas')
-          .update({
-            estado_ia: 'listo',
-            resumen_final: item.resumen_final,
-            resumen: item.resumen_final, // mantenemos resumen en sync para compatibilidad
-          })
-          .eq('id', item.id)
-          .eq('estado_ia', 'pendiente_revisar');
-
-        if (!updError) aprobadas++;
-        else console.error('Error aprobando alerta', item.id, updError.message);
+        } catch (errAlerta) {
+          console.error(`[revisar] Error procesando alerta ${a.id}:`, errAlerta.message);
+          // Se queda en pendiente_revisar para el siguiente cron
+        }
       }
 
       res.json({
         success: true,
         procesadas: alertas.length,
         aprobadas,
-        ids: revisados.map((r) => r.id),
+        ids: alertas.map((a) => a.id),
       });
 
     } catch (err) {
