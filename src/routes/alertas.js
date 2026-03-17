@@ -21,7 +21,7 @@ if (typeof globalThis.fetch === 'function') {
 // ─────────────────────────────────────────────
 // Helper: llamar a OpenAI Responses API
 // ─────────────────────────────────────────────
-async function llamarIA(prompt, instructions, model = 'gpt-4o-mini') {
+async function llamarIA(prompt, instructions, model = 'gpt-5-nano') {
   if (!OPENAI_API_KEY) throw new Error('Falta OPENAI_API_KEY en variables de entorno');
 
   const aiRes = await _fetch('https://api.openai.com/v1/responses', {
@@ -147,7 +147,7 @@ async function clasificarConReintento(alertas) {
   let resultados = [];
 
   try {
-    const contenido = await llamarIA(buildPromptClasificar(lista), instructions, 'gpt-4o-mini');
+    const contenido = await llamarIA(buildPromptClasificar(lista), instructions, 'gpt-5-nano');
     const parsed = parsearJSON(contenido);
     resultados = parsed.resultados || [];
   } catch (err) {
@@ -164,7 +164,7 @@ async function clasificarConReintento(alertas) {
     for (const alerta of alertasFallidas) {
       try {
         const listaIndividual = formatarAlerta(alerta);
-        const contenido = await llamarIA(buildPromptClasificar(listaIndividual), instructions, 'gpt-4o-mini');
+        const contenido = await llamarIA(buildPromptClasificar(listaIndividual), instructions, 'gpt-5-nano');
         const parsed = parsearJSON(contenido);
         const res = (parsed.resultados || [])[0];
         if (res && String(res.id) === String(alerta.id)) {
@@ -387,7 +387,7 @@ Texto=${texto}
 Responde ÚNICAMENTE con el mensaje WhatsApp. Sin JSON, sin explicaciones, sin nada más.
 `.trim();
 
-          const borrador = await llamarIA(prompt, instructions, 'gpt-4o-mini');
+          const borrador = await llamarIA(prompt, instructions, 'gpt-5-nano');
 
           if (!borrador || !borrador.trim()) {
             console.error(`[resumir] IA devolvió vacío para alerta ${a.id}`);
@@ -493,7 +493,7 @@ ${borrador}
 Responde ÚNICAMENTE con el mensaje WhatsApp final. Sin JSON, sin explicaciones, sin nada más.
 `.trim();
 
-          const resumenFinal = await llamarIA(prompt, instructions, 'gpt-4o-mini');
+          const resumenFinal = await llamarIA(prompt, instructions, 'gpt-5');
 
           if (!resumenFinal || !resumenFinal.trim()) {
             console.error(`[revisar] IA devolvió vacío para alerta ${a.id}`);
