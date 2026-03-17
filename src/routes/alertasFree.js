@@ -6,7 +6,7 @@ const { enviarWhatsAppFree } = require('../whatsapp');
 
 module.exports = function alertasFreeRoutes(app, supabase) {
   // ================================================
-  // 1) Generar resumen FREE general a partir de resumen (PRO)
+  // 1) Generar resumen FREE general a partir de resúmenes PRO
   // ================================================
   const generarResumenFreeHandler = async (req, res) => {
     try {
@@ -18,16 +18,14 @@ module.exports = function alertasFreeRoutes(app, supabase) {
 
       const hoy = new Date().toISOString().slice(0, 10);
 
-      // Alertas de HOY ya filtradas por la IA PRO (resumen listo y relevante)
+      // Alertas de HOY ya procesadas por la IA PRO (resumen listo y relevante)
       const { data: alertas, error } = await supabase
-  
-      .from('alertas')
-        .select('id, titulo, resumen, url, fecha, resumenfree')
+        .from('alertas')
+        .select('id, titulo, resumen, url, fecha')
         .eq('fecha', hoy)
         .neq('resumen', 'NO IMPORTA')
-        .neq('resumen', 'Procesando con IA...');
-        // sin .or → generamos/actualizamos resumenfree siempre
-
+        .neq('resumen', 'Procesando con IA...')
+        .not('resumen', 'is', null);
 
       if (error) {
         return res.status(500).json({ error: error.message });
@@ -37,13 +35,12 @@ module.exports = function alertasFreeRoutes(app, supabase) {
         return res.json({
           success: true,
           procesadas: 0,
-          mensaje:
-            'No hay alertas con resumen PRO hoy pendientes de generar resumen FREE',
+          mensaje: 'No hay alertas con resumen PRO hoy para generar resumen FREE',
           fecha: hoy,
         });
       }
 
-      // Construir lista para el prompt usando el RESUMEN ya generado
+      // Construir lista para el prompt usando el resumen PRO ya generado
       const lista = alertas
         .map((a) => {
           const corto = (a.resumen || '').slice(0, 400);
@@ -91,7 +88,6 @@ Lista de alertas:
 ${lista}
       `.trim();
 
-      // Llamada a OpenAI (igual que en alertas.js)
       const aiRes = await fetch('https://api.openai.com/v1/responses', {
         method: 'POST',
         headers: {
@@ -99,7 +95,7 @@ ${lista}
           Authorization: `Bearer ${OPENAI_API_KEY}`,
         },
         body: JSON.stringify({
-          model: 'gpt-5-nano',
+          model: 'gpt-4o-mini',
           input: prompt,
           instructions:
             'Eres un asistente experto en resumir información compleja en mensajes de WhatsApp muy claros. Responde SIEMPRE solo con el JSON pedido.',
@@ -117,9 +113,7 @@ ${lista}
 
       const aiJson = await aiRes.json();
 
-      // Extraer texto, igual patrón que en alertas.js
       let contenido = '';
-
       if (typeof aiJson.output_text === 'string' && aiJson.output_text.trim()) {
         contenido = aiJson.output_text.trim();
       } else if (Array.isArray(aiJson.output)) {
@@ -132,8 +126,7 @@ ${lista}
           ) {
             const c = item.content[0];
             if (typeof c.text === 'string') contenido = c.text.trim();
-            else if (typeof c.value === 'string')
-              contenido = c.value.trim();
+            else if (typeof c.value === 'string') contenido = c.value.trim();
             break;
           }
         }
@@ -146,9 +139,12 @@ ${lista}
         });
       }
 
+      // Limpiar posibles fences de markdown antes de parsear
+      const limpio = contenido.replace(/```json|```/g, '').trim();
+
       let parsed;
       try {
-        parsed = JSON.parse(contenido);
+        parsed = JSON.parse(limpio);
       } catch (e) {
         console.error('JSON FREE inválido:', contenido);
         return res.status(500).json({
@@ -166,30 +162,23 @@ ${lista}
 
       const resumenfree = parsed.mensaje.trim();
 
-      // Guardar resumenFree en TODAS las alertas de hoy usadas en la lista
-      let actualizadas = 0;
-      for (const a of alertas) {
-        const { error: updError } = await supabase
-          .from('alertas')
-          .update({ resumenfree: resumenfree })
-          .eq('id', a.id);
+      // FIX: guardar el resumenfree solo en las alertas que se usaron para generarlo
+      // (no en todas las de hoy, por si llegaron alertas nuevas después)
+      const idsUsados = alertas.map((a) => a.id);
+      const { error: updError } = await supabase
+        .from('alertas')
+        .update({ resumenfree })
+        .in('id', idsUsados);
 
-        if (!updError) {
-          actualizadas++;
-        } else {
-          console.error(
-            'Error actualizando resumenfree en alerta',
-            a.id,
-            updError.message
-          );
-        }
+      if (updError) {
+        console.error('Error guardando resumenfree:', updError.message);
+        return res.status(500).json({ error: 'Error guardando resumenfree en BD' });
       }
 
       return res.json({
         success: true,
         fecha: hoy,
         procesadas: alertas.length,
-        actualizadas,
         resumenfree,
       });
     } catch (err) {
@@ -198,7 +187,6 @@ ${lista}
     }
   };
 
-  // Rutas para generar resumen FREE (POST normal y GET con token para cron)
   app.post('/alertas/generar-resumen-free', generarResumenFreeHandler);
   app.get('/alertas/generar-resumen-free', (req, res) => {
     if (!checkCronToken(req, res)) return;
@@ -212,15 +200,14 @@ ${lista}
     try {
       const hoy = new Date().toISOString().slice(0, 10);
 
-      // Una alerta de hoy que tenga resumenfree
+      // Buscar una alerta de hoy con resumenfree que no se haya enviado aún
       const { data, error } = await supabase
-        .from("alertas")
-        .select("id, resumenfree")
-        .eq("fecha", hoy)
-        .not("resumenfree", "is", null)
+        .from('alertas')
+        .select('id, resumenfree')
+        .eq('fecha', hoy)
+        .not('resumenfree', 'is', null)
         .or('whatsapp_enviado_free.is.null,whatsapp_enviado_free.eq.false')
         .limit(1);
-
 
       if (error) {
         return res.status(500).json({ error: error.message });
@@ -228,8 +215,7 @@ ${lista}
 
       if (!data || data.length === 0 || !data[0].resumenfree) {
         return res.status(404).json({
-          error:
-            'No hay resumenfree generado hoy. Ejecuta antes /alertas/generar-resumen-free',
+          error: 'No hay resumenfree generado hoy. Ejecuta antes /alertas/generar-resumen-free',
         });
       }
 
@@ -237,10 +223,16 @@ ${lista}
 
       await enviarWhatsAppFree(supabase, mensajeFree);
 
-      await supabase
-       .from("alertas")
-       .update({ whatsapp_enviado_free: true })
-       .eq("fecha", hoy);
+      // FIX: marcar solo las alertas que tenían este resumenfree, no todas las de hoy
+      const { error: updError } = await supabase
+        .from('alertas')
+        .update({ whatsapp_enviado_free: true })
+        .eq('fecha', hoy)
+        .not('resumenfree', 'is', null);
+
+      if (updError) {
+        console.error('Error marcando whatsapp_enviado_free:', updError.message);
+      }
 
       return res.json({
         ok: true,
