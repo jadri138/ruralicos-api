@@ -43,11 +43,9 @@ function enviarMensajeUltraMsg(telefono, cuerpo) {
           return reject(new Error(`UltraMsg error HTTP ${res.statusCode}: ${body}`));
         }
 
-        // Aquí comprobamos el JSON que devuelve UltraMsg
         try {
           const json = JSON.parse(body);
 
-          // Muchos proveedores devuelven { sent: true, ... } o { error: "..." }
           if (json.error) {
             return reject(new Error(`UltraMsg error lógico: ${json.error}`));
           }
@@ -56,10 +54,8 @@ function enviarMensajeUltraMsg(telefono, cuerpo) {
             return reject(new Error('UltraMsg: mensaje no enviado (sent=false)'));
           }
 
-          // Si no hay error explícito, lo consideramos OK
           return resolve({ status: 200, body: json });
         } catch (e) {
-          // Si no es JSON válido, al menos que quede claro
           return reject(
             new Error(`UltraMsg devolvió respuesta no JSON: ${body}`)
           );
@@ -105,10 +101,26 @@ async function guardarLogWhatsApp({ phone, status, message_type, error_msg }) {
   }
 }
 
-
+// ─────────────────────────────────────────────────────────────────────────────
+// Helper: normaliza un string para comparaciones (sin tildes, minúsculas, trim)
+// ─────────────────────────────────────────────────────────────────────────────
+function norm(str) {
+  return str
+    .toString()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase();
+}
 
 /**
  * ENVÍA ALERTA INDIVIDUAL → SOLO A USUARIOS PRO (CON FILTROS)
+ *
+ * Lógica de filtros:
+ *   - Si el usuario tiene el array VACÍO en cualquier campo → sin filtro, recibe todo
+ *   - Si la alerta tiene provincias VACÍO → es nacional, llega a todos
+ *   - Si la alerta tiene sectores/subsectores VACÍO → genérica, llega a todos
+ *   - "mixto" en el usuario acepta alertas de agricultura o ganadería (y viceversa)
  */
 async function enviarWhatsAppResumen(alerta, supabase) {
   if (!ULTRAMSG_INSTANCE_ID || !ULTRAMSG_TOKEN) {
@@ -149,7 +161,23 @@ async function enviarWhatsAppResumen(alerta, supabase) {
   let enviados = 0;
   const errores = [];
 
+  // Comprueba si dos arrays tienen al menos un elemento en común (ya normalizados)
   const intersecta = (a, b) => a.some((x) => b.includes(x));
+
+  // Normalizar etiquetas de la alerta una sola vez (fuera del bucle de usuarios)
+  const provinciasANorm  = Array.isArray(alerta.provincias)
+    ? alerta.provincias.map(norm)
+    : [];
+  const sectoresANorm    = Array.isArray(alerta.sectores)
+    ? alerta.sectores.map(norm)
+    : [];
+  // FIX 2: subsectores de la alerta también normalizados
+  const subsectoresANorm = Array.isArray(alerta.subsectores)
+    ? alerta.subsectores.map(norm)
+    : [];
+  const tiposANorm       = Array.isArray(alerta.tipos_alerta)
+    ? alerta.tipos_alerta.map((t) => (t ? norm(t) : '')).filter(Boolean)
+    : [];
 
   for (const user of usuariosPro) {
     const telefono = (user.phone || '').trim();
@@ -157,86 +185,66 @@ async function enviarWhatsAppResumen(alerta, supabase) {
 
     const prefs = user.preferences || {};
 
-    // Preferencias del usuario
-    const provinciasUser  = Array.isArray(prefs.provincias)  ? prefs.provincias  : [];
-    const sectoresUser    = Array.isArray(prefs.sectores)    ? prefs.sectores    : [];
-    const subsectoresUser = Array.isArray(prefs.subsectores) ? prefs.subsectores : [];
-    const tiposUser       = prefs.tipos_alerta || {}; // objeto { tipo: true/false }
-
-    // Etiquetas de la alerta
-    const provinciasA  = Array.isArray(alerta.provincias)  ? alerta.provincias  : [];
-    const sectoresA    = Array.isArray(alerta.sectores)    ? alerta.sectores    : [];
-    const subsectoresA = Array.isArray(alerta.subsectores) ? alerta.subsectores : [];
-    const tiposA       = Array.isArray(alerta.tipos_alerta) ? alerta.tipos_alerta : [];
+    // Preferencias del usuario normalizadas
+    const provinciasUserNorm  = Array.isArray(prefs.provincias)
+      ? prefs.provincias.map(norm)
+      : [];
+    const sectoresUserNorm    = Array.isArray(prefs.sectores)
+      ? prefs.sectores.map(norm)
+      : [];
+    // FIX 2: subsectores del usuario también normalizados
+    const subsectoresUserNorm = Array.isArray(prefs.subsectores)
+      ? prefs.subsectores.map(norm)
+      : [];
+    const tiposUser           = prefs.tipos_alerta || {};
 
     // ==== 1. FILTRO PROVINCIA ====
-    // ==== 1. FILTRO PROVINCIA ====
-const normalize = (str) =>
-  str.toString()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .trim()
-    .toLowerCase();
-
-const provinciasUserNorm = provinciasUser.map(normalize);
-const provinciasANorm = provinciasA.map(normalize);
-
-const okProvincia =
-  provinciasUserNorm.length === 0 ||
-  (provinciasANorm.length > 0 && intersecta(provinciasUserNorm, provinciasANorm));
-
-
+    // [] en usuario → sin filtro (recibe todo)
+    // [] en alerta  → nacional (llega a todos)
+    // FIX 1: antes faltaba el caso provinciasANorm.length === 0
+    const okProvincia =
+      provinciasUserNorm.length === 0 ||
+      provinciasANorm.length === 0 ||
+      intersecta(provinciasUserNorm, provinciasANorm);
 
     if (!okProvincia) continue;
 
     // ==== 2. FILTRO SECTOR ====
+    // "mixto" en usuario acepta agricultura y ganadería
+    // FIX 3: "mixto" en alerta también acepta usuarios de agricultura/ganadería
+    const tieneMixtoUser  = sectoresUserNorm.includes('mixto');
+    const tieneMixtoAlerta = sectoresANorm.includes('mixto');
 
-// normalizamos a minúsculas por si acaso
-const sectoresUserNorm = sectoresUser.map((s) =>
-  s.toString().trim().toLowerCase()
-);
-const sectoresANorm = sectoresA.map((s) =>
-  s.toString().trim().toLowerCase()
-);
+    const okSector =
+      sectoresUserNorm.length === 0 ||
+      sectoresANorm.length === 0 ||
+      intersecta(sectoresUserNorm, sectoresANorm) ||
+      (tieneMixtoUser  && intersecta(['agricultura', 'ganaderia'], sectoresANorm)) ||
+      (tieneMixtoAlerta && intersecta(['agricultura', 'ganaderia'], sectoresUserNorm));
 
-const tieneMixto = sectoresUserNorm.includes('mixto');
-
-const okSector =
-  sectoresUserNorm.length === 0 ||          // usuario sin sectores → recibe todo
-  sectoresANorm.length === 0 ||             // alerta sin sectores → genérica
-  intersecta(sectoresUserNorm, sectoresANorm) || // coincide exacto
-  (tieneMixto &&                            // mixto = acepta agricultura o ganaderia
-    intersecta(['agricultura', 'ganaderia'], sectoresANorm));
-
-if (!okSector) continue;
-
+    if (!okSector) continue;
 
     // ==== 3. FILTRO SUBSECTOR ====
+    // FIX 2: ahora ambos arrays están normalizados, la comparación es case-insensitive
     const okSubsector =
-      subsectoresUser.length === 0 ||
-      subsectoresA.length === 0 ||
-      intersecta(subsectoresUser, subsectoresA);
+      subsectoresUserNorm.length === 0 ||
+      subsectoresANorm.length === 0 ||
+      intersecta(subsectoresUserNorm, subsectoresANorm);
 
     if (!okSubsector) continue;
 
-    // ==== 4. FILTRO TIPO DE ALERTA (FLEXIBLE) ====
-    // Normalizamos tipos del usuario (solo los activos = true)
+    // ==== 4. FILTRO TIPO DE ALERTA ====
+    // Solo filtra si AMBOS tienen tipos definidos
     const tiposUserActivos = Object.entries(tiposUser)
       .filter(([_, v]) => v === true)
-      .map(([k]) => k.toString().trim().toLowerCase());
-
-    const tiposAlertaNorm = tiposA
-      .map((t) => (t ? t.toString().trim().toLowerCase() : ''))
-      .filter(Boolean);
+      .map(([k]) => norm(k));
 
     const hayTiposUsuario = tiposUserActivos.length > 0;
-    const hayTiposAlerta  = tiposAlertaNorm.length > 0;
+    const hayTiposAlerta  = tiposANorm.length > 0;
 
     let okTipo = true;
-
-    // Solo filtramos si AMBOS tienen tipos definidos
     if (hayTiposUsuario && hayTiposAlerta) {
-      okTipo = tiposAlertaNorm.some((t) => tiposUserActivos.includes(t));
+      okTipo = tiposANorm.some((t) => tiposUserActivos.includes(t));
     }
 
     if (!okTipo) continue;
@@ -311,26 +319,23 @@ async function enviarWhatsAppFree(supabase, mensajeFree) {
   let enviados = 0;
   const errores = [];
 
-    for (const user of usuariosFree) {
+  for (const user of usuariosFree) {
     const telefono = user.phone.trim();
 
     try {
       await enviarMensajeUltraMsg(telefono, mensajeFree);
       enviados++;
 
-      // ✅ Log de éxito
       await guardarLogWhatsApp({
         phone: telefono,
         status: 'sent',
         message_type: 'alerta_free',
         error_msg: null,
       });
-
     } catch (err) {
       console.error(`[FREE] Error enviando a ${telefono}:`, err.message);
       errores.push({ userId: user.id, error: err.message });
 
-      // ✅ Log de error
       await guardarLogWhatsApp({
         phone: telefono,
         status: 'failed',
@@ -339,7 +344,6 @@ async function enviarWhatsAppFree(supabase, mensajeFree) {
       });
     }
   }
-
 
   console.log(
     `[FREE] Resumen diario enviado a ${enviados}/${usuariosFree.length} usuarios FREE`
@@ -396,7 +400,6 @@ async function enviarWhatsAppTodos(supabase, mensaje) {
     return;
   }
 
-  // 1. Listar todos los usuarios con teléfono
   const { data: users, error } = await supabase
     .from('users')
     .select('id, phone')
@@ -419,10 +422,8 @@ async function enviarWhatsAppTodos(supabase, mensaje) {
     const telefono = user.phone.trim();
     try {
       await enviarMensajeUltraMsg(telefono, mensaje);
-      // Opcional: guarda log de éxito llamando a guardarLogWhatsApp() si lo deseas
     } catch (err) {
       console.error(`Error enviando a ${telefono}:`, err.message);
-      // Opcional: guarda log de error con guardarLogWhatsApp()
     }
   }
 
@@ -439,7 +440,7 @@ async function enviarWhatsAppVerificacion(telefono, codigo) {
     return;
   }
 
-  const mensaje = 
+  const mensaje =
     `Hola 👋, gracias por registrarte en Ruralicos.\n` +
     `Tu código de verificación es: *${codigo}*.\n` +
     `Úsalo en la web para confirmar tu número. ` +
@@ -471,8 +472,8 @@ async function enviarWhatsAppVerificacion(telefono, codigo) {
 
 module.exports = {
   enviarWhatsAppResumen, // Solo PRO
-  enviarWhatsAppFree, // Solo FREE
+  enviarWhatsAppFree,   // Solo FREE
   enviarWhatsAppTodos,
-  enviarWhatsAppRegistro, //mensaje a todos los numeros
-   enviarWhatsAppVerificacion,
+  enviarWhatsAppRegistro,
+  enviarWhatsAppVerificacion,
 };
