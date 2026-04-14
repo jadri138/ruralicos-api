@@ -43,6 +43,43 @@ El objetivo del proyecto es **extraer, resumir y clasificar información relevan
 4. Almacenamiento en base de datos
 5. Consulta y filtrado según preferencias del usuario
 
+## Flujo recomendado de envío (sin spam)
+
+Para evitar enviar muchas alertas sueltas al mismo usuario, el flujo recomendado es:
+
+1. `/alertas/clasificar`
+2. `/alertas/resumir`
+3. `/alertas/revisar`
+4. `/alertas/preparar-digest` (genera 1 mensaje diario por usuario)
+5. `/alertas/enviar-digest` (envía los digest pendientes)
+
+La ruta legacy `/alertas/enviar-whatsapp` queda desactivada por defecto con `DIGEST_ONLY_MODE=true`.
+
+### Requisito de base de datos para digest
+
+Si en tu diagrama solo aparecen `users` y `alertas`, te falta crear la tabla `digests`
+(y algunos índices/constraints). Usa el script:
+
+- `docs/supabase_digest_schema.sql`
+
+### Cron recomendado (pipeline digest)
+
+Todas las rutas de cron validan `?token=CRON_TOKEN`.
+
+Orden diario recomendado (UTC):
+
+1. `06:00` → `/alertas/clasificar?token=...`
+2. `06:20` → `/alertas/resumir?token=...`
+3. `06:40` → `/alertas/revisar?token=...`
+4. `07:30` → `/alertas/preparar-digest?token=...`
+5. `08:00` → `/alertas/enviar-digest?token=...`
+6. `08:30` → `/alertas/generar-resumen-free?token=...`
+7. `08:45` → `/alertas/enviar-resumen-free?token=...`
+
+Detalle y comandos listos para copiar:
+
+- `docs/cron_digest_setup.md`
+
 ---
 
 ## Estados de las alertas
@@ -98,4 +135,3 @@ Contribuciones
 Las contribuciones son bienvenidas mediante issues o pull requests.
 
 Nota: este repositorio contiene únicamente la lógica del sistema.
-

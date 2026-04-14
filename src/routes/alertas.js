@@ -2,6 +2,7 @@
 const { checkCronToken } = require('../utils/checkCronToken');
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const { enviarWhatsAppResumen } = require('../whatsapp');
+const DIGEST_ONLY_MODE = (process.env.DIGEST_ONLY_MODE || 'true').toLowerCase() !== 'false';
 
 // ─────────────────────────────────────────────
 // fetch compatible con Node 18+ y versiones anteriores
@@ -550,6 +551,16 @@ Responde ÚNICAMENTE con el mensaje WhatsApp final. Sin JSON, sin explicaciones,
     try {
       const hoy = new Date().toISOString().slice(0, 10);
 
+      // Modo recomendado: evitar envíos por alerta individual y usar digest por usuario.
+      if (DIGEST_ONLY_MODE) {
+        return res.status(410).json({
+          success: false,
+          modo: 'digest_only',
+          fecha: hoy,
+          mensaje: 'Ruta desactivada para evitar spam por alerta individual. Usa /alertas/preparar-digest y /alertas/enviar-digest.',
+        });
+      }
+
       const { data: alertas, error } = await supabase
         .from('alertas')
         .select('*')
@@ -604,13 +615,13 @@ Responde ÚNICAMENTE con el mensaje WhatsApp final. Sin JSON, sin explicaciones,
   // ══════════════════════════════════════════════════════════════
   app.post('/alertas/procesar-ia', (req, res) => {
     res.status(410).json({
-      error: 'Ruta deprecada. Usa el nuevo pipeline: /alertas/clasificar → /alertas/resumir → /alertas/revisar → /alertas/enviar-whatsapp',
+      error: 'Ruta deprecada. Usa el pipeline: /alertas/clasificar → /alertas/resumir → /alertas/revisar → /alertas/preparar-digest → /alertas/enviar-digest',
     });
   });
   app.get('/alertas/procesar-ia', (req, res) => {
     if (!checkCronToken(req, res)) return;
     res.status(410).json({
-      error: 'Ruta deprecada. Usa el nuevo pipeline: /alertas/clasificar → /alertas/resumir → /alertas/revisar → /alertas/enviar-whatsapp',
+      error: 'Ruta deprecada. Usa el pipeline: /alertas/clasificar → /alertas/resumir → /alertas/revisar → /alertas/preparar-digest → /alertas/enviar-digest',
     });
   });
 

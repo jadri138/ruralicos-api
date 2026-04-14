@@ -376,7 +376,7 @@ module.exports = function digestRoutes(app, supabase) {
 
       return res.json({
         success: true,
-        fecha,
+        fecha: hoy,
         alertas_disponibles:  alertas.length,
         usuarios_procesados:  usuarios.length,
         digests_generados:    generados,
