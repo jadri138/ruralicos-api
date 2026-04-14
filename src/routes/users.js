@@ -1,11 +1,8 @@
+// src/routes/users.js
 const bcrypt = require('bcryptjs');
 const { checkCronToken } = require('../utils/checkCronToken');
 const { enviarWhatsAppVerificacion, enviarWhatsAppRegistro } = require('../whatsapp');
-
-// ===== AÑADIDO (sin modificar lo anterior): auth middleware =====
 const { requireAuth } = require('../../authMiddleware');
-
-// src/routes/users.js
 
 module.exports = function usersRoutes(app, supabase) {
 
@@ -32,8 +29,9 @@ module.exports = function usersRoutes(app, supabase) {
     res.json({ users: data });
   });
 
-  // ===== AÑADIDO (sin modificar lo anterior): MI CUENTA =====
-  // GET /me -> devuelve phone/email/subscription reales usando JWT
+  // --------------------------------------------------
+  // MI CUENTA — devuelve datos del usuario logueado
+  // --------------------------------------------------
   app.get('/me', requireAuth, async (req, res) => {
     try {
       const userId = req.user.sub;
@@ -158,7 +156,7 @@ module.exports = function usersRoutes(app, supabase) {
             name: name || null,
             email,               // puede ser null o el email normalizado
             preferences,
-            subscription: 'pro',
+            subscription: 'corral',
             password_hash: passwordHash,
             phone_verified: false,
             phone_verification_code: codigoVerificacion,
@@ -460,60 +458,58 @@ module.exports = function usersRoutes(app, supabase) {
   });
 
   // --------------------------------------------------
-  // SUBIR A PRO USANDO TELÉFONO
+  // CAMBIAR PLAN USANDO TELÉFONO (admin)
+  // Body: { phone, plan } donde plan es uno de: corral, agricultor, cooperativa, free
   // --------------------------------------------------
-  app.post('/users/upgrade-to-pro', async (req, res) => {
-    let { phone } = req.body;
+  app.post('/users/cambiar-plan', async (req, res) => {
+    let { phone, plan } = req.body;
 
-    if (!phone) {
-      return res.status(400).json({ error: 'Falta el número de teléfono' });
+    if (!phone) return res.status(400).json({ error: 'Falta el número de teléfono' });
+
+    const PLANES_VALIDOS = ['free', 'corral', 'agricultor', 'cooperativa'];
+    if (!plan || !PLANES_VALIDOS.includes(plan)) {
+      return res.status(400).json({
+        error: `Plan inválido. Opciones: ${PLANES_VALIDOS.join(', ')}`,
+      });
     }
 
     phone = String(phone).trim();
     const soloDigitos = phone.replace(/\D/g, '');
 
-    console.log('Upgrade PRO para phone:', soloDigitos);
-
     const { data, error } = await supabase
       .from('users')
-      .update({ subscription: 'pro' })
+      .update({ subscription: plan })
       .eq('phone', soloDigitos)
+      .select('id, phone, subscription')
       .single();
 
     if (error || !data) {
-      console.error('Error upgrade-to-pro:', error);
+      console.error('Error cambiando plan:', error);
       return res.status(404).json({ error: 'Usuario no encontrado' });
     }
 
+    console.log(`[admin] Plan de ${soloDigitos} cambiado a '${plan}'`);
     res.json({ success: true, user: data });
   });
 
-  // --------------------------------------------------
-  // BAJAR A FREE USANDO TELÉFONO (NO BORRA PREFERENCIAS)
-  // --------------------------------------------------
+  // Legacy — se mantienen por compatibilidad con integraciones existentes
+  app.post('/users/upgrade-to-pro', async (req, res) => {
+    let { phone } = req.body;
+    if (!phone) return res.status(400).json({ error: 'Falta el número de teléfono' });
+    phone = String(phone).trim().replace(/\D/g, '');
+    const { data, error } = await supabase
+      .from('users').update({ subscription: 'cooperativa' }).eq('phone', phone).select('id, phone, subscription').single();
+    if (error || !data) return res.status(404).json({ error: 'Usuario no encontrado' });
+    res.json({ success: true, user: data });
+  });
+
   app.post('/users/downgrade-to-free', async (req, res) => {
     let { phone } = req.body;
-
-    if (!phone) {
-      return res.status(400).json({ error: 'Falta el número de teléfono' });
-    }
-
-    phone = String(phone).trim();
-    const soloDigitos = phone.replace(/\D/g, '');
-
-    console.log('Downgrade FREE para phone:', soloDigitos);
-
+    if (!phone) return res.status(400).json({ error: 'Falta el número de teléfono' });
+    phone = String(phone).trim().replace(/\D/g, '');
     const { data, error } = await supabase
-      .from('users')
-      .update({ subscription: 'free' })
-      .eq('phone', soloDigitos)
-      .single();
-
-    if (error || !data) {
-      console.error('Error downgrade-to-free:', error);
-      return res.status(404).json({ error: 'Usuario no encontrado' });
-    }
-
+      .from('users').update({ subscription: 'corral' }).eq('phone', phone).select('id, phone, subscription').single();
+    if (error || !data) return res.status(404).json({ error: 'Usuario no encontrado' });
     res.json({ success: true, user: data });
   });
 
@@ -565,7 +561,8 @@ module.exports = function usersRoutes(app, supabase) {
   });
 
   // --------------------------------------------------
-  // GUARDAR PREFERENCIAS USANDO TELÉFONO (SOLO PRO)
+  // GUARDAR PREFERENCIAS USANDO TELÉFONO
+  // Ruta legacy — la validación de límites por plan está en preferences.js
   // --------------------------------------------------
   app.put('/users/preferences', async (req, res) => {
     let { phone, ...prefs } = req.body;
@@ -577,7 +574,6 @@ module.exports = function usersRoutes(app, supabase) {
     phone = String(phone).trim();
     const soloDigitos = phone.replace(/\D/g, '');
 
-    // 1) Mirar usuario por teléfono
     const { data: user, error: errUser } = await supabase
       .from('users')
       .select('subscription')
@@ -588,25 +584,24 @@ module.exports = function usersRoutes(app, supabase) {
       return res.status(404).json({ error: 'Usuario no encontrado' });
     }
 
-    if (user.subscription !== 'pro') {
+    // Solo planes de pago pueden guardar preferencias personalizadas
+    if (user.subscription === 'free') {
       return res.status(403).json({
-        error: 'Solo los usuarios PRO pueden guardar preferencias.'
+        error: 'El plan gratuito no permite preferencias personalizadas.',
       });
     }
 
-    // 2) Guardar preferencias
-    const { data, error } = await supabase
+    const { error } = await supabase
       .from('users')
       .update({ preferences: prefs })
-      .eq('phone', soloDigitos)
-      .single();
+      .eq('phone', soloDigitos);
 
     if (error) {
       console.error('Error guardando preferencias:', error);
       return res.status(500).json({ error: 'Error guardando preferencias' });
     }
 
-    res.json({ preferences: data.preferences });
+    res.json({ ok: true, preferences: prefs });
   });
 
   // --------------------------------------------------

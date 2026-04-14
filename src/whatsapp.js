@@ -470,10 +470,44 @@ async function enviarWhatsAppVerificacion(telefono, codigo) {
 }
 
 
+/**
+ * ENVÍA EL DIGEST DIARIO PERSONALIZADO → USUARIOS CORRAL / AGRICULTOR / COOPERATIVA
+ *
+ * Diferencias con enviarWhatsAppResumen:
+ *   - Recibe directamente el teléfono y el mensaje ya preparado por digest.js
+ *   - No hace queries a Supabase ni aplica filtros (ya los aplicó preparar-digest)
+ *   - El delay entre mensajes lo gestiona enviar-digest, no esta función
+ */
+async function enviarDigestPro(telefono, mensaje) {
+  if (!ULTRAMSG_INSTANCE_ID || !ULTRAMSG_TOKEN) {
+    throw new Error('Faltan ULTRAMSG_INSTANCE_ID o ULTRAMSG_TOKEN en .env');
+  }
+
+  if (!telefono || !telefono.trim()) {
+    throw new Error('enviarDigestPro: teléfono vacío');
+  }
+
+  if (!mensaje || !mensaje.trim()) {
+    throw new Error('enviarDigestPro: mensaje vacío');
+  }
+
+  await enviarMensajeUltraMsg(telefono.trim(), mensaje.trim());
+
+  // Log no bloqueante — si falla el log no interrumpe el envío
+  guardarLogWhatsApp({
+    phone:        telefono.trim(),
+    status:       'sent',
+    message_type: 'digest_pro',
+    error_msg:    null,
+  }).catch((e) => console.error('[digest] Error guardando log:', e.message));
+}
+
+
 module.exports = {
-  enviarWhatsAppResumen, // Solo PRO
-  enviarWhatsAppFree,   // Solo FREE
+  enviarWhatsAppResumen,     // Legacy: alerta individual a usuarios 'pro'
+  enviarWhatsAppFree,        // Resumen genérico admin/free
   enviarWhatsAppTodos,
   enviarWhatsAppRegistro,
   enviarWhatsAppVerificacion,
+  enviarDigestPro,           // Digest diario personalizado por usuario
 };
