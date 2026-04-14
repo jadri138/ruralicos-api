@@ -43,6 +43,18 @@ El objetivo del proyecto es **extraer, resumir y clasificar información relevan
 4. Almacenamiento en base de datos
 5. Consulta y filtrado según preferencias del usuario
 
+## Flujo recomendado de envío (sin spam)
+
+Para evitar enviar muchas alertas sueltas al mismo usuario, el flujo recomendado es:
+
+1. `/alertas/clasificar`
+2. `/alertas/resumir`
+3. `/alertas/revisar`
+4. `/alertas/preparar-digest` (genera 1 mensaje diario por usuario)
+5. `/alertas/enviar-digest` (envía los digest pendientes)
+
+La ruta legacy `/alertas/enviar-whatsapp` queda desactivada por defecto con `DIGEST_ONLY_MODE=true`.
+
 ---
 
 ## Estados de las alertas
@@ -98,4 +110,3 @@ Contribuciones
 Las contribuciones son bienvenidas mediante issues o pull requests.
 
 Nota: este repositorio contiene únicamente la lógica del sistema.
-
