@@ -79,6 +79,8 @@ Orden diario recomendado (UTC):
 Detalle y comandos listos para copiar:
 
 - `docs/cron_digest_setup.md`
+- Script para Render Workflow (1 job diario): `npm run workflow:digest`
+- Guía rápida de Render (qué clicar exactamente): `docs/render_quick_start.md`
 
 ---
 

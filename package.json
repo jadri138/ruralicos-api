@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "start": "node src/index.js"
+    "start": "node src/index.js",
+    "workflow:digest": "node scripts/run_digest_workflow.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",

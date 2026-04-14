@@ -44,6 +44,24 @@ curl -fsS "$BASE_URL/alertas/enviar-resumen-free?token=$CRON_TOKEN"
 45 8 * * *  curl -fsS "$BASE_URL/alertas/enviar-resumen-free?token=$CRON_TOKEN"
 ```
 
+## Opción recomendada en Render: Workflow/Job único
+
+Si no quieres lanzar muchos crons, usa un solo Workflow Job diario con:
+
+```bash
+npm run workflow:digest
+```
+
+Variables del job:
+
+- `BASE_URL=https://tu-api.onrender.com`
+- `CRON_TOKEN=...`
+- opcional `MAX_LOOPS=40`
+- opcional `STEP_DELAY_MS=800`
+
+Este script repite automáticamente `clasificar/resumir/revisar` hasta que devuelven
+`procesadas=0`, y después ejecuta los pasos de digest/free una vez.
+
 ## Reintentos recomendados
 
 - Si `clasificar/resumir/revisar` falla, reintentar 1 vez a los 10 minutos.
