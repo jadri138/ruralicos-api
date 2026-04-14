@@ -8,7 +8,7 @@
 
 Ruralicos es un sistema de **procesado y filtrado de boletines oficiales** orientado al sector agrario y rural.
 
-El objetivo del proyecto es **extraer, resumir y clasificar información relevante** de boletines oficiales y generar alertas personalizadas para los usuarios.
+El objetivo del proyecto es **extraer, resumir y clasificar información relevante** de boletines oficiales y generar alertas personalizadas para los usuarios que se envian via whatsapp.
 
 ---
 
