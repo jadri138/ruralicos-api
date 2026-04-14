@@ -55,6 +55,31 @@ Para evitar enviar muchas alertas sueltas al mismo usuario, el flujo recomendado
 
 La ruta legacy `/alertas/enviar-whatsapp` queda desactivada por defecto con `DIGEST_ONLY_MODE=true`.
 
+### Requisito de base de datos para digest
+
+Si en tu diagrama solo aparecen `users` y `alertas`, te falta crear la tabla `digests`
+(y algunos índices/constraints). Usa el script:
+
+- `docs/supabase_digest_schema.sql`
+
+### Cron recomendado (pipeline digest)
+
+Todas las rutas de cron validan `?token=CRON_TOKEN`.
+
+Orden diario recomendado (UTC):
+
+1. `06:00` → `/alertas/clasificar?token=...`
+2. `06:20` → `/alertas/resumir?token=...`
+3. `06:40` → `/alertas/revisar?token=...`
+4. `07:30` → `/alertas/preparar-digest?token=...`
+5. `08:00` → `/alertas/enviar-digest?token=...`
+6. `08:30` → `/alertas/generar-resumen-free?token=...`
+7. `08:45` → `/alertas/enviar-resumen-free?token=...`
+
+Detalle y comandos listos para copiar:
+
+- `docs/cron_digest_setup.md`
+
 ---
 
 ## Estados de las alertas
