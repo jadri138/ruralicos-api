@@ -18,7 +18,7 @@ module.exports = function usersRoutes(app, supabase) {
     if (!checkCronToken(req, res)) return;
     const { data, error } = await supabase
       .from('users')
-      .select('id, phone, subscription, preferences')
+      .select('id, phone, subscription, preferences, preferencias_extra')
       .order('id', { ascending: true });
 
     if (error) {
@@ -62,7 +62,15 @@ module.exports = function usersRoutes(app, supabase) {
   // REGISTRAR USUARIO (web + bot) + CÓDIGO VERIFICACIÓN + PASSWORD HASH
   // --------------------------------------------------
   app.post('/register', async (req, res) => {
-    let { phone, name, email, password, preferences } = req.body;
+    let {
+      phone,
+      name,
+      email,
+      password,
+      preferences,
+      preferencias_extra,
+      preferenciasExtra
+    } = req.body;
 
     if (!phone) {
       return res.status(400).json({ error: 'Falta el número de teléfono' });
@@ -104,6 +112,18 @@ module.exports = function usersRoutes(app, supabase) {
     if (!preferences || typeof preferences !== 'object') {
       preferences = {};
     }
+
+    // Campo libre opcional para contexto personal del usuario
+    // Acepta snake_case, camelCase o dentro de preferences por compatibilidad.
+    const rawPreferenciasExtra =
+      typeof preferencias_extra === 'string' ? preferencias_extra
+        : typeof preferenciasExtra === 'string' ? preferenciasExtra
+          : typeof preferences.preferencias_extra === 'string' ? preferences.preferencias_extra
+            : null;
+
+    const preferenciasExtraLimpia = typeof rawPreferenciasExtra === 'string'
+      ? rawPreferenciasExtra.trim().slice(0, 1000)
+      : null;
 
     // Código 6 dígitos + caducidad 15 minutos
     const codigoVerificacion = Math.floor(100000 + Math.random() * 900000).toString();
@@ -156,6 +176,7 @@ module.exports = function usersRoutes(app, supabase) {
             name: name || null,
             email,               // puede ser null o el email normalizado
             preferences,
+            preferencias_extra: preferenciasExtraLimpia || null,
             subscription: 'corral',
             password_hash: passwordHash,
             phone_verified: false,
@@ -549,7 +570,7 @@ module.exports = function usersRoutes(app, supabase) {
 
     const { data, error } = await supabase
       .from('users')
-      .select('phone, subscription, preferences')
+        .select('phone, subscription, preferences, preferencias_extra')
       .eq('phone', soloDigitos)
       .single();
 

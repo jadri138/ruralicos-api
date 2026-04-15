@@ -494,6 +494,15 @@ input[type="checkbox"] {
 								<label for="message">Cuéntanos algo más (opcional)</label>
 								<textarea name="message" id="message" placeholder="Ej: zona, cultivos/ganado, qué tipo de alertas te interesan..." rows="5"></textarea>
 							</div>
+							<div class="field">
+								<label for="preferencias_extra">Preferencias extra (opcional)</label>
+								<textarea
+									name="preferencias_extra"
+									id="preferencias_extra"
+									placeholder="Puedes redactar datos más personales para personalizar mejor las alertas: cuál es tu pueblo, qué temas te interesan especialmente o qué no te interesa recibir."
+									rows="4"
+								></textarea>
+							</div>
 						</div>
 						<ul class="actions">
 							<li><input type="submit" value="Quiero inscribirme" class="button primary" /></li>
@@ -574,6 +583,7 @@ document.getElementById("registroForm").addEventListener("submit", async functio
   const whatsapp = document.getElementById("whatsapp").value.trim();
   const perfil = document.getElementById("perfil").value;
   const message = document.getElementById("message").value.trim();
+  const preferencias_extra = document.getElementById("preferencias_extra").value.trim();
 
   // sectores desde perfil
   const sectores = [];
@@ -614,7 +624,8 @@ document.getElementById("registroForm").addEventListener("submit", async functio
     name,
     email,
     phone: whatsapp,
-    preferences
+    preferences,
+    preferencias_extra
   };
 
   try {
