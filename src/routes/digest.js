@@ -90,6 +90,63 @@ function norm(str) {
 const intersecta = (a, b) => a.some((x) => b.includes(x));
 
 // ─────────────────────────────────────────────
+// Helper: extrae términos de exclusión desde preferencias_extra.
+// Busca frases tipo: "no me interesa X", "no quiero X", "evitar X".
+// Devuelve lista normalizada de términos para filtrar alertas.
+// ─────────────────────────────────────────────
+function extraerExclusionesDesdeTexto(preferenciasExtra = '') {
+  const texto = norm(preferenciasExtra || '');
+  if (!texto) return [];
+
+  const patrones = [
+    /no me interesa ([^.!,;\n]+)/g,
+    /no quiero ([^.!,;\n]+)/g,
+    /evitar ([^.!,;\n]+)/g,
+    /no enviar ([^.!,;\n]+)/g,
+  ];
+
+  const exclusiones = [];
+  for (const regex of patrones) {
+    for (const match of texto.matchAll(regex)) {
+      const bloque = (match[1] || '').trim();
+      if (!bloque) continue;
+
+      bloque
+        .split(/,| y | e | o | u /g)
+        .map((t) => t.trim())
+        .filter((t) => t.length >= 3)
+        .forEach((t) => exclusiones.push(t));
+    }
+  }
+
+  return [...new Set(exclusiones)];
+}
+
+// ─────────────────────────────────────────────
+// Helper: aplica exclusiones de preferencias_extra sobre alertas ya relevantes.
+// Si un término excluido aparece en título/resumen/etiquetas, se omite la alerta.
+// ─────────────────────────────────────────────
+function aplicarExclusionesPreferenciasExtra(alertas, preferenciasExtra) {
+  const exclusiones = extraerExclusionesDesdeTexto(preferenciasExtra);
+  if (exclusiones.length === 0) return alertas;
+
+  return alertas.filter((alerta) => {
+    const bolsaTexto = [
+      alerta.titulo || '',
+      alerta.resumen_final || '',
+      alerta.resumen || '',
+      ...(Array.isArray(alerta.sectores) ? alerta.sectores : []),
+      ...(Array.isArray(alerta.subsectores) ? alerta.subsectores : []),
+      ...(Array.isArray(alerta.tipos_alerta) ? alerta.tipos_alerta : []),
+    ]
+      .map((x) => norm(x || ''))
+      .join(' ');
+
+    return !exclusiones.some((term) => bolsaTexto.includes(term));
+  });
+}
+
+// ─────────────────────────────────────────────
 // Helper: filtra alertas relevantes para un usuario.
 // Aplica filtros: fuente por plan → provincia → sector → subsector → tipo.
 // ─────────────────────────────────────────────
@@ -325,7 +382,11 @@ module.exports = function digestRoutes(app, supabase) {
         const plan = getPlan(user.subscription);
 
         // Filtrar alertas relevantes para este usuario
-        const alertasUsuario = alertasParaUsuario(alertas, user);
+        const alertasBase = alertasParaUsuario(alertas, user);
+        const alertasUsuario = aplicarExclusionesPreferenciasExtra(
+          alertasBase,
+          user.preferencias_extra
+        );
 
         // Sin alertas relevantes → silencio
         if (alertasUsuario.length === 0) {
