@@ -4,7 +4,7 @@
 //
 // Cambios respecto a la versión anterior:
 //   - Validación hard de límites (provincias, sectores, subsectores) según plan
-//   - Campo libre 'preferencias_extra' solo para planes agricultor y cooperativa
+//   - Campo libre 'preferencias_extra' persistido para cualquier plan
 //   - GET devuelve también el plan y los límites aplicables (útil para el frontend)
 // ══════════════════════════════════════════════════════════════════════
 
@@ -67,7 +67,7 @@ module.exports = (app, supabase) => {
   //   sectores:          [],
   //   subsectores:       [],
   //   tipos_alerta:      {},    // objeto { ayudas_subvenciones: true, ... }
-  //   preferencias_extra: ""   // string libre (solo agricultor y cooperativa)
+  //   preferencias_extra: ""   // string libre opcional
   // }
   // ══════════════════════════════════════════════════════════════════════
   app.put('/me/preferences', requireAuth, async (req, res) => {
@@ -115,17 +115,12 @@ module.exports = (app, supabase) => {
       // 5) Preparar actualización
       const updateData = { preferences };
 
-      // preferencias_extra solo se guarda si el plan lo permite
-      if (plan.campo_libre) {
-        // Limpiar y limitar a 1000 caracteres
+      // preferencias_extra: guardar para cualquier plan (igual que el resto de celdas)
+      if (preferencias_extra !== undefined) {
         const extraLimpio = typeof preferencias_extra === 'string'
           ? preferencias_extra.trim().slice(0, 1000)
           : null;
         updateData.preferencias_extra = extraLimpio || null;
-      } else if (preferencias_extra !== undefined) {
-        // El plan no permite campo libre — ignoramos silenciosamente
-        // (no devolvemos error para no romper clientes legacy)
-        console.warn(`[preferences] User ${userId} (${plan.nombre}) intentó guardar preferencias_extra → ignorado`);
       }
 
       // 6) Guardar en BD
@@ -142,7 +137,7 @@ module.exports = (app, supabase) => {
       return res.json({
         ok: true,
         preferences,
-        preferencias_extra: plan.campo_libre ? (updateData.preferencias_extra ?? null) : null,
+        preferencias_extra: updateData.preferencias_extra ?? null,
         plan: plan.nombre,
       });
 
@@ -202,8 +197,10 @@ module.exports = (app, supabase) => {
       // 3) Preparar y guardar
       const updateData = { preferences: prefs };
 
-      if (plan.campo_libre && typeof preferencias_extra === 'string') {
-        updateData.preferencias_extra = preferencias_extra.trim().slice(0, 1000) || null;
+      if (preferencias_extra !== undefined) {
+        updateData.preferencias_extra = typeof preferencias_extra === 'string'
+          ? preferencias_extra.trim().slice(0, 1000) || null
+          : null;
       }
 
       const { error } = await supabase
@@ -219,7 +216,7 @@ module.exports = (app, supabase) => {
       return res.json({
         ok: true,
         preferences: prefs,
-        preferencias_extra: plan.campo_libre ? (updateData.preferencias_extra ?? null) : null,
+        preferencias_extra: updateData.preferencias_extra ?? null,
         plan: plan.nombre,
       });
 
