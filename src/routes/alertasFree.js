@@ -1,7 +1,7 @@
 // src/routes/alertasFree.js
 
 const { checkCronToken } = require('../utils/checkCronToken');
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const { llamarIA, parsearJSON } = require('../utils/llamarIA');
 const { enviarWhatsAppFree } = require('../whatsapp');
 
 module.exports = function alertasFreeRoutes(app, supabase) {
@@ -10,12 +10,6 @@ module.exports = function alertasFreeRoutes(app, supabase) {
   // ================================================
   const generarResumenFreeHandler = async (req, res) => {
     try {
-      if (!OPENAI_API_KEY) {
-        return res.status(500).json({
-          error: 'Falta OPENAI_API_KEY en variables de entorno',
-        });
-      }
-
       const hoy = new Date().toISOString().slice(0, 10);
 
       // Alertas de HOY ya procesadas por la IA PRO (resumen listo y relevante)
@@ -88,63 +82,19 @@ Lista de alertas:
 ${lista}
       `.trim();
 
-      const aiRes = await fetch('https://api.openai.com/v1/responses', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${OPENAI_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          input: prompt,
-          instructions:
-            'Eres un asistente experto en resumir información compleja en mensajes de WhatsApp muy claros. Responde SIEMPRE solo con el JSON pedido.',
-        }),
-      });
+      const instructions = 'Eres un asistente experto en resumir información compleja en mensajes de WhatsApp muy claros. Responde SIEMPRE solo con el JSON pedido.';
 
-      if (!aiRes.ok) {
-        const txt = await aiRes.text();
-        console.error('Error IA FREE:', aiRes.status, txt);
-        return res.status(500).json({
-          error: 'Error OpenAI en resumen FREE',
-          detalle: txt,
-        });
+      let contenido;
+      try {
+        contenido = await llamarIA(prompt, instructions, 'gpt-4o-mini');
+      } catch (e) {
+        console.error('Error IA FREE:', e.message);
+        return res.status(500).json({ error: 'Error OpenAI en resumen FREE', detalle: e.message });
       }
-
-      const aiJson = await aiRes.json();
-
-      let contenido = '';
-      if (typeof aiJson.output_text === 'string' && aiJson.output_text.trim()) {
-        contenido = aiJson.output_text.trim();
-      } else if (Array.isArray(aiJson.output)) {
-        for (const item of aiJson.output) {
-          if (
-            item &&
-            item.type === 'message' &&
-            Array.isArray(item.content) &&
-            item.content.length > 0
-          ) {
-            const c = item.content[0];
-            if (typeof c.text === 'string') contenido = c.text.trim();
-            else if (typeof c.value === 'string') contenido = c.value.trim();
-            break;
-          }
-        }
-      }
-
-      if (!contenido) {
-        return res.status(500).json({
-          error: 'La IA FREE no devolvió texto',
-          bruto: aiJson,
-        });
-      }
-
-      // Limpiar posibles fences de markdown antes de parsear
-      const limpio = contenido.replace(/```json|```/g, '').trim();
 
       let parsed;
       try {
-        parsed = JSON.parse(limpio);
+        parsed = parsearJSON(contenido);
       } catch (e) {
         console.error('JSON FREE inválido:', contenido);
         return res.status(500).json({

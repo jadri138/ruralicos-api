@@ -1,6 +1,6 @@
 // src/boletines/bocyl/bocylScraper.js
 const axios = require('axios');
-const pdfjsLib = require('pdfjs-dist/build/pdf.js');
+const { extraerTextoPdf } = require('../../utils/pdfExtractor');
 
 /**
  * Devuelve la fecha de hoy en formato YYYYMMDD.
@@ -59,24 +59,6 @@ async function descargarBocylPdf(url) {
   }
 
   return buf;
-}
-
-/**
- * Extrae todo el texto de un PDF usando pdfjs-dist:contentReference[oaicite:2]{index=2}.
- */
-async function extraerTextoPdf(bufferPdf) {
-  const uint8Array = new Uint8Array(bufferPdf);
-  const loadingTask = pdfjsLib.getDocument({ data: uint8Array });
-  const pdf = await loadingTask.promise;
-
-  let texto = '';
-  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-    const page = await pdf.getPage(pageNum);
-    const content = await page.getTextContent();
-    const strings = content.items.map((item) => item.str).join(' ');
-    texto += strings + '\n';
-  }
-  return texto;
 }
 
 /**

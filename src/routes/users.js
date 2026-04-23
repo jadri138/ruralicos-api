@@ -1,6 +1,7 @@
 // src/routes/users.js
 const bcrypt = require('bcryptjs');
 const { checkCronToken } = require('../utils/checkCronToken');
+const { normalizePhone, isPhoneValid, LONGITUD_TELEFONO } = require('../utils/phoneNormalizer');
 const { enviarWhatsAppVerificacion, enviarWhatsAppRegistro } = require('../whatsapp');
 const { requireAuth } = require('../../authMiddleware');
 
@@ -82,22 +83,10 @@ module.exports = function usersRoutes(app, supabase) {
     }
 
     // Normalizar teléfono
-    phone = String(phone).trim();
-    let soloDigitos = phone.replace(/\D/g, '');
-
-    // Si el usuario pone solo el número español (9 dígitos), añadimos 34 delante
-    if (soloDigitos.length === 9) {
-      soloDigitos = '34' + soloDigitos;
+    const telefonoNormalizado = normalizePhone(phone);
+    if (!isPhoneValid(telefonoNormalizado)) {
+      return res.status(400).json({ error: 'introduce un numero de teléfono válido' });
     }
-
-    const LONGITUD_TELEFONO = 11; // 34 + 9 dígitos
-    if (soloDigitos.length !== LONGITUD_TELEFONO) {
-      return res.status(400).json({
-        error: 'introduce un numero de teléfono válido'
-      });
-    }
-
-    const telefonoNormalizado = soloDigitos;
 
     // Normalizar nombre y email
     if (name) name = String(name).trim();
@@ -229,18 +218,10 @@ module.exports = function usersRoutes(app, supabase) {
       return res.status(400).json({ error: 'Faltan teléfono o código' });
     }
 
-    phone = String(phone).trim();
-    let soloDigitos = phone.replace(/\D/g, '');
-    if (soloDigitos.length === 9) {
-      soloDigitos = '34' + soloDigitos;
-    }
-
-    const LONGITUD_TELEFONO = 11;
-    if (soloDigitos.length !== LONGITUD_TELEFONO) {
+    const telefonoNormalizado = normalizePhone(phone);
+    if (!isPhoneValid(telefonoNormalizado)) {
       return res.status(400).json({ error: 'Número de teléfono no válido' });
     }
-
-    const telefonoNormalizado = soloDigitos;
 
     try {
       const { data: user, error } = await supabase
@@ -322,16 +303,10 @@ module.exports = function usersRoutes(app, supabase) {
     }
 
     // Normalizar teléfono (igual que /register)
-    phone = String(phone).trim();
-    let soloDigitos = phone.replace(/\D/g, '');
-    if (soloDigitos.length === 9) soloDigitos = '34' + soloDigitos;
-
-    const LONGITUD_TELEFONO = 11;
-    if (soloDigitos.length !== LONGITUD_TELEFONO) {
+    const telefonoNormalizado = normalizePhone(phone);
+    if (!isPhoneValid(telefonoNormalizado)) {
       return res.status(400).json({ error: 'introduce un numero de teléfono válido' });
     }
-
-    const telefonoNormalizado = soloDigitos;
 
     // Código 6 dígitos + caducidad 15 minutos (igual que /register)
     const codigoReset = Math.floor(100000 + Math.random() * 900000).toString();
@@ -406,16 +381,10 @@ module.exports = function usersRoutes(app, supabase) {
     }
 
     // Normalizar teléfono
-    phone = String(phone).trim();
-    let soloDigitos = phone.replace(/\D/g, '');
-    if (soloDigitos.length === 9) soloDigitos = '34' + soloDigitos;
-
-    const LONGITUD_TELEFONO = 11;
-    if (soloDigitos.length !== LONGITUD_TELEFONO) {
+    const telefonoNormalizado = normalizePhone(phone);
+    if (!isPhoneValid(telefonoNormalizado)) {
       return res.status(400).json({ error: 'Número de teléfono no válido' });
     }
-
-    const telefonoNormalizado = soloDigitos;
 
     try {
       // 1) Buscar usuario con su código y caducidad
@@ -642,10 +611,7 @@ module.exports = function usersRoutes(app, supabase) {
       }
       
       if (phone !== undefined) {
-        // Normalizamos el teléfono igual que en el registro
-        let soloDigitos = String(phone).replace(/\D/g, '');
-        if (soloDigitos.length === 9) soloDigitos = '34' + soloDigitos;
-        updates.phone = soloDigitos;
+        updates.phone = normalizePhone(phone);
       }
 
       const { data, error } = await supabase

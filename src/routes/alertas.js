@@ -1,70 +1,8 @@
 // src/routes/alertas.js
 const { checkCronToken } = require('../utils/checkCronToken');
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const { llamarIA, parsearJSON } = require('../utils/llamarIA');
 const { enviarWhatsAppResumen } = require('../whatsapp');
 const DIGEST_ONLY_MODE = (process.env.DIGEST_ONLY_MODE || 'true').toLowerCase() !== 'false';
-
-// ─────────────────────────────────────────────
-// fetch compatible con Node 18+ y versiones anteriores
-// ─────────────────────────────────────────────
-let _fetch;
-if (typeof globalThis.fetch === 'function') {
-  _fetch = globalThis.fetch.bind(globalThis);
-} else {
-  try {
-    // node-fetch v2 (CommonJS)
-    _fetch = require('node-fetch');
-  } catch {
-    throw new Error('No hay fetch disponible. Actualiza a Node 18+ o instala node-fetch v2.');
-  }
-}
-
-// ─────────────────────────────────────────────
-// Helper: llamar a OpenAI Responses API
-// ─────────────────────────────────────────────
-async function llamarIA(prompt, instructions, model = 'gpt-5-nano') {
-  if (!OPENAI_API_KEY) throw new Error('Falta OPENAI_API_KEY en variables de entorno');
-
-  const aiRes = await _fetch('https://api.openai.com/v1/responses', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${OPENAI_API_KEY}`,
-    },
-    body: JSON.stringify({ model, input: prompt, instructions }),
-  });
-
-  if (!aiRes.ok) {
-    const text = await aiRes.text();
-    throw new Error(`Error OpenAI ${aiRes.status}: ${text}`);
-  }
-
-  const aiJson = await aiRes.json();
-
-  let contenido = '';
-  if (typeof aiJson.output_text === 'string' && aiJson.output_text.trim()) {
-    contenido = aiJson.output_text.trim();
-  } else if (Array.isArray(aiJson.output)) {
-    for (const item of aiJson.output) {
-      if (item?.type === 'message' && Array.isArray(item.content) && item.content.length > 0) {
-        const first = item.content[0];
-        contenido = (typeof first.text === 'string' ? first.text : first.value ?? '').trim();
-        if (contenido) break;
-      }
-    }
-  }
-
-  if (!contenido) throw new Error('La IA no devolvió texto');
-  return contenido;
-}
-
-// ─────────────────────────────────────────────
-// Helper: parsear JSON de la IA (limpia fences)
-// ─────────────────────────────────────────────
-function parsearJSON(texto) {
-  const limpio = texto.replace(/```json|```/g, '').trim();
-  return JSON.parse(limpio);
-}
 
 // ─────────────────────────────────────────────
 // Helper: construir prompt de clasificación para 1 o N alertas

@@ -1,29 +1,9 @@
 // src/routes/boe.js
 const { XMLParser } = require('fast-xml-parser');
 const { checkCronToken } = require('../utils/checkCronToken');
+const { htmlATexto } = require('../utils/htmlParser');
 
 const xmlParser = new XMLParser({ ignoreAttributes: false });
-
-// Función muy simple para sacar texto de HTML
-function htmlAtextoPlano(html) {
-  if (!html) return '';
-  return html
-    // fuera scripts y estilos
-    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-    // fuera etiquetas
-    .replace(/<[^>]+>/g, ' ')
-    // entidades básicas
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&quot;/gi, '"')
-    .replace(/&apos;/gi, "'")
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    // espacios múltiples
-    .replace(/\s+/g, ' ')
-    .trim();
-}
 
 module.exports = function boeRoutes(app, supabase) {
   // Scraper BOE por ministerios relacionados con el medio rural
@@ -201,7 +181,7 @@ module.exports = function boeRoutes(app, supabase) {
                     const respHtml = await fetch(url_html);
                     if (respHtml.ok) {
                       const html = await respHtml.text();
-                      const texto = htmlAtextoPlano(html);
+                      const texto = htmlATexto(html);
                       // Recortamos para no petar tokens (ajusta si quieres)
                       contenidoPlano = texto.slice(0, 8000);
                     } else {

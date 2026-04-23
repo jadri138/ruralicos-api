@@ -2,12 +2,7 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { requireAuth } = require('../../authMiddleware');
-
-function normalizePhone(input) {
-  let digits = String(input || '').trim().replace(/\D/g, '');
-  if (digits.length === 9) digits = '34' + digits; // ES por defecto
-  return digits;
-}
+const { normalizePhone, LONGITUD_TELEFONO } = require('../utils/phoneNormalizer');
 
 module.exports = (app, supabase) => {
   /**
@@ -22,7 +17,7 @@ module.exports = (app, supabase) => {
       }
 
       const normalizedPhone = normalizePhone(phone);
-      if (normalizedPhone.length !== 11) {
+      if (normalizedPhone.length !== LONGITUD_TELEFONO) {
         return res.status(400).json({ error: 'Teléfono no válido' });
       }
 
@@ -70,7 +65,7 @@ module.exports = (app, supabase) => {
       if (!phone) return res.status(400).json({ error: 'Falta el teléfono' });
 
       const normalizedPhone = normalizePhone(phone);
-      if (normalizedPhone.length !== 11) {
+      if (normalizedPhone.length !== LONGITUD_TELEFONO) {
         return res.status(400).json({ error: 'Teléfono no válido' });
       }
 

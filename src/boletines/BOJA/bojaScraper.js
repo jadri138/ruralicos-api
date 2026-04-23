@@ -15,6 +15,7 @@
 //   4. Para cada PDF, leer el HTML de la disposición (más limpio que parsear PDF)
 
 const axios = require('axios');
+const { htmlATexto } = require('../../utils/htmlParser');
 
 const BASE_EBOJA = 'https://www.juntadeandalucia.es/eboja';
 const BASE_BOJA  = 'https://www.juntadeandalucia.es/boja';
@@ -28,19 +29,6 @@ const HEADERS = {
 function getFechaHoyYYYYMMDD() {
   const d = new Date();
   return `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`;
-}
-
-function htmlATexto(html) {
-  if (!html) return '';
-  return html
-    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&')
-    .replace(/&quot;/gi, '"').replace(/&apos;/gi, "'")
-    .replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
-    .replace(/&#\d+;/g, ' ')
-    .replace(/\s+/g, ' ').trim();
 }
 
 /**

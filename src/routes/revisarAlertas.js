@@ -1,27 +1,6 @@
 // src/routes/revisarAlertas.js
 const { checkCronToken } = require("../utils/checkCronToken");
-
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-
-function extractOutputText(aiJson) {
-  if (typeof aiJson?.output_text === "string" && aiJson.output_text.trim()) {
-    return aiJson.output_text.trim();
-  }
-
-  if (Array.isArray(aiJson?.output)) {
-    for (const item of aiJson.output) {
-      if (!item || item.type !== "message" || !Array.isArray(item.content)) continue;
-
-      for (const c of item.content) {
-        if (typeof c?.text === "string" && c.text.trim()) return c.text.trim();
-        if (typeof c?.text?.value === "string" && c.text.value.trim()) return c.text.value.trim();
-        if (typeof c?.value === "string" && c.value.trim()) return c.value.trim();
-      }
-    }
-  }
-
-  return "";
-}
+const { llamarIA, parsearJSON } = require("../utils/llamarIA");
 
 // Limpieza defensiva por si la IA mete metatexto/instrucciones internas
 function sanitizeResumen(resumen) {
@@ -55,12 +34,6 @@ function sanitizeResumen(resumen) {
 module.exports = function revisarAlertasRoutes(app, supabase) {
   const revisarFinalHandler = async (req, res) => {
     try {
-      if (!OPENAI_API_KEY) {
-        return res.status(500).json({
-          error: "Falta OPENAI_API_KEY en variables de entorno",
-        });
-      }
-
       // 1) Seleccionar resúmenes válidos NO revisados (más recientes primero)
       let query = supabase
         .from("alertas")
@@ -235,40 +208,16 @@ ENTRADA:
 ${JSON.stringify(input)}
 `.trim();
 
-      const aiRes = await fetch("https://api.openai.com/v1/responses", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${OPENAI_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: "gpt-5",
-          input: prompt,
-          instructions: "Devuelve SOLO JSON válido, sin texto adicional.",
-        }),
-      });
-
-      if (!aiRes.ok) {
-        const text = await aiRes.text();
-        return res.status(500).json({
-          error: "Error al llamar a OpenAI",
-          detalle: text,
-        });
-      }
-
-      const aiJson = await aiRes.json();
-      const contenido = extractOutputText(aiJson);
-
-      if (!contenido) {
-        return res.status(500).json({
-          error: "La IA no devolvió contenido",
-          bruto: aiJson,
-        });
+      let contenido;
+      try {
+        contenido = await llamarIA(prompt, "Devuelve SOLO JSON válido, sin texto adicional.", "gpt-5");
+      } catch (e) {
+        return res.status(500).json({ error: "Error al llamar a OpenAI", detalle: e.message });
       }
 
       let parsed;
       try {
-        parsed = JSON.parse(contenido);
+        parsed = parsearJSON(contenido);
       } catch (e) {
         return res.status(500).json({
           error: "JSON inválido devuelto por la IA",

@@ -5,7 +5,6 @@ const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const { supabase } = require('./supabaseClient');
-const enviarWhatsapp = require('./whatsapp');
 const { enviarWhatsAppTodos } = require('./whatsapp');
 
 
@@ -101,8 +100,8 @@ app.post('/admin/send-broadcast', async (req, res) => {
 --------------------------------------------------- */
 
 usersRoutes(app, supabase);
-alertasRoutes(app, supabase, enviarWhatsapp,);
-alertasFreeRoutes(app, supabase, enviarWhatsapp,);
+alertasRoutes(app, supabase);
+alertasFreeRoutes(app, supabase);
 boeRoutes(app, supabase);
 boaRoutes(app, supabase);
 tareasRoutes(app, supabase);
