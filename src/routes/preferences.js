@@ -10,6 +10,7 @@
 
 const { requireAuth } = require('../../authMiddleware');
 const { getPlan, validarPreferencias } = require('../config/planes');
+const { sanitizarPreferenciasExtra } = require('../utils/sanitizarPreferencias');
 
 module.exports = (app, supabase) => {
 
@@ -115,11 +116,19 @@ module.exports = (app, supabase) => {
       // 5) Preparar actualización
       const updateData = { preferences };
 
-      // preferencias_extra: guardar para cualquier plan (igual que el resto de celdas)
+      // preferencias_extra: validar y guardar para cualquier plan
       if (preferencias_extra !== undefined) {
         const extraLimpio = typeof preferencias_extra === 'string'
           ? preferencias_extra.trim().slice(0, 1000)
           : null;
+
+        if (extraLimpio) {
+          const check = sanitizarPreferenciasExtra(extraLimpio);
+          if (!check.ok) {
+            return res.status(400).json({ error: check.error });
+          }
+        }
+
         updateData.preferencias_extra = extraLimpio || null;
       }
 
@@ -198,9 +207,18 @@ module.exports = (app, supabase) => {
       const updateData = { preferences: prefs };
 
       if (preferencias_extra !== undefined) {
-        updateData.preferencias_extra = typeof preferencias_extra === 'string'
+        const extraLimpio = typeof preferencias_extra === 'string'
           ? preferencias_extra.trim().slice(0, 1000) || null
           : null;
+
+        if (extraLimpio) {
+          const check = sanitizarPreferenciasExtra(extraLimpio);
+          if (!check.ok) {
+            return res.status(400).json({ error: check.error });
+          }
+        }
+
+        updateData.preferencias_extra = extraLimpio;
       }
 
       const { error } = await supabase
