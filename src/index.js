@@ -27,6 +27,7 @@ const docmRoutes = require('./routes/docm');
 const bormRoutes = require('./routes/borm');
 const digestRoutes = require('./routes/digest');
 const deduplicarRoutes = require('./routes/deduplicar');
+const dogcRoutes       = require('./routes/dogc');
 
 
 
@@ -120,6 +121,7 @@ docmRoutes(app, supabase);
 bormRoutes(app, supabase);
 digestRoutes(app, supabase);
 deduplicarRoutes(app, supabase);
+dogcRoutes(app, supabase);
 
 
 

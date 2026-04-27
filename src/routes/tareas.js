@@ -10,8 +10,9 @@ module.exports = function tareasRoutes(app, supabase) {
         process.env.PUBLIC_BASE_URL || 'http://localhost:' + (process.env.PORT || 3000);
       const token = process.env.CRON_TOKEN;
 
-      // 1) Actualizar BOE
+      // 1) Actualizar fuentes
       await fetch(`${baseUrl}/boe/actualizar?token=${token}`);
+      await fetch(`${baseUrl}/scrape-dogc?token=${token}`);
 
       // 2) Procesar con IA (clasifica y resume, pone estado_ia = 'listo')
       await fetch(`${baseUrl}/alertas/procesar-ia?token=${token}`);
