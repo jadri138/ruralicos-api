@@ -13,15 +13,18 @@ module.exports = function tareasRoutes(app, supabase) {
       // 1) Actualizar BOE
       await fetch(`${baseUrl}/boe/actualizar?token=${token}`);
 
-      // 2) Procesar con IA
+      // 2) Procesar con IA (clasifica y resume, pone estado_ia = 'listo')
       await fetch(`${baseUrl}/alertas/procesar-ia?token=${token}`);
 
-      // 3) Enviar WhatsApp
+      // 3) Deduplicar (marca duplicados cross-boletín como estado_ia = 'duplicado')
+      await fetch(`${baseUrl}/alertas/deduplicar?token=${token}`);
+
+      // 4) Enviar WhatsApp a usuarios free
       await fetch(`${baseUrl}/alertas/enviar-whatsapp?token=${token}`);
 
       res.json({
         success: true,
-        mensaje: 'Pipeline diario ejecutado (boe -> ia -> whatsapp)',
+        mensaje: 'Pipeline diario ejecutado (boe -> ia -> deduplicar -> whatsapp)',
       });
     } catch (err) {
       console.error('Error en /tareas/pipeline-diario', err);

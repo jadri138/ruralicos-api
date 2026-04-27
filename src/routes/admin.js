@@ -40,11 +40,14 @@ module.exports = (app, supabase) => {
         if (u.created_at && u.created_at >= hace7dias) nuevosUltimos7dias++;
       }
 
-      // WhatsApp hoy
-      const enviadosHoyPro  = (logs || []).filter(l => l.status === 'sent'   && l.message_type === 'alerta_pro').length;
-      const enviadosHoyFree = (logs || []).filter(l => l.status === 'sent'   && l.message_type === 'alerta_free').length;
-      const fallidosHoyPro  = (logs || []).filter(l => l.status === 'failed' && l.message_type === 'alerta_pro').length;
-      const fallidosHoyFree = (logs || []).filter(l => l.status === 'failed' && l.message_type === 'alerta_free').length;
+      // WhatsApp hoy — digest_pro y alerta_pro cuentan como PRO
+      const esPro  = (t) => t === 'alerta_pro'  || t === 'digest_pro';
+      const esFree = (t) => t === 'alerta_free';
+
+      const enviadosHoyPro  = (logs || []).filter(l => l.status === 'sent'   && esPro(l.message_type)).length;
+      const enviadosHoyFree = (logs || []).filter(l => l.status === 'sent'   && esFree(l.message_type)).length;
+      const fallidosHoyPro  = (logs || []).filter(l => l.status === 'failed' && esPro(l.message_type)).length;
+      const fallidosHoyFree = (logs || []).filter(l => l.status === 'failed' && esFree(l.message_type)).length;
 
       return res.json({
         totalUsuarios,
@@ -63,6 +66,50 @@ module.exports = (app, supabase) => {
     } catch (err) {
       console.error('Error en /admin/dashboard:', err);
       return res.status(500).json({ error: 'Error interno en dashboard' });
+    }
+  });
+
+  // ──────────────────────────────────────────────────────────────────
+  // GET /admin/whatsapp-logs
+  // ──────────────────────────────────────────────────────────────────
+  app.get('/admin/whatsapp-logs', requireAdmin, async (req, res) => {
+    try {
+      const limit = Math.min(parseInt(req.query.limit || '200', 10), 500);
+
+      const { data, error } = await supabase
+        .from('whatsapp_logs')
+        .select('id, phone, status, message_type, created_at, error_msg')
+        .order('created_at', { ascending: false })
+        .limit(limit);
+
+      if (error) return res.status(500).json({ error: error.message });
+      return res.json({ logs: data || [] });
+
+    } catch (err) {
+      console.error('Error en /admin/whatsapp-logs:', err);
+      return res.status(500).json({ error: 'Error interno' });
+    }
+  });
+
+  // ──────────────────────────────────────────────────────────────────
+  // GET /admin/digests
+  // ──────────────────────────────────────────────────────────────────
+  app.get('/admin/digests', requireAdmin, async (req, res) => {
+    try {
+      const limit = Math.min(parseInt(req.query.limit || '100', 10), 500);
+
+      const { data, error } = await supabase
+        .from('digests')
+        .select('id, user_id, fecha, mensaje, enviado, enviado_at, created_at, alerta_ids')
+        .order('created_at', { ascending: false })
+        .limit(limit);
+
+      if (error) return res.status(500).json({ error: error.message });
+      return res.json({ digests: data || [] });
+
+    } catch (err) {
+      console.error('Error en /admin/digests:', err);
+      return res.status(500).json({ error: 'Error interno' });
     }
   });
 
