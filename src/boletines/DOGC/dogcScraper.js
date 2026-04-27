@@ -2,20 +2,16 @@
 //
 // Scraper del DOGC (Diari Oficial de la Generalitat de Catalunya).
 //
-// Fuente de datos: API Socrata (datos abiertos de la Generalitat)
-//   https://analisi.transparenciacatalunya.cat/resource/n6hn-rmy7.json
-//
-// Cubre: Lleis, Decrets, Ordres, Resolucions, Acords y Anuncis
-// publicados en el DOGC para una fecha concreta.
-//
-// Para cada disposición relevante se intenta obtener el texto completo
-// desde la URL HTML oficial. Si falla, se usa el título como contenido.
+// Fuente de datos: API interna de portaldogc.gencat.cat (real-time, mismo día)
+//   POST /eadop-rest/api/dogc/summaryLastPublishedDOGC  → número DOGC del día
+//   POST /eadop-rest/api/dogc/summaryDOGC               → documentos del número
 
-const axios  = require('axios');
+const axios   = require('axios');
 const cheerio = require('cheerio');
 
-const SOCRATA_URL = 'https://analisi.transparenciacatalunya.cat/resource/n6hn-rmy7.json';
-const DELAY_MS    = 800; // delay entre fetches de HTML para no saturar
+const BASE_REST  = 'https://portaldogc.gencat.cat/eadop-rest/api/dogc';
+const BASE_HTML  = 'https://dogc.gencat.cat/es/document-del-dogc/';
+const DELAY_MS   = 800;
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
@@ -27,20 +23,60 @@ function getFechaHoyISO() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-// Extrae texto limpio de una página HTML del DOGC
+// Extrae documentId del PDF URL:
+// https://portaldogc.gencat.cat/utilsEADOP/AppJava/PdfProviderServlet?documentId=1042861&type=01...
+function extraerDocumentId(pdfUrl) {
+  if (!pdfUrl) return null;
+  const m = pdfUrl.match(/documentId=(\d+)/);
+  return m ? m[1] : null;
+}
+
+// Recorre la estructura anidada section → header → document y devuelve lista plana
+function extraerDocumentos(sections) {
+  const docs = [];
+  if (!Array.isArray(sections)) return docs;
+
+  for (const section of sections) {
+    // Recursión en subsecciones
+    if (Array.isArray(section.section)) {
+      docs.push(...extraerDocumentos(section.section));
+    }
+    if (!Array.isArray(section.header)) continue;
+    for (const header of section.header) {
+      if (!Array.isArray(header.document)) continue;
+      for (const doc of header.document) {
+        const titulo = (doc.title || '').replace(/\s+/g, ' ').trim().slice(0, 250);
+        const pdfUrl = doc.linkDownloadDocumentPDF || null;
+        const docId  = extraerDocumentId(pdfUrl);
+        const urlHtml = docId
+          ? `${BASE_HTML}?action=fitxa&documentId=${docId}`
+          : null;
+
+        docs.push({
+          titulo,
+          docId,
+          url:    urlHtml || pdfUrl || '',
+          urlPdf: pdfUrl || null,
+          _urlHtml: urlHtml,
+        });
+      }
+    }
+  }
+  return docs;
+}
+
+// Fetch texto limpio de la página HTML del DOGC
 async function fetchTextoHtml(url) {
   try {
     const { data } = await axios.get(url, {
       timeout: 15000,
       headers: {
-        'Accept': 'text/html',
+        Accept: 'text/html',
         'User-Agent': 'Mozilla/5.0 (compatible; Ruralicos/1.0)',
       },
     });
     const $ = cheerio.load(data);
-    // Eliminar nav, header, footer, scripts y estilos
     $('nav, header, footer, script, style, .menu, .breadcrumb, .related').remove();
-    // Intentar extraer el contenido principal
     const main = $('article, main, .contingut, #contingut, .document-content, .cos-document').text()
       || $('body').text();
     return main.replace(/\s+/g, ' ').trim().slice(0, 12000);
@@ -50,66 +86,63 @@ async function fetchTextoHtml(url) {
 }
 
 // ─────────────────────────────────────────────
-// Función principal
+// Paso 1: obtener número del DOGC publicado hoy
 // ─────────────────────────────────────────────
-async function obtenerDocumentosDogcPorFecha(fechaISO) {
-  const fechaSiguiente = new Date(fechaISO);
-  fechaSiguiente.setDate(fechaSiguiente.getDate() + 1);
-  const fechaSigStr = fechaSiguiente.toISOString().slice(0, 10);
+async function obtenerNumDogcHoy() {
+  const { data } = await axios.post(
+    `${BASE_REST}/summaryLastPublishedDOGC`,
+    'language=es',
+    {
+      timeout: 15000,
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Accept: 'application/json',
+      },
+    },
+  );
 
-  const where  = `data_de_publicaci_del_diari >= '${fechaISO}T00:00:00.000' AND data_de_publicaci_del_diari < '${fechaSigStr}T00:00:00.000'`;
-  const params = new URLSearchParams({
-    '$where': where,
-    '$limit': '200',
-    '$order': 'data_de_publicaci_del_diari ASC',
-  });
-
-  console.log('[DOGC] Consultando Socrata para', fechaISO);
-  const { data } = await axios.get(`${SOCRATA_URL}?${params}`, {
-    timeout: 20000,
-    headers: { Accept: 'application/json' },
-  });
-
-  if (!Array.isArray(data) || data.length === 0) {
-    console.log('[DOGC] Sin disposiciones para', fechaISO);
-    return [];
-  }
-
-  console.log(`[DOGC] ${data.length} disposiciones encontradas`);
-
-  return data.map(d => {
-    // Preferimos título en castellano; fallback al catalán
-    const titulo = (d.t_tol_de_la_norma_es || d.t_tol_de_la_norma || '').replace(/\s+/g, ' ').trim().slice(0, 250);
-    const rang   = d.rang_de_norma || '';
-    const numero = d.n_mero_de_diari || '';
-
-    // URL HTML en castellano preferida; fallback catalán
-    const urlHtml = d.url_es_formato_html?.url || d.format_html?.url || null;
-    const urlPdf  = d.url_es_formato_pdf?.url  || d.format_pdf?.url  || null;
-
-    return {
-      titulo,
-      rang,
-      url:    urlHtml || urlPdf || '',
-      urlPdf: urlPdf || null,
-      fecha:  fechaISO,
-      seccion: rang,
-      // texto se rellena luego para los relevantes
-      texto: titulo,
-      _urlHtml: urlHtml,
-    };
-  }).filter(d => d.url);
+  const numDOGC = data?.sumaris?.[0]?.numDOGC;
+  if (!numDOGC) throw new Error('[DOGC] No se obtuvo numDOGC de summaryLastPublishedDOGC');
+  console.log('[DOGC] Número DOGC hoy:', numDOGC);
+  return numDOGC;
 }
 
+// ─────────────────────────────────────────────
+// Paso 2: obtener lista de documentos del DOGC
+// seccion=1 cubre Disposicions generals + Altres disposicions + Anuncis
+// ─────────────────────────────────────────────
+async function obtenerDocumentosDogcPorNumero(numDOGC) {
+  const { data } = await axios.post(
+    `${BASE_REST}/summaryDOGC`,
+    `language=es&numDOGC=${numDOGC}&seccion=1`,
+    {
+      timeout: 20000,
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Accept: 'application/json',
+      },
+    },
+  );
+
+  const sections = data?.sumaris?.[0]?.section;
+  const docs = extraerDocumentos(sections);
+  console.log(`[DOGC] ${docs.length} documentos encontrados en DOGC ${numDOGC}`);
+  return docs;
+}
+
+// ─────────────────────────────────────────────
+// Función principal exportada
+// ─────────────────────────────────────────────
 async function obtenerDocumentosDogcConTexto(fechaISO, esRuralRelevante) {
-  const docs = await obtenerDocumentosDogcPorFecha(fechaISO);
+  const numDOGC = await obtenerNumDogcHoy();
+  const todos   = await obtenerDocumentosDogcPorNumero(numDOGC);
+
   const resultado = [];
 
-  for (const doc of docs) {
-    // Pre-filtro por título antes de hacer fetch de HTML
+  for (const doc of todos) {
+    if (!doc.url) continue;
     if (!esRuralRelevante(doc.titulo)) continue;
 
-    // Intentar obtener texto completo
     let texto = doc.titulo;
     if (doc._urlHtml) {
       await sleep(DELAY_MS);
@@ -117,9 +150,10 @@ async function obtenerDocumentosDogcConTexto(fechaISO, esRuralRelevante) {
       if (contenidoHtml.length > 100) texto = contenidoHtml;
     }
 
-    resultado.push({ ...doc, texto });
+    resultado.push({ ...doc, fecha: fechaISO, texto });
   }
 
+  console.log(`[DOGC] ${resultado.length} documentos relevantes para insertar`);
   return resultado;
 }
 
