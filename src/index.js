@@ -24,6 +24,7 @@ const bocylRoutes = require('./routes/bocyl');
 const bojaRoutes = require('./routes/boja');
 const doeRoutes = require('./routes/doe');
 const docmRoutes = require('./routes/docm');
+const bormRoutes = require('./routes/borm');
 const digestRoutes = require('./routes/digest');
 
 
@@ -115,6 +116,7 @@ bocylRoutes(app, supabase);
 bojaRoutes(app, supabase);
 doeRoutes(app, supabase);
 docmRoutes(app, supabase);
+bormRoutes(app, supabase);
 digestRoutes(app, supabase);
 
 
