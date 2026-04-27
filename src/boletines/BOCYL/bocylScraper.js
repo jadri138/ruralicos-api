@@ -1,80 +1,90 @@
 // src/boletines/BOCYL/bocylScraper.js
 //
-// Scraper del BOCYL (Boletín Oficial de Castilla y León) usando la API REST oficial.
+// Scraper del BOCYL (Boletín Oficial de Castilla y León) usando scraping directo
+// de la web oficial: https://bocyl.jcyl.es/boletin.do?fechaBoletin=DD/MM/YYYY
 //
-// Fuente primaria — API OpenDataSoft de la JCyL (sin autenticación):
-//   https://analisis.datosabiertos.jcyl.es/api/explore/v2.1/catalog/datasets/bocyl/records
-//
-// Cada registro incluye metadatos completos + URLs a HTML (.do), XML y PDF.
-// Se descarga el HTML de la disposición para obtener el texto completo;
-// si el HTML no está disponible se usa el PDF como fallback.
+// La API OpenDataSoft anterior acumula retraso de horas el mismo día de publicación,
+// lo que impedía procesar el boletín en el cron de las 8:30h.
 
 const axios = require('axios');
-const { htmlATexto }     = require('../../utils/htmlParser');
+const { htmlATexto }      = require('../../utils/htmlParser');
 const { extraerTextoPdf } = require('../../utils/pdfExtractor');
 
-const API_BOCYL = 'https://analisis.datosabiertos.jcyl.es/api/explore/v2.1/catalog/datasets/bocyl/records';
-
-// ─────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────
+const BOCYL_BASE  = 'https://bocyl.jcyl.es/';
+const BOCYL_INDEX = 'https://bocyl.jcyl.es/boletin.do';
 
 function getFechaHoyYYYYMMDD() {
-  const d = new Date();
-  return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+  const fmt = new Intl.DateTimeFormat('es-ES', {
+    timeZone: 'Europe/Madrid',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+  });
+  const [dd, mm, yyyy] = fmt.format(new Date()).split('/');
+  return `${yyyy}${mm}${dd}`;
 }
 
-// La API devuelve URLs con http:// — forza HTTPS
-function toHttps(url) {
-  return url ? String(url).replace(/^http:\/\//i, 'https://') : null;
+// Elimina comentarios HTML antes de parsear para ignorar los <li> comentados
+// que el BOCYL incluye como duplicados alternativos de cada enlace.
+function quitarComentarios(html) {
+  return html.replace(/<!--[\s\S]*?-->/g, '');
 }
 
-// ─────────────────────────────────────────────
-// Paso 1: obtener todos los registros de la API
-// para una fecha ISO (YYYY-MM-DD), paginando si es necesario.
-// ─────────────────────────────────────────────
-async function obtenerRegistrosAPI(fechaISO) {
-  const registros = [];
-  let offset      = 0;
-  const limit     = 100;
+// Extrae todas las disposiciones del HTML del índice diario.
+// Patrón: <p>TÍTULO</p> + <ul class="descargaBoletin">PDF+HTML</ul>
+// El organismo precede al bloque en un <h5>.
+function parsearBocyl(html, fechaISO) {
+  const limpio   = quitarComentarios(html);
+  const entradas = [];
 
-  while (true) {
-    const url = `${API_BOCYL}?limit=${limit}&offset=${offset}&refine=fecha_publicacion:${fechaISO}&order_by=pagina_inicial%20asc`;
-    console.log('[BOCYL] API →', url);
-
-    const { data } = await axios.get(url, {
-      timeout: 30000,
-      headers: { Accept: 'application/json' },
-    });
-
-    if (!data.results || data.results.length === 0) break;
-    registros.push(...data.results);
-    console.log(`[BOCYL] ${registros.length} / ${data.total_count || '?'} registros`);
-    if (registros.length >= (data.total_count || 0)) break;
-    offset += limit;
+  // Posiciones de organismos (<h5>) para asociar cada bloque con su organismo
+  const organismos = [];
+  const reOrg = /<h5[^>]*>([\s\S]*?)<\/h5>/gi;
+  let mo;
+  while ((mo = reOrg.exec(limpio)) !== null) {
+    const texto = mo[1].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+    if (texto) organismos.push({ pos: mo.index, texto });
   }
 
-  return registros;
+  // Cada disposición: <p>TÍTULO</p> seguido de <ul class="descargaBoletin">...</ul>
+  const reBloque = /<p>([\s\S]*?)<\/p>\s*\n?\s*<ul class="descargaBoletin">([\s\S]*?)<\/ul>/gi;
+  let m;
+  while ((m = reBloque.exec(limpio)) !== null) {
+    const tituloRaw = m[1];
+    const ulContent = m[2];
+
+    const titulo = tituloRaw.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 250);
+    if (!titulo || titulo.length < 10) continue;
+
+    // PDF: URL absoluta ya presente en el HTML
+    const pdfMatch = ulContent.match(/href='(https:\/\/bocyl\.jcyl\.es\/boletines\/[^']+\.pdf)'/);
+    const pdfUrl   = pdfMatch ? pdfMatch[1] : null;
+
+    // HTML: URL relativa que empieza por html/
+    const htmlMatch = ulContent.match(/href='(html\/[^']+\.do)'/);
+    const htmlUrl   = htmlMatch ? BOCYL_BASE + htmlMatch[1] : null;
+
+    if (!pdfUrl && !htmlUrl) continue;
+
+    // Organismo más cercano anterior al bloque
+    const pos = m.index;
+    let organismo = '';
+    for (const org of organismos) {
+      if (org.pos < pos) organismo = org.texto;
+      else break;
+    }
+
+    entradas.push({ titulo, pdfUrl, htmlUrl, fecha: fechaISO, organismo });
+  }
+
+  return entradas;
 }
 
-// ─────────────────────────────────────────────
-// Paso 2: para una disposición, obtener su texto completo.
-//   1. HTML (.do servlet)  → texto limpio vía htmlATexto
-//   2. PDF                 → texto extraído vía pdfjs
-//   3. Metadatos de la API → fallback mínimo
-// ─────────────────────────────────────────────
-async function obtenerTextoDisposicion(r) {
-  // — Intento 1: HTML —
-  const htmlUrl = toHttps(r.enlace_fichero_html);
+async function obtenerTextoDisposicion(htmlUrl, pdfUrl) {
+  // Intento 1: HTML
   if (htmlUrl) {
     try {
       const { data } = await axios.get(htmlUrl, {
         timeout: 20000,
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (RuralicosBot/2.0)',
-          'Accept':     'text/html',
-          'Referer':    'https://bocyl.jcyl.es/',
-        },
+        headers: { 'User-Agent': 'Mozilla/5.0 (RuralicosBot/2.0)', Accept: 'text/html', Referer: BOCYL_BASE },
       });
       const texto = htmlATexto(String(data));
       if (texto.length > 200) return texto;
@@ -83,18 +93,13 @@ async function obtenerTextoDisposicion(r) {
     }
   }
 
-  // — Intento 2: PDF —
-  const pdfUrl = toHttps(r.enlace_fichero_pdf);
+  // Intento 2: PDF
   if (pdfUrl) {
     try {
       const { data } = await axios.get(pdfUrl, {
         responseType: 'arraybuffer',
-        timeout:      30000,
-        headers: {
-          Accept:       'application/pdf,*/*',
-          'User-Agent': 'Mozilla/5.0 (RuralicosBot/2.0)',
-          Referer:      'https://bocyl.jcyl.es/',
-        },
+        timeout: 30000,
+        headers: { Accept: 'application/pdf,*/*', 'User-Agent': 'Mozilla/5.0 (RuralicosBot/2.0)', Referer: BOCYL_BASE },
         validateStatus: s => s >= 200 && s < 400,
       });
       const buf = Buffer.from(data);
@@ -106,44 +111,50 @@ async function obtenerTextoDisposicion(r) {
     }
   }
 
-  // — Fallback: metadatos —
-  return [r.rango, r.titulo, r.organismo, r.seccion].filter(Boolean).join('\n');
+  return '';
 }
 
-// ─────────────────────────────────────────────
-// Función principal
-// Devuelve array de disposiciones con texto completo para una fecha (YYYYMMDD).
-// ─────────────────────────────────────────────
 async function obtenerDocumentosBocylPorFecha(fechaYYYYMMDD) {
   const año = fechaYYYYMMDD.slice(0, 4);
   const mes = fechaYYYYMMDD.slice(4, 6);
   const dia = fechaYYYYMMDD.slice(6, 8);
-  const fechaISO = `${año}-${mes}-${dia}`;
+  const fechaISO   = `${año}-${mes}-${dia}`;
+  const fechaSlash = `${dia}/${mes}/${año}`;
 
-  const registros = await obtenerRegistrosAPI(fechaISO);
-  if (!registros.length) return [];
+  const urlIndice = `${BOCYL_INDEX}?fechaBoletin=${fechaSlash}`;
+  console.log('[BOCYL] Índice →', urlIndice);
+
+  let html;
+  try {
+    const { data } = await axios.get(urlIndice, {
+      timeout: 30000,
+      headers: { 'User-Agent': 'Mozilla/5.0 (RuralicosBot/2.0)', Accept: 'text/html', Referer: BOCYL_BASE },
+      validateStatus: s => s >= 200 && s < 400,
+    });
+    html = typeof data === 'string' ? data : '';
+  } catch (e) {
+    console.error('[BOCYL] Error obteniendo índice:', e.message);
+    return [];
+  }
+
+  const entradas = parsearBocyl(html, fechaISO);
+  if (!entradas.length) {
+    console.log('[BOCYL] Sin boletín para', fechaISO);
+    return [];
+  }
+
+  console.log(`[BOCYL] ${entradas.length} entradas encontradas`);
 
   const resultado = [];
-
-  for (const r of registros) {
-    const urlPdf  = toHttps(r.enlace_fichero_pdf);
-    const urlHtml = toHttps(r.enlace_fichero_html);
-    // URL canónica: PDF si existe (es un enlace estable y único); sino HTML
-    const url = urlPdf || urlHtml || `https://bocyl.jcyl.es/boletin.do?fechaBoletin=${dia}/${mes}/${año}`;
-
-    const texto = await obtenerTextoDisposicion(r);
-
-    // Título limpio: rango + título oficial de la API (ya es texto plano)
-    const titulo = `${r.rango ? r.rango + ' – ' : ''}${r.titulo || r.organismo || 'Disposición BOCYL'}`
-      .replace(/\s+/g, ' ').trim().slice(0, 220);
-
+  for (const entrada of entradas) {
+    const texto = await obtenerTextoDisposicion(entrada.htmlUrl, entrada.pdfUrl);
     resultado.push({
-      titulo,
-      url,
+      titulo:    entrada.titulo,
+      url:       entrada.pdfUrl || entrada.htmlUrl,
       texto,
-      fecha:     r.fecha_publicacion || fechaISO, // YYYY-MM-DD
-      seccion:   r.seccion   || '',
-      organismo: r.organismo || '',
+      fecha:     entrada.fecha,
+      seccion:   '',
+      organismo: entrada.organismo,
     });
   }
 

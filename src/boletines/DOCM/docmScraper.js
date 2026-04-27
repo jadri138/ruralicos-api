@@ -15,45 +15,49 @@ function getFechaHoyYYYYMMDD() {
   return `${yyyy}${mm}${dd}`;
 }
 
-function absoluta(href) {
-  if (!href) return null;
-  const cleaned = href.replace(/&amp;/g, '&').trim();
-  if (/^https?:\/\//i.test(cleaned)) return cleaned;
-  if (cleaned.startsWith('/docm/')) return `https://docm.jccm.es${cleaned}`;
-  if (cleaned.startsWith('/')) return `https://docm.jccm.es${cleaned}`;
-  return `${DOCM_BASE}${cleaned}`;
+
+// Decodifica entidades HTML básicas en un título.
+function decodificarEntidades(s) {
+  return s
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+    .replace(/&[a-z]+;/g, ' ');
 }
 
 // Extrae entradas de documentos del HTML del índice diario.
-// Cada enlace a verArchivoHtml.do contiene el título y la ruta del fichero.
+// El DOCM usa <a href="./descargarArchivo.do?ruta=.../pdf/NID.pdf&amp;tipo=rutaDocm" class="new-window">TITULO</a>
+// para cada disposición. La URL HTML se deriva sustituyendo /pdf/ → /html/ y .pdf → .html.
 function parsearIndice(html, fechaYYYYMMDD) {
   const entradas = [];
+  const vistos = new Set();
   const fechaISO = `${fechaYYYYMMDD.slice(0, 4)}-${fechaYYYYMMDD.slice(4, 6)}-${fechaYYYYMMDD.slice(6, 8)}`;
 
-  const re = /href\s*=\s*["']([^"']*verArchivoHtml\.do\?ruta=([^&"']+)[^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  // Captura: ruta del PDF (group 1), NID sin extensión (group 2), texto del enlace (group 3)
+  const re = /href="[^"]*descargarArchivo\.do\?ruta=([\d]{4}\/[\d]{2}\/[\d]{2}\/pdf\/([^"&]+)\.pdf)&amp;tipo=rutaDocm"[^>]*class\s*=\s*"new-window"[^>]*>([\s\S]*?)<\/a>/gi;
 
   let m;
   while ((m = re.exec(html)) !== null) {
-    const href = m[1];
-    const ruta = decodeURIComponent(m[2].replace(/&amp;/g, '&'));
+    const rutaPdf = m[1];
+    const nid = m[2];
     const tituloRaw = m[3];
 
-    const titulo = tituloRaw
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .slice(0, 250);
+    // Normalizar título (descartar iconos u otras entradas sin texto real)
+    const titulo = decodificarEntidades(
+      tituloRaw.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+    ).slice(0, 250);
 
     if (!titulo || titulo.length < 5) continue;
+    if (vistos.has(nid)) continue;
+    vistos.add(nid);
 
-    const htmlUrl = absoluta(href.replace(/&amp;/g, '&'));
-
-    // Derivar URL PDF sustituyendo /html/ → /pdf/ y .html → .pdf en la ruta
-    const rutaPdf = ruta.replace('/html/', '/pdf/').replace(/\.html$/, '.pdf');
     const pdfUrl = `${DOCM_BASE}descargarArchivo.do?ruta=${rutaPdf}&tipo=rutaDocm`;
+    const rutaHtml = rutaPdf.replace('/pdf/', '/html/').replace(/\.pdf$/, '.html');
+    const htmlUrl = `${DOCM_BASE}verArchivoHtml.do?ruta=${rutaHtml}&tipo=rutaDocm`;
 
-    // Fecha desde la ruta (formato YYYY/MM/DD/...)
-    const partes = ruta.split('/');
+    const partes = rutaPdf.split('/');
     const fecha = partes.length >= 3
       ? `${partes[0]}-${partes[1]}-${partes[2]}`
       : fechaISO;
