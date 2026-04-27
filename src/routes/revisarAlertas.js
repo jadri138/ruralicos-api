@@ -245,6 +245,7 @@ ${JSON.stringify(input)}
         const updateData = { revision_final: true };
 
         if (rev.enviar === false) {
+          updateData.estado_ia = "descartado";
           updateData.resumen = "NO IMPORTA";
           updateData.provincias = [];
           updateData.sectores = [];

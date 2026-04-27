@@ -218,17 +218,24 @@ Eres el asistente de alertas agrarias de Ruralicos. Redacta el mensaje de WhatsA
 
 Fecha: ${fecha}
 Plan del usuario: ${plan.nombre}
-Número de alertas hoy: ${alertas.length}
 ${bloqueExtra}
-FORMATO OBLIGATORIO — respeta esta estructura al pie de la letra:
+Se te pasan ${alertas.length} alertas candidatas. TÚ decides cuáles incluir en el mensaje final según el perfil del usuario. Descarta sin explicación las que claramente no le apliquen.
+
+CRITERIOS DE DESCARTE:
+- Expedientes administrativos individuales (concesiones de agua, autorizaciones de vertido, extinción de derechos) que afectan a un titular concreto que no es este usuario.
+- Alertas de sectores o actividades que no encajan con el perfil del usuario (ej. normativa de viñedo a un ganadero de vacuno).
+- Anuncios de obras o licitaciones en municipios o provincias que no son de su zona.
+- Si tras filtrar no queda ninguna alerta relevante, responde SOLO con el texto: SIN_ALERTAS
+
+FORMATO OBLIGATORIO para las alertas que SÍ incluyas:
 
 ${saludo}
 
 *🌾 Ruralicos — Tu resumen del ${fecha}*
 
-Tienes *${alertas.length} alerta${alertas.length !== 1 ? 's' : ''}* relevante${alertas.length !== 1 ? 's' : ''} hoy:
+Tienes *N alerta${alertas.length !== 1 ? 's' : ''}* relevante${alertas.length !== 1 ? 's' : ''} hoy:
 
-[Para cada alerta, este bloque numerado:]
+[Para cada alerta seleccionada, este bloque numerado:]
 *N. [Título breve y descriptivo de la alerta]*
 [Resumen. ${nivelDetalle}]
 🔗 [URL exacta de la alerta]
@@ -236,6 +243,7 @@ Tienes *${alertas.length} alerta${alertas.length !== 1 ? 's' : ''}* relevante${a
 _Cualquier duda, visita ruralicos.com_ 🚜
 
 REGLAS:
+- Ajusta el número N del encabezado al total de alertas que realmente incluyas.
 - Máximo 1600 caracteres en total. Si hay muchas alertas, reduce las frases de cada una.
 - Lenguaje sencillo y directo. El usuario es profesional del campo, no un abogado.
 - NO inventes datos que no estén en los resúmenes.
@@ -243,7 +251,7 @@ REGLAS:
 - El enlace 🔗 va al final de cada bloque de alerta, en su propia línea.
 - No añadas secciones ni texto fuera del formato, salvo que las PREFERENCIAS PERSONALES DEL USUARIO lo indiquen explícitamente.
 
-ALERTAS:
+ALERTAS CANDIDATAS:
 ${bloqueAlertas}
 
 Responde ÚNICAMENTE con el mensaje WhatsApp final. Sin JSON, sin explicaciones, sin nada más.
@@ -346,12 +354,20 @@ module.exports = function digestRoutes(app, supabase) {
         console.log(`[digest] User ${user.id} (${plan.nombre}) → ${alertasUsuario.length} alertas → generando...`);
 
         try {
-          const mensaje = await generarMensajeDigest({
+          const mensajeRaw = await generarMensajeDigest({
             user,
             alertas: alertasUsuario,
             fecha:   hoy,
             plan,
           });
+
+          if (!mensajeRaw || mensajeRaw.trim() === 'SIN_ALERTAS') {
+            sinAlertas++;
+            console.log(`[digest] User ${user.id} → IA descartó todas las alertas → sin digest`);
+            continue;
+          }
+
+          const mensaje = mensajeRaw;
 
           const { error: insertError } = await supabase
             .from('digests')
