@@ -13,7 +13,6 @@ module.exports = function tareasRoutes(app, supabase) {
       // 1) Actualizar fuentes
       await fetch(`${baseUrl}/boe/actualizar?token=${token}`);
       await fetch(`${baseUrl}/scrape-dogc?token=${token}`);
-      await fetch(`${baseUrl}/scrape-dogv?token=${token}`);
 
       // 2) Procesar con IA (clasifica y resume, pone estado_ia = 'listo')
       await fetch(`${baseUrl}/alertas/procesar-ia?token=${token}`);
