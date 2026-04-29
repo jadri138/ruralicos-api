@@ -26,7 +26,7 @@ const INCLUIR_RURAL = [
   'solicitud unica', 'subvenciones agrarias', 'subvenciones agro',
   'regadio', 'regad', 'riego',
   'fitosanit', 'zoosanit', 'sanidad animal', 'plaga',
-  'vitivinicol', 'vino', 'vinedo', 'olivar', 'frutal',
+  'vitivinicol', 'vino', 'vinedo', 'viñedo', 'olivar', 'frutal',
   'cereal', 'forraje', 'pasto', 'explotaci',
   'denominacion de origen', 'calidad agroalimentaria',
   'industria agroalimentaria', 'agroalimentari',
