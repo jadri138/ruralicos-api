@@ -34,6 +34,7 @@ const bonRoutes        = require('./routes/bon');
 const borRoutes        = require('./routes/bor');
 const bopaRoutes       = require('./routes/bopa');
 const bocmRoutes       = require('./routes/bocm');
+const bocanRoutes      = require('./routes/bocan');
 
 
 
@@ -134,6 +135,7 @@ bonRoutes(app, supabase);
 borRoutes(app, supabase);
 bopaRoutes(app, supabase);
 bocmRoutes(app, supabase);
+bocanRoutes(app, supabase);
 
 
 
