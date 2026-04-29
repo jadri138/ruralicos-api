@@ -3,9 +3,20 @@ const bcrypt = require('bcryptjs');
 const { checkCronToken } = require('../utils/checkCronToken');
 const { normalizePhone, isPhoneValid, LONGITUD_TELEFONO } = require('../utils/phoneNormalizer');
 const { enviarWhatsAppVerificacion, enviarWhatsAppRegistro } = require('../whatsapp');
-const { requireAuth } = require('../../authMiddleware');
+const { requireAuth, requireAdmin } = require('../../authMiddleware');
+const { getPlan, validarPreferencias } = require('../config/planes');
+const { extraerPreferenciasBody, prepararPreferenciasExtra } = require('../utils/preferenciasRequest');
 
 module.exports = function usersRoutes(app, supabase) {
+  function requireAdminOrCron(req, res, next) {
+    if ((process.env.REQUIRE_ADMIN_FOR_USER_ADMIN_ROUTES || 'false').toLowerCase() !== 'true') {
+      return next();
+    }
+    if (req.query.token && process.env.CRON_TOKEN && req.query.token === process.env.CRON_TOKEN) {
+      return next();
+    }
+    return requireAdmin(req, res, next);
+  }
 
   // Ruta de prueba
   app.get('/', (req, res) => {
@@ -451,7 +462,7 @@ module.exports = function usersRoutes(app, supabase) {
   // CAMBIAR PLAN USANDO TELÉFONO (admin)
   // Body: { phone, plan } donde plan es uno de: corral, agricultor, cooperativa, free
   // --------------------------------------------------
-  app.post('/users/cambiar-plan', async (req, res) => {
+  app.post('/users/cambiar-plan', requireAdminOrCron, async (req, res) => {
     let { phone, plan } = req.body;
 
     if (!phone) return res.status(400).json({ error: 'Falta el número de teléfono' });
@@ -483,7 +494,7 @@ module.exports = function usersRoutes(app, supabase) {
   });
 
   // Legacy — se mantienen por compatibilidad con integraciones existentes
-  app.post('/users/upgrade-to-pro', async (req, res) => {
+  app.post('/users/upgrade-to-pro', requireAdminOrCron, async (req, res) => {
     let { phone } = req.body;
     if (!phone) return res.status(400).json({ error: 'Falta el número de teléfono' });
     phone = String(phone).trim().replace(/\D/g, '');
@@ -493,7 +504,7 @@ module.exports = function usersRoutes(app, supabase) {
     res.json({ success: true, user: data });
   });
 
-  app.post('/users/downgrade-to-free', async (req, res) => {
+  app.post('/users/downgrade-to-free', requireAdminOrCron, async (req, res) => {
     let { phone } = req.body;
     if (!phone) return res.status(400).json({ error: 'Falta el número de teléfono' });
     phone = String(phone).trim().replace(/\D/g, '');
@@ -504,7 +515,7 @@ module.exports = function usersRoutes(app, supabase) {
   });
 
   // ELIMINACION DE USUARIO
-  app.delete('/users/:id', async (req, res) => {
+  app.delete('/users/:id', requireAdminOrCron, async (req, res) => {
     const { id } = req.params;
 
     try {
@@ -555,7 +566,7 @@ module.exports = function usersRoutes(app, supabase) {
   // Ruta legacy — la validación de límites por plan está en preferences.js
   // --------------------------------------------------
   app.put('/users/preferences', async (req, res) => {
-    let { phone, ...prefs } = req.body;
+    let { phone } = req.body;
 
     if (!phone) {
       return res.status(400).json({ error: 'Falta el número de teléfono' });
@@ -574,16 +585,38 @@ module.exports = function usersRoutes(app, supabase) {
       return res.status(404).json({ error: 'Usuario no encontrado' });
     }
 
-    // Solo planes de pago pueden guardar preferencias personalizadas
-    if (user.subscription === 'free') {
+    const plan = getPlan(user.subscription);
+
+    // Solo planes con digest pueden guardar preferencias personalizadas
+    if (!plan.digest) {
       return res.status(403).json({
-        error: 'El plan gratuito no permite preferencias personalizadas.',
+        error: `El plan ${plan.nombre} no permite preferencias personalizadas.`,
       });
+    }
+
+    const { preferences: prefs, rawExtra, extraEnviado } = extraerPreferenciasBody(req.body);
+
+    const validacion = validarPreferencias(user.subscription, prefs);
+    if (!validacion.ok) {
+      return res.status(400).json({
+        error: 'Limites del plan superados',
+        detalles: validacion.errores,
+        plan: plan.nombre,
+        limites: plan.limites,
+      });
+    }
+
+    const updateData = { preferences: prefs };
+
+    if (extraEnviado) {
+      const extra = prepararPreferenciasExtra(rawExtra);
+      if (!extra.ok) return res.status(400).json({ error: extra.error });
+      updateData.preferencias_extra = extra.valor;
     }
 
     const { error } = await supabase
       .from('users')
-      .update({ preferences: prefs })
+      .update(updateData)
       .eq('phone', soloDigitos);
 
     if (error) {
@@ -591,7 +624,12 @@ module.exports = function usersRoutes(app, supabase) {
       return res.status(500).json({ error: 'Error guardando preferencias' });
     }
 
-    res.json({ ok: true, preferences: prefs });
+    res.json({
+      ok: true,
+      preferences: prefs,
+      preferencias_extra: updateData.preferencias_extra ?? null,
+      plan: plan.nombre,
+    });
   });
 
   // --------------------------------------------------

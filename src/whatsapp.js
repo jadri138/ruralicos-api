@@ -139,8 +139,8 @@ async function enviarWhatsAppResumen(alerta, supabase) {
   // 1) Obtener usuarios PRO con teléfono
   const { data: usuariosPro, error } = await supabase
     .from('users')
-    .select('id, phone, preferences')
-    .eq('subscription', 'pro')
+    .select('id, phone, preferences, subscription')
+    .in('subscription', ['corral', 'agricultor', 'cooperativa'])
     .not('phone', 'is', null)
     .neq('phone', '');
 

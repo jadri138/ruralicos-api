@@ -210,6 +210,7 @@ module.exports = function boeRoutes(app, supabase) {
                       url: url_pdf,
                       fecha: fechaISO,
                       region: nombreDept,
+                      fuente: 'BOE',
                       contenido: contenidoPlano, // texto extraído del BOE
                     },
                   ]);

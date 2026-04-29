@@ -81,6 +81,7 @@ async function main() {
   const resumir = await runBatchedStep('resumir', '/alertas/resumir');
   const revisar = await runBatchedStep('revisar', '/alertas/revisar');
 
+  const deduplicar = await runSingleStep('deduplicar', '/alertas/deduplicar');
   const prepararDigest = await runSingleStep('preparar-digest', '/alertas/preparar-digest');
   const enviarDigest = await runSingleStep('enviar-digest', '/alertas/enviar-digest');
 
@@ -91,6 +92,7 @@ async function main() {
     clasificar,
     resumir,
     revisar,
+    deduplicar: deduplicar?.deduplicadas ?? null,
     prepararDigest: prepararDigest?.digests_generados ?? null,
     enviarDigest: enviarDigest?.enviados ?? null,
     generarFree: generarFree?.procesadas ?? null,

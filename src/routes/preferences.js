@@ -10,7 +10,7 @@
 
 const { requireAuth } = require('../../authMiddleware');
 const { getPlan, validarPreferencias } = require('../config/planes');
-const { sanitizarPreferenciasExtra } = require('../utils/sanitizarPreferencias');
+const { extraerPreferenciasBody, prepararPreferenciasExtra } = require('../utils/preferenciasRequest');
 
 module.exports = (app, supabase) => {
 
@@ -89,8 +89,8 @@ module.exports = (app, supabase) => {
       const subscription = userData.subscription;
       const plan = getPlan(subscription);
 
-      // 2) Extraer preferencias_extra del body (separado de preferences)
-      const { preferencias_extra, ...prefsBody } = req.body;
+      // 2) Aceptar body plano, { preferences: {...} }, snake_case y camelCase
+      const { preferences: prefsBody, rawExtra, extraEnviado } = extraerPreferenciasBody(req.body);
 
       // 3) Validación hard de límites
       const validacion = validarPreferencias(subscription, prefsBody);
@@ -117,19 +117,10 @@ module.exports = (app, supabase) => {
       const updateData = { preferences };
 
       // preferencias_extra: validar y guardar para cualquier plan
-      if (preferencias_extra !== undefined) {
-        const extraLimpio = typeof preferencias_extra === 'string'
-          ? preferencias_extra.trim().slice(0, 1000)
-          : null;
-
-        if (extraLimpio) {
-          const check = sanitizarPreferenciasExtra(extraLimpio);
-          if (!check.ok) {
-            return res.status(400).json({ error: check.error });
-          }
-        }
-
-        updateData.preferencias_extra = extraLimpio || null;
+      if (extraEnviado) {
+        const extra = prepararPreferenciasExtra(rawExtra);
+        if (!extra.ok) return res.status(400).json({ error: extra.error });
+        updateData.preferencias_extra = extra.valor;
       }
 
       // 6) Guardar en BD
@@ -155,93 +146,4 @@ module.exports = (app, supabase) => {
       return res.status(500).json({ error: 'Error interno' });
     }
   });
-
-  // ══════════════════════════════════════════════════════════════════════
-  // PUT /users/preferences  (ruta legacy por teléfono, usada en users.js)
-  // Se mantiene para compatibilidad pero ahora también valida límites.
-  // ══════════════════════════════════════════════════════════════════════
-  app.put('/users/preferences', async (req, res) => {
-    try {
-      let { phone, preferencias_extra, ...prefs } = req.body;
-
-      if (!phone) {
-        return res.status(400).json({ error: 'Falta el número de teléfono' });
-      }
-
-      phone = String(phone).trim();
-      const soloDigitos = phone.replace(/\D/g, '');
-
-      // 1) Buscar usuario
-      const { data: user, error: errUser } = await supabase
-        .from('users')
-        .select('id, subscription')
-        .eq('phone', soloDigitos)
-        .single();
-
-      if (errUser || !user) {
-        return res.status(404).json({ error: 'Usuario no encontrado' });
-      }
-
-      const subscription = user.subscription;
-      const plan = getPlan(subscription);
-
-      // Solo planes con digest pueden guardar preferencias personalizadas
-      if (!plan.digest) {
-        return res.status(403).json({
-          error: `El plan ${plan.nombre} no permite preferencias personalizadas.`,
-        });
-      }
-
-      // 2) Validación hard de límites
-      const validacion = validarPreferencias(subscription, prefs);
-      if (!validacion.ok) {
-        return res.status(400).json({
-          error: 'Límites del plan superados',
-          detalles: validacion.errores,
-          plan: plan.nombre,
-          limites: plan.limites,
-        });
-      }
-
-      // 3) Preparar y guardar
-      const updateData = { preferences: prefs };
-
-      if (preferencias_extra !== undefined) {
-        const extraLimpio = typeof preferencias_extra === 'string'
-          ? preferencias_extra.trim().slice(0, 1000) || null
-          : null;
-
-        if (extraLimpio) {
-          const check = sanitizarPreferenciasExtra(extraLimpio);
-          if (!check.ok) {
-            return res.status(400).json({ error: check.error });
-          }
-        }
-
-        updateData.preferencias_extra = extraLimpio;
-      }
-
-      const { error } = await supabase
-        .from('users')
-        .update(updateData)
-        .eq('phone', soloDigitos);
-
-      if (error) {
-        console.error('Error guardando preferencias:', error);
-        return res.status(500).json({ error: 'Error guardando preferencias' });
-      }
-
-      return res.json({
-        ok: true,
-        preferences: prefs,
-        preferencias_extra: updateData.preferencias_extra ?? null,
-        plan: plan.nombre,
-      });
-
-    } catch (err) {
-      console.error('Error en PUT /users/preferences:', err);
-      return res.status(500).json({ error: 'Error interno' });
-    }
-  });
-
 };

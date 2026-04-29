@@ -18,6 +18,7 @@ Ejemplo de comandos (GET):
 curl -fsS "$BASE_URL/alertas/clasificar?token=$CRON_TOKEN"
 curl -fsS "$BASE_URL/alertas/resumir?token=$CRON_TOKEN"
 curl -fsS "$BASE_URL/alertas/revisar?token=$CRON_TOKEN"
+curl -fsS "$BASE_URL/alertas/deduplicar?token=$CRON_TOKEN"
 curl -fsS "$BASE_URL/alertas/preparar-digest?token=$CRON_TOKEN"
 curl -fsS "$BASE_URL/alertas/enviar-digest?token=$CRON_TOKEN"
 ```
@@ -36,6 +37,7 @@ curl -fsS "$BASE_URL/alertas/enviar-resumen-free?token=$CRON_TOKEN"
 0 6 * * *   curl -fsS "$BASE_URL/alertas/clasificar?token=$CRON_TOKEN"
 20 6 * * *  curl -fsS "$BASE_URL/alertas/resumir?token=$CRON_TOKEN"
 40 6 * * *  curl -fsS "$BASE_URL/alertas/revisar?token=$CRON_TOKEN"
+20 7 * * *  curl -fsS "$BASE_URL/alertas/deduplicar?token=$CRON_TOKEN"
 30 7 * * *  curl -fsS "$BASE_URL/alertas/preparar-digest?token=$CRON_TOKEN"
 0 8 * * *   curl -fsS "$BASE_URL/alertas/enviar-digest?token=$CRON_TOKEN"
 
@@ -69,6 +71,18 @@ Este script repite automáticamente `clasificar/resumir/revisar` hasta que devue
 - Si `enviar-digest` falla parcialmente, puedes relanzar la misma ruta:
   solo enviará registros con `enviado=false`.
 
+## Diagnostico de digest
+
+Para ver por que un usuario recibiria o no recibiria cada alerta lista del dia:
+
+```bash
+curl -fsS "$BASE_URL/alertas/diagnosticar-digest?phone=600000000&token=$CRON_TOKEN"
+curl -fsS "$BASE_URL/alertas/diagnosticar-digest?user_id=123&fecha=2026-04-29&token=$CRON_TOKEN"
+```
+
+No llama a IA ni envia WhatsApp. Devuelve motivos como `fuente_no_permitida`,
+`provincia_no_coincide`, `sector_no_coincide`, `subsector_no_coincide`,
+`tipo_alerta_no_coincide` o `preferencias_extra_excluye`.
 ## Nota de migración
 
 - Mantener desactivado el flujo legacy por alerta individual (`/alertas/enviar-whatsapp`)

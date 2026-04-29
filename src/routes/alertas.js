@@ -146,7 +146,7 @@ module.exports = function alertasRoutes(app, supabase) {
   // 1) Insertar alerta manual
   // ══════════════════════════════════════════
   app.post('/alertas', async (req, res) => {
-    const { titulo, resumen, url, fecha, region } = req.body;
+    const { titulo, resumen, url, fecha, region, fuente } = req.body;
 
     if (!titulo || !url || !fecha) {
       return res.status(400).json({ error: 'Faltan campos obligatorios: titulo, url o fecha' });
@@ -160,6 +160,7 @@ module.exports = function alertasRoutes(app, supabase) {
         url,
         fecha,
         region,
+        fuente: fuente || 'MANUAL',
         estado_ia: 'pendiente_clasificar',
       }])
       .select();
@@ -553,13 +554,13 @@ Responde ÚNICAMENTE con el mensaje WhatsApp final. Sin JSON, sin explicaciones,
   // ══════════════════════════════════════════════════════════════
   app.post('/alertas/procesar-ia', (req, res) => {
     res.status(410).json({
-      error: 'Ruta deprecada. Usa el pipeline: /alertas/clasificar → /alertas/resumir → /alertas/revisar → /alertas/preparar-digest → /alertas/enviar-digest',
+      error: 'Ruta deprecada. Usa el pipeline: /alertas/clasificar -> /alertas/resumir -> /alertas/revisar -> /alertas/deduplicar -> /alertas/preparar-digest -> /alertas/enviar-digest',
     });
   });
   app.get('/alertas/procesar-ia', (req, res) => {
     if (!checkCronToken(req, res)) return;
     res.status(410).json({
-      error: 'Ruta deprecada. Usa el pipeline: /alertas/clasificar → /alertas/resumir → /alertas/revisar → /alertas/preparar-digest → /alertas/enviar-digest',
+      error: 'Ruta deprecada. Usa el pipeline: /alertas/clasificar -> /alertas/resumir -> /alertas/revisar -> /alertas/deduplicar -> /alertas/preparar-digest -> /alertas/enviar-digest',
     });
   });
 

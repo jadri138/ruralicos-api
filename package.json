@@ -4,7 +4,8 @@
   "main": "index.js",
   "scripts": {
     "start": "node src/index.js",
-    "workflow:digest": "node scripts/run_digest_workflow.js"
+    "workflow:digest": "node scripts/run_digest_workflow.js",
+    "check:core": "node scripts/check_core_logic.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",

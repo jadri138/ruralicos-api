@@ -50,8 +50,9 @@ Para evitar enviar muchas alertas sueltas al mismo usuario, el flujo recomendado
 1. `/alertas/clasificar`
 2. `/alertas/resumir`
 3. `/alertas/revisar`
-4. `/alertas/preparar-digest` (genera 1 mensaje diario por usuario)
-5. `/alertas/enviar-digest` (envía los digest pendientes)
+4. `/alertas/deduplicar`
+5. `/alertas/preparar-digest` (genera 1 mensaje diario por usuario)
+6. `/alertas/enviar-digest` (envía los digest pendientes)
 
 La ruta legacy `/alertas/enviar-whatsapp` queda desactivada por defecto con `DIGEST_ONLY_MODE=true`.
 
@@ -71,10 +72,11 @@ Orden diario recomendado (UTC):
 1. `06:00` → `/alertas/clasificar?token=...`
 2. `06:20` → `/alertas/resumir?token=...`
 3. `06:40` → `/alertas/revisar?token=...`
-4. `07:30` → `/alertas/preparar-digest?token=...`
-5. `08:00` → `/alertas/enviar-digest?token=...`
-6. `08:30` → `/alertas/generar-resumen-free?token=...`
-7. `08:45` → `/alertas/enviar-resumen-free?token=...`
+4. `07:20` → `/alertas/deduplicar?token=...`
+5. `07:30` → `/alertas/preparar-digest?token=...`
+6. `08:00` → `/alertas/enviar-digest?token=...`
+7. `08:30` → `/alertas/generar-resumen-free?token=...`
+8. `08:45` → `/alertas/enviar-resumen-free?token=...`
 
 Detalle y comandos listos para copiar:
 

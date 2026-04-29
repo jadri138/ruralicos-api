@@ -9,23 +9,55 @@ module.exports = function tareasRoutes(app, supabase) {
       const baseUrl =
         process.env.PUBLIC_BASE_URL || 'http://localhost:' + (process.env.PORT || 3000);
       const token = process.env.CRON_TOKEN;
+      const scrapePaths = (process.env.PIPELINE_SCRAPE_PATHS || '/scrape-boe-oficial,/scrape-dogc')
+        .split(',')
+        .map((path) => path.trim())
+        .filter(Boolean);
 
-      // 1) Actualizar fuentes
-      await fetch(`${baseUrl}/boe/actualizar?token=${token}`);
-      await fetch(`${baseUrl}/scrape-dogc?token=${token}`);
+      async function hit(path) {
+        const url = `${baseUrl}${path}${path.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`;
+        const response = await fetch(url);
 
-      // 2) Procesar con IA (clasifica y resume, pone estado_ia = 'listo')
-      await fetch(`${baseUrl}/alertas/procesar-ia?token=${token}`);
+        let body = null;
+        try {
+          body = await response.json();
+        } catch {
+          body = { raw: await response.text() };
+        }
 
-      // 3) Deduplicar (marca duplicados cross-boletín como estado_ia = 'duplicado')
-      await fetch(`${baseUrl}/alertas/deduplicar?token=${token}`);
+        if (!response.ok) {
+          throw new Error(`${path} devolvio ${response.status}: ${JSON.stringify(body)}`);
+        }
 
-      // 4) Enviar WhatsApp a usuarios free
-      await fetch(`${baseUrl}/alertas/enviar-whatsapp?token=${token}`);
+        return { path, body };
+      }
+
+      const scrapers = [];
+      for (const path of scrapePaths) {
+        scrapers.push(await hit(path));
+      }
+
+      const clasificar = await hit('/alertas/clasificar');
+      const resumir = await hit('/alertas/resumir');
+      const revisar = await hit('/alertas/revisar');
+      const deduplicar = await hit('/alertas/deduplicar');
+      const prepararDigest = await hit('/alertas/preparar-digest');
+      const enviarDigest = await hit('/alertas/enviar-digest');
+      const generarResumenFree = await hit('/alertas/generar-resumen-free');
+      const enviarResumenFree = await hit('/alertas/enviar-resumen-free');
 
       res.json({
         success: true,
-        mensaje: 'Pipeline diario ejecutado (boe -> ia -> deduplicar -> whatsapp)',
+        mensaje: 'Pipeline diario ejecutado con flujo digest actual',
+        scrapers,
+        clasificar: clasificar.body,
+        resumir: resumir.body,
+        revisar: revisar.body,
+        deduplicar: deduplicar.body,
+        prepararDigest: prepararDigest.body,
+        enviarDigest: enviarDigest.body,
+        generarResumenFree: generarResumenFree.body,
+        enviarResumenFree: enviarResumenFree.body,
       });
     } catch (err) {
       console.error('Error en /tareas/pipeline-diario', err);

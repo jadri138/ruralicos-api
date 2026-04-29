@@ -29,6 +29,7 @@ alter table public.alertas
   add column if not exists estado_ia text default 'pendiente_clasificar',
   add column if not exists resumen_borrador text,
   add column if not exists resumen_final text,
+  add column if not exists duplicado_de bigint references public.alertas(id) on delete set null,
   add column if not exists fuente text,
   add column if not exists provincias jsonb,
   add column if not exists sectores jsonb,
@@ -38,9 +39,16 @@ alter table public.alertas
 create index if not exists idx_alertas_fecha_estado
   on public.alertas(fecha, estado_ia);
 
+create index if not exists idx_alertas_duplicado_de
+  on public.alertas(duplicado_de)
+  where duplicado_de is not null;
+
 -- 3) Guardrail suave para suscripciones
 alter table public.users
   alter column subscription set default 'corral';
+
+alter table public.users
+  add column if not exists preferencias_extra text;
 
 do $$
 begin
