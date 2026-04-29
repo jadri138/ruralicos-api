@@ -95,6 +95,7 @@ const rutasConFuenteObligatoria = {
   'src/routes/dog.js': "fuente:    'DOG'",
   'src/routes/dogc.js': "fuente:    'DOGC'",
   'src/routes/dogv.js': "fuente:    'DOGV'",
+  'src/routes/bon.js': "fuente: 'BON'",
 };
 
 for (const [file, expected] of Object.entries(rutasConFuenteObligatoria)) {

@@ -51,10 +51,8 @@ const PLANES = {
       sectores:    2,
       subsectores: 4,
     },
-    // BOE + todos los autonómicos disponibles
-    // null aquí significa "cualquier fuente que no sea exclusiva de cooperativa"
-    // En la práctica: BOE, BOA, BOJA, BOCYL, DOE y los que se añadan en el futuro
-    fuentes_permitidas: ['BOE', 'BOA', 'BOJA', 'BOCYL', 'DOE', 'DOCM', 'BORM'],
+    // BOE + todos los autonomicos disponibles y futuros
+    fuentes_permitidas: null,
     campo_libre: true,
     acceso_anticipado: false,
   },
