@@ -33,6 +33,7 @@ const dogRoutes        = require('./routes/dog');
 const bonRoutes        = require('./routes/bon');
 const borRoutes        = require('./routes/bor');
 const bopaRoutes       = require('./routes/bopa');
+const bocmRoutes       = require('./routes/bocm');
 
 
 
@@ -132,6 +133,7 @@ dogRoutes(app, supabase);
 bonRoutes(app, supabase);
 borRoutes(app, supabase);
 bopaRoutes(app, supabase);
+bocmRoutes(app, supabase);
 
 
 
