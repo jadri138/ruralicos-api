@@ -137,7 +137,7 @@ async function obtenerDocumentosSumario(boletin) {
   const docs = [];
   const vistos = new Set();
 
-  $('a[href*="/eboibfront/es/"]').each((_, el) => {
+  $('a[href*="/eboibfront/es/"], a[href*="/dof/spa/html"]').each((_, el) => {
     const textoLink = normalizarEspacios($(el).text());
     if (!/^Versi[oó]n HTML$/i.test(textoLink)) return;
 
