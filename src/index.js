@@ -37,6 +37,7 @@ const bocmRoutes       = require('./routes/bocm');
 const bocanRoutes      = require('./routes/bocan');
 const boibRoutes       = require('./routes/boib');
 const bocantRoutes     = require('./routes/bocant');
+const bopvRoutes       = require('./routes/bopv');
 
 
 
@@ -140,6 +141,7 @@ bocmRoutes(app, supabase);
 bocanRoutes(app, supabase);
 boibRoutes(app, supabase);
 bocantRoutes(app, supabase);
+bopvRoutes(app, supabase);
 
 
 
