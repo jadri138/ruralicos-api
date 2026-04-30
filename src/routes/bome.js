@@ -1,39 +1,33 @@
-// src/routes/bocant.js
+// src/routes/bome.js
 //
-// Scraper del BOC (Boletin Oficial de Cantabria).
-// Cron recomendado: dias laborables a partir de las 08:30h.
+// Scraper del BOME (Boletin Oficial de la Ciudad Autonoma de Melilla).
 
 const { checkCronToken } = require('../utils/checkCronToken');
-const { obtenerDocumentosBocantConTexto, getFechaHoyISO } = require('../boletines/BOCANT/bocantScraper');
+const { obtenerDocumentosBomeConTexto, getFechaHoyISO } = require('../boletines/BOME/bomeScraper');
 
 function normalizar(s) {
   return (s || '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
 }
 
 const EXCLUIR_FUERTE = [
-  'ayuntamiento', 'mancomunidad',
-  'presupuesto', 'modificacion de credito',
-  'recurso contencioso', 'tribunal superior',
-  'oposicion', 'concurso', 'bolsa de empleo', 'proceso selectivo',
-  'nombramiento', 'funcionario', 'interino', 'cese',
-  'matrimonio civil', 'padron', 'urbanismo',
-  'tauromaquia', 'espectaculos publicos',
+  'ayuntamiento', 'administracion publica', 'presidencia e igualdad',
+  'oposicion', 'concurso', 'provision de un puesto', 'aspirantes',
+  'relacion provisional', 'relacion definitiva', 'nombramiento', 'cese',
+  'funcionario', 'personal directivo', 'tribunal', 'juzgado',
+  'presupuesto', 'modificacion de credito', 'contratacion',
+  'vehiculo', 'matrimonio civil',
 ];
 
 const INCLUIR_RURAL = [
-  'agricultur', 'ganader', 'agrari', 'agroalimentari',
+  'agricultur', 'ganader', 'agrari', 'rural',
   'forest', 'monte', 'medio natural',
   'politica agricola comun', 'fega', 'feaga', 'feader',
-  'solicitud unica', 'subvenciones agrarias',
-  'regadio', 'regad', 'riego',
+  'regadio', 'regad', 'riego', 'agua',
   'fitosanit', 'zoosanit', 'sanidad animal', 'plaga',
-  'vitivinicol', 'vino', 'vinedo', 'olivar', 'frutal',
-  'cereal', 'forraje', 'pasto', 'explotaci',
-  'denominacion de origen', 'indicacion geografica', 'calidad alimentaria',
-  'industria agroalimentaria',
-  'consejeria de desarrollo rural',
-  'direccion general de ganaderia',
-  'direccion general de agricultura',
+  'explotaci', 'pasto', 'pastos', 'forraje',
+  'pesca', 'acuicultura',
+  'industria agroalimentaria', 'agroalimentari',
+  'medio ambiente', 'desarrollo rural',
 ];
 
 function esRuralRelevante(texto) {
@@ -42,8 +36,8 @@ function esRuralRelevante(texto) {
   return INCLUIR_RURAL.some((k) => t.includes(normalizar(k)));
 }
 
-module.exports = function bocantRoutes(app, supabase) {
-  async function scrapeBocant(req, res) {
+module.exports = function bomeRoutes(app, supabase) {
+  async function scrapeBome(req, res) {
     if (!checkCronToken(req, res)) return;
 
     let nuevas = 0;
@@ -51,17 +45,17 @@ module.exports = function bocantRoutes(app, supabase) {
     let errores = 0;
 
     try {
-      const fecha = req.query.fecha ? String(req.query.fecha).slice(0, 10) : null;
-      const docs = await obtenerDocumentosBocantConTexto(fecha, esRuralRelevante);
+      const fecha = req.query.fecha ? String(req.query.fecha).slice(0, 10) : getFechaHoyISO();
+      const docs = await obtenerDocumentosBomeConTexto(fecha, esRuralRelevante);
 
       if (!docs.length) {
         return res.json({
           success: true,
-          fecha: fecha || getFechaHoyISO(),
+          fecha,
           nuevas: 0,
           duplicadas: 0,
           errores: 0,
-          mensaje: 'No hay disposiciones BOC Cantabria relevantes en esta fecha',
+          mensaje: 'No hay disposiciones BOME relevantes en esta fecha',
         });
       }
 
@@ -79,13 +73,13 @@ module.exports = function bocantRoutes(app, supabase) {
           estado_ia: 'pendiente_clasificar',
           url: doc.url,
           fecha: doc.fecha,
-          region: 'Cantabria',
-          fuente: 'BOC-CANT',
+          region: 'Melilla',
+          fuente: 'BOME',
           contenido: doc.texto,
         }]);
 
         if (errInsert) {
-          console.error('[BOCANT] Error insertando:', doc.url, errInsert.message);
+          console.error('[BOME] Error insertando:', doc.url, errInsert.message);
           errores++;
           continue;
         }
@@ -94,19 +88,19 @@ module.exports = function bocantRoutes(app, supabase) {
 
       return res.json({
         success: true,
-        fecha: docs[0]?.fecha || fecha,
+        fecha,
         relevantes: docs.length,
         nuevas,
         duplicadas,
         errores,
-        mensaje: 'BOC Cantabria procesado',
+        mensaje: 'BOME procesado',
       });
     } catch (e) {
-      console.error('Error en /scrape-bocant', e);
+      console.error('Error en /scrape-bome', e);
       return res.status(500).json({ error: e.message });
     }
   }
 
-  app.get('/scrape-bocant-oficial', scrapeBocant);
-  app.get('/scrape-bocant', scrapeBocant);
+  app.get('/scrape-bome-oficial', scrapeBome);
+  app.get('/scrape-bome', scrapeBome);
 };

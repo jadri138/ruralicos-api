@@ -3,6 +3,9 @@ const { checkCronToken } = require('../utils/checkCronToken');
 const { llamarIA, parsearJSON } = require('../utils/llamarIA');
 const { enviarWhatsAppResumen } = require('../whatsapp');
 const DIGEST_ONLY_MODE = (process.env.DIGEST_ONLY_MODE || 'true').toLowerCase() !== 'false';
+const CLASIFICAR_BATCH_SIZE = Number(process.env.CLASIFICAR_BATCH_SIZE || 8);
+const RESUMIR_BATCH_SIZE = Number(process.env.RESUMIR_BATCH_SIZE || 5);
+const REVISAR_BATCH_SIZE = Number(process.env.REVISAR_BATCH_SIZE || 5);
 
 // ─────────────────────────────────────────────
 // Helper: construir prompt de clasificación para 1 o N alertas
@@ -194,7 +197,7 @@ module.exports = function alertasRoutes(app, supabase) {
         .select('id, titulo, url, region, fecha, contenido')
         .eq('estado_ia', 'pendiente_clasificar')
         .order('created_at', { ascending: true })
-        .limit(5);
+        .limit(CLASIFICAR_BATCH_SIZE);
 
       if (error) return res.status(500).json({ error: error.message });
       if (!alertas || alertas.length === 0) {
@@ -278,7 +281,7 @@ module.exports = function alertasRoutes(app, supabase) {
         .select('id, titulo, url, region, fecha, contenido')
         .eq('estado_ia', 'pendiente_resumir')
         .order('created_at', { ascending: true })
-        .limit(3);
+        .limit(RESUMIR_BATCH_SIZE);
 
       if (error) return res.status(500).json({ error: error.message });
       if (!alertas || alertas.length === 0) {
@@ -386,7 +389,7 @@ Responde ÚNICAMENTE con el mensaje WhatsApp. Sin JSON, sin explicaciones, sin n
         .select('id, titulo, url, contenido, resumen_borrador')
         .eq('estado_ia', 'pendiente_revisar')
         .order('created_at', { ascending: true })
-        .limit(3);
+        .limit(REVISAR_BATCH_SIZE);
 
       if (error) return res.status(500).json({ error: error.message });
       if (!alertas || alertas.length === 0) {
@@ -547,6 +550,118 @@ Responde ÚNICAMENTE con el mensaje WhatsApp final. Sin JSON, sin explicaciones,
   app.post('/alertas/enviar-whatsapp', (req, res) => {
     if (!checkCronToken(req, res)) return;
     enviarWhatsAppHandler(req, res);
+  });
+
+  app.get('/alertas/estado-pipeline', async (req, res) => {
+    if (!checkCronToken(req, res)) return;
+
+    try {
+      const fecha = /^\d{4}-\d{2}-\d{2}$/.test(req.query.fecha || '')
+        ? req.query.fecha
+        : new Date().toISOString().slice(0, 10);
+
+      const { data, error } = await supabase
+        .from('alertas')
+        .select('id, fuente, estado_ia, resumen')
+        .eq('fecha', fecha)
+        .order('id', { ascending: false });
+
+      if (error) return res.status(500).json({ error: error.message });
+
+      const resumen = {};
+      const pendientes = [];
+
+      for (const alerta of data || []) {
+        const estado = alerta.estado_ia || 'NULL';
+        const tipoResumen = alerta.resumen === 'Procesando con IA...'
+          ? 'procesando'
+          : alerta.resumen === 'NO IMPORTA'
+            ? 'no_importa'
+            : alerta.resumen
+              ? 'con_resumen'
+              : 'sin_resumen';
+        const clave = `${estado} | ${tipoResumen}`;
+        resumen[clave] = (resumen[clave] || 0) + 1;
+
+        if (
+          estado === 'NULL' ||
+          ['pendiente_clasificar', 'pendiente_resumir', 'pendiente_revisar'].includes(estado)
+        ) {
+          pendientes.push({
+            id: alerta.id,
+            fuente: alerta.fuente || null,
+            estado_ia: alerta.estado_ia || null,
+            resumen: tipoResumen,
+          });
+        }
+      }
+
+      return res.json({
+        success: true,
+        fecha,
+        total: (data || []).length,
+        resumen,
+        pendientes_total: pendientes.length,
+        pendientes_preview: pendientes.slice(0, 50),
+      });
+    } catch (err) {
+      console.error('Error en /alertas/estado-pipeline', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/alertas/reparar-pendientes-ia', async (req, res) => {
+    if (!checkCronToken(req, res)) return;
+
+    try {
+      const fecha = /^\d{4}-\d{2}-\d{2}$/.test(req.query.fecha || '')
+        ? req.query.fecha
+        : new Date().toISOString().slice(0, 10);
+
+      const { data: candidatas, error: selectError } = await supabase
+        .from('alertas')
+        .select('id')
+        .eq('fecha', fecha)
+        .eq('resumen', 'Procesando con IA...')
+        .is('estado_ia', null);
+
+      if (selectError) return res.status(500).json({ error: selectError.message });
+
+      const ids = (candidatas || []).map((a) => a.id);
+      if (ids.length === 0) {
+        return res.json({
+          success: true,
+          fecha,
+          reparadas: 0,
+          mensaje: 'No hay alertas con estado_ia nulo y resumen pendiente',
+        });
+      }
+
+      const { error: updateError } = await supabase
+        .from('alertas')
+        .update({ estado_ia: 'pendiente_clasificar' })
+        .in('id', ids);
+
+      if (updateError) return res.status(500).json({ error: updateError.message });
+
+      return res.json({
+        success: true,
+        fecha,
+        reparadas: ids.length,
+        ids,
+        siguiente_paso: 'Lanzar /alertas/clasificar, /alertas/resumir y /alertas/revisar hasta que /alertas/estado-pipeline no muestre pendientes.',
+      });
+    } catch (err) {
+      console.error('Error en /alertas/reparar-pendientes-ia', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/alertas/reparar-pendientes-ia', (req, res) => {
+    if (!checkCronToken(req, res)) return;
+    return res.status(405).json({
+      error: 'Usa POST para reparar. GET queda para diagnostico con /alertas/estado-pipeline.',
+    });
   });
 
   // ══════════════════════════════════════════════════════════════

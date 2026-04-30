@@ -153,6 +153,7 @@ module.exports = function boaRoutes(app, supabase) {
           {
             titulo,
             resumen: 'Procesando con IA...',
+            estado_ia: 'pendiente_clasificar',
             url: urlOficial,
             fecha: fechaSQL,
             region: 'Aragón',

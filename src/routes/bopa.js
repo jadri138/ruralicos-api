@@ -75,6 +75,7 @@ module.exports = function bopaRoutes(app, supabase) {
         const { error: errInsert } = await supabase.from('alertas').insert([{
           titulo: doc.titulo,
           resumen: 'Procesando con IA...',
+          estado_ia: 'pendiente_clasificar',
           url: doc.url,
           fecha: doc.fecha,
           region: 'Asturias',

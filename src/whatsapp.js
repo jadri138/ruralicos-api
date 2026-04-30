@@ -502,6 +502,71 @@ async function enviarDigestPro(telefono, mensaje) {
   }).catch((e) => console.error('[digest] Error guardando log:', e.message));
 }
 
+async function enviarWhatsAppAdmin(mensaje) {
+  if (!mensaje || !mensaje.trim()) {
+    console.warn('[ADMIN ALERT] Mensaje vacio, no se manda aviso');
+    return { skipped: true, reason: 'empty_message' };
+  }
+
+  if (!ULTRAMSG_INSTANCE_ID || !ULTRAMSG_TOKEN) {
+    console.warn('[ADMIN ALERT] Faltan credenciales UltraMsg, no se manda aviso');
+    return { skipped: true, reason: 'missing_ultramsg_credentials' };
+  }
+
+  const telefonos = new Set();
+  const telefonoManual = (process.env.ADMIN_ALERT_PHONE || '').trim();
+  if (telefonoManual) telefonos.add(telefonoManual);
+
+  const { data: adminsFree, error } = await supabase
+    .from('users')
+    .select('phone')
+    .eq('subscription', 'free')
+    .not('phone', 'is', null)
+    .neq('phone', '');
+
+  if (error) {
+    console.error('[ADMIN ALERT] Error consultando admins free:', error.message);
+  }
+
+  for (const user of adminsFree || []) {
+    const telefono = (user.phone || '').trim();
+    if (telefono) telefonos.add(telefono);
+  }
+
+  if (telefonos.size === 0) {
+    console.warn('[ADMIN ALERT] No hay telefonos admin/free, no se manda aviso');
+    return { skipped: true, reason: 'missing_admin_phones' };
+  }
+
+  let enviados = 0;
+  const errores = [];
+
+  for (const telefono of telefonos) {
+    try {
+      await enviarMensajeUltraMsg(telefono, mensaje.trim());
+      enviados++;
+
+      await guardarLogWhatsApp({
+        phone: telefono,
+        status: 'sent',
+        message_type: 'admin_alert',
+        error_msg: null,
+      });
+    } catch (err) {
+      console.error('[ADMIN ALERT] Error enviando aviso:', err.message);
+      errores.push({ phone: telefono, error: err.message });
+
+      await guardarLogWhatsApp({
+        phone: telefono,
+        status: 'failed',
+        message_type: 'admin_alert',
+        error_msg: err.message,
+      });
+    }
+  }
+
+  return { sent: enviados, failed: errores.length, errors: errores };
+}
 
 module.exports = {
   enviarWhatsAppResumen,     // Legacy: alerta individual a usuarios 'pro'
@@ -510,4 +575,5 @@ module.exports = {
   enviarWhatsAppRegistro,
   enviarWhatsAppVerificacion,
   enviarDigestPro,           // Digest diario personalizado por usuario
+  enviarWhatsAppAdmin,
 };

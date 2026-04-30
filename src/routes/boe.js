@@ -207,6 +207,7 @@ module.exports = function boeRoutes(app, supabase) {
                     {
                       titulo,
                       resumen: 'Procesando con IA...', // EXACTO
+                      estado_ia: 'pendiente_clasificar',
                       url: url_pdf,
                       fecha: fechaISO,
                       region: nombreDept,
