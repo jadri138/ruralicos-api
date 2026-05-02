@@ -545,7 +545,7 @@ app.post('/admin/tareas/scrapers-diario', requireAdmin, async (req, res) => {
       const estado = fase === 'resumir'
         ? 'pendiente_resumir'
         : fase === 'revisar'
-          ? 'pendiente_revision'
+          ? 'pendiente_revisar'
           : 'pendiente_clasificar';
 
       const { data, error } = await supabase

@@ -7,6 +7,7 @@ const rateLimit = require('express-rate-limit');
 const { supabase } = require('./supabaseClient');
 const { enviarWhatsAppTodos } = require('./whatsapp');
 const { getFechaMadridISO } = require('./utils/fechaMadrid');
+const { requireAdmin } = require('../authMiddleware');
 
 
 // Rutas
@@ -28,6 +29,7 @@ const docmRoutes = require('./routes/docm');
 const bormRoutes = require('./routes/borm');
 const digestRoutes = require('./routes/digest');
 const deduplicarRoutes = require('./routes/deduplicar');
+const feedbackRoutes = require('./routes/feedback');
 const dogcRoutes       = require('./routes/dogc');
 const dogvRoutes       = require('./routes/dogv');
 const dogRoutes        = require('./routes/dog');
@@ -127,7 +129,7 @@ app.use(express.static('public'));
    MENSAJES GENERALES
 --------------------------------------------------- */
 
-app.post('/admin/send-broadcast', async (req, res) => {
+app.post('/admin/send-broadcast', requireAdmin, async (req, res) => {
   try {
     const mensaje =
       req.body?.mensaje ||
@@ -164,6 +166,7 @@ docmRoutes(app, supabase);
 bormRoutes(app, supabase);
 digestRoutes(app, supabase);
 deduplicarRoutes(app, supabase);
+feedbackRoutes(app, supabase);
 dogcRoutes(app, supabase);
 dogvRoutes(app, supabase);
 dogRoutes(app, supabase);

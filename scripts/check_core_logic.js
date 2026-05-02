@@ -6,6 +6,7 @@ const path = require('path');
 const { getPlan, fuentePermitida, validarPreferencias } = require('../src/config/planes');
 const { extraerPreferenciasBody, prepararPreferenciasExtra } = require('../src/utils/preferenciasRequest');
 const { alertaCoincideConUsuario, diagnosticarAlertaUsuario } = require('../src/utils/alertaMatcher');
+const { parsearVotosDigest } = require('../src/utils/feedbackParser');
 
 assert.strictEqual(getPlan('corral').nombre, 'Corral');
 assert.strictEqual(getPlan('agricultor').nombre, 'Agricultor');
@@ -84,6 +85,18 @@ assert.deepStrictEqual(
   'fuente_no_permitida'
 );
 
+assert.deepStrictEqual(parsearVotosDigest('+1 -2 +3'), [
+  { item: 1, valor: 1 },
+  { item: 2, valor: -1 },
+  { item: 3, valor: 1 },
+]);
+
+assert.deepStrictEqual(parsearVotosDigest('bien 1 y 3 mal 2'), [
+  { item: 1, valor: 1 },
+  { item: 3, valor: 1 },
+  { item: 2, valor: -1 },
+]);
+
 const rutasConFuenteObligatoria = {
   'src/routes/boe.js': "fuente: 'BOE'",
   'src/routes/boa.js': "fuente: 'BOA'",
@@ -107,5 +120,17 @@ for (const [file, expected] of Object.entries(rutasConFuenteObligatoria)) {
   const contenido = fs.readFileSync(fullPath, 'utf8');
   assert.ok(contenido.includes(expected), `${file} debe insertar ${expected}`);
 }
+
+const adminRoutes = fs.readFileSync(path.join(__dirname, '..', 'src/routes/admin.js'), 'utf8');
+assert.ok(
+  adminRoutes.includes("? 'pendiente_revisar'"),
+  'admin reprocesar fase=revisar debe usar pendiente_revisar'
+);
+
+const indexRoutes = fs.readFileSync(path.join(__dirname, '..', 'src/index.js'), 'utf8');
+assert.ok(
+  indexRoutes.includes("app.post('/admin/send-broadcast', requireAdmin"),
+  '/admin/send-broadcast debe requerir admin'
+);
 
 console.log('Core logic checks OK');

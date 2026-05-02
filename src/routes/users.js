@@ -184,7 +184,7 @@ module.exports = function usersRoutes(app, supabase) {
             phone_verification_expires_at: verificacionCaducaEn
           }
         ])
-        .select();
+        .select('id, phone, name, email, subscription, preferences, preferencias_extra, phone_verified');
 
       if (error) {
         // Por si se escapara algún duplicado
@@ -649,7 +649,11 @@ module.exports = function usersRoutes(app, supabase) {
       }
       
       if (phone !== undefined) {
-        updates.phone = normalizePhone(phone);
+        const telefonoNormalizado = normalizePhone(phone);
+        if (!isPhoneValid(telefonoNormalizado)) {
+          return res.status(400).json({ error: 'NÃºmero de telÃ©fono no vÃ¡lido' });
+        }
+        updates.phone = telefonoNormalizado;
       }
 
       const { data, error } = await supabase
