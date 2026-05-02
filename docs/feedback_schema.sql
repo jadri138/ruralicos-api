@@ -29,6 +29,21 @@ create index if not exists idx_alerta_feedback_user_created
 create index if not exists idx_alerta_feedback_alerta
   on public.alerta_feedback(alerta_id);
 
+create table if not exists public.user_interest_profile (
+  user_id bigint not null references public.users(id) on delete cascade,
+  tag text not null,
+  score integer not null default 0,
+  positivos integer not null default 0,
+  negativos integer not null default 0,
+  updated_at timestamptz not null default now(),
+  primary key (user_id, tag)
+);
+
+alter table public.user_interest_profile enable row level security;
+
+create index if not exists idx_user_interest_profile_user_score
+  on public.user_interest_profile(user_id, score desc);
+
 create or replace function public.set_alerta_feedback_updated_at()
 returns trigger as $$
 begin

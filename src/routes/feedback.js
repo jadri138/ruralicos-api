@@ -2,6 +2,7 @@ const { extraerTextoEntrante, extraerTelefonoEntrante, parsearVotosDigest } = re
 const { checkCronToken } = require('../utils/checkCronToken');
 const { getFechaMadridISO } = require('../utils/fechaMadrid');
 const { normalizePhone } = require('../utils/phoneNormalizer');
+const { aplicarFeedbackAlPerfil, leerPerfilIntereses } = require('../utils/userInterestProfile');
 const { enviarDigestPro } = require('../whatsapp');
 
 function validarWebhookToken(req, res) {
@@ -51,7 +52,16 @@ module.exports = function feedbackRoutes(app, supabase) {
     if (!digest) return { ok: true, ignored: true, reason: 'sin_digest_reciente', user_id: user.id };
 
     const alertaIds = Array.isArray(digest.alerta_ids) ? digest.alerta_ids : [];
+    const { data: alertas, error: errAlertas } = await supabase
+      .from('alertas')
+      .select('id, fuente, provincias, sectores, subsectores, tipos_alerta')
+      .in('id', alertaIds);
+
+    if (errAlertas) throw errAlertas;
+
+    const alertaPorId = Object.fromEntries((alertas || []).map((a) => [a.id, a]));
     const registros = [];
+    const aprendizajes = [];
 
     for (const voto of votos) {
       const alertaId = alertaIds[voto.item - 1];
@@ -65,6 +75,8 @@ module.exports = function feedbackRoutes(app, supabase) {
         canal: 'whatsapp',
         raw_text: String(texto || '').slice(0, 500),
       });
+      const alerta = alertaPorId[alertaId];
+      if (alerta) aprendizajes.push({ alerta, valor: voto.valor });
     }
 
     if (registros.length === 0) {
@@ -77,6 +89,16 @@ module.exports = function feedbackRoutes(app, supabase) {
 
     if (upsertError) throw upsertError;
 
+    let tags_actualizados = 0;
+    for (const aprendizaje of aprendizajes) {
+      const result = await aplicarFeedbackAlPerfil(supabase, {
+        userId: user.id,
+        alerta: aprendizaje.alerta,
+        valor: aprendizaje.valor,
+      });
+      tags_actualizados += result.updated || 0;
+    }
+
     const positivos = registros.filter((r) => r.valor > 0).length;
     const negativos = registros.filter((r) => r.valor < 0).length;
 
@@ -85,6 +107,7 @@ module.exports = function feedbackRoutes(app, supabase) {
       user_id: user.id,
       digest_id: digest.id,
       votos_guardados: registros.length,
+      tags_actualizados,
       positivos,
       negativos,
     };
@@ -187,6 +210,43 @@ module.exports = function feedbackRoutes(app, supabase) {
       return res.json(result);
     } catch (err) {
       console.error('Error en /feedback/simular-respuesta:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/feedback/perfil', async (req, res) => {
+    if (!checkCronToken(req, res)) return;
+
+    try {
+      const phone = normalizePhone(req.query.phone);
+      if (!phone) return res.status(400).json({ error: 'Indica phone' });
+
+      const { data: user, error: errUser } = await supabase
+        .from('users')
+        .select('id, phone, name')
+        .eq('phone', phone)
+        .maybeSingle();
+
+      if (errUser) return res.status(500).json({ error: errUser.message });
+      if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
+
+      const perfil = await leerPerfilIntereses(supabase, user.id);
+      const { data: tags, error: errTags } = await supabase
+        .from('user_interest_profile')
+        .select('tag, score, positivos, negativos, updated_at')
+        .eq('user_id', user.id)
+        .order('score', { ascending: false });
+
+      if (errTags) return res.status(500).json({ error: errTags.message });
+
+      return res.json({
+        ok: true,
+        user,
+        resumen: perfil.resumen,
+        tags: tags || [],
+      });
+    } catch (err) {
+      console.error('Error en /feedback/perfil:', err);
       return res.status(500).json({ error: err.message });
     }
   });

@@ -22,6 +22,7 @@ const { enviarDigestPro }          = require('../whatsapp');
 const { getPlan }                  = require('../config/planes');
 const { alertaCoincideConUsuario, diagnosticarAlertaUsuario } = require('../utils/alertaMatcher');
 const { getFechaMadridISO }        = require('../utils/fechaMadrid');
+const { leerPerfilIntereses, ordenarAlertasPorPerfil } = require('../utils/userInterestProfile');
 
 // ─────────────────────────────────────────────
 // Helper: normaliza strings para comparar
@@ -176,80 +177,12 @@ function alertasParaUsuario(alertas, user) {
   return alertas.filter((alerta) => alertaCoincideConUsuario(alerta, user));
 }
 
-function tagsAlerta(alerta) {
-  return [
-    ...(Array.isArray(alerta.provincias) ? alerta.provincias.map((x) => `provincia:${norm(x)}`) : []),
-    ...(Array.isArray(alerta.sectores) ? alerta.sectores.map((x) => `sector:${norm(x)}`) : []),
-    ...(Array.isArray(alerta.subsectores) ? alerta.subsectores.map((x) => `subsector:${norm(x)}`) : []),
-    ...(Array.isArray(alerta.tipos_alerta) ? alerta.tipos_alerta.map((x) => `tipo:${norm(x)}`) : []),
-    alerta.fuente ? `fuente:${norm(alerta.fuente)}` : null,
-  ].filter(Boolean);
-}
-
 async function obtenerAprendizajeUsuario(supabase, userId) {
-  const { data: feedback, error } = await supabase
-    .from('alerta_feedback')
-    .select('valor, alerta_id')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false })
-    .limit(80);
-
-  if (error) {
-    console.warn(`[digest] No se pudo leer feedback user ${userId}:`, error.message);
-    return { pesos: {}, resumen: '' };
-  }
-
-  const ids = [...new Set((feedback || []).map((f) => f.alerta_id).filter(Boolean))];
-  if (ids.length === 0) return { pesos: {}, resumen: '' };
-
-  const { data: alertasFeedback, error: errAlertas } = await supabase
-    .from('alertas')
-    .select('id, fuente, provincias, sectores, subsectores, tipos_alerta')
-    .in('id', ids);
-
-  if (errAlertas) {
-    console.warn(`[digest] No se pudo leer alertas feedback user ${userId}:`, errAlertas.message);
-    return { pesos: {}, resumen: '' };
-  }
-
-  const alertaPorId = Object.fromEntries((alertasFeedback || []).map((a) => [a.id, a]));
-  const pesos = {};
-
-  for (const item of feedback || []) {
-    const alerta = alertaPorId[item.alerta_id];
-    if (!alerta) continue;
-    const valor = Number(item.valor) > 0 ? 1 : -1;
-    for (const tag of tagsAlerta(alerta)) {
-      pesos[tag] = (pesos[tag] || 0) + valor;
-    }
-  }
-
-  const positivos = Object.entries(pesos)
-    .filter(([, v]) => v > 0)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 8)
-    .map(([tag, v]) => `${tag} (+${v})`);
-
-  const negativos = Object.entries(pesos)
-    .filter(([, v]) => v < 0)
-    .sort((a, b) => a[1] - b[1])
-    .slice(0, 8)
-    .map(([tag, v]) => `${tag} (${v})`);
-
-  const resumen = [
-    positivos.length ? `Le han interesado antes: ${positivos.join(', ')}` : '',
-    negativos.length ? `Le han parecido poco utiles antes: ${negativos.join(', ')}` : '',
-  ].filter(Boolean).join('\n');
-
-  return { pesos, resumen };
+  return leerPerfilIntereses(supabase, userId);
 }
 
 function ordenarPorAprendizaje(alertas, aprendizaje) {
-  const pesos = aprendizaje?.pesos || {};
-  return [...alertas].sort((a, b) => {
-    const score = (alerta) => tagsAlerta(alerta).reduce((acc, tag) => acc + (pesos[tag] || 0), 0);
-    return score(b) - score(a);
-  });
+  return ordenarAlertasPorPerfil(alertas, aprendizaje);
 }
 
 // Helper: construye el prompt y genera el mensaje con IA.
