@@ -1,3 +1,5 @@
+const { extraerFeaturesAlerta } = require('./alertFeatures');
+
 function norm(str) {
   return String(str || '')
     .normalize('NFD')
@@ -12,6 +14,7 @@ function tagsAlerta(alerta = {}) {
     ...(Array.isArray(alerta.sectores) ? alerta.sectores.map((x) => `sector:${norm(x)}`) : []),
     ...(Array.isArray(alerta.subsectores) ? alerta.subsectores.map((x) => `subsector:${norm(x)}`) : []),
     ...(Array.isArray(alerta.tipos_alerta) ? alerta.tipos_alerta.map((x) => `tipo:${norm(x)}`) : []),
+    ...extraerFeaturesAlerta(alerta),
     alerta.fuente ? `fuente:${norm(alerta.fuente)}` : null,
   ].filter(Boolean);
 }

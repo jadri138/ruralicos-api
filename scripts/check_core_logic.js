@@ -6,8 +6,7 @@ const path = require('path');
 const { getPlan, fuentePermitida, validarPreferencias } = require('../src/config/planes');
 const { extraerPreferenciasBody, prepararPreferenciasExtra } = require('../src/utils/preferenciasRequest');
 const { alertaCoincideConUsuario, diagnosticarAlertaUsuario } = require('../src/utils/alertaMatcher');
-const { parsearVotosDigest } = require('../src/utils/feedbackParser');
-const { clasificarPrioridadAlerta } = require('../src/utils/alertPriority');
+const { parsearVotosDigest, clasificarPrioridadAlerta, extraerFeaturesAlerta } = require('../src/brain');
 
 assert.strictEqual(getPlan('corral').nombre, 'Corral');
 assert.strictEqual(getPlan('agricultor').nombre, 'Agricultor');
@@ -125,6 +124,19 @@ assert.strictEqual(
     tipos_alerta: [],
   }).prioridad,
   'baja'
+);
+
+assert.ok(
+  extraerFeaturesAlerta({
+    titulo: 'Convocatoria de ayudas PAC con plazo de solicitud',
+    resumen: 'Solicitud unica FEGA',
+  }).includes('concepto:pac')
+);
+
+assert.ok(
+  extraerFeaturesAlerta({
+    titulo: 'Comunidad de regantes abre alegaciones sobre concesion de aguas',
+  }).includes('entidad:comunidad_regantes')
 );
 
 const rutasConFuenteObligatoria = {

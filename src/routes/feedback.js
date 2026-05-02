@@ -1,8 +1,13 @@
-const { extraerTextoEntrante, extraerTelefonoEntrante, parsearVotosDigest } = require('../utils/feedbackParser');
 const { checkCronToken } = require('../utils/checkCronToken');
 const { getFechaMadridISO } = require('../utils/fechaMadrid');
 const { normalizePhone } = require('../utils/phoneNormalizer');
-const { aplicarFeedbackAlPerfil, leerPerfilIntereses } = require('../utils/userInterestProfile');
+const {
+  aplicarFeedbackAlPerfil,
+  extraerTextoEntrante,
+  extraerTelefonoEntrante,
+  leerPerfilIntereses,
+  parsearVotosDigest,
+} = require('../brain');
 const { enviarDigestPro } = require('../whatsapp');
 
 function validarWebhookToken(req, res) {
@@ -84,10 +89,10 @@ module.exports = function feedbackRoutes(app, supabase) {
     if (!digest) return { ok: true, ignored: true, reason: 'sin_digest_reciente', user_id: user.id };
 
     const alertaIds = Array.isArray(digest.alerta_ids) ? digest.alerta_ids : [];
-    const { data: alertas, error: errAlertas } = await supabase
-      .from('alertas')
-      .select('id, fuente, provincias, sectores, subsectores, tipos_alerta')
-      .in('id', alertaIds);
+      const { data: alertas, error: errAlertas } = await supabase
+        .from('alertas')
+        .select('id, titulo, resumen, resumen_final, contenido, fuente, provincias, sectores, subsectores, tipos_alerta')
+        .in('id', alertaIds);
 
     if (errAlertas) throw errAlertas;
 

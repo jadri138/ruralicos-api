@@ -22,8 +22,7 @@ const { enviarDigestPro }          = require('../whatsapp');
 const { getPlan }                  = require('../config/planes');
 const { alertaCoincideConUsuario, diagnosticarAlertaUsuario } = require('../utils/alertaMatcher');
 const { getFechaMadridISO }        = require('../utils/fechaMadrid');
-const { leerPerfilIntereses, ordenarAlertasPorPerfil } = require('../utils/userInterestProfile');
-const { clasificarPrioridadAlerta, pesoPrioridad } = require('../utils/alertPriority');
+const { leerPerfilIntereses, ordenarAlertasPorPerfil, clasificarPrioridadAlerta, pesoPrioridad } = require('../brain');
 
 // ─────────────────────────────────────────────
 // Helper: normaliza strings para comparar
@@ -312,7 +311,7 @@ module.exports = function digestRoutes(app, supabase) {
       const plan = getPlan(user.subscription);
       const { data: alertas, error: errAlertas } = await supabase
         .from('alertas')
-        .select('id, titulo, url, fuente, resumen, resumen_final, provincias, sectores, subsectores, tipos_alerta')
+        .select('id, titulo, url, fuente, resumen, resumen_final, contenido, provincias, sectores, subsectores, tipos_alerta')
         .eq('fecha', fecha)
         .eq('estado_ia', 'listo')
         .order('id', { ascending: true });
@@ -377,7 +376,7 @@ module.exports = function digestRoutes(app, supabase) {
       // 1) Alertas del día listas para enviar
       const { data: alertas, error: errAlertas } = await supabase
         .from('alertas')
-        .select('id, titulo, url, fuente, resumen, resumen_final, provincias, sectores, subsectores, tipos_alerta')
+        .select('id, titulo, url, fuente, resumen, resumen_final, contenido, provincias, sectores, subsectores, tipos_alerta')
         .eq('fecha', hoy)
         .eq('estado_ia', 'listo');
 
