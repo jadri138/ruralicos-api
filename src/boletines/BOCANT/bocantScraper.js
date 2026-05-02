@@ -103,7 +103,13 @@ async function obtenerBoletinesRecientes(fechaISO = getFechaHoyISO()) {
 
 async function obtenerBoletinObjetivo(fechaISO) {
   const boletines = await obtenerBoletinesRecientes(fechaISO || getFechaHoyISO());
-  if (!boletines.length) throw new Error('No se encontraron boletines recientes del BOC Cantabria');
+  if (!boletines.length) {
+    if (fechaISO) {
+      console.log(`[BOCANT] No hay boletines publicados en el mes de la fecha pedida (${fechaISO})`);
+      return null;
+    }
+    throw new Error('No se encontraron boletines recientes del BOC Cantabria');
+  }
 
   if (fechaISO) {
     const ordinario = boletines.find((b) => b.fecha === fechaISO && b.tipo === 0);

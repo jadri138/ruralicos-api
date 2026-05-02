@@ -101,6 +101,10 @@ async function obtenerBoletinesRecientes() {
 async function obtenerBoletinObjetivo(fechaISO) {
   const boletines = await obtenerBoletinesRecientes();
   if (!boletines.length) {
+    if (fechaISO) {
+      console.log(`[BON] No hay boletines recientes para comprobar la fecha pedida (${fechaISO})`);
+      return null;
+    }
     throw new Error('No se han encontrado boletines recientes del BON');
   }
 
