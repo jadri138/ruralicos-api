@@ -195,7 +195,7 @@ module.exports = function feedbackRoutes(app, supabase) {
         'Este es un digest simulado para comprobar que el sistema aprende de tus respuestas.',
         '',
         ...bloques.flatMap((bloque) => [bloque, '']),
-        '_Responde +1 -2 para probar la valoracion._',
+        '_Responde 1 si te interesa la primera. Si una no te sirve: quitar 2._',
       ].join('\n').trim();
 
       const { data: digest, error: digestError } = await supabase
@@ -218,7 +218,7 @@ module.exports = function feedbackRoutes(app, supabase) {
 
       return res.json({
         ok: true,
-        mensaje: 'Digest de prueba enviado. Responde por WhatsApp +1 -2.',
+        mensaje: 'Digest de prueba enviado. Responde por WhatsApp 1 o quitar 2.',
         phone,
         digest,
       });

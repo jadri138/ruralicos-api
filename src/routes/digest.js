@@ -23,6 +23,7 @@ const { getPlan }                  = require('../config/planes');
 const { alertaCoincideConUsuario, diagnosticarAlertaUsuario } = require('../utils/alertaMatcher');
 const { getFechaMadridISO }        = require('../utils/fechaMadrid');
 const { leerPerfilIntereses, ordenarAlertasPorPerfil } = require('../utils/userInterestProfile');
+const { clasificarPrioridadAlerta, pesoPrioridad } = require('../utils/alertPriority');
 
 // ─────────────────────────────────────────────
 // Helper: normaliza strings para comparar
@@ -161,9 +162,9 @@ function anadirInstruccionFeedback(mensaje, alertas) {
   const total = Array.isArray(alertas) ? alertas.length : 0;
   if (total === 0) return mensaje;
 
-  const ejemploPositivo = '+1';
-  const ejemploNegativo = total >= 2 ? ' -2' : '';
-  const linea = `_Para afinar tus alertas, responde ${ejemploPositivo}${ejemploNegativo} segun te haya servido cada numero._`;
+  const linea = total >= 2
+    ? '_Para afinar tus alertas, responde con el numero que te interese. Ej: 1. Si una no te sirve: quitar 2._'
+    : '_Para afinar tus alertas, responde 1 si te interesa o quitar 1 si no te sirve._';
 
   if (mensaje.includes('Para afinar tus alertas')) return mensaje;
   return `${mensaje.trim()}\n\n${linea}`;
@@ -182,7 +183,13 @@ async function obtenerAprendizajeUsuario(supabase, userId) {
 }
 
 function ordenarPorAprendizaje(alertas, aprendizaje) {
-  return ordenarAlertasPorPerfil(alertas, aprendizaje);
+  return ordenarAlertasPorPerfil(alertas, aprendizaje)
+    .sort((a, b) => {
+      const prioridadA = clasificarPrioridadAlerta(a);
+      const prioridadB = clasificarPrioridadAlerta(b);
+      return (pesoPrioridad(prioridadB.prioridad) + prioridadB.score) -
+        (pesoPrioridad(prioridadA.prioridad) + prioridadA.score);
+    });
 }
 
 // Helper: construye el prompt y genera el mensaje con IA.
@@ -199,8 +206,9 @@ async function generarMensajeDigest({ user, alertas, fecha, plan, aprendizaje })
     .map((a, i) => {
       const resumen = (a.resumen_final || a.resumen || '').slice(0, 600);
       const fuente = a.fuente || 'Boletin';
+      const prioridad = clasificarPrioridadAlerta(a);
       return [
-        `ALERTA ${i + 1} [${fuente}]:`,
+        `ALERTA ${i + 1} [${fuente}] [PRIORIDAD: ${prioridad.prioridad.toUpperCase()}]:`,
         `Titulo: ${a.titulo}`,
         `Resumen: ${resumen}`,
         `Enlace: ${a.url}`,
@@ -246,7 +254,7 @@ ${saludo}
 Tienes *N alerta${alertas.length !== 1 ? 's' : ''}* relevante${alertas.length !== 1 ? 's' : ''} hoy:
 
 [Para cada alerta candidata, este bloque numerado en el mismo orden recibido:]
-*N. [Titulo breve y descriptivo de la alerta]*
+*N. [Urgente / Normal / Para revisar] - [Titulo breve y descriptivo de la alerta]*
 [Resumen. ${nivelDetalle}]
 [URL exacta de la alerta]
 
@@ -255,6 +263,7 @@ _Cualquier duda, visita ruralicos.com_
 REGLAS:
 - Ajusta el numero N del encabezado al total de alertas candidatas recibidas.
 - Mantén exactamente los numeros 1, 2, 3... en el mismo orden de ALERTAS CANDIDATAS.
+- Respeta la prioridad indicada en cada alerta. Si es URGENTE, abre con "Urgente". Si es BAJA, usa "Para revisar" y se muy breve.
 - Maximo 1600 caracteres en total. Si hay muchas alertas, reduce las frases de cada una.
 - Lenguaje sencillo y directo. El usuario es profesional del campo, no un abogado.
 - NO inventes datos que no esten en los resumenes.

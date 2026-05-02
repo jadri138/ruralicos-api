@@ -7,6 +7,7 @@ const { getPlan, fuentePermitida, validarPreferencias } = require('../src/config
 const { extraerPreferenciasBody, prepararPreferenciasExtra } = require('../src/utils/preferenciasRequest');
 const { alertaCoincideConUsuario, diagnosticarAlertaUsuario } = require('../src/utils/alertaMatcher');
 const { parsearVotosDigest } = require('../src/utils/feedbackParser');
+const { clasificarPrioridadAlerta } = require('../src/utils/alertPriority');
 
 assert.strictEqual(getPlan('corral').nombre, 'Corral');
 assert.strictEqual(getPlan('agricultor').nombre, 'Agricultor');
@@ -96,6 +97,30 @@ assert.deepStrictEqual(parsearVotosDigest('bien 1 y 3 mal 2'), [
   { item: 3, valor: 1 },
   { item: 2, valor: -1 },
 ]);
+
+assert.deepStrictEqual(parsearVotosDigest('1'), [
+  { item: 1, valor: 1 },
+]);
+
+assert.deepStrictEqual(parsearVotosDigest('quitar 2'), [
+  { item: 2, valor: -1 },
+]);
+
+assert.strictEqual(
+  clasificarPrioridadAlerta({
+    titulo: 'Convocatoria de ayudas PAC con plazo de solicitud',
+    tipos_alerta: ['ayudas_subvenciones'],
+  }).prioridad,
+  'urgente'
+);
+
+assert.strictEqual(
+  clasificarPrioridadAlerta({
+    titulo: 'Nombramiento de vocal suplente',
+    tipos_alerta: [],
+  }).prioridad,
+  'baja'
+);
 
 const rutasConFuenteObligatoria = {
   'src/routes/boe.js': "fuente: 'BOE'",

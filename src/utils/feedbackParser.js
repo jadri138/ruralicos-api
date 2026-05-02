@@ -101,6 +101,14 @@ function parsearVotosDigest(texto) {
     for (const n of match[2].match(/\d{1,2}/g) || []) add(n, -1);
   }
 
+  for (const match of normalizado.matchAll(/\b(quitar|quita|borrar|borra|fuera|menos|no mandar|no enviar)\s+((?:\d{1,2}[\s,;y]*)+)/g)) {
+    for (const n of match[2].match(/\d{1,2}/g) || []) add(n, -1);
+  }
+
+  if (votos.length === 0 && /^\s*\d{1,2}(\s*[,;y]\s*\d{1,2})*\s*$/.test(normalizado)) {
+    for (const n of normalizado.match(/\d{1,2}/g) || []) add(n, 1);
+  }
+
   return votos;
 }
 
