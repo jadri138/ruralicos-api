@@ -106,7 +106,8 @@ async function obtenerDocumentosBocmConTexto(fechaISO, esRuralRelevante) {
   const fechaBoletin = extraerFechaDeUrlXml(xmlUrl) || fechaISO || getFechaHoyISO();
 
   if (fechaISO && fechaBoletin !== fechaISO) {
-    console.log(`[BOCM] Boletín disponible (${fechaBoletin}) no coincide con la fecha pedida (${fechaISO}). Se procesa el disponible.`);
+    console.log(`[BOCM] Boletin disponible (${fechaBoletin}) no coincide con la fecha pedida (${fechaISO}). No se procesa.`);
+    return [];
   }
 
   const { data: xml } = await axios.get(xmlUrl, { timeout: 20000, headers: HEADERS });

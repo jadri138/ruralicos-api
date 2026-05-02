@@ -111,6 +111,9 @@ async function obtenerBoletinObjetivo(fechaISO) {
 
     const exacto = boletines.find((b) => b.fecha === fechaISO);
     if (exacto) return exacto;
+
+    console.log(`[BOCANT] No hay boletin para la fecha pedida (${fechaISO})`);
+    return null;
   }
 
   return boletines.find((b) => b.tipo === 0) || boletines[0];
@@ -177,6 +180,8 @@ async function obtenerTextoPdf(url) {
 
 async function obtenerDocumentosBocantConTexto(fechaISO, esRuralRelevante) {
   const boletin = await obtenerBoletinObjetivo(fechaISO || null);
+  if (!boletin) return [];
+
   const todos = await obtenerDocumentosSumario(boletin);
   const resultado = [];
 

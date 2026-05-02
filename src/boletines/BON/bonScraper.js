@@ -107,6 +107,8 @@ async function obtenerBoletinObjetivo(fechaISO) {
   if (fechaISO) {
     const boletinFecha = boletines.find((boletin) => boletin.fecha === fechaISO);
     if (boletinFecha) return boletinFecha;
+    console.log(`[BON] No hay boletin para la fecha pedida (${fechaISO})`);
+    return null;
   }
 
   return boletines[0];
@@ -151,6 +153,8 @@ async function obtenerTextoDocumento(url) {
 
 async function obtenerDocumentosBonConTexto(fechaISO, esRuralRelevante) {
   const boletin = await obtenerBoletinObjetivo(fechaISO);
+  if (!boletin) return [];
+
   const todos = await obtenerDocumentosSumario(boletin);
   const resultado = [];
 
