@@ -51,9 +51,12 @@ async function leerPerfilIntereses(supabase, userId) {
   return { pesos, resumen };
 }
 
-async function aplicarFeedbackAlPerfil(supabase, { userId, alerta, valor }) {
+async function aplicarFeedbackAlPerfil(supabase, { userId, alerta, delta }) {
   const tags = tagsAlerta(alerta);
   if (!userId || tags.length === 0) return { updated: 0 };
+
+  const ajuste = Number(delta || 0);
+  if (!ajuste) return { updated: 0 };
 
   let updated = 0;
   for (const tag of tags) {
@@ -69,13 +72,12 @@ async function aplicarFeedbackAlPerfil(supabase, { userId, alerta, valor }) {
       continue;
     }
 
-    const delta = Number(valor) > 0 ? 1 : -1;
     const next = {
       user_id: userId,
       tag,
-      score: Number(actual?.score || 0) + delta,
-      positivos: Number(actual?.positivos || 0) + (delta > 0 ? 1 : 0),
-      negativos: Number(actual?.negativos || 0) + (delta < 0 ? 1 : 0),
+      score: Number(actual?.score || 0) + ajuste,
+      positivos: Number(actual?.positivos || 0) + (ajuste > 0 ? 1 : 0),
+      negativos: Number(actual?.negativos || 0) + (ajuste < 0 ? 1 : 0),
       updated_at: new Date().toISOString(),
     };
 

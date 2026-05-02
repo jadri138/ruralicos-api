@@ -106,6 +106,11 @@ assert.deepStrictEqual(parsearVotosDigest('quitar 2'), [
   { item: 2, valor: -1 },
 ]);
 
+assert.deepStrictEqual(parsearVotosDigest('👍 1 👎 2'), [
+  { item: 1, valor: 1 },
+  { item: 2, valor: -1 },
+]);
+
 assert.strictEqual(
   clasificarPrioridadAlerta({
     titulo: 'Convocatoria de ayudas PAC con plazo de solicitud',

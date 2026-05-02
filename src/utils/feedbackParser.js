@@ -70,8 +70,8 @@ function firstString(values) {
 function parsearVotosDigest(texto) {
   const original = String(texto || '').trim();
   const normalizado = normalizarTexto(original)
-    .replace(/[👍✅⭐️🌟💚]/g, '+')
-    .replace(/[👎❌🛑]/g, '-');
+    .replace(/[\u{1F44D}\u{2705}\u{2B50}\u{1F31F}\u{1F49A}]/gu, '+')
+    .replace(/[\u{1F44E}\u{274C}\u{1F6D1}]/gu, '-');
 
   const votos = [];
   const vistos = new Set();

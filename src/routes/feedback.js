@@ -92,6 +92,18 @@ module.exports = function feedbackRoutes(app, supabase) {
     if (errAlertas) throw errAlertas;
 
     const alertaPorId = Object.fromEntries((alertas || []).map((a) => [a.id, a]));
+    const { data: feedbackActual, error: errFeedbackActual } = await supabase
+      .from('alerta_feedback')
+      .select('alerta_id, valor')
+      .eq('user_id', user.id)
+      .eq('digest_id', digest.id)
+      .in('alerta_id', alertaIds);
+
+    if (errFeedbackActual) throw errFeedbackActual;
+
+    const valorPrevioPorAlerta = Object.fromEntries(
+      (feedbackActual || []).map((item) => [item.alerta_id, Number(item.valor)])
+    );
     const registros = [];
     const aprendizajes = [];
 
@@ -108,7 +120,9 @@ module.exports = function feedbackRoutes(app, supabase) {
         raw_text: String(texto || '').slice(0, 500),
       });
       const alerta = alertaPorId[alertaId];
-      if (alerta) aprendizajes.push({ alerta, valor: voto.valor });
+      const previo = valorPrevioPorAlerta[alertaId] || 0;
+      const delta = Number(voto.valor) - previo;
+      if (alerta && delta !== 0) aprendizajes.push({ alerta, delta });
     }
 
     if (registros.length === 0) {
@@ -126,7 +140,7 @@ module.exports = function feedbackRoutes(app, supabase) {
       const result = await aplicarFeedbackAlPerfil(supabase, {
         userId: user.id,
         alerta: aprendizaje.alerta,
-        valor: aprendizaje.valor,
+        delta: aprendizaje.delta,
       });
       tags_actualizados += result.updated || 0;
     }
