@@ -2,6 +2,7 @@
 const { checkCronToken } = require('../utils/checkCronToken');
 const { llamarIA, parsearJSON } = require('../utils/llamarIA');
 const { enviarWhatsAppResumen } = require('../whatsapp');
+const { getFechaMadridISO } = require('../utils/fechaMadrid');
 const DIGEST_ONLY_MODE = (process.env.DIGEST_ONLY_MODE || 'true').toLowerCase() !== 'false';
 const CLASIFICAR_BATCH_SIZE = Number(process.env.CLASIFICAR_BATCH_SIZE || 8);
 const RESUMIR_BATCH_SIZE = Number(process.env.RESUMIR_BATCH_SIZE || 5);
@@ -491,7 +492,7 @@ Responde ÚNICAMENTE con el mensaje WhatsApp final. Sin JSON, sin explicaciones,
   // ══════════════════════════════════════════════════════════════
   const enviarWhatsAppHandler = async (req, res) => {
     try {
-      const hoy = new Date().toISOString().slice(0, 10);
+      const hoy = getFechaMadridISO();
 
       // Modo recomendado: evitar envíos por alerta individual y usar digest por usuario.
       if (DIGEST_ONLY_MODE) {
@@ -558,7 +559,7 @@ Responde ÚNICAMENTE con el mensaje WhatsApp final. Sin JSON, sin explicaciones,
     try {
       const fecha = /^\d{4}-\d{2}-\d{2}$/.test(req.query.fecha || '')
         ? req.query.fecha
-        : new Date().toISOString().slice(0, 10);
+        : getFechaMadridISO();
 
       const { data, error } = await supabase
         .from('alertas')
@@ -616,7 +617,7 @@ Responde ÚNICAMENTE con el mensaje WhatsApp final. Sin JSON, sin explicaciones,
     try {
       const fecha = /^\d{4}-\d{2}-\d{2}$/.test(req.query.fecha || '')
         ? req.query.fecha
-        : new Date().toISOString().slice(0, 10);
+        : getFechaMadridISO();
 
       const { data: candidatas, error: selectError } = await supabase
         .from('alertas')

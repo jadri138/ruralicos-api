@@ -21,6 +21,7 @@ const { llamarIA }                 = require('../utils/llamarIA');
 const { enviarDigestPro }          = require('../whatsapp');
 const { getPlan }                  = require('../config/planes');
 const { alertaCoincideConUsuario, diagnosticarAlertaUsuario } = require('../utils/alertaMatcher');
+const { getFechaMadridISO }        = require('../utils/fechaMadrid');
 
 // ─────────────────────────────────────────────
 // Helper: normaliza strings para comparar
@@ -249,7 +250,7 @@ module.exports = function digestRoutes(app, supabase) {
     try {
       const fecha = /^\d{4}-\d{2}-\d{2}$/.test(req.query.fecha || '')
         ? req.query.fecha
-        : new Date().toISOString().slice(0, 10);
+        : getFechaMadridISO();
       const phone = req.query.phone ? String(req.query.phone).replace(/\D/g, '') : null;
       const userId = req.query.user_id ? Number(req.query.user_id) : null;
 
@@ -329,7 +330,9 @@ module.exports = function digestRoutes(app, supabase) {
   // ──────────────────────────────────────────────────────────────────
   const prepararDigestHandler = async (req, res) => {
     try {
-      const hoy = new Date().toISOString().slice(0, 10);
+      const hoy = /^\d{4}-\d{2}-\d{2}$/.test(req.query.fecha || '')
+        ? req.query.fecha
+        : getFechaMadridISO();
 
       // 1) Alertas del día listas para enviar
       const { data: alertas, error: errAlertas } = await supabase
@@ -478,7 +481,9 @@ module.exports = function digestRoutes(app, supabase) {
   // ──────────────────────────────────────────────────────────────────
   const enviarDigestHandler = async (req, res) => {
     try {
-      const hoy      = new Date().toISOString().slice(0, 10);
+      const hoy = /^\d{4}-\d{2}-\d{2}$/.test(req.query.fecha || '')
+        ? req.query.fecha
+        : getFechaMadridISO();
       const DELAY_MS = parseInt(process.env.DIGEST_DELAY_MS || '3000', 10);
 
       // 1) Digests pendientes de hoy

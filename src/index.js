@@ -6,6 +6,7 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const { supabase } = require('./supabaseClient');
 const { enviarWhatsAppTodos } = require('./whatsapp');
+const { getFechaMadridISO } = require('./utils/fechaMadrid');
 
 
 // Rutas
@@ -79,6 +80,36 @@ app.use(
     },
   })
 );
+
+app.get('/health', async (req, res) => {
+  const checks = {
+    api: true,
+    fecha_madrid: getFechaMadridISO(),
+    env: {
+      SUPABASE_URL: Boolean(process.env.SUPABASE_URL),
+      SUPABASE_SERVICE_ROLE_KEY: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
+      JWT_SECRET: Boolean(process.env.JWT_SECRET),
+      CRON_TOKEN: Boolean(process.env.CRON_TOKEN),
+      OPENAI_API_KEY: Boolean(process.env.OPENAI_API_KEY),
+      PUBLIC_BASE_URL: Boolean(process.env.PUBLIC_BASE_URL),
+    },
+    supabase: false,
+  };
+
+  try {
+    const { error } = await supabase
+      .from('users')
+      .select('id', { count: 'exact', head: true })
+      .limit(1);
+    checks.supabase = !error;
+    if (error) checks.supabase_error = error.message;
+  } catch (err) {
+    checks.supabase_error = err.message;
+  }
+
+  const ok = checks.api && checks.supabase && Object.values(checks.env).every(Boolean);
+  res.status(ok ? 200 : 503).json({ ok, checks });
+});
 
 // Limitador de peticiones por IP (anti ataques fuerza bruta)
 const limiter = rateLimit({

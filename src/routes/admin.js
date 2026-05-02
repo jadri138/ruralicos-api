@@ -1,16 +1,8 @@
 const { requireAdmin } = require('../../authMiddleware');
 const { normalizePhone } = require('../utils/phoneNormalizer');
+const { getFechaMadridISO, getRangoDiaMadridUTC } = require('../utils/fechaMadrid');
 
 const PLANES_VALIDOS = ['free', 'corral', 'agricultor', 'cooperativa'];
-
-function getFechaMadridISO() {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Europe/Madrid',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date());
-}
 
 function getPublicBaseUrl() {
   return process.env.PUBLIC_BASE_URL || `http://localhost:${process.env.PORT || 3000}`;
@@ -51,12 +43,10 @@ module.exports = (app, supabase) => {
   // ──────────────────────────────────────────────────────────────────
   app.get('/admin/dashboard', requireAdmin, async (req, res) => {
     try {
-      const ahora    = new Date();
-      const fechaHoy = ahora.toISOString().slice(0, 10);
-
-      const inicioHoy    = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate()).toISOString();
-      const inicioManana = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate() + 1).toISOString();
-      const hace7dias    = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate() - 6).toISOString();
+      const ahora = new Date();
+      const fechaHoy = getFechaMadridISO(ahora);
+      const { inicio: inicioHoy, fin: inicioManana } = getRangoDiaMadridUTC(fechaHoy);
+      const hace7dias = new Date(ahora.getTime() - (6 * 24 * 60 * 60 * 1000)).toISOString();
 
       // Todas las queries en paralelo
       const [
@@ -268,6 +258,58 @@ module.exports = (app, supabase) => {
     }
   });
 
+  app.get('/admin/users/:id/preview-digest', requireAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const fecha = /^\d{4}-\d{2}-\d{2}$/.test(req.query.fecha || '')
+        ? req.query.fecha
+        : getFechaMadridISO();
+
+      const [{ data: user, error: errUser }, { data: digest, error: errDigest }] = await Promise.all([
+        supabase
+          .from('users')
+          .select('id, name, phone, subscription, preferences, preferencias_extra')
+          .eq('id', id)
+          .single(),
+        supabase
+          .from('digests')
+          .select('id, user_id, fecha, mensaje, enviado, enviado_at, alerta_ids, created_at')
+          .eq('user_id', id)
+          .eq('fecha', fecha)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+      ]);
+
+      if (errUser || !user) return res.status(404).json({ error: 'Usuario no encontrado' });
+      if (errDigest) return res.status(500).json({ error: errDigest.message });
+
+      if (digest) {
+        return res.json({
+          success: true,
+          fecha,
+          user,
+          digest,
+          existe: true,
+        });
+      }
+
+      const diagnostico = await hitCronPath(`/alertas/diagnosticar-digest?user_id=${encodeURIComponent(id)}&fecha=${encodeURIComponent(fecha)}`);
+      return res.json({
+        success: true,
+        fecha,
+        user,
+        digest: null,
+        existe: false,
+        diagnostico,
+        mensaje: 'No existe digest generado para esta fecha. Revisa el diagnostico o lanza preparar-digest.',
+      });
+    } catch (err) {
+      console.error('Error en /admin/users/:id/preview-digest:', err);
+      return res.status(err.status || 500).json(err.body || { error: err.message });
+    }
+  });
+
   // Estado operativo de boletines/alertas por fecha
   app.get('/admin/boletines/estado', requireAdmin, async (req, res) => {
     try {
@@ -282,15 +324,13 @@ module.exports = (app, supabase) => {
 
       if (errAlertas) return res.status(500).json({ error: errAlertas.message });
 
-      const inicio = `${fecha}T00:00:00.000Z`;
-      const fin = new Date(`${fecha}T00:00:00.000Z`);
-      fin.setUTCDate(fin.getUTCDate() + 1);
+      const { inicio, fin } = getRangoDiaMadridUTC(fecha);
 
       const { data: logs, error: errLogs } = await supabase
         .from('whatsapp_logs')
         .select('id, status, message_type, error_msg, created_at')
         .gte('created_at', inicio)
-        .lt('created_at', fin.toISOString());
+        .lt('created_at', fin);
 
       if (errLogs) return res.status(500).json({ error: errLogs.message });
 
@@ -409,6 +449,45 @@ app.post('/admin/tareas/scrapers-diario', requireAdmin, async (req, res) => {
       });
     } catch (err) {
       console.error('Error en /admin/scraper-runs:', err);
+      return res.status(500).json({ error: 'Error interno' });
+    }
+  });
+
+  app.get('/admin/pipeline-runs', requireAdmin, async (req, res) => {
+    try {
+      const fecha = /^\d{4}-\d{2}-\d{2}$/.test(req.query.fecha || '')
+        ? req.query.fecha
+        : getFechaMadridISO();
+      const limit = Math.min(Number(req.query.limit || 200), 500);
+
+      const { data, error } = await supabase
+        .from('pipeline_runs')
+        .select('id, stage, endpoint, fecha_objetivo, started_at, finished_at, duration_ms, status, loops, procesadas, errores, error_msg')
+        .eq('fecha_objetivo', fecha)
+        .order('started_at', { ascending: false })
+        .limit(limit);
+
+      if (error) {
+        if (error.code === '42P01') {
+          return res.status(503).json({
+            error: 'Falta crear la tabla pipeline_runs. Ejecuta docs/pipeline_runs_schema.sql en Supabase.',
+          });
+        }
+        return res.status(500).json({ error: error.message });
+      }
+
+      const latestByStage = {};
+      for (const run of data || []) {
+        if (!latestByStage[run.stage]) latestByStage[run.stage] = run;
+      }
+
+      return res.json({
+        fecha,
+        runs: data || [],
+        latest: Object.values(latestByStage).sort((a, b) => a.stage.localeCompare(b.stage)),
+      });
+    } catch (err) {
+      console.error('Error en /admin/pipeline-runs:', err);
       return res.status(500).json({ error: 'Error interno' });
     }
   });

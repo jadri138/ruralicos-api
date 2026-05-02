@@ -6,6 +6,7 @@ const {
   procesarDoePdf,
   extraerFechaBoletin,
 } = require('../boletines/DOE/doeScraper');
+const { getFechaMadridISO, getFechaMadridYYYYMMDD } = require('../utils/fechaMadrid');
 
 function formatearFecha(fecha) {
   if (!fecha || fecha.length !== 8) return null;
@@ -61,7 +62,10 @@ module.exports = function doeRoutes(app, supabase) {
     let saltadasFiltro = 0;
 
     try {
-      const fechaHoy = getFechaHoyYYYYMMDD();
+      const fechaParam = /^\d{4}-\d{2}-\d{2}$/.test(req.query.fecha || '')
+        ? req.query.fecha
+        : null;
+      const fechaHoy = fechaParam ? fechaParam.replace(/-/g, '') : (getFechaHoyYYYYMMDD() || getFechaMadridYYYYMMDD());
       const urls = await obtenerDocumentosDoePorFecha(fechaHoy);
 
       if (!urls || urls.length === 0) {
@@ -94,7 +98,7 @@ module.exports = function doeRoutes(app, supabase) {
         documentos++;
         const fechaDoc = extraerFechaBoletin(texto) || fechaHoy;
         const fechaSQL =
-          formatearFecha(fechaDoc) || new Date().toISOString().slice(0, 10);
+          formatearFecha(fechaDoc) || fechaParam || getFechaMadridISO();
 
         const { data: existe, error: errDup } = await supabase
           .from('alertas')
@@ -116,6 +120,7 @@ module.exports = function doeRoutes(app, supabase) {
           {
             titulo,
             resumen: 'Procesando con IA...',
+            estado_ia: 'pendiente_clasificar',
             url,
             fecha: fechaSQL,
             region: 'Extremadura',

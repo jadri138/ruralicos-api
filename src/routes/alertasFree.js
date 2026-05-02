@@ -3,6 +3,7 @@
 const { checkCronToken } = require('../utils/checkCronToken');
 const { llamarIA, parsearJSON } = require('../utils/llamarIA');
 const { enviarWhatsAppFree } = require('../whatsapp');
+const { getFechaMadridISO } = require('../utils/fechaMadrid');
 
 module.exports = function alertasFreeRoutes(app, supabase) {
   // ================================================
@@ -10,7 +11,9 @@ module.exports = function alertasFreeRoutes(app, supabase) {
   // ================================================
   const generarResumenFreeHandler = async (req, res) => {
     try {
-      const hoy = new Date().toISOString().slice(0, 10);
+      const hoy = /^\d{4}-\d{2}-\d{2}$/.test(req.query.fecha || '')
+        ? req.query.fecha
+        : getFechaMadridISO();
 
       // Alertas de HOY ya procesadas por la IA PRO (resumen listo y relevante)
       const { data: alertas, error } = await supabase
@@ -137,7 +140,10 @@ ${lista}
     }
   };
 
-  app.post('/alertas/generar-resumen-free', generarResumenFreeHandler);
+  app.post('/alertas/generar-resumen-free', (req, res) => {
+    if (!checkCronToken(req, res)) return;
+    generarResumenFreeHandler(req, res);
+  });
   app.get('/alertas/generar-resumen-free', (req, res) => {
     if (!checkCronToken(req, res)) return;
     generarResumenFreeHandler(req, res);
@@ -148,7 +154,9 @@ ${lista}
   // ============================================================
   const enviarResumenFreeHandler = async (req, res) => {
     try {
-      const hoy = new Date().toISOString().slice(0, 10);
+      const hoy = /^\d{4}-\d{2}-\d{2}$/.test(req.query.fecha || '')
+        ? req.query.fecha
+        : getFechaMadridISO();
 
       // Buscar una alerta de hoy con resumenfree que no se haya enviado aún
       const { data, error } = await supabase
@@ -164,8 +172,11 @@ ${lista}
       }
 
       if (!data || data.length === 0 || !data[0].resumenfree) {
-        return res.status(404).json({
-          error: 'No hay resumenfree generado hoy. Ejecuta antes /alertas/generar-resumen-free',
+        return res.json({
+          success: true,
+          enviados: 0,
+          fecha: hoy,
+          mensaje: 'No hay resumen FREE pendiente para enviar',
         });
       }
 
@@ -185,8 +196,9 @@ ${lista}
       }
 
       return res.json({
-        ok: true,
+        success: true,
         fecha: hoy,
+        enviados: 1,
         mensaje: 'Resumen FREE enviado por WhatsApp a usuarios FREE',
       });
     } catch (e) {
@@ -195,7 +207,10 @@ ${lista}
     }
   };
 
-  app.post('/alertas/enviar-resumen-free', enviarResumenFreeHandler);
+  app.post('/alertas/enviar-resumen-free', (req, res) => {
+    if (!checkCronToken(req, res)) return;
+    enviarResumenFreeHandler(req, res);
+  });
   app.get('/alertas/enviar-resumen-free', (req, res) => {
     if (!checkCronToken(req, res)) return;
     enviarResumenFreeHandler(req, res);

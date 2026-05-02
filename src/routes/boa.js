@@ -2,8 +2,10 @@
 const { checkCronToken } = require('../utils/checkCronToken');
 const {
   obtenerMlkobsSumarioHoy,
+  obtenerMlkobsPorFecha,
   procesarBoaPorMlkob,
 } = require('../boletines/boa/boaPdf');
+const { getFechaMadridISO, getFechaMadridYYYYMMDD } = require('../utils/fechaMadrid');
 
 // Convierte AAAAMMDD → AAAA-MM-DD
 function formatearFecha(fecha) {
@@ -89,7 +91,13 @@ module.exports = function boaRoutes(app, supabase) {
     let saltadasFiltro = 0;
 
     try {
-      const mlkobs = await obtenerMlkobsSumarioHoy();
+      const fechaParam = /^\d{4}-\d{2}-\d{2}$/.test(req.query.fecha || '')
+        ? req.query.fecha
+        : null;
+      const fechaYYYYMMDD = fechaParam ? fechaParam.replace(/-/g, '') : getFechaMadridYYYYMMDD();
+      const mlkobs = fechaParam
+        ? await obtenerMlkobsPorFecha(fechaYYYYMMDD)
+        : await obtenerMlkobsSumarioHoy();
 
       if (!mlkobs || mlkobs.length === 0) {
         return res.json({
@@ -126,7 +134,8 @@ module.exports = function boaRoutes(app, supabase) {
 
         const fechaSQL =
           formatearFecha(fechaBoletin) ||
-          new Date().toISOString().slice(0, 10);
+          fechaParam ||
+          getFechaMadridISO();
 
         const urlOficial = `https://www.boa.aragon.es/cgi-bin/EBOA/BRSCGI?CMD=VEROBJ&MLKOB=${mlkob}`;
 

@@ -11,6 +11,7 @@
 
 const { checkCronToken }  = require('../utils/checkCronToken');
 const { similitudTitulos } = require('../utils/similitud');
+const { getFechaMadridISO } = require('../utils/fechaMadrid');
 
 const UMBRAL_DEFAULT = 0.65;
 
@@ -26,7 +27,7 @@ module.exports = function deduplicarRoutes(app, supabase) {
 
   const handler = async (req, res) => {
     try {
-      const hoy = new Date().toISOString().slice(0, 10);
+      const hoy = getFechaMadridISO();
       const fecha = /^\d{4}-\d{2}-\d{2}$/.test(req.query.fecha || '')
         ? req.query.fecha
         : hoy;

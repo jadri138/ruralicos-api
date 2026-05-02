@@ -1,6 +1,7 @@
 // src/routes/tareas.js
 const { checkCronToken } = require('../utils/checkCronToken');
 const { enviarWhatsAppAdmin } = require('../whatsapp');
+const { getFechaMadridISO } = require('../utils/fechaMadrid');
 
 const SCRAPE_PATHS_DEFAULT = [
   '/scrape-boe-oficial',
@@ -59,15 +60,6 @@ function getScrapePaths() {
     .filter(Boolean);
 }
 
-function getFechaMadridISO() {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Europe/Madrid',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date());
-}
-
 function buildScrapeUrl(baseUrl, path, token, fechaISO) {
   const fecha = path.startsWith('/scrape-boe-')
     ? fechaISO.replace(/-/g, '')
@@ -99,6 +91,13 @@ async function guardarScraperRun(supabase, run) {
   const { error } = await supabase.from('scraper_runs').insert([run]);
   if (error) {
     console.warn('[scraper_runs] No se pudo guardar ejecucion:', error.message);
+  }
+}
+
+async function guardarPipelineRun(supabase, run) {
+  const { error } = await supabase.from('pipeline_runs').insert([run]);
+  if (error) {
+    console.warn('[pipeline_runs] No se pudo guardar ejecucion:', error.message);
   }
 }
 
@@ -250,10 +249,14 @@ module.exports = function tareasRoutes(app, supabase) {
 
       const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+      function buildPipelineUrl(path) {
+        if (scrapePaths.includes(path)) return buildScrapeUrl(baseUrl, path, token, fecha);
+        const params = new URLSearchParams({ token, fecha });
+        return `${baseUrl}${path}${path.includes('?') ? '&' : '?'}${params.toString()}`;
+      }
+
       async function hit(path, method = 'GET') {
-        const url = scrapePaths.includes(path)
-          ? buildScrapeUrl(baseUrl, path, token, fecha)
-          : `${baseUrl}${path}${path.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`;
+        const url = buildPipelineUrl(path);
         const response = await fetch(url, { method });
 
         let body = null;
@@ -270,41 +273,108 @@ module.exports = function tareasRoutes(app, supabase) {
         return { path, body };
       }
 
+      async function runSimpleStage(stage, path, method = 'GET') {
+        const startedAt = new Date();
+        try {
+          const result = await hit(path, method);
+          const finishedAt = new Date();
+          await guardarPipelineRun(supabase, {
+            stage,
+            endpoint: path,
+            fecha_objetivo: fecha,
+            started_at: startedAt.toISOString(),
+            finished_at: finishedAt.toISOString(),
+            duration_ms: finishedAt.getTime() - startedAt.getTime(),
+            status: 'ok',
+            procesadas: numeroBody(result.body, ['procesadas', 'reparadas', 'deduplicadas', 'digests_generados', 'enviados']),
+            errores: Array.isArray(result.body?.errores) ? result.body.errores.length : numeroBody(result.body, ['errores']),
+            response_json: result.body,
+          });
+          return result;
+        } catch (err) {
+          const finishedAt = new Date();
+          await guardarPipelineRun(supabase, {
+            stage,
+            endpoint: path,
+            fecha_objetivo: fecha,
+            started_at: startedAt.toISOString(),
+            finished_at: finishedAt.toISOString(),
+            duration_ms: finishedAt.getTime() - startedAt.getTime(),
+            status: 'error',
+            error_msg: err.message,
+          });
+          throw err;
+        }
+      }
+
       async function runBatchedStep(name, path) {
+        const startedAt = new Date();
         let loops = 0;
         let total = 0;
         let colaVacia = false;
         const vueltas = [];
 
-        while (loops < maxLoops) {
-          loops++;
-          const result = await hit(path);
-          const procesadas = Number(result.body?.procesadas ?? 0);
-          total += procesadas;
-          vueltas.push(result.body);
+        try {
+          while (loops < maxLoops) {
+            loops++;
+            const result = await hit(path);
+            const procesadas = Number(result.body?.procesadas ?? 0);
+            total += procesadas;
+            vueltas.push(result.body);
 
-          console.log(`[pipeline] ${name} vuelta ${loops}: procesadas=${procesadas}`);
+            console.log(`[pipeline] ${name} vuelta ${loops}: procesadas=${procesadas}`);
 
-          if (procesadas === 0) {
-            colaVacia = true;
-            break;
+            if (procesadas === 0) {
+              colaVacia = true;
+              break;
+            }
+            await sleep(stepDelayMs);
           }
-          await sleep(stepDelayMs);
-        }
 
-        return {
-          loops,
-          total,
-          colaVacia,
-          maxLoopsAlcanzado: !colaVacia && loops >= maxLoops,
-          ultimaRespuesta: vueltas[vueltas.length - 1] || null,
-        };
+          const result = {
+            loops,
+            total,
+            colaVacia,
+            maxLoopsAlcanzado: !colaVacia && loops >= maxLoops,
+            ultimaRespuesta: vueltas[vueltas.length - 1] || null,
+          };
+          const finishedAt = new Date();
+          await guardarPipelineRun(supabase, {
+            stage: name,
+            endpoint: path,
+            fecha_objetivo: fecha,
+            started_at: startedAt.toISOString(),
+            finished_at: finishedAt.toISOString(),
+            duration_ms: finishedAt.getTime() - startedAt.getTime(),
+            status: result.maxLoopsAlcanzado ? 'warning' : 'ok',
+            loops,
+            procesadas: total,
+            response_json: result,
+          });
+          return result;
+        } catch (err) {
+          const finishedAt = new Date();
+          await guardarPipelineRun(supabase, {
+            stage: name,
+            endpoint: path,
+            fecha_objetivo: fecha,
+            started_at: startedAt.toISOString(),
+            finished_at: finishedAt.toISOString(),
+            duration_ms: finishedAt.getTime() - startedAt.getTime(),
+            status: 'error',
+            loops,
+            procesadas: total,
+            error_msg: err.message,
+            response_json: { vueltas },
+          });
+          throw err;
+        }
       }
 
       async function abortIfLimited(stageName, result) {
         if (!result.maxLoopsAlcanzado) return false;
 
-        const estadoActual = await hit('/alertas/estado-pipeline');
+        const estadoActual = await runSimpleStage('estado_pipeline_abort', '/alertas/estado-pipeline');
         const avisoAdmin = await enviarWhatsAppAdmin(
           [
             '*Ruralicos: pipeline diario detenido*',
@@ -333,19 +403,19 @@ module.exports = function tareasRoutes(app, supabase) {
         scrapers.push(await hit(path));
       }
 
-      const repararPendientes = await hit('/alertas/reparar-pendientes-ia', 'POST');
+      const repararPendientes = await runSimpleStage('reparar_pendientes_ia', '/alertas/reparar-pendientes-ia', 'POST');
       const clasificar = await runBatchedStep('clasificar', '/alertas/clasificar');
       if (await abortIfLimited('clasificar', clasificar)) return;
       const resumir = await runBatchedStep('resumir', '/alertas/resumir');
       if (await abortIfLimited('resumir', resumir)) return;
       const revisar = await runBatchedStep('revisar', '/alertas/revisar');
       if (await abortIfLimited('revisar', revisar)) return;
-      const deduplicar = await hit('/alertas/deduplicar');
-      const prepararDigest = await hit('/alertas/preparar-digest');
-      const enviarDigest = await hit('/alertas/enviar-digest');
-      const generarResumenFree = await hit('/alertas/generar-resumen-free');
-      const enviarResumenFree = await hit('/alertas/enviar-resumen-free');
-      const estadoFinal = await hit('/alertas/estado-pipeline');
+      const deduplicar = await runSimpleStage('deduplicar', '/alertas/deduplicar');
+      const prepararDigest = await runSimpleStage('preparar_digest', '/alertas/preparar-digest');
+      const enviarDigest = await runSimpleStage('enviar_digest', '/alertas/enviar-digest');
+      const generarResumenFree = await runSimpleStage('generar_resumen_free', '/alertas/generar-resumen-free');
+      const enviarResumenFree = await runSimpleStage('enviar_resumen_free', '/alertas/enviar-resumen-free');
+      const estadoFinal = await runSimpleStage('estado_pipeline_final', '/alertas/estado-pipeline');
 
       res.json({
         success: true,
