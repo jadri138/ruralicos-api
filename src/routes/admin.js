@@ -254,6 +254,20 @@ module.exports = (app, supabase) => {
     }
   });
 
+  app.get('/admin/users/:id/diagnostico-digest', requireAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const fecha = /^\d{4}-\d{2}-\d{2}$/.test(req.query.fecha || '')
+        ? req.query.fecha
+        : getFechaMadridISO();
+      const result = await hitCronPath(`/alertas/diagnosticar-digest?user_id=${encodeURIComponent(id)}&fecha=${encodeURIComponent(fecha)}`);
+      return res.json(result);
+    } catch (err) {
+      console.error('Error diagnosticando digest desde admin:', err);
+      return res.status(err.status || 500).json(err.body || { error: err.message });
+    }
+  });
+
   // Estado operativo de boletines/alertas por fecha
   app.get('/admin/boletines/estado', requireAdmin, async (req, res) => {
     try {
@@ -316,7 +330,7 @@ module.exports = (app, supabase) => {
     }
   });
 
-  app.post('/admin/tareas/scrapers-diario', requireAdmin, async (req, res) => {
+app.post('/admin/tareas/scrapers-diario', requireAdmin, async (req, res) => {
     try {
       const fecha = /^\d{4}-\d{2}-\d{2}$/.test(req.body?.fecha || '')
         ? `?fecha=${encodeURIComponent(req.body.fecha)}`
@@ -325,6 +339,24 @@ module.exports = (app, supabase) => {
       return res.json(result);
     } catch (err) {
       console.error('Error lanzando scrapers desde admin:', err);
+      return res.status(err.status || 500).json(err.body || { error: err.message });
+    }
+  });
+
+  app.post('/admin/tareas/scraper', requireAdmin, async (req, res) => {
+    try {
+      const path = String(req.body?.path || '').trim();
+      if (!path) return res.status(400).json({ error: 'Falta path del scraper' });
+
+      const params = new URLSearchParams({ path });
+      if (/^\d{4}-\d{2}-\d{2}$/.test(req.body?.fecha || '')) {
+        params.set('fecha', req.body.fecha);
+      }
+
+      const result = await hitCronPath(`/tareas/scraper?${params.toString()}`);
+      return res.json(result);
+    } catch (err) {
+      console.error('Error lanzando scraper desde admin:', err);
       return res.status(err.status || 500).json(err.body || { error: err.message });
     }
   });
@@ -339,6 +371,125 @@ module.exports = (app, supabase) => {
     } catch (err) {
       console.error('Error lanzando pipeline desde admin:', err);
       return res.status(err.status || 500).json(err.body || { error: err.message });
+    }
+  });
+
+  app.get('/admin/scraper-runs', requireAdmin, async (req, res) => {
+    try {
+      const fecha = /^\d{4}-\d{2}-\d{2}$/.test(req.query.fecha || '')
+        ? req.query.fecha
+        : getFechaMadridISO();
+      const limit = Math.min(Number(req.query.limit || 200), 500);
+
+      const { data, error } = await supabase
+        .from('scraper_runs')
+        .select('id, fuente, endpoint, fecha_objetivo, started_at, finished_at, duration_ms, status, http_status, nuevas, duplicadas, errores, relevantes, mensaje, error_msg')
+        .eq('fecha_objetivo', fecha)
+        .order('started_at', { ascending: false })
+        .limit(limit);
+
+      if (error) {
+        if (error.code === '42P01') {
+          return res.status(503).json({
+            error: 'Falta crear la tabla scraper_runs. Ejecuta docs/scraper_runs_schema.sql en Supabase.',
+          });
+        }
+        return res.status(500).json({ error: error.message });
+      }
+
+      const latestByFuente = {};
+      for (const run of data || []) {
+        if (!latestByFuente[run.fuente]) latestByFuente[run.fuente] = run;
+      }
+
+      return res.json({
+        fecha,
+        runs: data || [],
+        latest: Object.values(latestByFuente).sort((a, b) => a.fuente.localeCompare(b.fuente)),
+      });
+    } catch (err) {
+      console.error('Error en /admin/scraper-runs:', err);
+      return res.status(500).json({ error: 'Error interno' });
+    }
+  });
+
+  app.patch('/admin/alertas/:id', requireAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const updates = {};
+      const camposTexto = ['titulo', 'resumen', 'resumen_final', 'estado_ia', 'fuente', 'region', 'url'];
+      const camposJson = ['provincias', 'sectores', 'subsectores', 'tipos_alerta'];
+
+      for (const campo of camposTexto) {
+        if (req.body[campo] !== undefined) {
+          const value = String(req.body[campo] || '').trim();
+          updates[campo] = value || null;
+        }
+      }
+
+      for (const campo of camposJson) {
+        if (req.body[campo] !== undefined) {
+          if (req.body[campo] !== null && typeof req.body[campo] !== 'object') {
+            return res.status(400).json({ error: `${campo} debe ser JSON` });
+          }
+          updates[campo] = req.body[campo];
+        }
+      }
+
+      if (Object.keys(updates).length === 0) {
+        return res.status(400).json({ error: 'No hay campos para actualizar' });
+      }
+
+      const { data, error } = await supabase
+        .from('alertas')
+        .update(updates)
+        .eq('id', id)
+        .select('*')
+        .single();
+
+      if (error || !data) {
+        console.error('Error actualizando alerta admin:', error?.message);
+        return res.status(500).json({ error: 'Error actualizando alerta' });
+      }
+
+      return res.json({ success: true, alerta: data });
+    } catch (err) {
+      console.error('Error en PATCH /admin/alertas/:id:', err);
+      return res.status(500).json({ error: 'Error interno' });
+    }
+  });
+
+  app.post('/admin/alertas/:id/reprocesar', requireAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const fase = String(req.body?.fase || 'clasificar');
+      const estado = fase === 'resumir'
+        ? 'pendiente_resumir'
+        : fase === 'revisar'
+          ? 'pendiente_revision'
+          : 'pendiente_clasificar';
+
+      const { data, error } = await supabase
+        .from('alertas')
+        .update({
+          estado_ia: estado,
+          ...(estado === 'pendiente_clasificar'
+            ? { resumen_borrador: null, resumen_final: null }
+            : {}),
+        })
+        .eq('id', id)
+        .select('id, titulo, estado_ia')
+        .single();
+
+      if (error || !data) {
+        console.error('Error marcando alerta para reprocesar:', error?.message);
+        return res.status(500).json({ error: 'Error marcando alerta para reprocesar' });
+      }
+
+      return res.json({ success: true, alerta: data });
+    } catch (err) {
+      console.error('Error en POST /admin/alertas/:id/reprocesar:', err);
+      return res.status(500).json({ error: 'Error interno' });
     }
   });
 };

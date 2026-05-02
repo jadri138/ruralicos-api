@@ -25,6 +25,29 @@ const SCRAPE_PATHS_DEFAULT = [
   '/scrape-bocce-oficial',
 ];
 
+const SCRAPER_FUENTES = {
+  '/scrape-boe-oficial': 'BOE',
+  '/scrape-boa-oficial': 'BOA',
+  '/scrape-bocan-oficial': 'BOCAN',
+  '/scrape-bocant-oficial': 'BOCANT',
+  '/scrape-bocm-oficial': 'BOCM',
+  '/scrape-bocyl-oficial': 'BOCYL',
+  '/scrape-boib-oficial': 'BOIB',
+  '/scrape-boja-oficial': 'BOJA',
+  '/scrape-bon-oficial': 'BON',
+  '/scrape-bopa-oficial': 'BOPA',
+  '/scrape-bopv-oficial': 'BOPV',
+  '/scrape-bor-oficial': 'BOR',
+  '/scrape-borm-oficial': 'BORM',
+  '/scrape-docm-oficial': 'DOCM',
+  '/scrape-doe-oficial': 'DOE',
+  '/scrape-dog': 'DOG',
+  '/scrape-dogc': 'DOGC',
+  '/scrape-dogv': 'DOGV',
+  '/scrape-bome-oficial': 'BOME',
+  '/scrape-bocce-oficial': 'BOCCE',
+};
+
 function getBaseUrl() {
   return process.env.PUBLIC_BASE_URL || 'http://localhost:' + (process.env.PORT || 3000);
 }
@@ -53,6 +76,32 @@ function buildScrapeUrl(baseUrl, path, token, fechaISO) {
   return `${baseUrl}${path}${path.includes('?') ? '&' : '?'}${params.toString()}`;
 }
 
+function obtenerFuenteScraper(path) {
+  return SCRAPER_FUENTES[path] || path.replace(/^\/scrape-/, '').replace(/-oficial$/, '').toUpperCase();
+}
+
+function numeroBody(body, keys) {
+  for (const key of keys) {
+    const value = Number(body?.[key]);
+    if (Number.isFinite(value)) return value;
+  }
+  return 0;
+}
+
+function statusRun(responseOk, body) {
+  if (!responseOk) return 'error';
+  const errores = numeroBody(body, ['errores']);
+  if (errores > 0) return 'warning';
+  return 'ok';
+}
+
+async function guardarScraperRun(supabase, run) {
+  const { error } = await supabase.from('scraper_runs').insert([run]);
+  if (error) {
+    console.warn('[scraper_runs] No se pudo guardar ejecucion:', error.message);
+  }
+}
+
 module.exports = function tareasRoutes(app, supabase) {
   app.get('/tareas/scrapers-diario', async (req, res) => {
     if (!checkCronToken(req, res)) return;
@@ -65,8 +114,10 @@ module.exports = function tareasRoutes(app, supabase) {
       : getFechaMadridISO();
 
     async function hit(path) {
+      const startedAt = new Date();
       const url = buildScrapeUrl(baseUrl, path, token, fecha);
       const response = await fetch(url);
+      const finishedAt = new Date();
 
       let body = null;
       try {
@@ -75,12 +126,33 @@ module.exports = function tareasRoutes(app, supabase) {
         body = { raw: await response.text() };
       }
 
-      return {
+      const result = {
         path,
+        fuente: obtenerFuenteScraper(path),
         ok: response.ok,
         status: response.status,
         body,
       };
+
+      await guardarScraperRun(supabase, {
+        fuente: result.fuente,
+        endpoint: path,
+        fecha_objetivo: fecha,
+        started_at: startedAt.toISOString(),
+        finished_at: finishedAt.toISOString(),
+        duration_ms: finishedAt.getTime() - startedAt.getTime(),
+        status: statusRun(response.ok, body),
+        http_status: response.status,
+        nuevas: numeroBody(body, ['nuevas']),
+        duplicadas: numeroBody(body, ['duplicadas']),
+        errores: numeroBody(body, ['errores']),
+        relevantes: numeroBody(body, ['relevantes', 'documentos_insertables', 'totales']) || null,
+        mensaje: body?.mensaje || null,
+        error_msg: response.ok ? null : (body?.error || `HTTP ${response.status}`),
+        response_json: body,
+      });
+
+      return result;
     }
 
     const resultados = [];
@@ -106,6 +178,61 @@ module.exports = function tareasRoutes(app, supabase) {
       fallidos: fallidos.length,
       resultados,
     });
+  });
+
+  app.get('/tareas/scraper', async (req, res) => {
+    if (!checkCronToken(req, res)) return;
+
+    const path = String(req.query.path || '').trim();
+    if (!SCRAPE_PATHS_DEFAULT.includes(path)) {
+      return res.status(400).json({ error: 'Scraper no permitido', permitidos: SCRAPE_PATHS_DEFAULT });
+    }
+
+    const baseUrl = getBaseUrl();
+    const token = process.env.CRON_TOKEN;
+    const fecha = /^\d{4}-\d{2}-\d{2}$/.test(req.query.fecha || '')
+      ? req.query.fecha
+      : getFechaMadridISO();
+
+    const startedAt = new Date();
+    const url = buildScrapeUrl(baseUrl, path, token, fecha);
+    const response = await fetch(url);
+    const finishedAt = new Date();
+
+    let body = null;
+    try {
+      body = await response.json();
+    } catch {
+      body = { raw: await response.text() };
+    }
+
+    const result = {
+      path,
+      fuente: obtenerFuenteScraper(path),
+      ok: response.ok,
+      status: response.status,
+      body,
+    };
+
+    await guardarScraperRun(supabase, {
+      fuente: result.fuente,
+      endpoint: path,
+      fecha_objetivo: fecha,
+      started_at: startedAt.toISOString(),
+      finished_at: finishedAt.toISOString(),
+      duration_ms: finishedAt.getTime() - startedAt.getTime(),
+      status: statusRun(response.ok, body),
+      http_status: response.status,
+      nuevas: numeroBody(body, ['nuevas']),
+      duplicadas: numeroBody(body, ['duplicadas']),
+      errores: numeroBody(body, ['errores']),
+      relevantes: numeroBody(body, ['relevantes', 'documentos_insertables', 'totales']) || null,
+      mensaje: body?.mensaje || null,
+      error_msg: response.ok ? null : (body?.error || `HTTP ${response.status}`),
+      response_json: body,
+    });
+
+    return res.status(response.ok ? 200 : 207).json(result);
   });
 
   app.get('/tareas/pipeline-diario', async (req, res) => {
