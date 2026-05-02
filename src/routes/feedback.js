@@ -283,6 +283,73 @@ module.exports = function feedbackRoutes(app, supabase) {
     }
   });
 
+  app.get('/feedback/diagnostico', async (req, res) => {
+    if (!checkCronToken(req, res)) return;
+
+    try {
+      const phone = normalizePhone(req.query.phone);
+      if (!phone) return res.status(400).json({ error: 'Indica phone' });
+
+      const { data: user, error: errUser } = await supabase
+        .from('users')
+        .select('id, phone, name, subscription')
+        .eq('phone', phone)
+        .maybeSingle();
+
+      if (errUser) return res.status(500).json({ error: errUser.message });
+      if (!user) return res.status(404).json({ error: 'Usuario no encontrado', phone });
+
+      const [
+        { data: digests, error: errDigests },
+        { data: feedback, error: errFeedback },
+        { data: perfil, error: errPerfil },
+        { data: eventos, error: errEventos },
+      ] = await Promise.all([
+        supabase
+          .from('digests')
+          .select('id, fecha, enviado, enviado_at, alerta_ids, created_at')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(5),
+        supabase
+          .from('alerta_feedback')
+          .select('id, digest_id, alerta_id, item_numero, valor, raw_text, created_at, updated_at')
+          .eq('user_id', user.id)
+          .order('updated_at', { ascending: false })
+          .limit(10),
+        supabase
+          .from('user_interest_profile')
+          .select('tag, score, positivos, negativos, updated_at')
+          .eq('user_id', user.id)
+          .order('score', { ascending: false })
+          .limit(20),
+        supabase
+          .from('webhook_events')
+          .select('id, content_type, processed, result_json, error_msg, body_json, created_at')
+          .eq('source', 'ultramsg')
+          .order('created_at', { ascending: false })
+          .limit(10),
+      ]);
+
+      if (errDigests) return res.status(500).json({ error: errDigests.message });
+      if (errFeedback) return res.status(500).json({ error: errFeedback.message });
+      if (errPerfil) return res.status(500).json({ error: errPerfil.message });
+      if (errEventos) return res.status(500).json({ error: errEventos.message });
+
+      return res.json({
+        ok: true,
+        user,
+        digests: digests || [],
+        feedback: feedback || [],
+        perfil: perfil || [],
+        webhook_events: eventos || [],
+      });
+    } catch (err) {
+      console.error('Error en /feedback/diagnostico:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
   app.all('/webhooks/ultramsg/feedback', async (req, res) => {
     if (!validarWebhookToken(req, res)) return;
 
