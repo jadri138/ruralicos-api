@@ -19,7 +19,7 @@ function validarWebhookToken(req, res) {
 }
 
 module.exports = function feedbackRoutes(app, supabase) {
-  app.post('/feedback/enviar-digest-prueba', async (req, res) => {
+  const enviarDigestPruebaHandler = async (req, res) => {
     if (!checkCronToken(req, res)) return;
 
     try {
@@ -100,7 +100,10 @@ module.exports = function feedbackRoutes(app, supabase) {
       console.error('Error en /feedback/enviar-digest-prueba:', err);
       return res.status(500).json({ error: err.message });
     }
-  });
+  };
+
+  app.post('/feedback/enviar-digest-prueba', enviarDigestPruebaHandler);
+  app.get('/feedback/enviar-digest-prueba', enviarDigestPruebaHandler);
 
   app.post('/webhooks/ultramsg/feedback', async (req, res) => {
     if (!validarWebhookToken(req, res)) return;
