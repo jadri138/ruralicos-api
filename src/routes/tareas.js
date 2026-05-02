@@ -430,8 +430,8 @@ module.exports = function tareasRoutes(app, supabase) {
       const deduplicar = await runSimpleStage('deduplicar', '/alertas/deduplicar');
       const prepararDigest = await runSimpleStage('preparar_digest', '/alertas/preparar-digest');
       const enviarDigest = await runSimpleStage('enviar_digest', '/alertas/enviar-digest');
-      const generarResumenFree = await runOptionalStage('generar_resumen_free', '/alertas/generar-resumen-free');
-      const enviarResumenFree = await runOptionalStage('enviar_resumen_free', '/alertas/enviar-resumen-free');
+      const generarResumenFree = await runSimpleStage('generar_resumen_free', '/alertas/generar-resumen-free');
+      const enviarResumenFree = await runSimpleStage('enviar_resumen_free', '/alertas/enviar-resumen-free');
       const estadoFinal = await runSimpleStage('estado_pipeline_final', '/alertas/estado-pipeline');
 
       res.json({
