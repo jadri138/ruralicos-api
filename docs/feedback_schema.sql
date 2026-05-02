@@ -44,6 +44,28 @@ alter table public.user_interest_profile enable row level security;
 create index if not exists idx_user_interest_profile_user_score
   on public.user_interest_profile(user_id, score desc);
 
+create table if not exists public.webhook_events (
+  id bigserial primary key,
+  source text not null,
+  path text null,
+  method text null,
+  content_type text null,
+  query_json jsonb null,
+  body_json jsonb null,
+  processed boolean not null default false,
+  result_json jsonb null,
+  error_msg text null,
+  created_at timestamptz not null default now()
+);
+
+alter table public.webhook_events enable row level security;
+
+create index if not exists idx_webhook_events_created
+  on public.webhook_events(created_at desc);
+
+create index if not exists idx_webhook_events_source_created
+  on public.webhook_events(source, created_at desc);
+
 create or replace function public.set_alerta_feedback_updated_at()
 returns trigger as $$
 begin

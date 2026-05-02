@@ -6,32 +6,65 @@ function normalizarTexto(texto) {
 }
 
 function extraerTextoEntrante(body = {}) {
-  return (
-    body.body ||
-    body.Body ||
-    body.text ||
-    body.message ||
-    body.data?.body ||
-    body.data?.text ||
-    body.data?.message ||
-    body.data?.message?.body ||
-    ''
-  );
+  const data = parseMaybeJson(body.data) || body.data || {};
+  const message = parseMaybeJson(body.message) || body.message || {};
+  const dataMessage = parseMaybeJson(data.message) || data.message || {};
+
+  return firstString([
+    body.body,
+    body.Body,
+    body.text,
+    body.message,
+    message.body,
+    message.text,
+    data.body,
+    data.text,
+    data.message,
+    dataMessage.body,
+    dataMessage.text,
+  ]);
 }
 
 function extraerTelefonoEntrante(body = {}) {
+  const data = parseMaybeJson(body.data) || body.data || {};
+  const message = parseMaybeJson(body.message) || body.message || {};
+  const dataMessage = parseMaybeJson(data.message) || data.message || {};
   const raw =
     body.from ||
     body.From ||
     body.author ||
     body.phone ||
-    body.data?.from ||
-    body.data?.author ||
-    body.data?.phone ||
-    body.data?.sender ||
+    message.from ||
+    message.author ||
+    message.phone ||
+    data.from ||
+    data.author ||
+    data.phone ||
+    data.sender ||
+    dataMessage.from ||
+    dataMessage.author ||
+    dataMessage.phone ||
     '';
 
   return String(raw || '').replace(/\D/g, '');
+}
+
+function parseMaybeJson(value) {
+  if (!value || typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return null;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return null;
+  }
+}
+
+function firstString(values) {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value;
+  }
+  return '';
 }
 
 function parsearVotosDigest(texto) {

@@ -20,6 +20,38 @@ function validarWebhookToken(req, res) {
 }
 
 module.exports = function feedbackRoutes(app, supabase) {
+  async function guardarWebhookEvent(req, result = null, error = null) {
+    const query = { ...(req.query || {}) };
+    if (query.token) query.token = '[redacted]';
+
+    try {
+      const { data, error: insertError } = await supabase
+        .from('webhook_events')
+        .insert({
+          source: 'ultramsg',
+          path: req.path,
+          method: req.method,
+          content_type: req.headers['content-type'] || null,
+          query_json: query,
+          body_json: req.body || {},
+          processed: Boolean(result?.ok && !result?.ignored),
+          result_json: result,
+          error_msg: error ? String(error.message || error).slice(0, 1000) : null,
+        })
+        .select('id')
+        .single();
+
+      if (insertError) {
+        console.warn('[webhook_events] No se pudo guardar evento:', insertError.message);
+        return null;
+      }
+      return data?.id || null;
+    } catch (err) {
+      console.warn('[webhook_events] Error inesperado guardando evento:', err.message);
+      return null;
+    }
+  }
+
   async function guardarFeedbackDesdeTexto({ phone, texto }) {
     const telefono = normalizePhone(phone);
     const votos = parsearVotosDigest(texto);
@@ -251,13 +283,14 @@ module.exports = function feedbackRoutes(app, supabase) {
     }
   });
 
-  app.post('/webhooks/ultramsg/feedback', async (req, res) => {
+  app.all('/webhooks/ultramsg/feedback', async (req, res) => {
     if (!validarWebhookToken(req, res)) return;
 
     try {
       const texto = extraerTextoEntrante(req.body);
       const telefono = normalizePhone(extraerTelefonoEntrante(req.body));
       const result = await guardarFeedbackDesdeTexto({ phone: telefono, texto });
+      await guardarWebhookEvent(req, result, null);
       const positivos = result.positivos || 0;
       const negativos = result.negativos || 0;
       const enviarConfirmacion = (process.env.FEEDBACK_CONFIRMATION_ENABLED || 'false').toLowerCase() === 'true';
@@ -272,6 +305,7 @@ module.exports = function feedbackRoutes(app, supabase) {
       return res.json(result);
     } catch (err) {
       console.error('Error en /webhooks/ultramsg/feedback:', err);
+      await guardarWebhookEvent(req, null, err);
       return res.status(500).json({ error: err.message });
     }
   });

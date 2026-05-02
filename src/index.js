@@ -54,6 +54,7 @@ const app = express();
 
 // Leer JSON del body (solo una vez)
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // Seguridad HTTP
 app.use(helmet());
