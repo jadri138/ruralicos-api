@@ -1,4 +1,47 @@
 const { requireAdmin } = require('../../authMiddleware');
+const { normalizePhone } = require('../utils/phoneNormalizer');
+
+const PLANES_VALIDOS = ['free', 'corral', 'agricultor', 'cooperativa'];
+
+function getFechaMadridISO() {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Madrid',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+}
+
+function getPublicBaseUrl() {
+  return process.env.PUBLIC_BASE_URL || `http://localhost:${process.env.PORT || 3000}`;
+}
+
+async function hitCronPath(path) {
+  const token = process.env.CRON_TOKEN;
+  if (!token) {
+    throw new Error('CRON_TOKEN no configurado');
+  }
+
+  const baseUrl = getPublicBaseUrl().replace(/\/+$/, '');
+  const url = `${baseUrl}${path}${path.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`;
+  const response = await fetch(url);
+
+  let body = null;
+  try {
+    body = await response.json();
+  } catch {
+    body = { raw: await response.text() };
+  }
+
+  if (!response.ok) {
+    const error = new Error(`${path} devolvio ${response.status}`);
+    error.status = response.status;
+    error.body = body;
+    throw error;
+  }
+
+  return body;
+}
 
 // routes/admin.js
 module.exports = (app, supabase) => {
@@ -144,6 +187,158 @@ module.exports = (app, supabase) => {
     } catch (err) {
       console.error('Error en /admin/users:', err);
       return res.status(500).json({ error: 'Error interno en /admin/users' });
+    }
+  });
+
+  // Actualizar usuario desde el panel admin
+  app.patch('/admin/users/:id', requireAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const updates = {};
+
+      if (req.body.name !== undefined) {
+        const name = String(req.body.name || '').trim();
+        updates.name = name || null;
+      }
+
+      if (req.body.email !== undefined) {
+        const email = String(req.body.email || '').trim().toLowerCase();
+        updates.email = email || null;
+      }
+
+      if (req.body.phone !== undefined) {
+        const phone = normalizePhone(req.body.phone);
+        updates.phone = phone || null;
+      }
+
+      if (req.body.subscription !== undefined) {
+        const subscription = String(req.body.subscription || '').trim();
+        if (!PLANES_VALIDOS.includes(subscription)) {
+          return res.status(400).json({ error: `Plan invalido. Opciones: ${PLANES_VALIDOS.join(', ')}` });
+        }
+        updates.subscription = subscription;
+      }
+
+      if (req.body.preferences !== undefined) {
+        if (!req.body.preferences || typeof req.body.preferences !== 'object' || Array.isArray(req.body.preferences)) {
+          return res.status(400).json({ error: 'preferences debe ser un objeto JSON' });
+        }
+        updates.preferences = req.body.preferences;
+      }
+
+      if (req.body.preferencias_extra !== undefined) {
+        const extra = String(req.body.preferencias_extra || '').trim();
+        updates.preferencias_extra = extra ? extra.slice(0, 1000) : null;
+      }
+
+      if (Object.keys(updates).length === 0) {
+        return res.status(400).json({ error: 'No hay campos para actualizar' });
+      }
+
+      const { data, error } = await supabase
+        .from('users')
+        .update(updates)
+        .eq('id', id)
+        .select('id, name, email, phone, subscription, created_at, preferences, preferencias_extra')
+        .single();
+
+      if (error || !data) {
+        console.error('Error actualizando usuario admin:', error?.message);
+        return res.status(500).json({ error: 'Error actualizando usuario' });
+      }
+
+      return res.json({ success: true, user: data });
+    } catch (err) {
+      console.error('Error en PATCH /admin/users/:id:', err);
+      return res.status(500).json({ error: 'Error interno' });
+    }
+  });
+
+  // Estado operativo de boletines/alertas por fecha
+  app.get('/admin/boletines/estado', requireAdmin, async (req, res) => {
+    try {
+      const fecha = /^\d{4}-\d{2}-\d{2}$/.test(req.query.fecha || '')
+        ? req.query.fecha
+        : getFechaMadridISO();
+
+      const { data: alertas, error: errAlertas } = await supabase
+        .from('alertas')
+        .select('id, fuente, estado_ia, duplicado_de, created_at')
+        .eq('fecha', fecha);
+
+      if (errAlertas) return res.status(500).json({ error: errAlertas.message });
+
+      const inicio = `${fecha}T00:00:00.000Z`;
+      const fin = new Date(`${fecha}T00:00:00.000Z`);
+      fin.setUTCDate(fin.getUTCDate() + 1);
+
+      const { data: logs, error: errLogs } = await supabase
+        .from('whatsapp_logs')
+        .select('id, status, message_type, error_msg, created_at')
+        .gte('created_at', inicio)
+        .lt('created_at', fin.toISOString());
+
+      if (errLogs) return res.status(500).json({ error: errLogs.message });
+
+      const fuentes = {};
+      for (const alerta of alertas || []) {
+        const fuente = String(alerta.fuente || 'SIN_FUENTE').toUpperCase();
+        if (!fuentes[fuente]) {
+          fuentes[fuente] = {
+            fuente,
+            total: 0,
+            duplicadas: 0,
+            estados: {},
+          };
+        }
+        fuentes[fuente].total++;
+        if (alerta.duplicado_de) fuentes[fuente].duplicadas++;
+        const estado = alerta.estado_ia || 'sin_estado';
+        fuentes[fuente].estados[estado] = (fuentes[fuente].estados[estado] || 0) + 1;
+      }
+
+      const fallosWhatsapp = (logs || []).filter((log) => log.status === 'failed');
+
+      return res.json({
+        fecha,
+        alertasTotal: (alertas || []).length,
+        fuentes: Object.values(fuentes).sort((a, b) => a.fuente.localeCompare(b.fuente)),
+        whatsapp: {
+          total: (logs || []).length,
+          enviados: (logs || []).filter((log) => log.status === 'sent').length,
+          fallidos: fallosWhatsapp.length,
+          errores: fallosWhatsapp.slice(0, 20),
+        },
+      });
+    } catch (err) {
+      console.error('Error en /admin/boletines/estado:', err);
+      return res.status(500).json({ error: 'Error interno' });
+    }
+  });
+
+  app.post('/admin/tareas/scrapers-diario', requireAdmin, async (req, res) => {
+    try {
+      const fecha = /^\d{4}-\d{2}-\d{2}$/.test(req.body?.fecha || '')
+        ? `?fecha=${encodeURIComponent(req.body.fecha)}`
+        : '';
+      const result = await hitCronPath(`/tareas/scrapers-diario${fecha}`);
+      return res.json(result);
+    } catch (err) {
+      console.error('Error lanzando scrapers desde admin:', err);
+      return res.status(err.status || 500).json(err.body || { error: err.message });
+    }
+  });
+
+  app.post('/admin/tareas/pipeline-diario', requireAdmin, async (req, res) => {
+    try {
+      const fecha = /^\d{4}-\d{2}-\d{2}$/.test(req.body?.fecha || '')
+        ? `?fecha=${encodeURIComponent(req.body.fecha)}`
+        : '';
+      const result = await hitCronPath(`/tareas/pipeline-diario${fecha}`);
+      return res.json(result);
+    } catch (err) {
+      console.error('Error lanzando pipeline desde admin:', err);
+      return res.status(err.status || 500).json(err.body || { error: err.message });
     }
   });
 };
