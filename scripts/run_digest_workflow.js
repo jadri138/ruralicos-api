@@ -27,16 +27,21 @@ if (!CRON_TOKEN) {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+async function readResponseBody(res) {
+  const raw = await res.text();
+  if (!raw) return null;
+
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return { raw: raw.slice(0, 2000) };
+  }
+}
+
 async function hit(path) {
   const url = `${BASE_URL}${path}${path.includes('?') ? '&' : '?'}token=${encodeURIComponent(CRON_TOKEN)}`;
   const res = await fetch(url, { method: 'GET' });
-
-  let body = null;
-  try {
-    body = await res.json();
-  } catch {
-    body = { raw: await res.text() };
-  }
+  const body = await readResponseBody(res);
 
   if (!res.ok) {
     throw new Error(`[${res.status}] ${path} -> ${JSON.stringify(body)}`);

@@ -17,12 +17,14 @@ async function hitCronPath(path) {
   const baseUrl = getPublicBaseUrl().replace(/\/+$/, '');
   const url = `${baseUrl}${path}${path.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`;
   const response = await fetch(url);
-
+  const raw = await response.text();
   let body = null;
-  try {
-    body = await response.json();
-  } catch {
-    body = { raw: await response.text() };
+  if (raw) {
+    try {
+      body = JSON.parse(raw);
+    } catch {
+      body = { raw: raw.slice(0, 2000) };
+    }
   }
 
   if (!response.ok) {

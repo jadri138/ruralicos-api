@@ -87,6 +87,17 @@ function statusRun(responseOk, body) {
   return 'ok';
 }
 
+async function readResponseBody(response) {
+  const raw = await response.text();
+  if (!raw) return null;
+
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return { raw: raw.slice(0, 2000) };
+  }
+}
+
 async function guardarScraperRun(supabase, run) {
   const { error } = await supabase.from('scraper_runs').insert([run]);
   if (error) {
@@ -118,12 +129,7 @@ module.exports = function tareasRoutes(app, supabase) {
       const response = await fetch(url);
       const finishedAt = new Date();
 
-      let body = null;
-      try {
-        body = await response.json();
-      } catch {
-        body = { raw: await response.text() };
-      }
+      const body = await readResponseBody(response);
 
       const result = {
         path,
@@ -198,12 +204,7 @@ module.exports = function tareasRoutes(app, supabase) {
     const response = await fetch(url);
     const finishedAt = new Date();
 
-    let body = null;
-    try {
-      body = await response.json();
-    } catch {
-      body = { raw: await response.text() };
-    }
+    const body = await readResponseBody(response);
 
     const result = {
       path,
@@ -259,12 +260,7 @@ module.exports = function tareasRoutes(app, supabase) {
         const url = buildPipelineUrl(path);
         const response = await fetch(url, { method });
 
-        let body = null;
-        try {
-          body = await response.json();
-        } catch {
-          body = { raw: await response.text() };
-        }
+        const body = await readResponseBody(response);
 
         if (!response.ok) {
           throw new Error(`${path} devolvio ${response.status}: ${JSON.stringify(body)}`);
