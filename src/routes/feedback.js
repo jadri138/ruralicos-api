@@ -11,6 +11,7 @@ const {
   analizarFeedbackCompleto,
 } = require('../brain');
 const { enviarDigestPro } = require('../whatsapp');
+const { interpretarMensaje } = require('../utils/cerebro');
 
 function validarWebhookToken(req, res) {
   const esperado = process.env.ULTRAMSG_WEBHOOK_TOKEN;
@@ -56,6 +57,165 @@ async function sumarTagPerfil(supabase, userId, tema, delta) {
   }
 
   return true;
+}
+
+function extraerUltraMsg(body = {}) {
+  const data = body.data || {};
+  const eventType = body.event_type || body.eventType || null;
+  return {
+    data,
+    eventType,
+    fromMe: Boolean(data.fromMe),
+    telefono: String(data.from || '').replace('@c.us', '').replace(/\D/g, ''),
+    texto: String(data.body || '').trim(),
+  };
+}
+
+async function buscarConversacionActiva(supabase, userId) {
+  const { data, error } = await supabase
+    .from('user_conversations')
+    .select('id, user_id, estado, tipo, contexto_json, digest_id, abierta_at, expira_at')
+    .eq('user_id', userId)
+    .eq('estado', 'activa')
+    .gt('expira_at', new Date().toISOString())
+    .order('abierta_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data || null;
+}
+
+async function cargarDigestYAlertas(supabase, userId, conversacionActiva) {
+  let digest = null;
+
+  const digestId = conversacionActiva?.contexto_json?.digest_id || conversacionActiva?.digest_id;
+  if (digestId) {
+    const { data, error } = await supabase
+      .from('digests')
+      .select('id, user_id, fecha, alerta_ids')
+      .eq('id', digestId)
+      .eq('user_id', userId)
+      .maybeSingle();
+    if (error) throw error;
+    digest = data || null;
+  }
+
+  if (!digest) {
+    const desde = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const { data, error } = await supabase
+      .from('digests')
+      .select('id, user_id, fecha, alerta_ids, enviado_at, created_at')
+      .eq('user_id', userId)
+      .eq('enviado', true)
+      .or(`enviado_at.gte.${desde},created_at.gte.${desde}`)
+      .order('enviado_at', { ascending: false, nullsFirst: false })
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    digest = data || null;
+  }
+
+  const alertaIds = Array.isArray(digest?.alerta_ids)
+    ? digest.alerta_ids.map(Number).filter(Boolean)
+    : [];
+
+  if (!digest || alertaIds.length === 0) {
+    return { digest, alertaIds: [], alertasOrdenadas: [] };
+  }
+
+  const { data: alertas, error: errAlertas } = await supabase
+    .from('alertas')
+    .select('id, titulo, resumen, resumen_final, provincias, sectores, subsectores, tipos_alerta, fuente')
+    .in('id', alertaIds);
+
+  if (errAlertas) throw errAlertas;
+
+  const alertasPorId = new Map((alertas || []).map((alerta) => [Number(alerta.id), alerta]));
+  return {
+    digest,
+    alertaIds,
+    alertasOrdenadas: alertaIds.map((id) => alertasPorId.get(id)).filter(Boolean),
+  };
+}
+
+async function guardarInterpretacionMIA(supabase, { user, digest, alertaIds, alertasOrdenadas, texto, interpretacion }) {
+  const ahora = new Date().toISOString();
+  const alertasPorItem = new Map(alertasOrdenadas.map((alerta, index) => [index + 1, alerta]));
+  const feedbackRows = [];
+  const memoryRows = [];
+
+  for (const feedback of interpretacion.feedbacks || []) {
+    if (feedback.confianza === 'baja') continue;
+    const alerta = alertasPorItem.get(Number(feedback.item_numero));
+    const alertaId = alerta?.id || alertaIds[Number(feedback.item_numero) - 1];
+    if (!alertaId || ![-1, 0, 1].includes(Number(feedback.valor))) continue;
+
+    feedbackRows.push({
+      user_id: user.id,
+      digest_id: digest?.id || null,
+      alerta_id: alertaId,
+      item_numero: Number(feedback.item_numero),
+      valor: Number(feedback.valor),
+      canal: 'whatsapp',
+      raw_text: texto,
+      updated_at: ahora,
+    });
+
+    if (Number(feedback.valor) !== 0) {
+      memoryRows.push({
+        user_id: user.id,
+        tipo: Number(feedback.valor) > 0 ? 'feedback_positivo' : 'feedback_negativo',
+        contenido: alerta?.titulo || feedback.razon || `Feedback item ${feedback.item_numero}`,
+        alerta_id: alertaId,
+        digest_id: digest?.id || null,
+        peso_inicial: 1.0,
+      });
+    }
+  }
+
+  for (const memoria of interpretacion.memoria || []) {
+    memoryRows.push({
+      user_id: user.id,
+      tipo: memoria.tipo,
+      contenido: memoria.contenido,
+      alerta_id: null,
+      digest_id: digest?.id || null,
+      peso_inicial: memoria.peso_inicial || 0.5,
+    });
+  }
+
+  if (feedbackRows.length > 0) {
+    const { error } = await supabase
+      .from('alerta_feedback')
+      .upsert(feedbackRows, { onConflict: 'user_id,digest_id,alerta_id' });
+    if (error) throw error;
+
+    for (const row of feedbackRows) {
+      if (row.valor === 0) continue;
+      const alerta = alertasOrdenadas.find((a) => Number(a.id) === Number(row.alerta_id));
+      if (alerta) {
+        await aplicarFeedbackAlPerfil(supabase, {
+          userId: user.id,
+          alerta,
+          delta: row.valor,
+        });
+      }
+    }
+  }
+
+  if (memoryRows.length > 0) {
+    const { error } = await supabase
+      .from('user_memory')
+      .insert(memoryRows);
+    if (error) throw error;
+  }
+
+  return {
+    feedbacks_guardados: feedbackRows.length,
+    memorias_guardadas: memoryRows.length,
+  };
 }
 
 module.exports = function feedbackRoutes(app, supabase) {
@@ -481,14 +641,97 @@ module.exports = function feedbackRoutes(app, supabase) {
     if (!validarWebhookToken(req, res)) return;
 
     try {
-      const texto = extraerTextoEntrante(req.body);
-      const telefono = normalizePhone(extraerTelefonoEntrante(req.body));
-      const result = await guardarFeedbackDesdeTexto({ phone: telefono, texto });
+      const ultra = extraerUltraMsg(req.body);
+
+      if (ultra.eventType && ultra.eventType !== 'message_received') {
+        const result = { ok: true, ignored: true, reason: 'event_type_no_procesable', event_type: ultra.eventType };
+        await guardarWebhookEvent(req, result, null);
+        return res.json(result);
+      }
+
+      if (ultra.fromMe) {
+        const result = { ok: true, ignored: true, reason: 'mensaje_propio' };
+        await guardarWebhookEvent(req, result, null);
+        return res.json(result);
+      }
+
+      const texto = ultra.texto || extraerTextoEntrante(req.body);
+      const telefono = normalizePhone(ultra.telefono || extraerTelefonoEntrante(req.body));
+
+      if (!telefono || !texto) {
+        const result = { ok: true, ignored: true, reason: 'telefono_o_texto_vacio', telefono: Boolean(telefono), texto: Boolean(texto) };
+        await guardarWebhookEvent(req, result, null);
+        return res.json(result);
+      }
+
+      const { data: user, error: errUser } = await supabase
+        .from('users')
+        .select('id, phone, name, subscription, preferences, preferencias_extra, contexto_narrativo')
+        .eq('phone', telefono)
+        .maybeSingle();
+
+      if (errUser) throw errUser;
+      if (!user) {
+        const result = { ok: true, ignored: true, reason: 'usuario_no_encontrado', phone: telefono };
+        await guardarWebhookEvent(req, result, null);
+        return res.json(result);
+      }
+
+      await supabase
+        .from('users')
+        .update({ ultima_interaccion_at: new Date().toISOString() })
+        .eq('id', user.id);
+
+      const conversacionActiva = await buscarConversacionActiva(supabase, user.id);
+      const { digest, alertaIds, alertasOrdenadas } = await cargarDigestYAlertas(supabase, user.id, conversacionActiva);
+
+      const interpretacion = await interpretarMensaje({
+        mensajeUsuario: texto,
+        usuario: user,
+        conversacionActiva,
+        alertasDelDigest: alertasOrdenadas,
+      });
+
+      const guardado = await guardarInterpretacionMIA(supabase, {
+        user,
+        digest,
+        alertaIds,
+        alertasOrdenadas,
+        texto,
+        interpretacion,
+      });
+
+      if (conversacionActiva) {
+        await supabase
+          .from('user_conversations')
+          .update({
+            estado: 'resuelta',
+            cerrada_at: new Date().toISOString(),
+          })
+          .eq('id', conversacionActiva.id);
+      }
+
+      if (interpretacion.requiere_respuesta && interpretacion.respuesta) {
+        enviarDigestPro(telefono, interpretacion.respuesta)
+          .catch((err) => console.error('[feedback] Error enviando respuesta MIA:', err.message));
+      }
+
+      const result = {
+        ok: true,
+        user_id: user.id,
+        digest_id: digest?.id || null,
+        conversacion_id: conversacionActiva?.id || null,
+        intencion: interpretacion.intencion,
+        resumen_para_log: interpretacion.resumen_para_log,
+        requiere_respuesta: interpretacion.requiere_respuesta,
+        ...guardado,
+      };
+
       await guardarWebhookEvent(req, result, null);
 
       const enviarConfirmacion = (process.env.FEEDBACK_CONFIRMATION_ENABLED || 'false').toLowerCase() === 'true';
 
-      if (enviarConfirmacion && result.ok && result.feedbacks_guardados > 0) {
+      if (enviarConfirmacion && result.ok && result.feedbacks_guardados > 0 && !interpretacion.requiere_respuesta) {
         enviarDigestPro(telefono, 'Gracias. He guardado tu respuesta y afinare las proximas alertas.')
           .catch((err) => console.error('[feedback] Error enviando confirmacion:', err.message));
       }
