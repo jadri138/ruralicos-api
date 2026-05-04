@@ -23,6 +23,7 @@ const { getPlan }                  = require('../config/planes');
 const { alertaCoincideConUsuario, diagnosticarAlertaUsuario } = require('../utils/alertaMatcher');
 const { getFechaMadridISO }        = require('../utils/fechaMadrid');
 const { leerPerfilIntereses, ordenarAlertasPorPerfil, clasificarPrioridadAlerta, pesoPrioridad } = require('../brain');
+const { similitudCoseno }          = require('../utils/embeddings');
 
 // ─────────────────────────────────────────────
 // Helper: normaliza strings para comparar
@@ -162,8 +163,8 @@ function anadirInstruccionFeedback(mensaje, alertas) {
   if (total === 0) return mensaje;
 
   const linea = total >= 2
-    ? '_Para afinar tus alertas, responde con el numero que te interese. Ej: 1. Si una no te sirve: quitar 2._'
-    : '_Para afinar tus alertas, responde 1 si te interesa o quitar 1 si no te sirve._';
+    ? '_Cuales te han interesado? Responde: 1, 2, ambas o ninguna._'
+    : '_Te ha interesado? Responde: 1 o ninguna._';
 
   if (mensaje.includes('Para afinar tus alertas')) return mensaje;
   return `${mensaje.trim()}\n\n${linea}`;
@@ -189,6 +190,49 @@ function ordenarPorAprendizaje(alertas, aprendizaje) {
       return (pesoPrioridad(prioridadB.prioridad) + prioridadB.score) -
         (pesoPrioridad(prioridadA.prioridad) + prioridadA.score);
     });
+}
+
+function parseVector(value) {
+  if (Array.isArray(value)) return value.map(Number);
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  try {
+    return JSON.parse(trimmed).map(Number);
+  } catch {
+    return trimmed
+      .replace(/^\[/, '')
+      .replace(/\]$/, '')
+      .split(',')
+      .map((n) => Number(n.trim()))
+      .filter((n) => Number.isFinite(n));
+  }
+}
+
+function ordenarPorPerfilVectorial(alertas, perfilEmbeddingRaw) {
+  const perfilEmbedding = parseVector(perfilEmbeddingRaw);
+  if (!Array.isArray(perfilEmbedding) || perfilEmbedding.length === 0) return null;
+
+  const conScore = alertas
+    .map((alerta) => {
+      const embedding = parseVector(alerta.embedding);
+      if (!Array.isArray(embedding) || embedding.length !== perfilEmbedding.length) return null;
+      return {
+        ...alerta,
+        similitud: similitudCoseno(perfilEmbedding, embedding),
+      };
+    })
+    .filter(Boolean);
+
+  if (conScore.length === 0) return null;
+
+  return conScore.sort((a, b) => {
+    const prioridadA = clasificarPrioridadAlerta(a);
+    const prioridadB = clasificarPrioridadAlerta(b);
+    const scoreA = a.similitud + (pesoPrioridad(prioridadA.prioridad) + prioridadA.score) / 100;
+    const scoreB = b.similitud + (pesoPrioridad(prioridadB.prioridad) + prioridadB.score) / 100;
+    return scoreB - scoreA;
+  });
 }
 
 // Helper: construye el prompt y genera el mensaje con IA.
@@ -374,11 +418,21 @@ module.exports = function digestRoutes(app, supabase) {
         : getFechaMadridISO();
 
       // 1) Alertas del día listas para enviar
-      const { data: alertas, error: errAlertas } = await supabase
+      let { data: alertas, error: errAlertas } = await supabase
         .from('alertas')
-        .select('id, titulo, url, fuente, resumen, resumen_final, contenido, provincias, sectores, subsectores, tipos_alerta')
+        .select('id, titulo, url, fuente, resumen, resumen_final, contenido, provincias, sectores, subsectores, tipos_alerta, embedding')
         .eq('fecha', hoy)
         .eq('estado_ia', 'listo');
+
+      if (errAlertas && /embedding/i.test(errAlertas.message || '')) {
+        const fallback = await supabase
+          .from('alertas')
+          .select('id, titulo, url, fuente, resumen, resumen_final, contenido, provincias, sectores, subsectores, tipos_alerta')
+          .eq('fecha', hoy)
+          .eq('estado_ia', 'listo');
+        alertas = fallback.data;
+        errAlertas = fallback.error;
+      }
 
       if (errAlertas) return res.status(500).json({ error: errAlertas.message });
 
@@ -392,12 +446,23 @@ module.exports = function digestRoutes(app, supabase) {
       }
 
       // 2) Usuarios de pago con teléfono
-      const { data: usuarios, error: errUsuarios } = await supabase
+      let { data: usuarios, error: errUsuarios } = await supabase
         .from('users')
-        .select('id, name, phone, subscription, preferences, preferencias_extra')
+        .select('id, name, phone, subscription, preferences, preferencias_extra, perfil_embedding, perfil_actualizado_at')
         .in('subscription', ['corral', 'agricultor', 'cooperativa'])
         .not('phone', 'is', null)
         .neq('phone', '');
+
+      if (errUsuarios && /perfil_embedding|perfil_actualizado_at/i.test(errUsuarios.message || '')) {
+        const fallback = await supabase
+          .from('users')
+          .select('id, name, phone, subscription, preferences, preferencias_extra')
+          .in('subscription', ['corral', 'agricultor', 'cooperativa'])
+          .not('phone', 'is', null)
+          .neq('phone', '');
+        usuarios = fallback.data;
+        errUsuarios = fallback.error;
+      }
 
       if (errUsuarios) return res.status(500).json({ error: errUsuarios.message });
 
@@ -441,7 +506,8 @@ module.exports = function digestRoutes(app, supabase) {
           user.preferencias_extra
         );
         const aprendizaje = await obtenerAprendizajeUsuario(supabase, user.id);
-        const alertasOrdenadas = ordenarPorAprendizaje(alertasUsuario, aprendizaje);
+        const alertasVectoriales = ordenarPorPerfilVectorial(alertasUsuario, user.perfil_embedding);
+        const alertasOrdenadas = alertasVectoriales || ordenarPorAprendizaje(alertasUsuario, aprendizaje);
 
         // Sin alertas relevantes → silencio
         if (alertasOrdenadas.length === 0) {

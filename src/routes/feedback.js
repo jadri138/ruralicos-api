@@ -7,6 +7,7 @@ const {
   extraerTelefonoEntrante,
   leerPerfilIntereses,
   parsearVotosDigest,
+  analizarFeedbackCompleto,
 } = require('../brain');
 const { enviarDigestPro } = require('../whatsapp');
 
@@ -22,6 +23,38 @@ function validarWebhookToken(req, res) {
   if (recibido && String(recibido) === esperado) return true;
   res.status(401).json({ error: 'Webhook token invalido' });
   return false;
+}
+
+async function sumarTagPerfil(supabase, userId, tema, delta) {
+  const { data: actual, error: selectError } = await supabase
+    .from('user_interest_profile')
+    .select('score, positivos, negativos')
+    .eq('user_id', userId)
+    .eq('tag', tema)
+    .maybeSingle();
+
+  if (selectError) {
+    console.warn(`[feedback] Error leyendo tag ${tema}:`, selectError.message);
+    return false;
+  }
+
+  const { error: upsertError } = await supabase
+    .from('user_interest_profile')
+    .upsert({
+      user_id: userId,
+      tag: tema,
+      score: (Number(actual?.score) || 0) + delta,
+      positivos: (Number(actual?.positivos) || 0) + (delta > 0 ? 1 : 0),
+      negativos: (Number(actual?.negativos) || 0) + (delta < 0 ? 1 : 0),
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'user_id,tag' });
+
+  if (upsertError) {
+    console.warn(`[feedback] Error actualizando tag ${tema}:`, upsertError.message);
+    return false;
+  }
+
+  return true;
 }
 
 module.exports = function feedbackRoutes(app, supabase) {
@@ -59,11 +92,10 @@ module.exports = function feedbackRoutes(app, supabase) {
 
   async function guardarFeedbackDesdeTexto({ phone, texto }) {
     const telefono = normalizePhone(phone);
-    const votos = parsearVotosDigest(texto);
+    const rawText = String(texto || '').trim();
 
-    if (!telefono || votos.length === 0) {
-      return { ok: true, ignored: true, reason: 'sin_votos_digest' };
-    }
+    if (!telefono) return { ok: false, error: 'Telefono invalido' };
+    if (!rawText) return { ok: true, ignored: true, reason: 'texto_vacio' };
 
     const { data: user, error: errUser } = await supabase
       .from('users')
@@ -77,10 +109,11 @@ module.exports = function feedbackRoutes(app, supabase) {
     const desde = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
     const { data: digest, error: errDigest } = await supabase
       .from('digests')
-      .select('id, user_id, fecha, alerta_ids')
+      .select('id, user_id, fecha, alerta_ids, enviado_at, created_at')
       .eq('user_id', user.id)
       .eq('enviado', true)
-      .gte('created_at', desde)
+      .or(`enviado_at.gte.${desde},created_at.gte.${desde}`)
+      .order('enviado_at', { ascending: false, nullsFirst: false })
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -88,81 +121,137 @@ module.exports = function feedbackRoutes(app, supabase) {
     if (errDigest) throw errDigest;
     if (!digest) return { ok: true, ignored: true, reason: 'sin_digest_reciente', user_id: user.id };
 
-    const alertaIds = Array.isArray(digest.alerta_ids) ? digest.alerta_ids : [];
-      const { data: alertas, error: errAlertas } = await supabase
-        .from('alertas')
-        .select('id, titulo, resumen, resumen_final, contenido, fuente, provincias, sectores, subsectores, tipos_alerta')
-        .in('id', alertaIds);
+    const alertaIds = Array.isArray(digest.alerta_ids) ? digest.alerta_ids.map(Number).filter(Boolean) : [];
+    if (alertaIds.length === 0) {
+      return { ok: true, ignored: true, reason: 'digest_sin_alertas', user_id: user.id, digest_id: digest.id };
+    }
+
+    const { data: alertas, error: errAlertas } = await supabase
+      .from('alertas')
+      .select('id, titulo, resumen, resumen_final, provincias, sectores, subsectores, tipos_alerta, fuente')
+      .in('id', alertaIds);
 
     if (errAlertas) throw errAlertas;
+    const alertasPorId = new Map((alertas || []).map((alerta) => [Number(alerta.id), alerta]));
+    if (alertasPorId.size === 0) {
+      return { ok: true, ignored: true, reason: 'sin_alertas_en_digest', user_id: user.id, digest_id: digest.id };
+    }
 
-    const alertaPorId = Object.fromEntries((alertas || []).map((a) => [a.id, a]));
-    const { data: feedbackActual, error: errFeedbackActual } = await supabase
-      .from('alerta_feedback')
-      .select('alerta_id, valor')
-      .eq('user_id', user.id)
-      .eq('digest_id', digest.id)
-      .in('alerta_id', alertaIds);
+    const votos = parsearVotosDigest(rawText, alertaIds.length)
+      .filter((voto) => voto.item >= 1 && voto.item <= alertaIds.length);
 
-    if (errFeedbackActual) throw errFeedbackActual;
+    if (votos.length > 0) {
+      const filas = votos
+        .map((voto) => {
+          const alertaId = alertaIds[voto.item - 1];
+          if (!alertasPorId.has(alertaId)) return null;
+          return {
+            user_id: user.id,
+            digest_id: digest.id,
+            alerta_id: alertaId,
+            item_numero: voto.item,
+            valor: voto.valor,
+            canal: 'whatsapp',
+            raw_text: rawText,
+            updated_at: new Date().toISOString(),
+          };
+        })
+        .filter(Boolean);
 
-    const valorPrevioPorAlerta = Object.fromEntries(
-      (feedbackActual || []).map((item) => [item.alerta_id, Number(item.valor)])
-    );
-    const registros = [];
-    const aprendizajes = [];
+      if (filas.length === 0) {
+        return { ok: true, ignored: true, reason: 'votos_fuera_de_rango', user_id: user.id, digest_id: digest.id };
+      }
 
-    for (const voto of votos) {
-      const alertaId = alertaIds[voto.item - 1];
-      if (!alertaId) continue;
-      registros.push({
+      const { error: upsertError } = await supabase
+        .from('alerta_feedback')
+        .upsert(filas, { onConflict: 'user_id,digest_id,alerta_id' });
+
+      if (upsertError) throw upsertError;
+
+      let tagsActualizados = 0;
+      for (const fila of filas) {
+        const resultado = await aplicarFeedbackAlPerfil(supabase, {
+          userId: user.id,
+          alerta: alertasPorId.get(Number(fila.alerta_id)),
+          delta: fila.valor,
+        });
+        tagsActualizados += Number(resultado?.updated || 0);
+      }
+
+      return {
+        ok: true,
         user_id: user.id,
         digest_id: digest.id,
-        alerta_id: alertaId,
-        item_numero: voto.item,
-        valor: voto.valor,
-        canal: 'whatsapp',
-        raw_text: String(texto || '').slice(0, 500),
-      });
-      const alerta = alertaPorId[alertaId];
-      const previo = valorPrevioPorAlerta[alertaId] || 0;
-      const delta = Number(voto.valor) - previo;
-      if (alerta && delta !== 0) aprendizajes.push({ alerta, delta });
+        feedbacks_guardados: filas.length,
+        tags_actualizados: tagsActualizados,
+        raw_text: rawText,
+        votos: filas.map((fila) => ({
+          item: fila.item_numero,
+          alerta_id: fila.alerta_id,
+          valor: fila.valor,
+        })),
+      };
     }
 
-    if (registros.length === 0) {
-      return { ok: true, ignored: true, reason: 'numeros_fuera_de_digest', digest_id: digest.id };
+    const analisis = await analizarFeedbackCompleto(rawText);
+    if (!analisis.es_valido) {
+      return {
+        ok: true,
+        ignored: true,
+        reason: 'texto_cualitativo_sin_feedback_numerico',
+        user_id: user.id,
+        digest_id: digest.id,
+        raw_text: rawText,
+        confianza: analisis.confianza,
+      };
     }
 
-    const { error: upsertError } = await supabase
-      .from('alerta_feedback')
-      .upsert(registros, { onConflict: 'user_id,digest_id,alerta_id' });
+    let aprendizajesPositivos = 0;
+    let aprendizajesNegativos = 0;
 
-    if (upsertError) throw upsertError;
-
-    let tags_actualizados = 0;
-    for (const aprendizaje of aprendizajes) {
-      const result = await aplicarFeedbackAlPerfil(supabase, {
-        userId: user.id,
-        alerta: aprendizaje.alerta,
-        delta: aprendizaje.delta,
-      });
-      tags_actualizados += result.updated || 0;
+    for (const tema of analisis.aprende_positivo || []) {
+      if (await sumarTagPerfil(supabase, user.id, tema, 1)) aprendizajesPositivos++;
     }
 
-    const positivos = registros.filter((r) => r.valor > 0).length;
-    const negativos = registros.filter((r) => r.valor < 0).length;
+    for (const tema of analisis.aprende_negativo || []) {
+      if (await sumarTagPerfil(supabase, user.id, tema, -1)) aprendizajesNegativos++;
+    }
 
     return {
       ok: true,
       user_id: user.id,
       digest_id: digest.id,
-      votos_guardados: registros.length,
-      tags_actualizados,
-      positivos,
-      negativos,
+      feedbacks_guardados: 0,
+      raw_text: rawText,
+      sentimiento: analisis.sentimiento,
+      confianza: analisis.confianza,
+      aprendizajes_positivos: aprendizajesPositivos,
+      aprendizajes_negativos: aprendizajesNegativos,
+      aprende_positivo: analisis.aprende_positivo,
+      aprende_negativo: analisis.aprende_negativo,
+      temas_mencionados: analisis.temas_mencionados,
     };
   }
+
+  app.post('/feedback/parse', async (req, res) => {
+    if (!checkCronToken(req, res)) return;
+
+    try {
+      const texto = String(req.body?.texto || req.query?.texto || '').trim();
+      if (!texto) return res.status(400).json({ error: 'Indica texto para analizar' });
+
+      const alertaContexto = req.body?.alertaContexto || null;
+      const votos = parsearVotosDigest(texto, Number(req.body?.totalItems || req.query?.totalItems || 0) || null);
+      const resultado = votos.length > 0
+        ? { tipo: 'votos_digest', votos }
+        : { tipo: 'texto_natural', ...(await analizarFeedbackCompleto(texto, alertaContexto)) };
+
+      return res.json({ ok: true, texto, resultado });
+    } catch (err) {
+      console.error('Error en /feedback/parse:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
 
   const enviarDigestPruebaHandler = async (req, res) => {
     if (!checkCronToken(req, res)) return;
@@ -214,7 +303,8 @@ module.exports = function feedbackRoutes(app, supabase) {
         'Este es un digest simulado para comprobar que el sistema aprende de tus respuestas.',
         '',
         ...bloques.flatMap((bloque) => [bloque, '']),
-        '_Responde 1 si te interesa la primera. Si una no te sirve: quitar 2._',
+        'Cuales te han interesado?',
+        'Responde: *1*, *2*, *ambas* o *ninguna*',
       ].join('\n').trim();
 
       const { data: digest, error: digestError } = await supabase
@@ -237,7 +327,7 @@ module.exports = function feedbackRoutes(app, supabase) {
 
       return res.json({
         ok: true,
-        mensaje: 'Digest de prueba enviado. Responde por WhatsApp 1 o quitar 2.',
+        mensaje: 'Digest de prueba enviado. Responde por WhatsApp 1, 2, ambas o ninguna.',
         phone,
         digest,
       });
@@ -377,15 +467,12 @@ module.exports = function feedbackRoutes(app, supabase) {
       const telefono = normalizePhone(extraerTelefonoEntrante(req.body));
       const result = await guardarFeedbackDesdeTexto({ phone: telefono, texto });
       await guardarWebhookEvent(req, result, null);
-      const positivos = result.positivos || 0;
-      const negativos = result.negativos || 0;
+
       const enviarConfirmacion = (process.env.FEEDBACK_CONFIRMATION_ENABLED || 'false').toLowerCase() === 'true';
 
-      if (enviarConfirmacion && result.ok && result.votos_guardados) {
-        enviarDigestPro(
-          telefono,
-          `Gracias. He guardado tu valoracion: ${positivos} util(es), ${negativos} poco util(es).`
-        ).catch((err) => console.error('[feedback] Error enviando confirmacion:', err.message));
+      if (enviarConfirmacion && result.ok && result.feedbacks_guardados > 0) {
+        enviarDigestPro(telefono, 'Gracias. He guardado tu respuesta y afinare las proximas alertas.')
+          .catch((err) => console.error('[feedback] Error enviando confirmacion:', err.message));
       }
 
       return res.json(result);

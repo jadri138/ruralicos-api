@@ -20,6 +20,7 @@
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.2",
     "node-fetch": "^2.7.0",
+    "openai": "^6.35.0",
     "pdf-parse": "^2.4.5",
     "pdfjs-dist": "^3.11.174"
   }
