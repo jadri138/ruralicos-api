@@ -99,13 +99,19 @@ async function generarEmbedding(texto, forzarMock = false) {
  * @param {boolean} forzarMock
  * @returns {Promise<number[][]>} - Array de arrays de números
  */
-async function generarEmbeddingsBatch(textos, forzarMock = false) {
+const BATCH_SIZE = 50;
+const BATCH_DELAY_MS = 1000;
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function generarEmbeddingsBatch(textos, forzarMock = false, onProgress = null) {
   if (!Array.isArray(textos) || textos.length === 0) {
     throw new Error('generarEmbeddingsBatch: textos debe ser array no-vacío');
   }
 
   if (isTestMode || forzarMock) {
-    return textos.map(t => generarEmbeddingMock(t));
+    const embeddingsMock = textos.map(t => generarEmbeddingMock(t));
+    if (typeof onProgress === 'function') onProgress(embeddingsMock.length, textos.length);
+    return embeddingsMock;
   }
 
   if (!openaiClient) {
@@ -113,22 +119,33 @@ async function generarEmbeddingsBatch(textos, forzarMock = false) {
   }
 
   try {
-    const response = await openaiClient.embeddings.create({
-      model: 'text-embedding-3-small',
-      input: textos.map(t => t.slice(0, 8000).trim()),
-    });
+    const resultados = [];
 
-    if (!response.data) {
-      throw new Error('Respuesta inválida de OpenAI');
+    for (let i = 0; i < textos.length; i += BATCH_SIZE) {
+      const lote = textos.slice(i, i + BATCH_SIZE);
+      const response = await openaiClient.embeddings.create({
+        model: 'text-embedding-3-small',
+        input: lote.map(t => t.slice(0, 8000).trim()),
+      });
+
+      if (!response.data) {
+        throw new Error('Respuesta inválida de OpenAI');
+      }
+
+      const embeddingsLote = new Array(lote.length);
+      for (const item of response.data) {
+        embeddingsLote[item.index] = item.embedding;
+      }
+
+      resultados.push(...embeddingsLote);
+      if (typeof onProgress === 'function') onProgress(resultados.length, textos.length);
+
+      if (i + BATCH_SIZE < textos.length) {
+        await sleep(BATCH_DELAY_MS);
+      }
     }
 
-    // Ordenar por índice (OpenAI puede devolver en distinto orden)
-    const embeddings = new Array(textos.length);
-    for (const item of response.data) {
-      embeddings[item.index] = item.embedding;
-    }
-
-    return embeddings;
+    return resultados;
   } catch (err) {
     console.error('[embeddings] Error en batch:', err.message);
     throw err;
@@ -350,4 +367,6 @@ module.exports = {
   similitudCoseno,
   calcularCentroide,
   calcularCentroidePonderado,
+  BATCH_SIZE,
+  BATCH_DELAY_MS,
 };
