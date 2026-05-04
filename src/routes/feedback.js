@@ -7,6 +7,7 @@ const {
   extraerTelefonoEntrante,
   leerPerfilIntereses,
   parsearVotosDigest,
+  parsearVotosNaturalesPorAlertas,
   analizarFeedbackCompleto,
 } = require('../brain');
 const { enviarDigestPro } = require('../whatsapp');
@@ -136,9 +137,19 @@ module.exports = function feedbackRoutes(app, supabase) {
     if (alertasPorId.size === 0) {
       return { ok: true, ignored: true, reason: 'sin_alertas_en_digest', user_id: user.id, digest_id: digest.id };
     }
+    const alertasOrdenadas = alertaIds.map((id) => alertasPorId.get(id)).filter(Boolean);
 
-    const votos = parsearVotosDigest(rawText, alertaIds.length)
+    let origenFeedback = 'numerico';
+    let votos = parsearVotosDigest(rawText, alertaIds.length)
       .filter((voto) => voto.item >= 1 && voto.item <= alertaIds.length);
+
+    if (votos.length === 0) {
+      const natural = parsearVotosNaturalesPorAlertas(rawText, alertasOrdenadas);
+      if (natural.matched) {
+        origenFeedback = 'lenguaje_natural_alerta';
+        votos = natural.votos;
+      }
+    }
 
     if (votos.length > 0) {
       const filas = votos
@@ -185,6 +196,7 @@ module.exports = function feedbackRoutes(app, supabase) {
         feedbacks_guardados: filas.length,
         tags_actualizados: tagsActualizados,
         raw_text: rawText,
+        origen: origenFeedback,
         votos: filas.map((fila) => ({
           item: fila.item_numero,
           alerta_id: fila.alerta_id,
@@ -241,9 +253,15 @@ module.exports = function feedbackRoutes(app, supabase) {
       if (!texto) return res.status(400).json({ error: 'Indica texto para analizar' });
 
       const alertaContexto = req.body?.alertaContexto || null;
+      const alertas = Array.isArray(req.body?.alertas) ? req.body.alertas : [];
       const votos = parsearVotosDigest(texto, Number(req.body?.totalItems || req.query?.totalItems || 0) || null);
+      const votosNaturales = votos.length === 0 && alertas.length > 0
+        ? parsearVotosNaturalesPorAlertas(texto, alertas)
+        : null;
       const resultado = votos.length > 0
         ? { tipo: 'votos_digest', votos }
+        : votosNaturales?.matched
+          ? { tipo: 'votos_naturales_alertas', ...votosNaturales }
         : { tipo: 'texto_natural', ...(await analizarFeedbackCompleto(texto, alertaContexto)) };
 
       return res.json({ ok: true, texto, resultado });

@@ -1,8 +1,87 @@
+const { llamarIA } = require('../utils/llamarIA');
+
+const TEMAS_AGRARIOS = [
+  { canonico: 'olivar', aliases: ['olivar', 'olivo', 'olivos', 'aceituna', 'aceitunas'] },
+  { canonico: 'porcino', aliases: ['porcino', 'cerdo', 'cerdos', 'cochino', 'cochinos'] },
+  { canonico: 'vacuno', aliases: ['vacuno', 'vaca', 'vacas', 'bovino', 'bovinos'] },
+  { canonico: 'ovino', aliases: ['ovino', 'oveja', 'ovejas'] },
+  { canonico: 'caprino', aliases: ['caprino', 'cabra', 'cabras'] },
+  { canonico: 'avicultura', aliases: ['avicultura', 'avicola', 'pollo', 'pollos', 'gallina', 'gallinas'] },
+  { canonico: 'almendro', aliases: ['almendro', 'almendros', 'almendra', 'almendras'] },
+  { canonico: 'citricos', aliases: ['citricos', 'citrico', 'naranja', 'naranjas', 'limon', 'limones'] },
+  { canonico: 'vinedo', aliases: ['vinedo', 'vinedos', 'vino', 'uva', 'uvas', 'vid'] },
+  { canonico: 'trigo', aliases: ['trigo'] },
+  { canonico: 'cebada', aliases: ['cebada'] },
+  { canonico: 'maiz', aliases: ['maiz'] },
+  { canonico: 'arroz', aliases: ['arroz'] },
+  { canonico: 'agua', aliases: ['agua', 'riego', 'regadio', 'regadios', 'pozo', 'pozos'] },
+  { canonico: 'ayuda', aliases: ['ayuda', 'ayudas', 'subvencion', 'subvenciones', 'subsidio', 'subsidios'] },
+  { canonico: 'normativa', aliases: ['normativa', 'norma', 'normas', 'ley', 'leyes'] },
+  { canonico: 'medio ambiente', aliases: ['medio ambiente', 'medioambiental', 'ambiental'] },
+  { canonico: 'apicultura', aliases: ['apicultura', 'abeja', 'abejas', 'miel'] },
+  { canonico: 'forestal', aliases: ['forestal', 'monte', 'montes', 'bosque', 'bosques'] },
+  { canonico: 'patata', aliases: ['patata', 'patatas'] },
+  { canonico: 'hortalizas', aliases: ['hortaliza', 'hortalizas', 'huerta'] },
+  { canonico: 'frutal', aliases: ['frutal', 'frutales', 'fruta'] },
+  { canonico: 'trufa', aliases: ['trufa', 'trufas'] },
+  { canonico: 'leguminosa', aliases: ['leguminosa', 'leguminosas'] },
+  { canonico: 'infraestructura', aliases: ['infraestructura', 'infraestructuras', 'obra', 'obras'] },
+  { canonico: 'fiscal', aliases: ['fiscal', 'fiscalidad', 'impuesto', 'impuestos'] },
+];
+
+const PROVINCIAS = [
+  'castellon', 'zaragoza', 'huesca', 'teruel', 'palencia', 'valladolid', 'cuenca',
+  'albacete', 'murcia', 'almeria', 'jaen', 'cordoba', 'sevilla', 'toledo',
+  'badajoz', 'caceres', 'guadalajara', 'soria', 'segovia', 'avila', 'salamanca',
+];
+
 function normalizarTexto(texto) {
   return String(texto || '')
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase();
+}
+
+function temaCanonico(tema) {
+  const normalizado = normalizarTexto(tema).trim();
+  const found = TEMAS_AGRARIOS.find((item) => item.aliases.includes(normalizado));
+  return found ? found.canonico : normalizado;
+}
+
+function escapeRegex(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function contieneAliasTema(textoNormalizado, tema) {
+  const canonico = temaCanonico(tema);
+  const item = TEMAS_AGRARIOS.find((t) => t.canonico === canonico);
+  const aliases = item ? item.aliases : [canonico];
+
+  return aliases.some((alias) => {
+    const escaped = escapeRegex(normalizarTexto(alias));
+    const pattern = alias.includes(' ')
+      ? new RegExp(`(^|\\W)${escaped}(\\W|$)`, 'i')
+      : new RegExp(`\\b${escaped}\\b`, 'i');
+    return pattern.test(textoNormalizado);
+  });
+}
+
+function parseMaybeJson(value) {
+  if (!value || typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return null;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return null;
+  }
+}
+
+function firstString(values) {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value;
+  }
+  return '';
 }
 
 function extraerTextoEntrante(body = {}) {
@@ -49,27 +128,8 @@ function extraerTelefonoEntrante(body = {}) {
   return String(raw || '').replace(/\D/g, '');
 }
 
-function parseMaybeJson(value) {
-  if (!value || typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return null;
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    return null;
-  }
-}
-
-function firstString(values) {
-  for (const value of values) {
-    if (typeof value === 'string' && value.trim()) return value;
-  }
-  return '';
-}
-
 function parsearVotosDigest(texto, totalItems = null) {
-  const original = String(texto || '').trim();
-  const normalizado = normalizarTexto(original)
+  const normalizado = normalizarTexto(texto)
     .replace(/[\u{1F44D}\u{2705}\u{2B50}\u{1F31F}\u{1F49A}]/gu, '+')
     .replace(/[\u{1F44E}\u{274C}\u{1F6D1}]/gu, '-');
 
@@ -130,35 +190,96 @@ function parsearVotosDigest(texto, totalItems = null) {
   return votos;
 }
 
-/**
- * ═════════════════════════════════════════════════════════════════════
- * NUEVAS FUNCIONES PARA ENTENDER LENGUAJE NATURAL DEL USUARIO
- * ═════════════════════════════════════════════════════════════════════
- * 
- * ESTO ES LO NUEVO: El sistema NO necesita "+1" o "-2".
- * El usuario escribe en español normal: "Me interesa el olivar"
- * Y el sistema ENTIENDE y APRENDE.
- */
+function extraerMencionesPosNeg(textoUsuario) {
+  const texto = normalizarTexto(textoUsuario);
+  const temas = [...TEMAS_AGRARIOS.map((item) => item.canonico), ...PROVINCIAS];
+  const positivas = [];
+  const negativas = [];
 
-const { llamarIA } = require('../utils/llamarIA');
+  const bloqueNegativoRegex = /\b(?:pero no|no|sin|ni|evitar|quita|quitar|fuera|menos)\b[^.!?,;]*/gi;
+  const bloquesNegativos = texto.match(bloqueNegativoRegex) || [];
+  const textoPositivo = bloquesNegativos.length > 0
+    ? texto.replace(new RegExp(bloquesNegativos.map(escapeRegex).join('|'), 'gi'), ' ')
+    : texto;
 
-/**
- * FUNCIÓN 1: Convierte texto natural en "sentimiento + categorías"
- * 
- * El usuario dice: "Me interesa mucho el olivar en Castellón"
- * El sistema extrae: { 
- *   sentimiento: 'positivo', 
- *   temas: ['olivar', 'Castellón']
- * }
- */
+  for (const tema of temas) {
+    if (contieneAliasTema(textoPositivo, tema)) {
+      const canonico = temaCanonico(tema);
+      if (!positivas.includes(canonico)) positivas.push(canonico);
+    }
+  }
+
+  for (const bloque of bloquesNegativos) {
+    for (const tema of temas) {
+      if (contieneAliasTema(bloque, tema)) {
+        const canonico = temaCanonico(tema);
+        if (!negativas.includes(canonico)) negativas.push(canonico);
+      }
+    }
+  }
+
+  return { positivas, negativas };
+}
+
+function textoBusquedaAlerta(alerta = {}) {
+  return normalizarTexto([
+    alerta.titulo,
+    alerta.resumen,
+    alerta.resumen_final,
+    alerta.fuente,
+    ...(Array.isArray(alerta.provincias) ? alerta.provincias : []),
+    ...(Array.isArray(alerta.sectores) ? alerta.sectores : []),
+    ...(Array.isArray(alerta.subsectores) ? alerta.subsectores : []),
+    ...(Array.isArray(alerta.tipos_alerta) ? alerta.tipos_alerta : []),
+  ].filter(Boolean).join(' '));
+}
+
+function parsearVotosNaturalesPorAlertas(textoUsuario, alertasOrdenadas = []) {
+  const menciones = extraerMencionesPosNeg(textoUsuario);
+  const votos = [];
+  const vistos = new Set();
+
+  function add(item, valor, tema) {
+    const key = `${item}:${valor}`;
+    if (vistos.has(key)) return;
+    vistos.add(key);
+    votos.push({ item, valor, tema });
+  }
+
+  (alertasOrdenadas || []).forEach((alerta, index) => {
+    const textoAlerta = textoBusquedaAlerta(alerta);
+    for (const tema of menciones.positivas) {
+      if (contieneAliasTema(textoAlerta, tema)) add(index + 1, 1, tema);
+    }
+    for (const tema of menciones.negativas) {
+      if (contieneAliasTema(textoAlerta, tema)) add(index + 1, -1, tema);
+    }
+  });
+
+  return {
+    votos,
+    menciones,
+    matched: votos.length > 0,
+  };
+}
+
 async function entenderIntencionUsuario(textoUsuario, alertaContexto = null) {
   if (!textoUsuario || typeof textoUsuario !== 'string' || textoUsuario.trim().length < 3) {
     return { sentimiento: 'neutral', temas: [], confianza: 0 };
   }
 
   const texto = textoUsuario.trim();
+  const menciones = extraerMencionesPosNeg(texto);
 
-  // Atajos rápidos (no llamar a IA para cosas obvias)
+  if (menciones.positivas.length > 0 || menciones.negativas.length > 0) {
+    return {
+      sentimiento: menciones.positivas.length > 0 ? 'positivo' : 'negativo',
+      temas: [...new Set([...menciones.positivas, ...menciones.negativas])],
+      confianza: 0.9,
+      rapido: true,
+    };
+  }
+
   if (/^(\+1|me gusta|excelente|perfecto|si|sí|1|yes|interesa)$/i.test(texto)) {
     return { sentimiento: 'positivo', temas: [], confianza: 1.0, rapido: true };
   }
@@ -168,46 +289,31 @@ async function entenderIntencionUsuario(textoUsuario, alertaContexto = null) {
 
   try {
     const prompt = `
-TAREA: Analiza este mensaje de un usuario agrícola sobre una alerta/boletín.
+TAREA: Analiza este mensaje de un usuario agricola sobre una alerta/boletin.
 
 MENSAJE: "${texto}"
 
 ${alertaContexto ? `
-CONTEXTO - La alerta trataba sobre:
+CONTEXTO:
 - ${alertaContexto.titulo || 'alerta'}
 - Sectores: ${alertaContexto.sectores?.join(', ') || 'N/A'}
 - Subsectores: ${alertaContexto.subsectores?.join(', ') || 'N/A'}
 - Provincias: ${alertaContexto.provincias?.join(', ') || 'Nacional'}
 ` : ''}
 
-PREGUNTAS QUE DEBES RESPONDER:
-
-1. ¿Qué SENTIMIENTO expresó?
-   Opciones: "positivo" (le GUSTÓ), "negativo" (NO le gustó), "neutral" (indiferente)
-
-2. ¿Qué TEMAS mencionó? (lista de palabras clave)
-   Busca: subsectores (olivar, porcino, trigo...), provincias (Castellón, Zaragoza...)
-   Devuelve como lista JSON
-
-3. ¿Qué tan seguro estás? (0-1)
-   1.0 = muy claro ("Adoro el olivar")
-   0.5 = moderado ("Esto está bien")
-   0.2 = muy vago ("Ok")
-
-RESPUESTA (solo JSON, nada más):
+Devuelve solo JSON:
 {
   "sentimiento": "positivo|negativo|neutral",
-  "temas": ["olivar", "castellón"],
+  "temas": ["olivar", "castellon"],
   "confianza": 0.85
 }
     `.trim();
 
     const respuesta = await llamarIA(prompt, 'json', 0.2);
-    
     if (respuesta?.sentimiento && Array.isArray(respuesta.temas)) {
       return {
         sentimiento: respuesta.sentimiento || 'neutral',
-        temas: respuesta.temas || [],
+        temas: respuesta.temas.map(temaCanonico),
         confianza: Math.max(0, Math.min(1, Number(respuesta.confianza) || 0.5)),
       };
     }
@@ -218,85 +324,6 @@ RESPUESTA (solo JSON, nada más):
   return { sentimiento: 'neutral', temas: [], confianza: 0 };
 }
 
-/**
- * FUNCIÓN 2: Extrae MENCIONES (qué cosas nombró el usuario)
- * 
- * Entrada: "Me interesa el olivar de Castellón pero no el porcino"
- * Salida: { positivas: ['olivar', 'castellón'], negativas: ['porcino'] }
- */
-function escapeRegex(text) {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function extraerMencionesPosNeg(textoUsuario) {
-  const palabrasClave = {
-    subsectores: [
-      'olivar', 'porcino', 'vacuno', 'ovino', 'caprino', 'avicultura', 'avicola',
-      'trigo', 'cebada', 'maiz', 'arroz', 'hortalizas', 'frutal', 'trufa', 'viñedo',
-      'almendro', 'citricos', 'leguminosa', 'patata', 'forestal', 'apicultura',
-    ],
-    tipos_alerta: [
-      'ayuda', 'subvencion', 'normativa', 'agua', 'infraestructura', 'fiscal',
-      'medioambiental', 'medio ambiente',
-    ],
-    provincias: [
-      'castellón', 'zaragoza', 'huesca', 'teruel', 'palencia', 'valladolid', 'cuenca',
-      'albacete', 'murcia', 'almería', 'jaén', 'córdoba', 'sevilla', 'córdoba', 'toledo',
-      'badajoz', 'cáceres', 'guadalajara', 'soria', 'segovia', 'avila', 'salamanca',
-    ],
-  };
-
-  const texto = textoUsuario.toLowerCase();
-  const positivas = [];
-  const negativas = [];
-
-  // Detectar bloques de frase con negaciones simples
-  const bloqueNegativoRegex = /\b(?:no|sin|ni)\b[^.!?,;]*/gi;
-  const textoNegativo = texto.match(bloqueNegativoRegex) || [];
-
-  const textoPositivo = textoNegativo.length > 0
-    ? texto.replace(new RegExp(textoNegativo.map(escapeRegex).join('|'), 'gi'), ' ') 
-    : texto;
-
-  // Extraer menciones positivas
-  for (const categoria of Object.keys(palabrasClave)) {
-    for (const palabra of palabrasClave[categoria]) {
-      if (textoPositivo.includes(palabra) && !positivas.includes(palabra)) {
-        positivas.push(palabra);
-      }
-    }
-  }
-
-  // Extraer menciones negativas
-  for (const bloqueNegativo of textoNegativo) {
-    for (const categoria of Object.keys(palabrasClave)) {
-      for (const palabra of palabrasClave[categoria]) {
-        if (bloqueNegativo.includes(palabra) && !negativas.includes(palabra)) {
-          negativas.push(palabra);
-        }
-      }
-    }
-  }
-
-  return { positivas, negativas };
-}
-
-/**
- * FUNCIÓN 3: LA FUNCIÓN MAESTRA - Entiende TODO lo que escribe el usuario
- * 
- * ENTRADA:
- *   - Texto del usuario: "Me encanta el olivar en Castellón pero no quiero ver porcino"
- *   - Contexto (opcional): La alerta que vio
- * 
- * SALIDA: Un "resumen" que el sistema puede aprender y guardar
- *   {
- *     sentimiento: 'positivo',
- *     aprende_positivo: ['olivar', 'castellón'],  // Esto LE INTERESA
- *     aprende_negativo: ['porcino'],              // Esto NO le interesa
- *     confianza: 0.92,
- *     es_valido: true
- *   }
- */
 async function analizarFeedbackCompleto(textoUsuario, alertaContexto = null) {
   if (!textoUsuario || typeof textoUsuario !== 'string' || textoUsuario.trim().length === 0) {
     return {
@@ -310,13 +337,9 @@ async function analizarFeedbackCompleto(textoUsuario, alertaContexto = null) {
   }
 
   try {
-    // Paso 1: Entender intención general con IA
     const intencion = await entenderIntencionUsuario(textoUsuario, alertaContexto);
-
-    // Paso 2: Extraer menciones positivas y negativas
     const menciones = extraerMencionesPosNeg(textoUsuario);
 
-    // Paso 3: Combinar según el sentimiento
     let aprende_positivo = [];
     let aprende_negativo = [];
 
@@ -327,17 +350,16 @@ async function analizarFeedbackCompleto(textoUsuario, alertaContexto = null) {
       aprende_negativo = menciones.positivas;
       aprende_positivo = menciones.negativas;
     } else {
-      // Si es neutral, solo registrar lo que dijo claramente
       aprende_positivo = menciones.positivas;
       aprende_negativo = menciones.negativas;
     }
 
     return {
       sentimiento: intencion.sentimiento,
-      aprende_positivo: [...new Set(aprende_positivo)], // Eliminar duplicados
+      aprende_positivo: [...new Set(aprende_positivo)],
       aprende_negativo: [...new Set(aprende_negativo)],
       confianza: intencion.confianza,
-      es_valido: intencion.confianza > 0.3,
+      es_valido: intencion.confianza > 0.3 || aprende_positivo.length > 0 || aprende_negativo.length > 0,
       temas_mencionados: [...new Set([...menciones.positivas, ...menciones.negativas])],
     };
   } catch (err) {
@@ -358,8 +380,8 @@ module.exports = {
   extraerTextoEntrante,
   extraerTelefonoEntrante,
   parsearVotosDigest,
-  // NUEVAS FUNCIONES INTELIGENTES
-  entenderIntencionUsuario,
   extraerMencionesPosNeg,
+  parsearVotosNaturalesPorAlertas,
+  entenderIntencionUsuario,
   analizarFeedbackCompleto,
 };

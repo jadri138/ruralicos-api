@@ -417,6 +417,27 @@ module.exports = function digestRoutes(app, supabase) {
         ? req.query.fecha
         : getFechaMadridISO();
 
+      const force = String(req.query.force || req.body?.force || '').toLowerCase() === 'true';
+
+      if (!force) {
+        const { count: pendientesIA, error: errPendientes } = await supabase
+          .from('alertas')
+          .select('id', { count: 'exact', head: true })
+          .eq('fecha', hoy)
+          .in('estado_ia', ['pendiente_clasificar', 'pendiente_resumir', 'pendiente_revisar']);
+
+        if (errPendientes) return res.status(500).json({ error: errPendientes.message });
+
+        if ((pendientesIA || 0) > 0) {
+          return res.status(409).json({
+            success: false,
+            fecha: hoy,
+            pendientes_ia: pendientesIA,
+            mensaje: 'Quedan alertas pendientes de IA. No se prepara el digest para evitar un envio incompleto. Revisa /alertas/estado-pipeline o usa force=true si quieres saltarte esta proteccion.',
+          });
+        }
+      }
+
       // 1) Alertas del día listas para enviar
       let { data: alertas, error: errAlertas } = await supabase
         .from('alertas')

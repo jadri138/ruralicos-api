@@ -48,24 +48,42 @@ async function hit(path) {
 async function runBatchedStep(name, path) {
   let loops = 0;
   let total = 0;
+  let totalProgress = 0;
+  let lastBody = null;
 
   while (loops < MAX_LOOPS) {
     loops++;
     const body = await hit(path);
     const procesadas = Number(body?.procesadas ?? 0);
+    const progress = Number(
+      body?.actualizadas ??
+      body?.aprobadas ??
+      ((Number(body?.clasificadas ?? 0) + Number(body?.descartadas ?? 0)) || 0)
+    );
     total += procesadas;
+    totalProgress += progress;
+    lastBody = body;
 
-    console.log(`[${name}] vuelta ${loops}: procesadas=${procesadas}`);
+    console.log(`[${name}] vuelta ${loops}: procesadas=${procesadas}, actualizadas=${progress}`);
 
     if (procesadas === 0) break;
+    if (progress === 0) {
+      throw new Error(
+        `[${name}] bloqueado: el endpoint devolvio ${procesadas} candidatas pero 0 actualizaciones. ` +
+        `No se prepara digest incompleto. Ultima respuesta: ${JSON.stringify(body)}`
+      );
+    }
     await sleep(STEP_DELAY_MS);
   }
 
   if (loops === MAX_LOOPS) {
-    console.warn(`[${name}] alcanzó MAX_LOOPS=${MAX_LOOPS}. Puede quedar trabajo pendiente.`);
+    throw new Error(
+      `[${name}] alcanzo MAX_LOOPS=${MAX_LOOPS}. No se prepara digest incompleto. ` +
+      `Total candidatas=${total}, actualizaciones=${totalProgress}. Ultima respuesta: ${JSON.stringify(lastBody)}`
+    );
   }
 
-  return { loops, total };
+  return { loops, total, totalProgress };
 }
 
 async function runSingleStep(name, path) {

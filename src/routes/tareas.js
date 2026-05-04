@@ -328,7 +328,9 @@ module.exports = function tareasRoutes(app, supabase) {
         const startedAt = new Date();
         let loops = 0;
         let total = 0;
+        let totalProgress = 0;
         let colaVacia = false;
+        let bloqueado = false;
         const vueltas = [];
 
         try {
@@ -336,13 +338,23 @@ module.exports = function tareasRoutes(app, supabase) {
             loops++;
             const result = await hit(path);
             const procesadas = Number(result.body?.procesadas ?? 0);
+            const progress = Number(
+              result.body?.actualizadas ??
+              result.body?.aprobadas ??
+              ((Number(result.body?.clasificadas ?? 0) + Number(result.body?.descartadas ?? 0)) || 0)
+            );
             total += procesadas;
+            totalProgress += progress;
             vueltas.push(result.body);
 
-            console.log(`[pipeline] ${name} vuelta ${loops}: procesadas=${procesadas}`);
+            console.log(`[pipeline] ${name} vuelta ${loops}: procesadas=${procesadas}, actualizadas=${progress}`);
 
             if (procesadas === 0) {
               colaVacia = true;
+              break;
+            }
+            if (progress === 0) {
+              bloqueado = true;
               break;
             }
             await sleep(stepDelayMs);
@@ -351,7 +363,9 @@ module.exports = function tareasRoutes(app, supabase) {
           const result = {
             loops,
             total,
+            totalProgress,
             colaVacia,
+            bloqueado,
             maxLoopsAlcanzado: !colaVacia && loops >= maxLoops,
             ultimaRespuesta: vueltas[vueltas.length - 1] || null,
           };
@@ -363,7 +377,7 @@ module.exports = function tareasRoutes(app, supabase) {
             started_at: startedAt.toISOString(),
             finished_at: finishedAt.toISOString(),
             duration_ms: finishedAt.getTime() - startedAt.getTime(),
-            status: result.maxLoopsAlcanzado ? 'warning' : 'ok',
+            status: result.maxLoopsAlcanzado || result.bloqueado ? 'warning' : 'ok',
             loops,
             procesadas: total,
             response_json: result,
@@ -389,16 +403,20 @@ module.exports = function tareasRoutes(app, supabase) {
       }
 
       async function abortIfLimited(stageName, result) {
-        if (!result.maxLoopsAlcanzado) return false;
+        if (!result.maxLoopsAlcanzado && !result.bloqueado) return false;
 
         const estadoActual = await runSimpleStage('estado_pipeline_abort', '/alertas/estado-pipeline');
+        const motivo = result.bloqueado
+          ? 'lote bloqueado sin actualizaciones'
+          : `limite de ${maxLoops} vueltas`;
         const avisoAdmin = await enviarWhatsAppAdmin(
           [
             '*Ruralicos: pipeline diario detenido*',
             '',
             `Fase: ${stageName}`,
-            `Limite: ${maxLoops} vueltas`,
+            `Motivo: ${motivo}`,
             `Procesadas en esta fase: ${result.total}`,
+            `Actualizadas en esta fase: ${result.totalProgress}`,
             '',
             'No se ha preparado ni enviado el digest para evitar un envio incompleto.',
           ].join('\n')
@@ -406,7 +424,7 @@ module.exports = function tareasRoutes(app, supabase) {
 
         res.status(409).json({
           success: false,
-          mensaje: `Pipeline detenido: ${stageName} llego al limite de ${maxLoops} vueltas antes de vaciar la cola. No se prepara ni se envia el digest para evitar un envio incompleto.`,
+          mensaje: `Pipeline detenido en ${stageName}: ${motivo}. No se prepara ni se envia el digest para evitar un envio incompleto.`,
           stageName,
           result,
           avisoAdmin,

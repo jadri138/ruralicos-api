@@ -117,12 +117,14 @@ module.exports = function embeddingsRoutes(app, supabase) {
   }
 
   async function generarAlertasSinEmbedding(options = {}) {
-    inicializarOpenAI();
-
     const batchSize = clampNumber(options.batchSize, DEFAULT_BATCH_SIZE, 1, 50);
     const maxBatches = clampNumber(options.maxBatches, DEFAULT_MAX_BATCHES, 1, 200);
     const delayMs = clampNumber(options.delayMs, DEFAULT_DELAY_MS, 0, 10000);
     const usarMock = Boolean(options.forceMock || process.env.EMBEDDINGS_FORCE_MOCK === 'true');
+    if (!usarMock && !process.env.OPENAI_API_KEY) {
+      throw new Error('Falta OPENAI_API_KEY para generar embeddings reales');
+    }
+    inicializarOpenAI();
 
     let procesadas = 0;
     let actualizadas = 0;
@@ -176,9 +178,11 @@ module.exports = function embeddingsRoutes(app, supabase) {
   }
 
   async function actualizarPerfilUsuario(userId, options = {}) {
-    inicializarOpenAI();
-
     const usarMock = Boolean(options.forceMock || process.env.EMBEDDINGS_FORCE_MOCK === 'true');
+    if (!usarMock && !process.env.OPENAI_API_KEY) {
+      throw new Error('Falta OPENAI_API_KEY para generar embeddings reales');
+    }
+    inicializarOpenAI();
 
     const { data: user, error: errUser } = await supabase
       .from('users')
@@ -300,7 +304,7 @@ module.exports = function embeddingsRoutes(app, supabase) {
 
   app.post('/embeddings/test', generarEmbeddingHandler);
 
-  app.post('/embeddings/generar-alertas', async (req, res) => {
+  const generarAlertasHandler = async (req, res) => {
     if (!checkCronToken(req, res)) return;
 
     try {
@@ -315,9 +319,9 @@ module.exports = function embeddingsRoutes(app, supabase) {
       console.error('[embeddings] Error en /embeddings/generar-alertas:', err.message);
       return res.status(500).json({ error: err.message });
     }
-  });
+  };
 
-  app.post('/embeddings/actualizar-perfil/:userId', async (req, res) => {
+  const actualizarPerfilHandler = async (req, res) => {
     if (!checkCronToken(req, res)) return;
 
     try {
@@ -334,9 +338,9 @@ module.exports = function embeddingsRoutes(app, supabase) {
       console.error('[embeddings] Error en /embeddings/actualizar-perfil:', err.message);
       return res.status(500).json({ error: err.message });
     }
-  });
+  };
 
-  app.post('/embeddings/ciclo-completo', async (req, res) => {
+  const cicloCompletoHandler = async (req, res) => {
     if (!checkCronToken(req, res)) return;
 
     try {
@@ -369,5 +373,12 @@ module.exports = function embeddingsRoutes(app, supabase) {
       console.error('[embeddings] Error en /embeddings/ciclo-completo:', err.message);
       return res.status(500).json({ error: err.message });
     }
-  });
+  };
+
+  app.post('/embeddings/generar-alertas', generarAlertasHandler);
+  app.get('/embeddings/generar-alertas', generarAlertasHandler);
+  app.post('/embeddings/actualizar-perfil/:userId', actualizarPerfilHandler);
+  app.get('/embeddings/actualizar-perfil/:userId', actualizarPerfilHandler);
+  app.post('/embeddings/ciclo-completo', cicloCompletoHandler);
+  app.get('/embeddings/ciclo-completo', cicloCompletoHandler);
 };
