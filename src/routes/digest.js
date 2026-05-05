@@ -209,6 +209,11 @@ function parseVector(value) {
   }
 }
 
+function vectorToSql(vector) {
+  if (!Array.isArray(vector)) return null;
+  return `[${vector.map((n) => Number(n)).join(',')}]`;
+}
+
 function ordenarPorPerfilVectorial(alertas, perfilEmbeddingRaw) {
   const perfilEmbedding = parseVector(perfilEmbeddingRaw);
   if (!Array.isArray(perfilEmbedding) || perfilEmbedding.length === 0) return null;
@@ -233,6 +238,120 @@ function ordenarPorPerfilVectorial(alertas, perfilEmbeddingRaw) {
     const scoreB = b.similitud + (pesoPrioridad(prioridadB.prioridad) + prioridadB.score) / 100;
     return scoreB - scoreA;
   });
+}
+
+async function seleccionarAlertasConMIA(supabase, { user, fecha, alertasFallback }) {
+  const perfilEmbedding = parseVector(user.perfil_embedding);
+  if (!Array.isArray(perfilEmbedding) || perfilEmbedding.length === 0) return null;
+
+  const perfilVectorSql = vectorToSql(perfilEmbedding);
+  if (!perfilVectorSql) return null;
+
+  const { data: candidatosRpc, error } = await supabase
+    .rpc('buscar_alertas_similares', {
+      p_perfil_vector: perfilVectorSql,
+      p_fecha: fecha,
+      p_limite: 40,
+    });
+
+  if (error) {
+    console.warn(`[digest:mia] RPC buscar_alertas_similares fallo para user ${user.id}:`, error.message);
+    const fallbackOrdenado = ordenarPorPerfilVectorial(alertasFallback, user.perfil_embedding);
+    return fallbackOrdenado ? { alertas: fallbackOrdenado.slice(0, 7), exploracion: null, origen: 'fallback_memoria' } : null;
+  }
+
+  const candidatosFiltrados = aplicarExclusionesPreferenciasExtra(
+    (candidatosRpc || []).filter((alerta) => alertaCoincideConUsuario(alerta, user)),
+    user.preferencias_extra
+  );
+
+  if (candidatosFiltrados.length === 0) {
+    const fallbackOrdenado = ordenarPorPerfilVectorial(alertasFallback, user.perfil_embedding);
+    return fallbackOrdenado ? { alertas: fallbackOrdenado.slice(0, 7), exploracion: null, origen: 'fallback_memoria' } : null;
+  }
+
+  const zonaConfort = candidatosFiltrados.filter((a) => Number(a.similitud) >= 0.65);
+  const zonaExpansion = candidatosFiltrados.filter((a) => Number(a.similitud) >= 0.35 && Number(a.similitud) < 0.65);
+  const usados = new Set();
+  const seleccionadas = [];
+
+  for (const alerta of zonaConfort.slice(0, 5)) {
+    seleccionadas.push(alerta);
+    usados.add(Number(alerta.id));
+  }
+
+  const exploracion = zonaExpansion.find((a) => !usados.has(Number(a.id))) || null;
+  if (exploracion) {
+    seleccionadas.push(exploracion);
+    usados.add(Number(exploracion.id));
+  }
+
+  for (const alerta of candidatosFiltrados) {
+    if (seleccionadas.length >= 7) break;
+    if (usados.has(Number(alerta.id))) continue;
+    seleccionadas.push(alerta);
+    usados.add(Number(alerta.id));
+  }
+
+  return {
+    alertas: seleccionadas,
+    exploracion,
+    origen: 'pgvector_rpc',
+  };
+}
+
+async function abrirConversacionFeedbackDigest(supabase, { userId, digestId, alertaIds, fecha }) {
+  const now = new Date();
+
+  const { error: cerrarError } = await supabase
+    .from('user_conversations')
+    .update({
+      estado: 'expirada',
+      cerrada_at: now.toISOString(),
+    })
+    .eq('user_id', userId)
+    .eq('tipo', 'feedback_digest')
+    .eq('estado', 'activa');
+
+  if (cerrarError) throw cerrarError;
+
+  const { error: insertarError } = await supabase
+    .from('user_conversations')
+    .insert({
+      user_id: userId,
+      tipo: 'feedback_digest',
+      estado: 'activa',
+      contexto_json: {
+        digest_id: digestId,
+        alerta_ids: alertaIds,
+        fecha,
+      },
+      digest_id: digestId,
+      expira_at: new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString(),
+    });
+
+  if (insertarError) throw insertarError;
+}
+
+async function registrarExploracionDigest(supabase, { userId, digestId, alerta, origen }) {
+  if (!alerta?.id) return;
+
+  const subsector = Array.isArray(alerta.subsectores) && alerta.subsectores.length > 0
+    ? alerta.subsectores[0]
+    : 'sin subsector';
+
+  const { error } = await supabase
+    .from('exploration_log')
+    .insert({
+      user_id: userId,
+      digest_id: digestId,
+      alerta_id: alerta.id,
+      tipo_exploracion: 'zona_expansion',
+      motivo: `Incluida por MIA como zona de expansion. Origen: ${origen}. Subsector: ${subsector}. Similitud: ${Number(alerta.similitud || 0).toFixed(3)}.`,
+      resultado: 'sin_respuesta',
+    });
+
+  if (error) throw error;
 }
 
 // Helper: construye el prompt y genera el mensaje con IA.
@@ -267,6 +386,10 @@ async function generarMensajeDigest({ user, alertas, fecha, plan, aprendizaje })
     ? `\nAPRENDIZAJE POR VOTOS ANTERIORES DEL USUARIO:\n${aprendizaje.resumen}\nUsalo para priorizar enfoque y enfasis, pero no inventes ni elimines alertas que ya han pasado los filtros duros.\n`
     : '';
 
+  const bloqueContextoMIA = user.contexto_narrativo
+    ? `\nMEMORIA NARRATIVA MIA DEL USUARIO:\n${user.contexto_narrativo}\nUsala para redactar con mas precision y cercania, sin inventar datos ni mencionar que existe una memoria interna.\n`
+    : '';
+
   const nivelDetalle = esCooperativa
     ? 'Puedes usar hasta 3-4 frases por alerta si el contenido lo justifica. Incluye plazos, destinatarios y datos clave cuando aparezcan.'
     : 'Se conciso. 1-2 frases por alerta con lo mas importante.';
@@ -280,6 +403,7 @@ Fecha: ${fecha}
 Plan del usuario: ${plan.nombre}
 ${bloqueExtra}
 ${bloqueAprendizaje}
+${bloqueContextoMIA}
 Se te pasan ${alertas.length} alertas candidatas ya filtradas y ordenadas para este usuario. Debes mantener la numeracion y el orden. No cambies el numero de una alerta.
 
 CRITERIOS DE DESCARTE:
@@ -469,12 +593,12 @@ module.exports = function digestRoutes(app, supabase) {
       // 2) Usuarios de pago con teléfono
       let { data: usuarios, error: errUsuarios } = await supabase
         .from('users')
-        .select('id, name, phone, subscription, preferences, preferencias_extra, perfil_embedding, perfil_actualizado_at')
+        .select('id, name, phone, subscription, preferences, preferencias_extra, perfil_embedding, perfil_actualizado_at, contexto_narrativo')
         .in('subscription', ['corral', 'agricultor', 'cooperativa'])
         .not('phone', 'is', null)
         .neq('phone', '');
 
-      if (errUsuarios && /perfil_embedding|perfil_actualizado_at/i.test(errUsuarios.message || '')) {
+      if (errUsuarios && /perfil_embedding|perfil_actualizado_at|contexto_narrativo/i.test(errUsuarios.message || '')) {
         const fallback = await supabase
           .from('users')
           .select('id, name, phone, subscription, preferences, preferencias_extra')
@@ -527,8 +651,15 @@ module.exports = function digestRoutes(app, supabase) {
           user.preferencias_extra
         );
         const aprendizaje = await obtenerAprendizajeUsuario(supabase, user.id);
-        const alertasVectoriales = ordenarPorPerfilVectorial(alertasUsuario, user.perfil_embedding);
-        const alertasOrdenadas = alertasVectoriales || ordenarPorAprendizaje(alertasUsuario, aprendizaje);
+        const seleccionMIA = await seleccionarAlertasConMIA(supabase, {
+          user,
+          fecha: hoy,
+          alertasFallback: alertasUsuario,
+        });
+        const usandoMIA = Boolean(seleccionMIA?.alertas?.length);
+        const alertasOrdenadas = usandoMIA
+          ? seleccionMIA.alertas
+          : ordenarPorAprendizaje(alertasUsuario, aprendizaje);
 
         // Sin alertas relevantes → silencio
         if (alertasOrdenadas.length === 0) {
@@ -559,15 +690,18 @@ module.exports = function digestRoutes(app, supabase) {
             alertasOrdenadas
           );
 
-          const { error: insertError } = await supabase
+          const alertaIdsDigest = alertasOrdenadas.map((a) => a.id);
+          const { data: digestInsertado, error: insertError } = await supabase
             .from('digests')
             .insert({
               user_id:    user.id,
               fecha:      hoy,
               mensaje:    mensaje.trim(),
-              alerta_ids: alertasOrdenadas.map((a) => a.id),
+              alerta_ids: alertaIdsDigest,
               enviado:    false,
-            });
+            })
+            .select('id')
+            .single();
 
           if (insertError) {
             if (insertError.code === '23505') {
@@ -579,6 +713,42 @@ module.exports = function digestRoutes(app, supabase) {
               errores.push({ userId: user.id, error: insertError.message });
             }
           } else {
+            try {
+              await abrirConversacionFeedbackDigest(supabase, {
+                userId: user.id,
+                digestId: digestInsertado.id,
+                alertaIds: alertaIdsDigest,
+                fecha: hoy,
+              });
+            } catch (errConversacion) {
+              console.warn(`[digest] No se pudo abrir conversacion feedback user ${user.id}:`, errConversacion.message);
+              errores.push({
+                userId: user.id,
+                digestId: digestInsertado.id,
+                warning: 'conversacion_feedback_no_creada',
+                error: errConversacion.message,
+              });
+            }
+
+            if (seleccionMIA?.exploracion) {
+              try {
+                await registrarExploracionDigest(supabase, {
+                  userId: user.id,
+                  digestId: digestInsertado.id,
+                  alerta: seleccionMIA.exploracion,
+                  origen: seleccionMIA.origen,
+                });
+              } catch (errExploracion) {
+                console.warn(`[digest] No se pudo registrar exploracion user ${user.id}:`, errExploracion.message);
+                errores.push({
+                  userId: user.id,
+                  digestId: digestInsertado.id,
+                  warning: 'exploracion_no_registrada',
+                  error: errExploracion.message,
+                });
+              }
+            }
+
             generados++;
             console.log(`[digest] ✓ Generado para user ${user.id}`);
           }
