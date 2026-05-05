@@ -115,9 +115,10 @@ async function main() {
 
   const deduplicar = await runSingleStep('deduplicar', '/alertas/deduplicar');
   const miaEmbeddings = await runOptionalStep('mia-embeddings', '/cerebro/embeddings/inicializar?limit=100&maxLoops=10');
+  const miaCicloPreDigest = await runOptionalStep('mia-ciclo-pre-digest', '/cerebro/ciclo-diario?explorar=false&limit=100&maxLoops=1');
   const prepararDigest = await runSingleStep('preparar-digest', '/alertas/preparar-digest');
   const enviarDigest = await runSingleStep('enviar-digest', '/alertas/enviar-digest');
-  const miaCicloDiario = await runOptionalStep('mia-ciclo-diario', '/cerebro/ciclo-diario?explorar=false&limit=100&maxLoops=1');
+  const miaCicloPostDigest = await runOptionalStep('mia-ciclo-post-digest', '/cerebro/ciclo-diario?explorar=false&limit=100&maxLoops=1');
 
   const generarFree = await runSingleStep('generar-resumen-free', '/alertas/generar-resumen-free');
   const enviarFree = await runSingleStep('enviar-resumen-free', '/alertas/enviar-resumen-free');
@@ -128,9 +129,10 @@ async function main() {
     revisar,
     deduplicar: deduplicar?.deduplicadas ?? null,
     miaEmbeddings: miaEmbeddings?.ok ?? null,
+    miaCicloPreDigest: miaCicloPreDigest?.ok ?? null,
     prepararDigest: prepararDigest?.digests_generados ?? null,
     enviarDigest: enviarDigest?.enviados ?? null,
-    miaCicloDiario: miaCicloDiario?.ok ?? null,
+    miaCicloPostDigest: miaCicloPostDigest?.ok ?? null,
     generarFree: generarFree?.procesadas ?? null,
     enviarFree: enviarFree?.ok ?? null,
   });

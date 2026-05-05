@@ -446,10 +446,14 @@ module.exports = function tareasRoutes(app, supabase) {
         'mia_embeddings_inicializar',
         '/cerebro/embeddings/inicializar?limit=100&maxLoops=10'
       );
+      const miaCicloPreDigest = await runOptionalStage(
+        'mia_ciclo_pre_digest',
+        '/cerebro/ciclo-diario?explorar=false&limit=100&maxLoops=1'
+      );
       const prepararDigest = await runSimpleStage('preparar_digest', '/alertas/preparar-digest');
       const enviarDigest = await runSimpleStage('enviar_digest', '/alertas/enviar-digest');
-      const miaCicloDiario = await runOptionalStage(
-        'mia_ciclo_diario',
+      const miaCicloPostDigest = await runOptionalStage(
+        'mia_ciclo_post_digest',
         '/cerebro/ciclo-diario?explorar=false&limit=100&maxLoops=1'
       );
       const generarResumenFree = await runSimpleStage('generar_resumen_free', '/alertas/generar-resumen-free');
@@ -466,9 +470,10 @@ module.exports = function tareasRoutes(app, supabase) {
         revisar,
         deduplicar: deduplicar.body,
         miaEmbeddings: miaEmbeddings.body,
+        miaCicloPreDigest: miaCicloPreDigest.body,
         prepararDigest: prepararDigest.body,
         enviarDigest: enviarDigest.body,
-        miaCicloDiario: miaCicloDiario.body,
+        miaCicloPostDigest: miaCicloPostDigest.body,
         generarResumenFree: generarResumenFree.body,
         enviarResumenFree: enviarResumenFree.body,
         estadoFinal: estadoFinal.body,
