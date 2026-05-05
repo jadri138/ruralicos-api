@@ -16,6 +16,7 @@
 // Si el usuario no tiene alertas relevantes hoy → silencio total (no se envía nada).
 
 
+const crypto = require('crypto');
 const { checkCronToken }           = require('../utils/checkCronToken');
 const { llamarIA }                 = require('../utils/llamarIA');
 const { enviarDigestPro }          = require('../whatsapp');
@@ -174,6 +175,82 @@ function anadirInstruccionFeedback(mensaje, alertas) {
     .trim();
 
   return `${limpio}\n\n${linea}`;
+}
+
+function getClickBaseUrl() {
+  return String(
+    process.env.CLICK_BASE_URL ||
+    process.env.PUBLIC_LINK_BASE_URL ||
+    'https://ruralicos.es'
+  ).replace(/\/+$/g, '');
+}
+
+function generarTokenClick() {
+  return crypto.randomBytes(9).toString('base64url');
+}
+
+function escaparRegExp(texto) {
+  return String(texto || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function reemplazarUrlEnMensaje(mensaje, urlOriginal, urlTracking) {
+  if (!urlOriginal || !mensaje.includes(urlOriginal)) return mensaje;
+  return mensaje.replace(new RegExp(escaparRegExp(urlOriginal), 'g'), urlTracking);
+}
+
+function construirUrlTracking(token) {
+  const baseUrl = getClickBaseUrl();
+  const formato = String(process.env.CLICK_LINK_FORMAT || 'query').toLowerCase();
+  const tokenSeguro = encodeURIComponent(token);
+
+  if (formato === 'path') {
+    return `${baseUrl}/a/${tokenSeguro}`;
+  }
+
+  return `${baseUrl}/?a=${tokenSeguro}`;
+}
+
+async function prepararMensajeConLinksTracking(supabase, { mensaje, userId, digestId, alertas }) {
+  if ((process.env.CLICK_TRACKING_ENABLED || 'true').toLowerCase() === 'false') {
+    return { mensaje, links: [], enabled: false };
+  }
+
+  let mensajeFinal = mensaje;
+  const links = [];
+
+  for (const alerta of alertas || []) {
+    if (!alerta?.id || !alerta?.url) continue;
+
+    const token = generarTokenClick();
+    const { data, error } = await supabase
+      .from('alerta_click_links')
+      .upsert({
+        token,
+        user_id: userId,
+        digest_id: digestId,
+        alerta_id: alerta.id,
+        url_destino: alerta.url,
+      }, { onConflict: 'user_id,digest_id,alerta_id' })
+      .select('token, alerta_id, url_destino')
+      .single();
+
+    if (error) {
+      console.warn('[digest:clicks] Tracking no disponible, manteniendo URLs oficiales:', error.message);
+      return { mensaje, links, enabled: false, error: error.message };
+    }
+
+    const tokenFinal = data?.token || token;
+    const urlTracking = construirUrlTracking(tokenFinal);
+    mensajeFinal = reemplazarUrlEnMensaje(mensajeFinal, alerta.url, urlTracking);
+    links.push({
+      alerta_id: alerta.id,
+      token: tokenFinal,
+      url_tracking: urlTracking,
+      url_destino: alerta.url,
+    });
+  }
+
+  return { mensaje: mensajeFinal, links, enabled: true };
 }
 
 // ─────────────────────────────────────────────
@@ -701,7 +778,7 @@ module.exports = function digestRoutes(app, supabase) {
             continue;
           }
 
-          const mensaje = anadirInstruccionFeedback(
+          let mensaje = anadirInstruccionFeedback(
             aplicarTextoObligatorio(mensajeRaw, user.preferencias_extra),
             alertasOrdenadas
           );
@@ -729,6 +806,31 @@ module.exports = function digestRoutes(app, supabase) {
               errores.push({ userId: user.id, error: insertError.message });
             }
           } else {
+            const tracking = await prepararMensajeConLinksTracking(supabase, {
+              mensaje: mensaje.trim(),
+              userId: user.id,
+              digestId: digestInsertado.id,
+              alertas: alertasOrdenadas,
+            });
+
+            if (tracking.enabled && tracking.mensaje !== mensaje.trim()) {
+              mensaje = tracking.mensaje;
+              const { error: updateMensajeError } = await supabase
+                .from('digests')
+                .update({ mensaje: mensaje.trim() })
+                .eq('id', digestInsertado.id);
+
+              if (updateMensajeError) {
+                console.warn(`[digest] No se pudo actualizar digest con links tracking ${digestInsertado.id}:`, updateMensajeError.message);
+                errores.push({
+                  userId: user.id,
+                  digestId: digestInsertado.id,
+                  warning: 'tracking_links_no_actualizados',
+                  error: updateMensajeError.message,
+                });
+              }
+            }
+
             try {
               await abrirConversacionFeedbackDigest(supabase, {
                 userId: user.id,

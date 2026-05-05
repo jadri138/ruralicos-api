@@ -45,6 +45,7 @@ const bomeRoutes       = require('./routes/bome');
 const bocceRoutes      = require('./routes/bocce');
 const embeddingsRoutes = require('./routes/embeddings');
 const cerebroRoutes    = require('./routes/cerebro');
+const clicksRoutes     = require('./routes/clicks');
 
 
 
@@ -185,6 +186,7 @@ bomeRoutes(app, supabase);
 bocceRoutes(app, supabase);
 embeddingsRoutes(app, supabase);
 cerebroRoutes(app, supabase);
+clicksRoutes(app, supabase);
 
 
 
