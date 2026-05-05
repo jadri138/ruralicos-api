@@ -82,5 +82,32 @@ assert(
   'Convierte feedback natural por temas en votos sobre alertas del digest'
 );
 
+const votos8 = parsearVotosDigest('Me interesa el 2 el 3 sobre todo, el resto no me interesa tanto', 5);
+assert(
+  votos8.length === 5 &&
+    votos8.some(v => v.item === 2 && v.valor === 1) &&
+    votos8.some(v => v.item === 3 && v.valor === 1) &&
+    [1, 4, 5].every(item => votos8.some(v => v.item === item && v.valor === -1)),
+  'Detecta positivos concretos y marca "el resto no me interesa tanto" como negativos suaves'
+);
+
+const menciones5 = extraerMencionesPosNeg('Me interesan las subvenciones para agricultura, pero lo del agua no me interesa tanto');
+assert(
+  menciones5.positivas.includes('ayuda') &&
+    menciones5.negativas.includes('agua') &&
+    !menciones5.positivas.includes('agua'),
+  'Detecta "agua no me interesa tanto" como desinteres aunque el tema vaya antes de la negacion'
+);
+
+const natural2 = parsearVotosNaturalesPorAlertas('Me interesan las subvenciones, lo del agua no me interesa tanto', [
+  { titulo: 'Concesion de aguas publicas', subsectores: ['agua'], tipos_alerta: ['agua_infraestructuras'] },
+  { titulo: 'Subvenciones para agricultura', tipos_alerta: ['ayudas_subvenciones'] },
+]);
+assert(
+  natural2.votos.some(v => v.item === 1 && v.valor === -1 && v.tema === 'agua') &&
+    natural2.votos.some(v => v.item === 2 && v.valor === 1 && v.tema === 'ayuda'),
+  'Convierte tema positivo y desinteres suave por agua en votos sobre alertas'
+);
+
 console.log(`\nResultados: ${passed} aprobados, ${failed} fallidos`);
 process.exit(failed > 0 ? 1 : 0);

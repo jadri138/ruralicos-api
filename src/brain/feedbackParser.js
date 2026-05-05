@@ -148,7 +148,26 @@ function parsearVotosDigest(texto, totalItems = null) {
   const total = Number(totalItems || 0);
   const tieneTotal = Number.isInteger(total) && total > 0;
 
-  if (tieneTotal && /\b(ambas|todos|todas|los dos|las dos|todo)\b/.test(normalizado)) {
+  function aplicarRestoNegativoSiProcede() {
+    if (!tieneTotal) return;
+    const positivos = votos
+      .filter((voto) => voto.valor === 1)
+      .map((voto) => voto.item);
+    if (positivos.length === 0) return;
+
+    const hablaDelResto = /\b(el\s+)?resto\b/.test(normalizado);
+    const restoNegativo =
+      hablaDelResto &&
+      /\b(no me interesa(?:n)? tanto|no me interesa(?:n)?|no tanto|menos|poco util|irrelevante|fuera|quitar|quita|no lo quiero|no los quiero|no me va)\b/.test(normalizado);
+
+    if (!restoNegativo) return;
+
+    for (let item = 1; item <= total; item++) {
+      if (!positivos.includes(item)) add(item, -1);
+    }
+  }
+
+  if (tieneTotal && /\b(ambas|todos|todas|los dos|las dos)\b/.test(normalizado)) {
     for (let item = 1; item <= total; item++) add(item, 1);
     return votos;
   }
@@ -170,6 +189,10 @@ function parsearVotosDigest(texto, totalItems = null) {
     for (const n of match[2].match(/\d{1,2}/g) || []) add(n, 1);
   }
 
+  for (const match of normalizado.matchAll(/\b(?:me interesa(?:n)?|interesa(?:n)?|me gusta(?:n)?)\b(?:\s+(?:el|la|los|las|item|items|numero|numeros))?\s+((?:\d{1,2}|el|la|los|las|y|,|;|\s)+)/g)) {
+    for (const n of match[1].match(/\d{1,2}/g) || []) add(n, 1);
+  }
+
   for (const match of normalizado.matchAll(/\b(mal|mala|malo|no util|no me interesa|irrelevante|no)\s+((?:\d{1,2}[\s,;y]*)+)/g)) {
     for (const n of match[2].match(/\d{1,2}/g) || []) add(n, -1);
   }
@@ -186,6 +209,8 @@ function parsearVotosDigest(texto, totalItems = null) {
       for (const n of normalizado.match(/\d{1,2}/g) || []) add(n, 1);
     }
   }
+
+  aplicarRestoNegativoSiProcede();
 
   return votos;
 }
@@ -216,6 +241,27 @@ function extraerMencionesPosNeg(textoUsuario) {
         if (!negativas.includes(canonico)) negativas.push(canonico);
       }
     }
+  }
+
+  for (const tema of temas) {
+    const canonico = temaCanonico(tema);
+    const item = TEMAS_AGRARIOS.find((t) => t.canonico === canonico);
+    const aliases = item ? item.aliases : [canonico];
+    const apareceCercaDeNegacion = aliases.some((alias) => {
+      const escaped = escapeRegex(normalizarTexto(alias));
+      const temaAntesDeNegacion = new RegExp(`\\b${escaped}\\b[^.,;!?]{0,60}\\b(no me interesa(?:n)? tanto|no me interesa(?:n)?|no tanto|me interesa(?:n)? menos|no me va|no quiero|evitar|quita|quitar|fuera)\\b`, 'i');
+      const negacionAntesDeTema = new RegExp(`\\b(no me interesa(?:n)? tanto|no me interesa(?:n)?|no tanto|me interesa(?:n)? menos|no me va|no quiero|evitar|quita|quitar|fuera)\\b[^.,;!?]{0,60}\\b${escaped}\\b`, 'i');
+      return temaAntesDeNegacion.test(texto) || negacionAntesDeTema.test(texto);
+    });
+
+    if (apareceCercaDeNegacion && !negativas.includes(canonico)) {
+      negativas.push(canonico);
+    }
+  }
+
+  for (const negativa of negativas) {
+    const index = positivas.indexOf(negativa);
+    if (index !== -1) positivas.splice(index, 1);
   }
 
   return { positivas, negativas };

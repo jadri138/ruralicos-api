@@ -76,6 +76,65 @@ function formatearAlertas(alertas = []) {
   )).join('\n\n');
 }
 
+function reforzarInterpretacionConReglasLocales(interpretacion, mensajeUsuario, alertasDelDigest = []) {
+  const totalItems = Array.isArray(alertasDelDigest) ? alertasDelDigest.length : 0;
+  if (totalItems <= 0) return interpretacion;
+
+  const feedbacks = [...(interpretacion.feedbacks || [])];
+  const memoria = [...(interpretacion.memoria || [])];
+  const itemsYaInterpretados = new Set(feedbacks.map((item) => item.item_numero));
+
+  const votosNumericos = parsearVotosDigest(mensajeUsuario, totalItems);
+  const votosNaturales = parsearVotosNaturalesPorAlertas(mensajeUsuario, alertasDelDigest).votos || [];
+  const votosLocales = [...votosNumericos, ...votosNaturales];
+
+  for (const voto of votosLocales) {
+    if (itemsYaInterpretados.has(voto.item)) continue;
+    feedbacks.push({
+      item_numero: voto.item,
+      valor: voto.valor,
+      confianza: voto.valor === -1 ? 'media' : 'alta',
+      razon: voto.tema
+        ? `Regla local: detectado tema ${voto.tema}`
+        : 'Regla local: matiz numerico o "el resto" detectado',
+    });
+    itemsYaInterpretados.add(voto.item);
+  }
+
+  const natural = parsearVotosNaturalesPorAlertas(mensajeUsuario, alertasDelDigest);
+  const contenidosMemoria = new Set(memoria.map((item) => `${item.tipo}:${item.contenido.toLowerCase()}`));
+
+  for (const tema of natural.menciones?.positivas || []) {
+    const contenido = `Le interesa ${tema}`;
+    const key = `interes_detectado:${contenido.toLowerCase()}`;
+    if (!contenidosMemoria.has(key)) {
+      memoria.push({ tipo: 'interes_detectado', contenido, peso_inicial: 0.8 });
+      contenidosMemoria.add(key);
+    }
+  }
+
+  for (const tema of natural.menciones?.negativas || []) {
+    const contenido = `No le interesa tanto ${tema}`;
+    const key = `desinteres_detectado:${contenido.toLowerCase()}`;
+    if (!contenidosMemoria.has(key)) {
+      memoria.push({ tipo: 'desinteres_detectado', contenido, peso_inicial: 0.8 });
+      contenidosMemoria.add(key);
+    }
+  }
+
+  const resumenExtra = votosLocales.some((voto) => voto.valor === -1)
+    ? ' Reglas locales reforzaron desintereses suaves.'
+    : '';
+
+  return normalizarInterpretacion({
+    ...interpretacion,
+    feedbacks,
+    memoria,
+    intencion: feedbacks.length > 0 ? 'feedback' : interpretacion.intencion,
+    resumen_para_log: `${interpretacion.resumen_para_log || ''}${resumenExtra}`.trim(),
+  });
+}
+
 async function interpretacionFallback({ mensajeUsuario, alertasDelDigest }) {
   const totalItems = Array.isArray(alertasDelDigest) ? alertasDelDigest.length : 0;
   let votos = parsearVotosDigest(mensajeUsuario, totalItems);
@@ -163,6 +222,9 @@ Reglas:
 - valor: 1 interesa, -1 no interesa, 0 neutro.
 - confianza: alta, media o baja.
 - Entiende "la primera", "la de olivos", "la del porcino", "ambas", "ninguna", "+1", "-2".
+- Si el usuario dice "me interesa 2 y 3, el resto no/no tanto/no me interesa tanto", marca 2 y 3 como positivos y los demas items del digest como negativos con confianza media.
+- Si dice que un tema no le interesa tanto, por ejemplo "lo del agua no me interesa tanto", marca negativos los items del digest relacionados con ese tema aunque no cite su numero.
+- "No me interesa tanto" es una senal negativa suave: guardala como feedback negativo de confianza media y como desinteres_detectado, no la ignores.
 - memoria solo si hay informacion util para el futuro.
 - Tipos memoria permitidos: interes_detectado, desinteres_detectado, dato_explotacion, pregunta_usuario, mensaje_libre, evento_estacional, respuesta_exploracion.
 - Responde por WhatsApp solo si pregunta, se queja, esta confuso o hay una oportunidad natural. Si solo da feedback simple, requiere_respuesta false.
@@ -174,7 +236,8 @@ Reglas:
       'Devuelve solo JSON valido. Sin markdown, sin explicaciones.',
       'gpt-4o-mini'
     );
-    return normalizarInterpretacion(parsearJSON(texto));
+    const interpretacion = normalizarInterpretacion(parsearJSON(texto));
+    return reforzarInterpretacionConReglasLocales(interpretacion, mensajeUsuario, alertasDelDigest);
   } catch (err) {
     console.warn('[cerebro] Fallback local por error interpretando mensaje:', err.message);
     const fallback = await interpretacionFallback({ mensajeUsuario, alertasDelDigest });
