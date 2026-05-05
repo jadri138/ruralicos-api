@@ -489,8 +489,128 @@ module.exports = function cerebroRoutes(app, supabase) {
     }
   };
 
+  const diagnosticoUsuarioHandler = async (req, res) => {
+    if (!checkCronToken(req, res)) return;
+
+    const userId = Number(req.params.userId);
+    if (!Number.isInteger(userId) || userId <= 0) {
+      return res.status(400).json({ ok: false, error: 'userId invalido' });
+    }
+
+    try {
+      const { data: user, error: errUser } = await supabase
+        .from('users')
+        .select('id, name, phone, subscription, preferences, preferencias_extra, perfil_embedding, perfil_version, contexto_narrativo, ultima_interaccion_at, perfil_actualizado_at')
+        .eq('id', userId)
+        .maybeSingle();
+
+      if (errUser) throw errUser;
+      if (!user) return res.status(404).json({ ok: false, reason: 'usuario_no_encontrado', user_id: userId });
+
+      const [memoriasRes, conversacionesRes, digestsRes, exploracionRes] = await Promise.all([
+        supabase
+          .from('user_memory')
+          .select('id, tipo, contenido, alerta_id, digest_id, peso_inicial, incorporado_a_embedding, created_at')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false })
+          .limit(200),
+        supabase
+          .from('user_conversations')
+          .select('id, tipo, estado, digest_id, contexto_json, abierta_at, cerrada_at, expira_at')
+          .eq('user_id', userId)
+          .order('abierta_at', { ascending: false })
+          .limit(10),
+        supabase
+          .from('digests')
+          .select('id, fecha, alerta_ids, enviado, enviado_at, created_at')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false })
+          .limit(10),
+        supabase
+          .from('exploration_log')
+          .select('id, digest_id, alerta_id, tipo_exploracion, motivo, resultado, procesado, created_at')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false })
+          .limit(10),
+      ]);
+
+      for (const result of [memoriasRes, conversacionesRes, digestsRes, exploracionRes]) {
+        if (result.error) throw result.error;
+      }
+
+      const memorias = memoriasRes.data || [];
+      const resumenMemoria = memorias.reduce((acc, memoria) => {
+        acc[memoria.tipo] = (acc[memoria.tipo] || 0) + 1;
+        return acc;
+      }, {});
+
+      const perfilEmbedding = parseVector(user.perfil_embedding);
+      const fecha = /^\d{4}-\d{2}-\d{2}$/.test(req.query.fecha || '')
+        ? req.query.fecha
+        : null;
+
+      let candidatosSemanticos = null;
+      if (fecha && vectorValido(perfilEmbedding)) {
+        const { data, error } = await supabase
+          .rpc('buscar_alertas_similares', {
+            p_perfil_vector: vectorToSql(perfilEmbedding),
+            p_fecha: fecha,
+            p_limite: 10,
+          });
+
+        candidatosSemanticos = error
+          ? { ok: false, error: error.message }
+          : {
+            ok: true,
+            fecha,
+            alertas: (data || []).map((a) => ({
+              id: a.id,
+              titulo: a.titulo,
+              fuente: a.fuente,
+              provincias: a.provincias,
+              sectores: a.sectores,
+              subsectores: a.subsectores,
+              tipos_alerta: a.tipos_alerta,
+              similitud: Number(a.similitud),
+            })),
+          };
+      }
+
+      return res.json({
+        ok: true,
+        user: {
+          id: user.id,
+          name: user.name,
+          phone: user.phone,
+          subscription: user.subscription,
+          tiene_perfil_embedding: vectorValido(perfilEmbedding),
+          perfil_version: user.perfil_version,
+          perfil_actualizado_at: user.perfil_actualizado_at,
+          ultima_interaccion_at: user.ultima_interaccion_at,
+          contexto_narrativo: user.contexto_narrativo,
+          preferences: user.preferences || {},
+          preferencias_extra: user.preferencias_extra || null,
+        },
+        memoria: {
+          total_mostradas: memorias.length,
+          por_tipo: resumenMemoria,
+          pendientes_embedding: memorias.filter((m) => m.incorporado_a_embedding === false).length,
+          ultimas: memorias.slice(0, 20),
+        },
+        conversaciones: conversacionesRes.data || [],
+        digests: digestsRes.data || [],
+        exploracion: exploracionRes.data || [],
+        candidatos_semanticos: candidatosSemanticos,
+      });
+    } catch (err) {
+      console.error('[mia] Error en /cerebro/diagnostico/usuario:', err.message);
+      return res.status(500).json({ ok: false, error: err.message });
+    }
+  };
+
   app.post('/cerebro/embeddings/inicializar', inicializarEmbeddingsHandler);
   app.get('/cerebro/embeddings/inicializar', inicializarEmbeddingsHandler);
   app.post('/cerebro/perfil/actualizar/:userId', actualizarPerfilHandler);
   app.get('/cerebro/perfil/actualizar/:userId', actualizarPerfilHandler);
+  app.get('/cerebro/diagnostico/usuario/:userId', diagnosticoUsuarioHandler);
 };

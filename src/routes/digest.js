@@ -163,11 +163,17 @@ function anadirInstruccionFeedback(mensaje, alertas) {
   if (total === 0) return mensaje;
 
   const linea = total >= 2
-    ? '_Cuales te han interesado? Responde: 1, 2, ambas o ninguna._'
-    : '_Te ha interesado? Responde: 1 o ninguna._';
+    ? '_Cuales te interesan? Responde con los numeros: *1*, *2*... o *ninguna*._'
+    : '_Te interesa? Responde con *1* o *ninguna*._';
 
-  if (mensaje.includes('Para afinar tus alertas')) return mensaje;
-  return `${mensaje.trim()}\n\n${linea}`;
+  const limpio = mensaje
+    .replace(/_?Cuales te han interesado\? Responde: 1, 2, ambas o ninguna\._?/gi, '')
+    .replace(/_?Te ha interesado\? Responde: 1 o ninguna\._?/gi, '')
+    .replace(/_?Cuales te interesan\? Responde con los numeros:[\s\S]*?ninguna\._?/gi, '')
+    .replace(/_?Te interesa\? Responde con \*1\* o \*ninguna\*\._?/gi, '')
+    .trim();
+
+  return `${limpio}\n\n${linea}`;
 }
 
 // ─────────────────────────────────────────────
@@ -390,6 +396,10 @@ async function generarMensajeDigest({ user, alertas, fecha, plan, aprendizaje })
     ? `\nMEMORIA NARRATIVA MIA DEL USUARIO:\n${user.contexto_narrativo}\nUsala para redactar con mas precision y cercania, sin inventar datos ni mencionar que existe una memoria interna.\n`
     : '';
 
+  const bloqueMotivoMIA = alertas.some((a) => Number.isFinite(Number(a.similitud)))
+    ? `\nMIA HA ORDENADO ESTAS ALERTAS POR SIMILITUD CON EL PERFIL DEL USUARIO. Si una alerta tiene similitud baja pero esta incluida, tratala como exploracion suave: presentala sin exagerar su importancia.\n`
+    : '';
+
   const nivelDetalle = esCooperativa
     ? 'Puedes usar hasta 3-4 frases por alerta si el contenido lo justifica. Incluye plazos, destinatarios y datos clave cuando aparezcan.'
     : 'Se conciso. 1-2 frases por alerta con lo mas importante.';
@@ -404,6 +414,7 @@ Plan del usuario: ${plan.nombre}
 ${bloqueExtra}
 ${bloqueAprendizaje}
 ${bloqueContextoMIA}
+${bloqueMotivoMIA}
 Se te pasan ${alertas.length} alertas candidatas ya filtradas y ordenadas para este usuario. Debes mantener la numeracion y el orden. No cambies el numero de una alerta.
 
 CRITERIOS DE DESCARTE:
@@ -416,7 +427,9 @@ FORMATO OBLIGATORIO para las alertas que SI incluyas:
 
 ${saludo}
 
-*Ruralicos - Tu resumen del ${fecha}*
+Una frase inicial breve y natural conectada con el perfil del usuario si hay contexto util. Si no hay contexto util, ir directo al resumen.
+
+*Ruralicos - Alertas del ${fecha}*
 
 Tienes *N alerta${alertas.length !== 1 ? 's' : ''}* relevante${alertas.length !== 1 ? 's' : ''} hoy:
 
@@ -434,6 +447,9 @@ REGLAS:
 - Maximo 1600 caracteres en total. Si hay muchas alertas, reduce las frases de cada una.
 - Lenguaje sencillo y directo. El usuario es profesional del campo, no un abogado.
 - NO inventes datos que no esten en los resumenes.
+- Si el contexto narrativo encaja con una alerta, puedes mencionarlo en una frase corta. Si no encaja, no lo fuerces.
+- No digas "memoria", "MIA", "perfil vectorial" ni nada tecnico al usuario.
+- No preguntes por feedback dentro del mensaje. El sistema anadira una linea fija de feedback despues.
 - Asteriscos (*) para negrita, guiones bajos (_) para cursiva, exactamente como en el formato.
 - El enlace va al final de cada bloque de alerta, en su propia linea.
 - No anadas secciones ni texto fuera del formato, salvo que las PREFERENCIAS PERSONALES DEL USUARIO lo indiquen explicitamente.
