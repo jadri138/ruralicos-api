@@ -39,10 +39,37 @@ test('provincias [] en alerta equivale a nacional/todas las provincias', () => {
   assert.strictEqual(result.ok, true);
 });
 
-test('BOE equivale a nacional aunque venga con provincia no coincidente', () => {
+test('BOE con provincias [] equivale a nacional', () => {
   const alerta = {
     fuente: 'BOE',
-    provincias: ['Madrid'],
+    provincias: [],
+    sectores: ['ganaderia'],
+    subsectores: ['ovino'],
+    tipos_alerta: ['normativa_general'],
+  };
+
+  const result = diagnosticarAlertaUsuario(alerta, userValladolid);
+  assert.strictEqual(result.ok, true);
+});
+
+test('BOE con provincia concreta no pasa a otra provincia por defecto', () => {
+  const alerta = {
+    fuente: 'BOE',
+    provincias: ['Jaen'],
+    sectores: ['ganaderia'],
+    subsectores: ['ovino'],
+    tipos_alerta: ['normativa_general'],
+  };
+
+  const result = diagnosticarAlertaUsuario(alerta, userValladolid);
+  assert.strictEqual(result.ok, false);
+  assert.strictEqual(result.motivo, 'provincia_no_coincide');
+});
+
+test('marcador nacional en provincias pasa aunque haya provincia de usuario concreta', () => {
+  const alerta = {
+    fuente: 'BOE',
+    provincias: ['nacional'],
     sectores: ['ganaderia'],
     subsectores: ['ovino'],
     tipos_alerta: ['normativa_general'],

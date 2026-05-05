@@ -10,7 +10,16 @@ function norm(str) {
 }
 
 const intersecta = (a, b) => a.some((x) => b.includes(x));
-const esFuenteNacional = (fuente) => norm(fuente) === 'boe';
+const MARCADORES_NACIONALES = new Set(['nacional', 'espana', 'españa', 'estatal', 'todas', 'todo el territorio nacional']);
+
+function esAlertaNacional(alerta = {}, provinciasNorm = []) {
+  if (provinciasNorm.length === 0) return true;
+  if (provinciasNorm.some((p) => MARCADORES_NACIONALES.has(p))) return true;
+
+  // BOE no significa automaticamente nacional: si el clasificador ha detectado
+  // una provincia concreta, se respeta como filtro duro.
+  return false;
+}
 
 function diagnosticarAlertaUsuario(alerta, user, options = {}) {
   const { aplicarFuente = true } = options;
@@ -37,7 +46,7 @@ function diagnosticarAlertaUsuario(alerta, user, options = {}) {
   const provinciasANorm = Array.isArray(alerta.provincias)
     ? alerta.provincias.map(norm)
     : [];
-  const alertaNacional = provinciasANorm.length === 0 || esFuenteNacional(alerta.fuente || 'BOE');
+  const alertaNacional = esAlertaNacional(alerta, provinciasANorm);
   const sectoresANorm = Array.isArray(alerta.sectores)
     ? alerta.sectores.map(norm)
     : [];
