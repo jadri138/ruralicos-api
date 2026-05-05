@@ -1,4 +1,5 @@
 const { checkCronToken } = require('../utils/checkCronToken');
+const crypto = require('crypto');
 const { getFechaMadridISO } = require('../utils/fechaMadrid');
 const { normalizePhone } = require('../utils/phoneNormalizer');
 const {
@@ -25,6 +26,110 @@ function validarWebhookToken(req, res) {
   if (recibido && String(recibido) === esperado) return true;
   res.status(401).json({ error: 'Webhook token invalido' });
   return false;
+}
+
+function getClickBaseUrl() {
+  return String(
+    process.env.CLICK_BASE_URL ||
+    process.env.PUBLIC_LINK_BASE_URL ||
+    'https://ruralicos.es'
+  ).replace(/\/+$/g, '');
+}
+
+function construirUrlTracking(token) {
+  const baseUrl = getClickBaseUrl();
+  const formato = String(process.env.CLICK_LINK_FORMAT || 'query').toLowerCase();
+  const tokenSeguro = encodeURIComponent(token);
+  return formato === 'path' ? `${baseUrl}/a/${tokenSeguro}` : `${baseUrl}/?a=${tokenSeguro}`;
+}
+
+function generarTokenClick() {
+  return crypto.randomBytes(9).toString('base64url');
+}
+
+function escaparRegExp(texto) {
+  return String(texto || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+async function aplicarLinksTrackingDigest(supabase, { mensaje, userId, digestId, alertas }) {
+  if ((process.env.CLICK_TRACKING_ENABLED || 'true').toLowerCase() === 'false') {
+    return { mensaje, links: [], enabled: false };
+  }
+
+  let mensajeFinal = mensaje;
+  const links = [];
+
+  for (const alerta of alertas || []) {
+    if (!alerta?.id || !alerta?.url || !mensajeFinal.includes(alerta.url)) continue;
+
+    const token = generarTokenClick();
+    const { data, error } = await supabase
+      .from('alerta_click_links')
+      .upsert({
+        token,
+        user_id: userId,
+        digest_id: digestId,
+        alerta_id: alerta.id,
+        url_destino: alerta.url,
+      }, { onConflict: 'user_id,digest_id,alerta_id' })
+      .select('token, alerta_id, url_destino')
+      .single();
+
+    if (error) {
+      console.warn('[feedback:prueba] Tracking no disponible, manteniendo URLs oficiales:', error.message);
+      return { mensaje, links, enabled: false, error: error.message };
+    }
+
+    const tokenFinal = data?.token || token;
+    const urlTracking = construirUrlTracking(tokenFinal);
+    mensajeFinal = mensajeFinal.replace(new RegExp(escaparRegExp(alerta.url), 'g'), urlTracking);
+    links.push({
+      alerta_id: alerta.id,
+      token: tokenFinal,
+      url_tracking: urlTracking,
+      url_destino: alerta.url,
+    });
+  }
+
+  return { mensaje: mensajeFinal, links, enabled: true };
+}
+
+async function abrirConversacionFeedbackPrueba(supabase, { userId, digestId, alertaIds, fecha }) {
+  const ahora = new Date().toISOString();
+
+  const { error: cerrarError } = await supabase
+    .from('user_conversations')
+    .update({
+      estado: 'expirada',
+      cerrada_at: ahora,
+    })
+    .eq('user_id', userId)
+    .eq('tipo', 'feedback_digest')
+    .eq('estado', 'activa');
+
+  if (cerrarError) {
+    console.warn('[feedback:prueba] No se pudieron cerrar conversaciones previas:', cerrarError.message);
+  }
+
+  const { error } = await supabase
+    .from('user_conversations')
+    .insert({
+      user_id: userId,
+      tipo: 'feedback_digest',
+      estado: 'activa',
+      contexto_json: {
+        digest_id: digestId,
+        alerta_ids: alertaIds,
+        fecha,
+        origen: 'digest_prueba',
+      },
+      digest_id: digestId,
+      expira_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    });
+
+  if (error) {
+    console.warn('[feedback:prueba] No se pudo abrir conversacion de prueba:', error.message);
+  }
 }
 
 async function sumarTagPerfil(supabase, userId, tema, delta) {
@@ -473,7 +578,7 @@ module.exports = function feedbackRoutes(app, supabase) {
         ].filter(Boolean).join('\n');
       });
 
-      const mensaje = [
+      let mensaje = [
         `Hola${nombre}`,
         '',
         '*Ruralicos - prueba de valoracion*',
@@ -501,6 +606,32 @@ module.exports = function feedbackRoutes(app, supabase) {
 
       if (digestError) return res.status(500).json({ error: digestError.message });
 
+      const tracking = await aplicarLinksTrackingDigest(supabase, {
+        mensaje,
+        userId: user.id,
+        digestId: digest.id,
+        alertas,
+      });
+
+      if (tracking.enabled && tracking.mensaje !== mensaje) {
+        mensaje = tracking.mensaje;
+        const { error: updateDigestError } = await supabase
+          .from('digests')
+          .update({ mensaje })
+          .eq('id', digest.id);
+
+        if (updateDigestError) {
+          console.warn('[feedback:prueba] No se pudo actualizar digest con links tracking:', updateDigestError.message);
+        }
+      }
+
+      await abrirConversacionFeedbackPrueba(supabase, {
+        userId: user.id,
+        digestId: digest.id,
+        alertaIds: alertas.map((a) => a.id),
+        fecha,
+      });
+
       await enviarDigestPro(phone, mensaje);
 
       return res.json({
@@ -508,6 +639,11 @@ module.exports = function feedbackRoutes(app, supabase) {
         mensaje: 'Digest de prueba enviado. Responde por WhatsApp 1, 2, ambas o ninguna.',
         phone,
         digest,
+        tracking: {
+          enabled: tracking.enabled,
+          links: tracking.links,
+          error: tracking.error || null,
+        },
       });
     } catch (err) {
       console.error('Error en /feedback/enviar-digest-prueba:', err);
