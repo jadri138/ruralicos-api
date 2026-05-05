@@ -66,8 +66,8 @@ async function guardarMemoriaClickSiPrimero(supabase, link) {
 }
 
 module.exports = function clicksRoutes(app, supabase) {
-  const clickHandler = async (req, res) => {
-    const token = String(req.params.token || '').trim();
+  const procesarTokenClick = async (req, res, tokenRaw) => {
+    const token = String(tokenRaw || '').trim();
     if (!/^[a-zA-Z0-9_-]{8,80}$/.test(token)) {
       return res.status(404).send('Enlace no encontrado');
     }
@@ -127,6 +127,15 @@ module.exports = function clicksRoutes(app, supabase) {
     }
   };
 
+  const clickHandler = async (req, res) => {
+    return procesarTokenClick(req, res, req.params.token);
+  };
+
+  const clickQueryHandler = async (req, res, next) => {
+    if (!req.query?.a) return next();
+    return procesarTokenClick(req, res, req.query.a);
+  };
+
   const recientesHandler = async (req, res) => {
     if (!checkCronToken(req, res)) return;
 
@@ -167,6 +176,7 @@ module.exports = function clicksRoutes(app, supabase) {
     }
   };
 
+  app.get('/', clickQueryHandler);
   app.get('/a/:token', clickHandler);
   app.get('/alerta/:token', clickHandler);
   app.get('/clicks/recientes', recientesHandler);
