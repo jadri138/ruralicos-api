@@ -191,6 +191,41 @@ function detectarZonaIncertidumbre(user, memorias = []) {
   return 'Perfil con poca señal reciente. Conviene preguntar que tema agricola o ganadero quiere priorizar en sus proximas alertas.';
 }
 
+function ajustarContextoNarrativoPorPerfil(user = {}, contexto = '') {
+  const texto = String(contexto || '').trim();
+  if (!texto) return texto;
+
+  const prefs = user.preferences || {};
+  const perfil = String(prefs.perfil || '').toLowerCase();
+  const sectores = Array.isArray(prefs.sectores)
+    ? prefs.sectores.map((s) => String(s || '').toLowerCase())
+    : [];
+  const soloGanaderia = (perfil === 'ganadero' || sectores.includes('ganaderia')) && !sectores.includes('agricultura');
+  const soloAgricultura = (perfil === 'agricultor' || sectores.includes('agricultura')) && !sectores.includes('ganaderia');
+
+  if (soloGanaderia) {
+    return texto
+      .replace(/\bes un agricultor y ganadero\b/i, 'tiene un perfil ganadero')
+      .replace(/\bes una agricultora y ganadera\b/i, 'tiene un perfil ganadero')
+      .replace(/\bes agricultor y ganadero\b/i, 'tiene un perfil ganadero')
+      .replace(/\bes agricultora y ganadera\b/i, 'tiene un perfil ganadero')
+      .replace(/\bagricultor especializado en ganaderia\b/i, 'perfil ganadero especializado')
+      .replace(/\bagricultora especializada en ganaderia\b/i, 'perfil ganadero especializado');
+  }
+
+  if (soloAgricultura) {
+    return texto
+      .replace(/\bes un agricultor y ganadero\b/i, 'tiene un perfil agricola')
+      .replace(/\bes una agricultora y ganadera\b/i, 'tiene un perfil agricola')
+      .replace(/\bes agricultor y ganadero\b/i, 'tiene un perfil agricola')
+      .replace(/\bes agricultora y ganadera\b/i, 'tiene un perfil agricola')
+      .replace(/\bganadero especializado en agricultura\b/i, 'perfil agricola especializado')
+      .replace(/\bganadera especializada en agricultura\b/i, 'perfil agricola especializado');
+  }
+
+  return texto;
+}
+
 async function iniciarPipelineRun(supabase, { stage, endpoint, fechaObjetivo }) {
   const startedAt = new Date();
   const run = {
@@ -424,6 +459,7 @@ module.exports = function cerebroRoutes(app, supabase) {
     let contextoNarrativo = null;
     try {
       contextoNarrativo = await generarContextoNarrativo(user, memoriasLista);
+      contextoNarrativo = ajustarContextoNarrativoPorPerfil(user, contextoNarrativo);
     } catch (err) {
       console.warn(`[mia:perfil] No se pudo generar contexto narrativo user ${user.id}:`, err.message);
       contextoNarrativo = user.preferencias_extra || null;

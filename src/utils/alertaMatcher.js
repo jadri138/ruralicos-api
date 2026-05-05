@@ -10,6 +10,7 @@ function norm(str) {
 }
 
 const intersecta = (a, b) => a.some((x) => b.includes(x));
+const esFuenteNacional = (fuente) => norm(fuente) === 'boe';
 
 function diagnosticarAlertaUsuario(alerta, user, options = {}) {
   const { aplicarFuente = true } = options;
@@ -36,6 +37,7 @@ function diagnosticarAlertaUsuario(alerta, user, options = {}) {
   const provinciasANorm = Array.isArray(alerta.provincias)
     ? alerta.provincias.map(norm)
     : [];
+  const alertaNacional = provinciasANorm.length === 0 || esFuenteNacional(alerta.fuente || 'BOE');
   const sectoresANorm = Array.isArray(alerta.sectores)
     ? alerta.sectores.map(norm)
     : [];
@@ -48,10 +50,19 @@ function diagnosticarAlertaUsuario(alerta, user, options = {}) {
 
   const okProvincia =
     provinciasUserNorm.length === 0 ||
-    provinciasANorm.length === 0 ||
+    alertaNacional ||
     intersecta(provinciasUserNorm, provinciasANorm);
   if (!okProvincia) {
-    return { ok: false, motivo: 'provincia_no_coincide', detalle: { usuario: provinciasUserNorm, alerta: provinciasANorm } };
+    return {
+      ok: false,
+      motivo: 'provincia_no_coincide',
+      detalle: {
+        usuario: provinciasUserNorm,
+        alerta: provinciasANorm,
+        alerta_nacional: alertaNacional,
+        fuente: alerta.fuente || 'BOE',
+      },
+    };
   }
 
   const tieneMixtoUser = sectoresUserNorm.includes('mixto');
