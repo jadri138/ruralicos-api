@@ -204,7 +204,7 @@ async function generarContextoNarrativo(usuario, memorias) {
     .join('\n');
 
   const prompt = `
-Resume en un parrafo conciso lo que sabemos de este agricultor/ganadero.
+Resume en un parrafo conciso lo que sabemos de esta persona usuaria de Ruralicos.
 
 Datos registro:
 - Nombre: ${usuario?.name || ''}
@@ -214,7 +214,10 @@ Datos registro:
 Memoria acumulada:
 ${memoriasTexto || 'Sin memoria acumulada.'}
 
-Debe ser factual, especifico y util para futuras conversaciones. Devuelve solo el parrafo.
+Debe ser factual, especifico y util para futuras conversaciones.
+No inventes que es agricultor si sus preferencias indican solo ganaderia, ni que es ganadero si indican solo agricultura.
+Usa una formulacion neutra si no hay certeza: "Paula tiene una explotacion/perfil de..." o "Paula esta interesada en...".
+Devuelve solo el parrafo.
 `.trim();
 
   return llamarIA(prompt, 'Responde solo con el parrafo.', 'gpt-4o-mini');

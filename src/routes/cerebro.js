@@ -12,6 +12,7 @@ const {
   generarContextoNarrativo,
   generarPreguntaExploracion,
 } = require('../utils/cerebro');
+const { diagnosticarAlertaUsuario } = require('../utils/alertaMatcher');
 const { enviarDigestPro } = require('../whatsapp');
 
 const DEFAULT_SELECT_LIMIT = 100;
@@ -753,12 +754,12 @@ module.exports = function cerebroRoutes(app, supabase) {
             p_limite: 10,
           });
 
-        candidatosSemanticos = error
-          ? { ok: false, error: error.message }
-          : {
-            ok: true,
-            fecha,
-            alertas: (data || []).map((a) => ({
+        if (error) {
+          candidatosSemanticos = { ok: false, error: error.message };
+        } else {
+          const alertasDiagnosticadas = (data || []).map((a) => {
+            const diagnostico = diagnosticarAlertaUsuario(a, user);
+            return {
               id: a.id,
               titulo: a.titulo,
               fuente: a.fuente,
@@ -767,8 +768,20 @@ module.exports = function cerebroRoutes(app, supabase) {
               subsectores: a.subsectores,
               tipos_alerta: a.tipos_alerta,
               similitud: Number(a.similitud),
-            })),
+              pasa_filtros_duros: diagnostico.ok,
+              motivo_filtro: diagnostico.motivo,
+              detalle_filtro: diagnostico.detalle || null,
+            };
+          });
+
+          candidatosSemanticos = {
+            ok: true,
+            fecha,
+            total_radar_semantico: alertasDiagnosticadas.length,
+            pasan_filtros_duros: alertasDiagnosticadas.filter((a) => a.pasa_filtros_duros),
+            descartadas_por_filtro: alertasDiagnosticadas.filter((a) => !a.pasa_filtros_duros),
           };
+        }
       }
 
       return res.json({
