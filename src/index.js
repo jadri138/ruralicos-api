@@ -121,6 +121,11 @@ app.get('/health', async (req, res) => {
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutos
   max: 100,                //bajar para ser más estricto
+  skip: (req) => {
+    if (req.path === '/health') return true;
+    const cronToken = process.env.CRON_TOKEN;
+    return Boolean(cronToken && req.query?.token && String(req.query.token) === cronToken);
+  },
 });
 
 app.use(limiter);
