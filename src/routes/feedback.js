@@ -568,6 +568,7 @@ module.exports = function feedbackRoutes(app, supabase) {
       }
 
       const fecha = req.body?.fecha || req.query.fecha || getFechaMadridISO();
+      const digestPruebaRef = `${fecha}-prueba-${Date.now()}`;
       const nombre = user.name ? ` *${user.name}*` : '';
       const bloques = alertas.map((a, index) => {
         const resumen = (a.resumen_final || a.resumen || a.titulo || '').replace(/\s+/g, ' ').slice(0, 280);
@@ -606,6 +607,12 @@ module.exports = function feedbackRoutes(app, supabase) {
 
       if (digestError) return res.status(500).json({ error: digestError.message });
 
+      await supabase
+        .from('alerta_click_links')
+        .delete()
+        .eq('user_id', user.id)
+        .eq('digest_id', digest.id);
+
       const tracking = await aplicarLinksTrackingDigest(supabase, {
         mensaje,
         userId: user.id,
@@ -629,7 +636,7 @@ module.exports = function feedbackRoutes(app, supabase) {
         userId: user.id,
         digestId: digest.id,
         alertaIds: alertas.map((a) => a.id),
-        fecha,
+        fecha: digestPruebaRef,
       });
 
       await enviarDigestPro(phone, mensaje);
@@ -639,6 +646,7 @@ module.exports = function feedbackRoutes(app, supabase) {
         mensaje: 'Digest de prueba enviado. Responde por WhatsApp 1, 2, ambas o ninguna.',
         phone,
         digest,
+        digest_prueba_ref: digestPruebaRef,
         tracking: {
           enabled: tracking.enabled,
           links: tracking.links,
