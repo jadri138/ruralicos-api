@@ -97,6 +97,15 @@ async function runSingleStep(name, path) {
   return body;
 }
 
+async function runOptionalStep(name, path) {
+  try {
+    return await runSingleStep(name, path);
+  } catch (err) {
+    console.warn(`[${name}] fase opcional omitida: ${err.message}`);
+    return { ok: false, optional: true, skipped: true, error: err.message };
+  }
+}
+
 async function main() {
   console.log('▶ Iniciando workflow digest diario...');
 
@@ -105,9 +114,10 @@ async function main() {
   const revisar = await runBatchedStep('revisar', '/alertas/revisar');
 
   const deduplicar = await runSingleStep('deduplicar', '/alertas/deduplicar');
-  const cicloEmbeddings = await runSingleStep('ciclo-embeddings', '/embeddings/ciclo-completo');
+  const miaEmbeddings = await runOptionalStep('mia-embeddings', '/cerebro/embeddings/inicializar?limit=100&maxLoops=10');
   const prepararDigest = await runSingleStep('preparar-digest', '/alertas/preparar-digest');
   const enviarDigest = await runSingleStep('enviar-digest', '/alertas/enviar-digest');
+  const miaCicloDiario = await runOptionalStep('mia-ciclo-diario', '/cerebro/ciclo-diario?explorar=false&limit=100&maxLoops=1');
 
   const generarFree = await runSingleStep('generar-resumen-free', '/alertas/generar-resumen-free');
   const enviarFree = await runSingleStep('enviar-resumen-free', '/alertas/enviar-resumen-free');
@@ -117,9 +127,10 @@ async function main() {
     resumir,
     revisar,
     deduplicar: deduplicar?.deduplicadas ?? null,
-    cicloEmbeddings: cicloEmbeddings?.ok ?? null,
+    miaEmbeddings: miaEmbeddings?.ok ?? null,
     prepararDigest: prepararDigest?.digests_generados ?? null,
     enviarDigest: enviarDigest?.enviados ?? null,
+    miaCicloDiario: miaCicloDiario?.ok ?? null,
     generarFree: generarFree?.procesadas ?? null,
     enviarFree: enviarFree?.ok ?? null,
   });

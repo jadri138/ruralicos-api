@@ -442,8 +442,16 @@ module.exports = function tareasRoutes(app, supabase) {
       const revisar = await runBatchedStep('revisar', '/alertas/revisar');
       if (await abortIfLimited('revisar', revisar)) return;
       const deduplicar = await runSimpleStage('deduplicar', '/alertas/deduplicar');
+      const miaEmbeddings = await runOptionalStage(
+        'mia_embeddings_inicializar',
+        '/cerebro/embeddings/inicializar?limit=100&maxLoops=10'
+      );
       const prepararDigest = await runSimpleStage('preparar_digest', '/alertas/preparar-digest');
       const enviarDigest = await runSimpleStage('enviar_digest', '/alertas/enviar-digest');
+      const miaCicloDiario = await runOptionalStage(
+        'mia_ciclo_diario',
+        '/cerebro/ciclo-diario?explorar=false&limit=100&maxLoops=1'
+      );
       const generarResumenFree = await runSimpleStage('generar_resumen_free', '/alertas/generar-resumen-free');
       const enviarResumenFree = await runSimpleStage('enviar_resumen_free', '/alertas/enviar-resumen-free');
       const estadoFinal = await runSimpleStage('estado_pipeline_final', '/alertas/estado-pipeline');
@@ -457,8 +465,10 @@ module.exports = function tareasRoutes(app, supabase) {
         resumir,
         revisar,
         deduplicar: deduplicar.body,
+        miaEmbeddings: miaEmbeddings.body,
         prepararDigest: prepararDigest.body,
         enviarDigest: enviarDigest.body,
+        miaCicloDiario: miaCicloDiario.body,
         generarResumenFree: generarResumenFree.body,
         enviarResumenFree: enviarResumenFree.body,
         estadoFinal: estadoFinal.body,
