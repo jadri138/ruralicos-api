@@ -6,6 +6,7 @@ const { enviarWhatsAppVerificacion, enviarWhatsAppRegistro } = require('../whats
 const { requireAuth, requireAdmin } = require('../../authMiddleware');
 const { getPlan, validarPreferencias } = require('../config/planes');
 const { extraerPreferenciasBody, prepararPreferenciasExtra } = require('../utils/preferenciasRequest');
+const { actualizarPerfilUsuarioMIASafe } = require('../brain/miaProfile');
 
 module.exports = function usersRoutes(app, supabase) {
   function requireAdminOrCron(req, res, next) {
@@ -212,6 +213,13 @@ module.exports = function usersRoutes(app, supabase) {
       await supabase.from('logs').insert([
         { action: 'register', details: `phone: ${telefonoNormalizado}` }
       ]);
+
+      // 8) Crear perfil MIA inicial sin bloquear el registro.
+      actualizarPerfilUsuarioMIASafe(supabase, user.id).then((resultado) => {
+        if (!resultado.ok) {
+          console.warn('[mia:register] Perfil inicial pendiente:', resultado);
+        }
+      });
 
     } catch (err) {
       console.error('Error inesperado en /register:', err);
