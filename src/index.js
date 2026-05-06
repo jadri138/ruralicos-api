@@ -68,12 +68,21 @@ const allowedOrigins = [
   'https://ruralicos.es',
   'https://www.ruralicos.es',
   'https://app.ruralicos.es',
+  'https://ruralicos-app.vercel.app',
   'http://localhost:3000',
   'http://127.0.0.1:3000',
   'http://localhost:5173',
   'https://ruralicos-panel.onrender.com',
-
+  ...String(process.env.FRONTEND_ORIGINS || '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean),
 ];
+
+function isAllowedOrigin(origin) {
+  if (allowedOrigins.includes(origin)) return true;
+  return /^https:\/\/ruralicos-app(?:-[a-z0-9-]+)?\.vercel\.app$/i.test(origin);
+}
 
 app.use(
   cors({
@@ -81,7 +90,7 @@ app.use(
       // Peticiones internas o herramientas tipo Postman (sin origin)
       if (!origin) return callback(null, true);
 
-      if (allowedOrigins.includes(origin)) {
+      if (isAllowedOrigin(origin)) {
         return callback(null, true);
       }
 
