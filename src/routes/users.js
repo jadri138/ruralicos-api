@@ -718,4 +718,62 @@ module.exports = function usersRoutes(app, supabase) {
       res.status(500).json({ error: 'Error interno' });
     }
   });
+
+  // --------------------------------------------------
+  // ELIMINAR MI CUENTA
+  // DELETE /me -> permite al usuario logueado borrar su cuenta
+  // --------------------------------------------------
+  app.delete('/me', requireAuth, async (req, res) => {
+    try {
+      const userId = req.user.sub;
+
+      const relatedTables = [
+        'preferences',
+        'alertas_vistas',
+        'digests',
+        'alerta_feedback',
+        'user_interest_profile',
+        'user_memory',
+        'user_conversations',
+        'alerta_click_links',
+        'alerta_clicks',
+        'exploration_log',
+      ];
+
+      for (const table of relatedTables) {
+        const { error } = await supabase
+          .from(table)
+          .delete()
+          .eq('user_id', userId);
+
+        const missingTable =
+          error && ['42P01', '42703', 'PGRST205'].includes(error.code);
+
+        if (error && !missingTable) {
+          console.warn(`delete /me: no se pudo limpiar ${table}:`, error.message);
+        }
+      }
+
+      const { data, error } = await supabase
+        .from('users')
+        .delete()
+        .eq('id', userId)
+        .select('id')
+        .maybeSingle();
+
+      if (error) {
+        console.error('Error eliminando /me:', error.message);
+        return res.status(500).json({ error: 'No se pudo eliminar la cuenta' });
+      }
+
+      if (!data) {
+        return res.status(404).json({ error: 'Usuario no encontrado' });
+      }
+
+      return res.json({ ok: true, message: 'Cuenta eliminada correctamente' });
+    } catch (err) {
+      console.error('Error en DELETE /me:', err);
+      return res.status(500).json({ error: 'Error interno' });
+    }
+  });
 };

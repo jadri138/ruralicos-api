@@ -67,7 +67,9 @@ app.use(helmet());
 const allowedOrigins = [
   'https://ruralicos.es',
   'https://www.ruralicos.es',
+  'https://app.ruralicos.es',
   'http://localhost:3000',
+  'http://127.0.0.1:3000',
   'http://localhost:5173',
   'https://ruralicos-panel.onrender.com',
 
