@@ -94,8 +94,16 @@ async function readResponseBody(response) {
   try {
     return JSON.parse(raw);
   } catch {
-    return { raw: raw.slice(0, 2000) };
+    return { raw: raw.replace(/\s+/g, ' ').slice(0, 800) };
   }
+}
+
+function isRetryableStatus(status) {
+  return [408, 429, 500, 502, 503, 504].includes(Number(status));
+}
+
+function isRetryableError(err) {
+  return err?.retryable === true || /fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN/i.test(String(err?.message || ''));
 }
 
 async function guardarScraperRun(supabase, run) {
@@ -243,6 +251,8 @@ module.exports = function tareasRoutes(app, supabase) {
       const token = process.env.CRON_TOKEN;
       const maxLoops = Number(process.env.PIPELINE_MAX_LOOPS || 40);
       const stepDelayMs = Number(process.env.PIPELINE_STEP_DELAY_MS || 800);
+      const httpRetries = Number(process.env.PIPELINE_HTTP_RETRIES || 3);
+      const httpRetryDelayMs = Number(process.env.PIPELINE_HTTP_RETRY_DELAY_MS || 5000);
       const scrapePaths = getScrapePaths();
       const fecha = /^\d{4}-\d{2}-\d{2}$/.test(req.query.fecha || '')
         ? req.query.fecha
@@ -258,15 +268,29 @@ module.exports = function tareasRoutes(app, supabase) {
 
       async function hit(path, method = 'GET') {
         const url = buildPipelineUrl(path);
-        const response = await fetch(url, { method });
 
-        const body = await readResponseBody(response);
+        for (let attempt = 1; attempt <= httpRetries + 1; attempt++) {
+          try {
+            const response = await fetch(url, { method });
+            const body = await readResponseBody(response);
 
-        if (!response.ok) {
-          throw new Error(`${path} devolvio ${response.status}: ${JSON.stringify(body)}`);
+            if (!response.ok) {
+              const err = new Error(`${path} devolvio ${response.status}: ${JSON.stringify(body)}`);
+              err.status = response.status;
+              err.retryable = isRetryableStatus(response.status);
+              throw err;
+            }
+
+            return { path, body };
+          } catch (err) {
+            const canRetry = attempt <= httpRetries && isRetryableError(err);
+            if (!canRetry) throw err;
+
+            const delay = httpRetryDelayMs * attempt;
+            console.warn(`[pipeline] ${path} fallo transitorio (${err.message}). Reintento ${attempt}/${httpRetries} en ${delay}ms`);
+            await sleep(delay);
+          }
         }
-
-        return { path, body };
       }
 
       async function runSimpleStage(stage, path, method = 'GET') {
