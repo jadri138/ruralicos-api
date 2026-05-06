@@ -7,7 +7,7 @@
 // Planes disponibles:
 //   'free'        → Admin interno. Resumen genérico diario de todas las alertas.
 //   'corral'      → Plan de entrada. 1 provincia, 1 sector, 2 subsectores. Solo BOE.
-//   'agricultor'  → Plan medio. 2 provincias, 2 sectores, 4 subsectores. BOE + autonómicos.
+//   'agricultor'  → Plan medio. 2 provincias, todos los sectores, 4 subsectores. BOE + autonómicos.
 //   'cooperativa' → Plan completo. Sin límites. Todas las fuentes. Campo libre + acceso anticipado.
 //
 // ══════════════════════════════════════════════════════════════════════
@@ -48,7 +48,7 @@ const PLANES = {
     resumen_generico: false,
     limites: {
       provincias:  2,
-      sectores:    2,
+      sectores:    null,
       subsectores: 4,
     },
     // BOE + todos los autonomicos disponibles y futuros

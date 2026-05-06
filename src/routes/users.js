@@ -78,6 +78,26 @@ module.exports = function usersRoutes(app, supabase) {
     if (error && !isMissingTableError(error)) throw error;
   }
 
+  async function selectUserRows(table, columns, userId, options = {}) {
+    let query = supabase
+      .from(table)
+      .select(columns)
+      .eq('user_id', userId);
+
+    if (options.order) {
+      query = query.order(options.order, { ascending: false });
+    }
+
+    if (options.limit) {
+      query = query.limit(options.limit);
+    }
+
+    const { data, error } = await query;
+    if (error && isMissingTableError(error)) return [];
+    if (error) throw error;
+    return data || [];
+  }
+
   function requireAdminOrCron(req, res, next) {
     if ((process.env.REQUIRE_ADMIN_FOR_USER_ADMIN_ROUTES || 'true').toLowerCase() !== 'true') {
       return next();
@@ -219,6 +239,17 @@ module.exports = function usersRoutes(app, supabase) {
     const preferenciasExtraLimpia = typeof rawPreferenciasExtra === 'string'
       ? rawPreferenciasExtra.trim().slice(0, 1000)
       : null;
+
+    const validacionRegistro = validarPreferencias(subscriptionNormalizada, preferences);
+    if (!validacionRegistro.ok) {
+      const planRegistro = getPlan(subscriptionNormalizada);
+      return res.status(400).json({
+        error: 'Límites del plan superados',
+        detalles: validacionRegistro.errores,
+        plan: planRegistro.nombre,
+        limites: planRegistro.limites,
+      });
+    }
 
     // Código 6 dígitos + caducidad 15 minutos
     const codigoVerificacion = Math.floor(100000 + Math.random() * 900000).toString();
@@ -845,6 +876,72 @@ module.exports = function usersRoutes(app, supabase) {
     } catch (err) {
       console.error('Error en PUT /me/plan:', err);
       return res.status(500).json({ error: 'Error interno' });
+    }
+  });
+
+  // --------------------------------------------------
+  // EXPORTAR MIS DATOS
+  // GET /me/export -> descarga estructurada de datos de cuenta
+  // --------------------------------------------------
+  app.get('/me/export', requireAuth, async (req, res) => {
+    try {
+      const userId = req.user.sub;
+      const userColumns =
+        'id, name, phone, email, subscription, preferences, preferencias_extra, created_at, perfil_version, perfil_actualizado_at, contexto_narrativo, ultima_interaccion_at';
+
+      let { data: user, error: userError } = await supabase
+        .from('users')
+        .select(userColumns)
+        .eq('id', userId)
+        .single();
+
+      if (userError && /perfil_|contexto_narrativo|ultima_interaccion_at/i.test(userError.message || '')) {
+        const fallback = await supabase
+          .from('users')
+          .select('id, name, phone, email, subscription, preferences, preferencias_extra, created_at')
+          .eq('id', userId)
+          .single();
+
+        user = fallback.data;
+        userError = fallback.error;
+      }
+
+      if (userError || !user) {
+        return res.status(404).json({ error: 'Usuario no encontrado' });
+      }
+
+      const [
+        digests,
+        memories,
+        feedback,
+        interestProfile,
+        clicks,
+        conversations,
+        explorations,
+      ] = await Promise.all([
+        selectUserRows('digests', 'id, fecha, mensaje, alerta_ids, enviado, enviado_at, created_at', userId, { order: 'created_at', limit: 300 }),
+        selectUserRows('user_memory', 'id, tipo, contenido, alerta_id, digest_id, peso_inicial, incorporado_a_embedding, created_at', userId, { order: 'created_at', limit: 1000 }),
+        selectUserRows('alerta_feedback', 'id, digest_id, alerta_id, item_numero, valor, raw_text, created_at, updated_at', userId, { order: 'created_at', limit: 1000 }),
+        selectUserRows('user_interest_profile', 'id, tag, score, positivos, negativos, updated_at', userId, { order: 'updated_at', limit: 1000 }),
+        selectUserRows('alerta_clicks', 'id, digest_id, alerta_id, url_destino, created_at', userId, { order: 'created_at', limit: 1000 }),
+        selectUserRows('user_conversations', 'id, tipo, estado, digest_id, abierta_at, cerrada_at, expira_at', userId, { order: 'abierta_at', limit: 300 }),
+        selectUserRows('exploration_log', 'id, digest_id, alerta_id, tipo_exploracion, motivo, resultado, procesado, created_at', userId, { order: 'created_at', limit: 300 }),
+      ]);
+
+      return res.json({
+        generated_at: new Date().toISOString(),
+        user,
+        digests,
+        memory: memories,
+        feedback,
+        interest_profile: interestProfile,
+        clicks,
+        conversations,
+        explorations,
+      });
+    } catch (err) {
+      console.error('Error en GET /me/export:', err);
+      return res.status(500).json({ error: 'No se pudo exportar la cuenta' });
     }
   });
 
