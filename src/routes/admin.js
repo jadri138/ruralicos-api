@@ -706,4 +706,87 @@ app.post('/admin/tareas/scrapers-diario', requireAdmin, async (req, res) => {
       return res.status(500).json({ error: err.message });
     }
   });
+
+  app.get('/admin/operations/health-deep', requireAdmin, async (req, res) => {
+    try {
+      const fecha = /^\d{4}-\d{2}-\d{2}$/.test(req.query.fecha || '')
+        ? req.query.fecha
+        : getFechaMadridISO();
+      const { inicio, fin } = getRangoDiaMadridUTC(fecha);
+
+      const [
+        alertasTotal,
+        alertasListas,
+        alertasPendientesIA,
+        alertasConEmbedding,
+        digestsPreparados,
+        digestsEnviados,
+        whatsappFallidos,
+        feedbackHoy,
+        clicksHoy,
+        memoriasHoy,
+        conversacionesActivas,
+        pipelineRuns,
+        scraperRuns,
+        webhookErrores,
+      ] = await Promise.all([
+        countQuery(supabase.from('alertas').select('id', { count: 'exact', head: true }).eq('fecha', fecha)),
+        countQuery(supabase.from('alertas').select('id', { count: 'exact', head: true }).eq('fecha', fecha).eq('estado_ia', 'listo').is('duplicado_de', null)),
+        countQuery(supabase.from('alertas').select('id', { count: 'exact', head: true }).eq('fecha', fecha).neq('estado_ia', 'listo')),
+        countQuery(supabase.from('alertas').select('id', { count: 'exact', head: true }).eq('fecha', fecha).not('embedding', 'is', null)),
+        countQuery(supabase.from('digests').select('id', { count: 'exact', head: true }).eq('fecha', fecha)),
+        countQuery(supabase.from('digests').select('id', { count: 'exact', head: true }).eq('fecha', fecha).eq('enviado', true)),
+        countQuery(supabase.from('whatsapp_logs').select('id', { count: 'exact', head: true }).gte('created_at', inicio).lt('created_at', fin).eq('status', 'failed')),
+        countQuery(supabase.from('alerta_feedback').select('id', { count: 'exact', head: true }).gte('created_at', inicio).lt('created_at', fin)),
+        countQuery(supabase.from('alerta_clicks').select('id', { count: 'exact', head: true }).gte('created_at', inicio).lt('created_at', fin)),
+        countQuery(supabase.from('user_memory').select('id', { count: 'exact', head: true }).gte('created_at', inicio).lt('created_at', fin)),
+        countQuery(supabase.from('user_conversations').select('id', { count: 'exact', head: true }).eq('estado', 'activa')),
+        supabase.from('pipeline_runs').select('id, stage, endpoint, fecha_objetivo, started_at, finished_at, duration_ms, status, procesadas, errores, error_msg').eq('fecha_objetivo', fecha).order('started_at', { ascending: false }).limit(30),
+        supabase.from('scraper_runs').select('id, fuente, endpoint, fecha_objetivo, started_at, finished_at, duration_ms, status, nuevas, duplicadas, errores, error_msg').eq('fecha_objetivo', fecha).order('started_at', { ascending: false }).limit(50),
+        supabase.from('webhook_events').select('id, created_at, error_msg, result_json').not('error_msg', 'is', null).order('created_at', { ascending: false }).limit(10),
+      ]);
+
+      if (pipelineRuns.error) throw pipelineRuns.error;
+      if (scraperRuns.error) throw scraperRuns.error;
+      if (webhookErrores.error) throw webhookErrores.error;
+
+      const pipelineErrorCount = (pipelineRuns.data || []).filter((r) => r.status === 'error').length;
+      const scraperErrorCount = (scraperRuns.data || []).filter((r) => r.status === 'error' || Number(r.errores || 0) > 0).length;
+      const ok =
+        pipelineErrorCount === 0 &&
+        scraperErrorCount === 0 &&
+        whatsappFallidos === 0 &&
+        alertasPendientesIA === 0;
+
+      return res.json({
+        ok,
+        fecha,
+        resumen: {
+          alertas_total: alertasTotal,
+          alertas_listas: alertasListas,
+          alertas_pendientes_ia: alertasPendientesIA,
+          alertas_con_embedding: alertasConEmbedding,
+          digests_preparados: digestsPreparados,
+          digests_enviados: digestsEnviados,
+          whatsapp_fallidos: whatsappFallidos,
+          feedback_hoy: feedbackHoy,
+          clicks_hoy: clicksHoy,
+          memorias_hoy: memoriasHoy,
+          conversaciones_activas: conversacionesActivas,
+        },
+        pipeline: {
+          errores: pipelineErrorCount,
+          runs: pipelineRuns.data || [],
+        },
+        scrapers: {
+          errores: scraperErrorCount,
+          runs: scraperRuns.data || [],
+        },
+        webhook_errores_recientes: webhookErrores.data || [],
+      });
+    } catch (err) {
+      console.error('Error en /admin/operations/health-deep:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
 };

@@ -1,10 +1,19 @@
 // routes/auth.js
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const rateLimit = require('express-rate-limit');
 
 module.exports = (app, supabase) => {
+  const adminLoginLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 8,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Demasiados intentos. Prueba de nuevo en unos minutos.' },
+  });
+
   // LOGIN ADMIN
-  app.post('/admin/login', async (req, res) => {
+  app.post('/admin/login', adminLoginLimiter, async (req, res) => {
     try {
       const { username, password } = req.body;
 

@@ -299,14 +299,14 @@ module.exports = function usersRoutes(app, supabase) {
       }
 
       if (user.phone_verification_code !== String(code).trim()) {
-        return res.status(400).json({ error: 'Código incorrecto' });
+        return res.status(400).json({ error: 'Codigo incorrecto o caducado' });
       }
 
       if (user.phone_verification_expires_at) {
         const ahora = new Date();
         const caduca = new Date(user.phone_verification_expires_at);
         if (caduca < ahora) {
-          return res.status(400).json({ error: 'Código caducado' });
+          return res.status(400).json({ error: 'Codigo incorrecto o caducado' });
         }
       }
 
@@ -460,7 +460,7 @@ module.exports = function usersRoutes(app, supabase) {
 
       // 2) Validar código
       if (String(user.phone_verification_code || '') !== String(code).trim()) {
-        return res.status(400).json({ error: 'Código incorrecto' });
+        return res.status(400).json({ error: 'Codigo incorrecto o caducado' });
       }
 
       // 3) Validar caducidad
@@ -468,7 +468,7 @@ module.exports = function usersRoutes(app, supabase) {
         const ahora = new Date();
         const caduca = new Date(user.phone_verification_expires_at);
         if (caduca < ahora) {
-          return res.status(400).json({ error: 'Código caducado' });
+          return res.status(400).json({ error: 'Codigo incorrecto o caducado' });
         }
       }
 

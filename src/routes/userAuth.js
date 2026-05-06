@@ -68,8 +68,15 @@ module.exports = (app, supabase) => {
    * body: { phone } => { token }
    * Solo si el usuario existe y NO tiene password_hash (null/empty).
    */
-  app.post('/first-login', async (req, res) => {
+  app.post('/first-login', loginLimiter, async (req, res) => {
     try {
+      const legacyFirstLoginEnabled = String(process.env.ENABLE_LEGACY_FIRST_LOGIN || 'false').toLowerCase() === 'true';
+      if (!legacyFirstLoginEnabled) {
+        return res.status(410).json({
+          error: 'Primer acceso legacy desactivado. Usa recuperar contrasena.',
+        });
+      }
+
       let { phone } = req.body || {};
       if (!phone) return res.status(400).json({ error: 'Falta el teléfono' });
 
@@ -86,12 +93,12 @@ module.exports = (app, supabase) => {
 
       if (error) return res.status(500).json({ error: 'Error interno' });
       if (!user) {
-        return res.status(404).json({ error: 'No existe ningún usuario con ese teléfono' });
+        return res.status(401).json({ error: 'No se pudo iniciar el primer acceso' });
       }
 
       // Si ya tiene contraseña, no es "primer acceso"
       if (user.password_hash) {
-        return res.status(409).json({ error: 'Este usuario ya tiene contraseña. Inicia sesión.' });
+        return res.status(401).json({ error: 'No se pudo iniciar el primer acceso' });
       }
 
       const token = jwt.sign(
