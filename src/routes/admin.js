@@ -707,6 +707,163 @@ app.post('/admin/tareas/scrapers-diario', requireAdmin, async (req, res) => {
     }
   });
 
+  app.get('/admin/mia/activity', requireAdmin, async (req, res) => {
+    try {
+      const hours = Math.max(1, Math.min(168, Number(req.query.hours || 24)));
+      const limit = Math.max(1, Math.min(200, Number(req.query.limit || 80)));
+      const desde = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+
+      const [
+        memorias,
+        feedbacks,
+        clicks,
+        conversaciones,
+        exploraciones,
+        webhook,
+      ] = await Promise.all([
+        supabase
+          .from('user_memory')
+          .select('id, user_id, tipo, contenido, alerta_id, digest_id, peso_inicial, incorporado_a_embedding, created_at, users(id, name, phone, subscription)')
+          .gte('created_at', desde)
+          .order('created_at', { ascending: false })
+          .limit(limit),
+        supabase
+          .from('alerta_feedback')
+          .select('id, user_id, digest_id, alerta_id, item_numero, valor, raw_text, created_at, users(id, name, phone, subscription), alertas(id, titulo, fuente)')
+          .gte('created_at', desde)
+          .order('created_at', { ascending: false })
+          .limit(limit),
+        supabase
+          .from('alerta_clicks')
+          .select('id, user_id, digest_id, alerta_id, url_destino, created_at, users(id, name, phone, subscription), alertas(id, titulo, fuente)')
+          .gte('created_at', desde)
+          .order('created_at', { ascending: false })
+          .limit(limit),
+        supabase
+          .from('user_conversations')
+          .select('id, user_id, estado, tipo, digest_id, contexto_json, abierta_at, cerrada_at, expira_at, users(id, name, phone, subscription)')
+          .gte('abierta_at', desde)
+          .order('abierta_at', { ascending: false })
+          .limit(limit),
+        supabase
+          .from('exploration_log')
+          .select('id, user_id, digest_id, alerta_id, tipo_exploracion, motivo, resultado, procesado, created_at, users(id, name, phone, subscription), alertas(id, titulo, fuente)')
+          .gte('created_at', desde)
+          .order('created_at', { ascending: false })
+          .limit(limit),
+        supabase
+          .from('webhook_events')
+          .select('id, created_at, processed, error_msg, result_json, body_json')
+          .gte('created_at', desde)
+          .order('created_at', { ascending: false })
+          .limit(limit),
+      ]);
+
+      for (const result of [memorias, feedbacks, clicks, conversaciones, exploraciones, webhook]) {
+        if (result.error) throw result.error;
+      }
+
+      return res.json({
+        ok: true,
+        hours,
+        memorias: memorias.data || [],
+        feedbacks: feedbacks.data || [],
+        clicks: clicks.data || [],
+        conversaciones: conversaciones.data || [],
+        exploraciones: exploraciones.data || [],
+        webhook: webhook.data || [],
+      });
+    } catch (err) {
+      console.error('Error en /admin/mia/activity:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/admin/mia/backfill-profiles', requireAdmin, async (req, res) => {
+    try {
+      const limit = Math.max(1, Math.min(50, Number(req.body?.limit || req.query.limit || 10)));
+      const soloPendientes = String(req.body?.solo_pendientes ?? req.query.solo_pendientes ?? 'true').toLowerCase() !== 'false';
+      const params = new URLSearchParams({ limit: String(limit) });
+      if (!soloPendientes) params.set('soloPendientes', 'false');
+      const result = await hitCronPath(`/cerebro/perfil/backfill?${params.toString()}`);
+      return res.json(result);
+    } catch (err) {
+      console.error('Error en /admin/mia/backfill-profiles:', err);
+      return res.status(err.status || 500).json(err.body || { error: err.message });
+    }
+  });
+
+  app.post('/admin/mia/run-cycle', requireAdmin, async (req, res) => {
+    try {
+      const params = new URLSearchParams({
+        explorar: String(req.body?.explorar ?? false),
+        limit: String(Math.max(1, Math.min(200, Number(req.body?.limit || 100)))),
+        maxLoops: String(Math.max(1, Math.min(20, Number(req.body?.maxLoops || 1)))),
+      });
+      const result = await hitCronPath(`/cerebro/ciclo-diario?${params.toString()}`);
+      return res.json(result);
+    } catch (err) {
+      console.error('Error en /admin/mia/run-cycle:', err);
+      return res.status(err.status || 500).json(err.body || { error: err.message });
+    }
+  });
+
+  app.post('/admin/mia/embeddings-alertas', requireAdmin, async (req, res) => {
+    try {
+      const fecha = /^\d{4}-\d{2}-\d{2}$/.test(req.body?.fecha || req.query.fecha || '')
+        ? (req.body?.fecha || req.query.fecha)
+        : getFechaMadridISO();
+      const params = new URLSearchParams({
+        fecha,
+        limit: String(Math.max(1, Math.min(200, Number(req.body?.limit || req.query.limit || 100)))),
+        maxLoops: String(Math.max(1, Math.min(50, Number(req.body?.maxLoops || req.query.maxLoops || 10)))),
+      });
+      const result = await hitCronPath(`/cerebro/embeddings/inicializar?${params.toString()}`);
+      return res.json(result);
+    } catch (err) {
+      console.error('Error en /admin/mia/embeddings-alertas:', err);
+      return res.status(err.status || 500).json(err.body || { error: err.message });
+    }
+  });
+
+  app.post('/admin/mia/dry-run-digest', requireAdmin, async (req, res) => {
+    try {
+      const userId = Number(req.body?.user_id || req.query.user_id);
+      if (!Number.isInteger(userId) || userId <= 0) {
+        return res.status(400).json({ error: 'Indica user_id valido' });
+      }
+
+      const fecha = /^\d{4}-\d{2}-\d{2}$/.test(req.body?.fecha || req.query.fecha || '')
+        ? (req.body?.fecha || req.query.fecha)
+        : getFechaMadridISO();
+
+      const [diagnostico, preview] = await Promise.all([
+        hitCronPath(`/alertas/diagnosticar-digest?user_id=${encodeURIComponent(userId)}&fecha=${encodeURIComponent(fecha)}`),
+        supabase
+          .from('digests')
+          .select('id, user_id, fecha, mensaje, enviado, enviado_at, alerta_ids, created_at, error_msg')
+          .eq('user_id', userId)
+          .eq('fecha', fecha)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+      ]);
+
+      if (preview.error) throw preview.error;
+
+      return res.json({
+        ok: true,
+        fecha,
+        user_id: userId,
+        digest_existente: preview.data || null,
+        diagnostico,
+      });
+    } catch (err) {
+      console.error('Error en /admin/mia/dry-run-digest:', err);
+      return res.status(err.status || 500).json(err.body || { error: err.message });
+    }
+  });
+
   app.get('/admin/operations/health-deep', requireAdmin, async (req, res) => {
     try {
       const fecha = /^\d{4}-\d{2}-\d{2}$/.test(req.query.fecha || '')
