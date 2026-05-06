@@ -782,4 +782,80 @@ module.exports = function usersRoutes(app, supabase) {
       return res.status(500).json({ error: 'Error interno' });
     }
   });
+
+  // --------------------------------------------------
+  // MIS ALERTAS — historial real preparado para el usuario
+  // --------------------------------------------------
+  app.get('/me/alertas', requireAuth, async (req, res) => {
+    try {
+      const userId = req.user.sub;
+      const limit = Math.min(Number(req.query.limit || 12) || 12, 50);
+
+      const { data: digests, error: digestsError } = await supabase
+        .from('digests')
+        .select('id, fecha, mensaje, alerta_ids, enviado, enviado_at, created_at, error_msg')
+        .eq('user_id', userId)
+        .order('fecha', { ascending: false })
+        .order('created_at', { ascending: false })
+        .limit(limit);
+
+      if (digestsError) {
+        console.error('Error en GET /me/alertas digests:', digestsError.message);
+        return res.status(500).json({ error: 'Error consultando alertas' });
+      }
+
+      const alertaIds = [
+        ...new Set(
+          (digests || [])
+            .flatMap((digest) => Array.isArray(digest.alerta_ids) ? digest.alerta_ids : [])
+            .map((id) => Number(id))
+            .filter(Boolean)
+        ),
+      ];
+
+      let alertasPorId = {};
+
+      if (alertaIds.length > 0) {
+        const { data: alertas, error: alertasError } = await supabase
+          .from('alertas')
+          .select('id, titulo, resumen, resumen_final, url, fecha, region, fuente, provincias, sectores, subsectores, tipos_alerta, estado_ia, created_at')
+          .in('id', alertaIds);
+
+        if (alertasError) {
+          console.error('Error en GET /me/alertas alertas:', alertasError.message);
+          return res.status(500).json({ error: 'Error consultando alertas' });
+        }
+
+        alertasPorId = Object.fromEntries((alertas || []).map((alerta) => [Number(alerta.id), alerta]));
+      }
+
+      const digestsConAlertas = (digests || []).map((digest) => {
+        const ids = Array.isArray(digest.alerta_ids)
+          ? digest.alerta_ids.map((id) => Number(id)).filter(Boolean)
+          : [];
+
+        return {
+          ...digest,
+          alertas: ids.map((id) => alertasPorId[id]).filter(Boolean),
+        };
+      });
+
+      const totalAlertas = digestsConAlertas.reduce(
+        (total, digest) => total + digest.alertas.length,
+        0
+      );
+
+      return res.json({
+        digests: digestsConAlertas,
+        resumen: {
+          digests: digestsConAlertas.length,
+          alertas: totalAlertas,
+          ultimo_digest: digestsConAlertas[0] || null,
+        },
+      });
+    } catch (err) {
+      console.error('Error en GET /me/alertas:', err);
+      return res.status(500).json({ error: 'Error interno' });
+    }
+  });
 };
