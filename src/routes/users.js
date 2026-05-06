@@ -26,6 +26,58 @@ module.exports = function usersRoutes(app, supabase) {
     message: { error: 'Demasiados registros desde esta conexion. Prueba mas tarde.' },
   });
 
+  function getPlanKey(subscription) {
+    const key = String(subscription || 'corral').trim().toLowerCase();
+    return ['corral', 'agricultor', 'cooperativa'].includes(key) ? key : 'corral';
+  }
+
+  function getMemoryCapabilities(subscription) {
+    const plan = getPlanKey(subscription);
+
+    return {
+      plan,
+      learning_active: plan === 'agricultor' || plan === 'cooperativa',
+      detail_access: plan === 'cooperativa',
+      manage_access: plan === 'cooperativa',
+    };
+  }
+
+  function summarizeMemory(memories = []) {
+    return memories.reduce((acc, memory) => {
+      acc[memory.tipo] = (acc[memory.tipo] || 0) + 1;
+      return acc;
+    }, {});
+  }
+
+  function isMissingTableError(error) {
+    return error && ['42P01', '42703', 'PGRST205'].includes(error.code);
+  }
+
+  async function resetMiaProfile(userId) {
+    const { error } = await supabase
+      .from('users')
+      .update({
+        perfil_embedding: null,
+        perfil_version: 0,
+        perfil_actualizado_at: null,
+        contexto_narrativo: null,
+      })
+      .eq('id', userId);
+
+    if (error) {
+      console.warn(`[memoria] No se pudo reiniciar perfil MIA user ${userId}:`, error.message);
+    }
+  }
+
+  async function deleteUserRows(table, userId) {
+    const { error } = await supabase
+      .from(table)
+      .delete()
+      .eq('user_id', userId);
+
+    if (error && !isMissingTableError(error)) throw error;
+  }
+
   function requireAdminOrCron(req, res, next) {
     if ((process.env.REQUIRE_ADMIN_FOR_USER_ADMIN_ROUTES || 'true').toLowerCase() !== 'true') {
       return next();
@@ -792,6 +844,150 @@ module.exports = function usersRoutes(app, supabase) {
       });
     } catch (err) {
       console.error('Error en PUT /me/plan:', err);
+      return res.status(500).json({ error: 'Error interno' });
+    }
+  });
+
+  // --------------------------------------------------
+  // MI MEMORIA MIA
+  // GET /me/memory -> resumen de memoria y detalle segun plan
+  // --------------------------------------------------
+  app.get('/me/memory', requireAuth, async (req, res) => {
+    try {
+      const userId = req.user.sub;
+
+      const { data: user, error: userError } = await supabase
+        .from('users')
+        .select('id, subscription, perfil_embedding, perfil_version, perfil_actualizado_at, contexto_narrativo, ultima_interaccion_at')
+        .eq('id', userId)
+        .single();
+
+      if (userError || !user) {
+        return res.status(404).json({ error: 'Usuario no encontrado' });
+      }
+
+      const capabilities = getMemoryCapabilities(user.subscription);
+
+      const { data: memories, error: memoriesError } = await supabase
+        .from('user_memory')
+        .select('id, tipo, contenido, alerta_id, digest_id, peso_inicial, incorporado_a_embedding, created_at')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(capabilities.detail_access ? 200 : 50);
+
+      if (memoriesError && !isMissingTableError(memoriesError)) {
+        console.error('Error en GET /me/memory:', memoriesError.message);
+        return res.status(500).json({ error: 'Error consultando memoria' });
+      }
+
+      const memoryList = memories || [];
+
+      return res.json({
+        capabilities,
+        profile: {
+          has_profile: Boolean(user.perfil_embedding),
+          version: user.perfil_version || 0,
+          updated_at: user.perfil_actualizado_at || null,
+          last_interaction_at: user.ultima_interaccion_at || null,
+          narrative_context: capabilities.detail_access ? user.contexto_narrativo || null : null,
+        },
+        memory: {
+          total: memoryList.length,
+          by_type: summarizeMemory(memoryList),
+          pending_profile: memoryList.filter((memory) => memory.incorporado_a_embedding === false).length,
+          latest: capabilities.detail_access ? memoryList.slice(0, 50) : [],
+        },
+      });
+    } catch (err) {
+      console.error('Error en GET /me/memory:', err);
+      return res.status(500).json({ error: 'Error interno' });
+    }
+  });
+
+  // --------------------------------------------------
+  // BORRAR UNA MEMORIA
+  // DELETE /me/memory/:id -> solo Cooperativa
+  // --------------------------------------------------
+  app.delete('/me/memory/:id', requireAuth, async (req, res) => {
+    try {
+      const userId = req.user.sub;
+      const memoryId = Number(req.params.id);
+
+      if (!Number.isInteger(memoryId) || memoryId <= 0) {
+        return res.status(400).json({ error: 'Memoria no valida' });
+      }
+
+      const { data: user, error: userError } = await supabase
+        .from('users')
+        .select('id, subscription')
+        .eq('id', userId)
+        .single();
+
+      if (userError || !user) return res.status(404).json({ error: 'Usuario no encontrado' });
+
+      const capabilities = getMemoryCapabilities(user.subscription);
+      if (!capabilities.manage_access) {
+        return res.status(403).json({ error: 'Tu plan no permite gestionar memoria avanzada' });
+      }
+
+      const { data, error } = await supabase
+        .from('user_memory')
+        .delete()
+        .eq('id', memoryId)
+        .eq('user_id', userId)
+        .select('id')
+        .maybeSingle();
+
+      if (error) {
+        console.error('Error borrando memoria:', error.message);
+        return res.status(500).json({ error: 'No se pudo borrar la memoria' });
+      }
+
+      if (!data) return res.status(404).json({ error: 'Memoria no encontrada' });
+
+      await resetMiaProfile(userId);
+      actualizarPerfilUsuarioMIASafe(supabase, userId).catch((err) => {
+        console.warn('[memoria] Recalculo no bloqueante fallido:', err.message);
+      });
+
+      return res.json({ ok: true, deleted_id: memoryId });
+    } catch (err) {
+      console.error('Error en DELETE /me/memory/:id:', err);
+      return res.status(500).json({ error: 'Error interno' });
+    }
+  });
+
+  // --------------------------------------------------
+  // BORRAR TODA LA MEMORIA
+  // DELETE /me/memory -> solo Cooperativa
+  // --------------------------------------------------
+  app.delete('/me/memory', requireAuth, async (req, res) => {
+    try {
+      const userId = req.user.sub;
+
+      const { data: user, error: userError } = await supabase
+        .from('users')
+        .select('id, subscription')
+        .eq('id', userId)
+        .single();
+
+      if (userError || !user) return res.status(404).json({ error: 'Usuario no encontrado' });
+
+      const capabilities = getMemoryCapabilities(user.subscription);
+      if (!capabilities.manage_access) {
+        return res.status(403).json({ error: 'Tu plan no permite reiniciar memoria avanzada' });
+      }
+
+      await deleteUserRows('user_memory', userId);
+      await deleteUserRows('user_interest_profile', userId);
+      await deleteUserRows('alerta_feedback', userId);
+      await deleteUserRows('exploration_log', userId);
+      await deleteUserRows('user_conversations', userId);
+      await resetMiaProfile(userId);
+
+      return res.json({ ok: true, message: 'Memoria reiniciada' });
+    } catch (err) {
+      console.error('Error en DELETE /me/memory:', err);
       return res.status(500).json({ error: 'Error interno' });
     }
   });
