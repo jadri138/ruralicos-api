@@ -4,6 +4,25 @@ const { getFechaMadridISO, getRangoDiaMadridUTC } = require('../utils/fechaMadri
 const { actualizarPerfilUsuarioMIA } = require('../brain/miaProfile');
 
 const PLANES_VALIDOS = ['free', 'corral', 'agricultor', 'cooperativa'];
+const USER_SELECT_ADMIN = 'id, name, phone, email, subscription, preferences, preferencias_extra, contexto_narrativo, perfil_version, perfil_actualizado_at, ultima_interaccion_at, created_at';
+
+function limpiarBusquedaUsuario(value) {
+  return String(value || '').trim().replace(/\s+/g, ' ').slice(0, 80);
+}
+
+function escaparLike(value) {
+  return limpiarBusquedaUsuario(value).replace(/[\\%_]/g, '\\$&');
+}
+
+function resumenUsuarioSugerido(user) {
+  return {
+    id: user.id,
+    name: user.name || '',
+    phone: user.phone || '',
+    email: user.email || '',
+    subscription: user.subscription || '',
+  };
+}
 
 function getPublicBaseUrl() {
   return process.env.PUBLIC_BASE_URL || `http://localhost:${process.env.PORT || 3000}`;
@@ -186,6 +205,38 @@ module.exports = (app, supabase) => {
     } catch (err) {
       console.error('Error en /admin/users:', err);
       return res.status(500).json({ error: 'Error interno en /admin/users' });
+    }
+  });
+
+  app.get('/admin/users/search', requireAdmin, async (req, res) => {
+    try {
+      const q = limpiarBusquedaUsuario(req.query.q || req.query.name);
+      const limit = Math.max(1, Math.min(20, Number(req.query.limit || 8)));
+
+      if (q.length < 2) {
+        return res.json({ ok: true, q, ids: [], users: [] });
+      }
+
+      const pattern = `%${escaparLike(q)}%`;
+      const { data, error } = await supabase
+        .from('users')
+        .select('id, name, phone, email, subscription')
+        .ilike('name', pattern)
+        .order('name', { ascending: true, nullsFirst: false })
+        .limit(limit);
+
+      if (error) return res.status(500).json({ error: error.message });
+
+      const users = (data || []).map(resumenUsuarioSugerido);
+      return res.json({
+        ok: true,
+        q,
+        ids: users.map((u) => u.id),
+        users,
+      });
+    } catch (err) {
+      console.error('Error en /admin/users/search:', err);
+      return res.status(500).json({ error: err.message });
     }
   });
 
@@ -634,18 +685,59 @@ app.post('/admin/tareas/scrapers-diario', requireAdmin, async (req, res) => {
     try {
       const userId = req.query.user_id ? Number(req.query.user_id) : null;
       const phone = req.query.phone ? normalizePhone(req.query.phone) : null;
+      const name = limpiarBusquedaUsuario(req.query.name || req.query.q);
 
-      if (!userId && !phone) {
-        return res.status(400).json({ error: 'Indica user_id o phone' });
+      if (!userId && !phone && !name) {
+        return res.status(400).json({ error: 'Indica user_id, phone o name' });
       }
 
-      const userQuery = supabase
-        .from('users')
-        .select('id, name, phone, email, subscription, preferences, preferencias_extra, contexto_narrativo, perfil_version, perfil_actualizado_at, ultima_interaccion_at, created_at');
+      let user = null;
+      let userError = null;
 
-      const { data: user, error: userError } = userId
-        ? await userQuery.eq('id', userId).maybeSingle()
-        : await userQuery.eq('phone', phone).maybeSingle();
+      if (userId) {
+        const result = await supabase
+          .from('users')
+          .select(USER_SELECT_ADMIN)
+          .eq('id', userId)
+          .maybeSingle();
+        user = result.data;
+        userError = result.error;
+      } else if (phone) {
+        const result = await supabase
+          .from('users')
+          .select(USER_SELECT_ADMIN)
+          .eq('phone', phone)
+          .maybeSingle();
+        user = result.data;
+        userError = result.error;
+      } else {
+        const pattern = `%${escaparLike(name)}%`;
+        const result = await supabase
+          .from('users')
+          .select(USER_SELECT_ADMIN)
+          .ilike('name', pattern)
+          .order('name', { ascending: true, nullsFirst: false })
+          .limit(8);
+
+        userError = result.error;
+        const matches = result.data || [];
+        const exactos = matches.filter((u) =>
+          String(u.name || '').trim().toLowerCase() === name.toLowerCase()
+        );
+
+        if (!userError && exactos.length === 1) {
+          user = exactos[0];
+        } else if (!userError && matches.length === 1) {
+          user = matches[0];
+        } else if (!userError && matches.length > 1) {
+          const suggestions = matches.map(resumenUsuarioSugerido);
+          return res.status(409).json({
+            error: 'Hay varios usuarios con ese nombre. Elige uno por ID.',
+            suggestions,
+            ids: suggestions.map((u) => u.id),
+          });
+        }
+      }
 
       if (userError) return res.status(500).json({ error: userError.message });
       if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
