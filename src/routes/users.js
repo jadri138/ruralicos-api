@@ -116,6 +116,7 @@ module.exports = function usersRoutes(app, supabase) {
       name,
       email,
       password,
+      subscription,
       preferences,
       preferencias_extra,
       preferenciasExtra
@@ -149,6 +150,11 @@ module.exports = function usersRoutes(app, supabase) {
     if (!preferences || typeof preferences !== 'object') {
       preferences = {};
     }
+
+    const PLANES_REGISTRO = ['corral', 'agricultor', 'cooperativa'];
+    const subscriptionNormalizada = PLANES_REGISTRO.includes(String(subscription || '').toLowerCase())
+      ? String(subscription).toLowerCase()
+      : 'corral';
 
     // Campo libre opcional para contexto personal del usuario
     // Acepta snake_case, camelCase o dentro de preferences por compatibilidad.
@@ -214,7 +220,7 @@ module.exports = function usersRoutes(app, supabase) {
             email,               // puede ser null o el email normalizado
             preferences,
             preferencias_extra: preferenciasExtraLimpia || null,
-            subscription: 'corral',
+            subscription: subscriptionNormalizada,
             password_hash: passwordHash,
             phone_verified: false,
             phone_verification_code: codigoVerificacion,
