@@ -8,12 +8,16 @@
  * Variables opcionales:
  *   MAX_LOOPS=40
  *   STEP_DELAY_MS=800
+ *   HTTP_RETRIES=3
+ *   HTTP_RETRY_DELAY_MS=5000
  */
 
 const BASE_URL = (process.env.BASE_URL || '').replace(/\/+$/, '');
 const CRON_TOKEN = process.env.CRON_TOKEN || '';
 const MAX_LOOPS = Number(process.env.MAX_LOOPS || 40);
 const STEP_DELAY_MS = Number(process.env.STEP_DELAY_MS || 800);
+const HTTP_RETRIES = Number(process.env.HTTP_RETRIES || 3);
+const HTTP_RETRY_DELAY_MS = Number(process.env.HTTP_RETRY_DELAY_MS || 5000);
 
 if (!BASE_URL) {
   console.error('Falta BASE_URL');
@@ -34,20 +38,43 @@ async function readResponseBody(res) {
   try {
     return JSON.parse(raw);
   } catch {
-    return { raw: raw.slice(0, 2000) };
+    return { raw: raw.replace(/\s+/g, ' ').slice(0, 800) };
   }
+}
+
+function isRetryableStatus(status) {
+  return [408, 429, 500, 502, 503, 504].includes(Number(status));
+}
+
+function isRetryableError(err) {
+  return err?.retryable === true || /fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN/i.test(String(err?.message || ''));
 }
 
 async function hit(path) {
   const url = `${BASE_URL}${path}${path.includes('?') ? '&' : '?'}token=${encodeURIComponent(CRON_TOKEN)}`;
-  const res = await fetch(url, { method: 'GET' });
-  const body = await readResponseBody(res);
 
-  if (!res.ok) {
-    throw new Error(`[${res.status}] ${path} -> ${JSON.stringify(body)}`);
+  for (let attempt = 1; attempt <= HTTP_RETRIES + 1; attempt++) {
+    try {
+      const res = await fetch(url, { method: 'GET' });
+      const body = await readResponseBody(res);
+
+      if (!res.ok) {
+        const err = new Error(`[${res.status}] ${path} -> ${JSON.stringify(body)}`);
+        err.status = res.status;
+        err.retryable = isRetryableStatus(res.status);
+        throw err;
+      }
+
+      return body;
+    } catch (err) {
+      const canRetry = attempt <= HTTP_RETRIES && isRetryableError(err);
+      if (!canRetry) throw err;
+
+      const delay = HTTP_RETRY_DELAY_MS * attempt;
+      console.warn(`[http] ${path} fallo transitorio (${err.message}). Reintento ${attempt}/${HTTP_RETRIES} en ${delay}ms`);
+      await sleep(delay);
+    }
   }
-
-  return body;
 }
 
 async function runBatchedStep(name, path) {
