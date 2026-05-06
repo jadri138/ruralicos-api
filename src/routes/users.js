@@ -5,7 +5,7 @@ const { checkCronToken } = require('../utils/checkCronToken');
 const { normalizePhone, isPhoneValid, LONGITUD_TELEFONO } = require('../utils/phoneNormalizer');
 const { enviarWhatsAppVerificacion, enviarWhatsAppRegistro } = require('../whatsapp');
 const { requireAuth, requireAdmin } = require('../../authMiddleware');
-const { getPlan, validarPreferencias } = require('../config/planes');
+const { getPlan, validarPreferencias, truncarPreferencias } = require('../config/planes');
 const { extraerPreferenciasBody, prepararPreferenciasExtra } = require('../utils/preferenciasRequest');
 const { actualizarPerfilUsuarioMIASafe } = require('../brain/miaProfile');
 
@@ -722,6 +722,77 @@ module.exports = function usersRoutes(app, supabase) {
     } catch (err) {
       console.error('Error en PUT /me:', err);
       res.status(500).json({ error: 'Error interno' });
+    }
+  });
+
+  // --------------------------------------------------
+  // CAMBIAR MI PLAN
+  // PUT /me/plan -> permite al usuario logueado cambiar su plan
+  // --------------------------------------------------
+  app.put('/me/plan', requireAuth, async (req, res) => {
+    try {
+      const userId = req.user.sub;
+      const plan = String(req.body?.plan || '').trim().toLowerCase();
+      const PLANES_USUARIO = ['corral', 'agricultor', 'cooperativa'];
+
+      if (!PLANES_USUARIO.includes(plan)) {
+        return res.status(400).json({
+          error: `Plan invalido. Opciones: ${PLANES_USUARIO.join(', ')}`,
+        });
+      }
+
+      const { data: userActual, error: userError } = await supabase
+        .from('users')
+        .select('subscription, preferences')
+        .eq('id', userId)
+        .single();
+
+      if (userError || !userActual) {
+        return res.status(404).json({ error: 'Usuario no encontrado' });
+      }
+
+      const preferencesActuales =
+        userActual.preferences && typeof userActual.preferences === 'object'
+          ? userActual.preferences
+          : {};
+      const preferencesAjustadas = truncarPreferencias(plan, preferencesActuales);
+      const seAjustaronPreferencias =
+        JSON.stringify(preferencesAjustadas) !== JSON.stringify(preferencesActuales);
+
+      const { data, error } = await supabase
+        .from('users')
+        .update({
+          subscription: plan,
+          preferences: preferencesAjustadas,
+        })
+        .eq('id', userId)
+        .select('id, phone, email, subscription, preferences, preferencias_extra')
+        .single();
+
+      if (error) {
+        console.error('Error cambiando plan de /me:', error.message);
+        return res.status(500).json({ error: 'No se pudo cambiar el plan' });
+      }
+
+      const planConfig = getPlan(plan);
+
+      return res.json({
+        ok: true,
+        user: data,
+        preferences: data.preferences || {},
+        preferencias_extra: data.preferencias_extra || null,
+        preferences_ajustadas: seAjustaronPreferencias,
+        plan: {
+          nombre: planConfig.nombre,
+          limites: planConfig.limites,
+          campo_libre: planConfig.campo_libre,
+          acceso_anticipado: planConfig.acceso_anticipado,
+          fuentes_permitidas: planConfig.fuentes_permitidas,
+        },
+      });
+    } catch (err) {
+      console.error('Error en PUT /me/plan:', err);
+      return res.status(500).json({ error: 'Error interno' });
     }
   });
 
