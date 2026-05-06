@@ -1,5 +1,6 @@
 // src/routes/users.js
 const bcrypt = require('bcryptjs');
+const rateLimit = require('express-rate-limit');
 const { checkCronToken } = require('../utils/checkCronToken');
 const { normalizePhone, isPhoneValid, LONGITUD_TELEFONO } = require('../utils/phoneNormalizer');
 const { enviarWhatsAppVerificacion, enviarWhatsAppRegistro } = require('../whatsapp');
@@ -9,13 +10,48 @@ const { extraerPreferenciasBody, prepararPreferenciasExtra } = require('../utils
 const { actualizarPerfilUsuarioMIASafe } = require('../brain/miaProfile');
 
 module.exports = function usersRoutes(app, supabase) {
+  const accountLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 12,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Demasiados intentos. Prueba de nuevo en unos minutos.' },
+  });
+
+  const registerLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000,
+    max: 8,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Demasiados registros desde esta conexion. Prueba mas tarde.' },
+  });
+
   function requireAdminOrCron(req, res, next) {
-    if ((process.env.REQUIRE_ADMIN_FOR_USER_ADMIN_ROUTES || 'false').toLowerCase() !== 'true') {
+    if ((process.env.REQUIRE_ADMIN_FOR_USER_ADMIN_ROUTES || 'true').toLowerCase() !== 'true') {
       return next();
     }
     if (req.query.token && process.env.CRON_TOKEN && req.query.token === process.env.CRON_TOKEN) {
       return next();
     }
+    return requireAdmin(req, res, next);
+  }
+
+  function requireOwnerPhoneOrAdminOrCron(req, res, next) {
+    if (req.query.token && process.env.CRON_TOKEN && req.query.token === process.env.CRON_TOKEN) {
+      return next();
+    }
+
+    const authHeader = req.headers.authorization || '';
+    if (authHeader.startsWith('Bearer ')) {
+      return requireAuth(req, res, () => {
+        const phoneNormalizado = normalizePhone(req.body?.phone || req.query?.phone);
+        if (req.user?.role === 'admin' || String(req.user?.phone || '') === phoneNormalizado) {
+          return next();
+        }
+        return res.status(403).json({ error: 'No tienes permisos para este telefono' });
+      });
+    }
+
     return requireAdmin(req, res, next);
   }
 
@@ -74,7 +110,7 @@ module.exports = function usersRoutes(app, supabase) {
   // --------------------------------------------------
   // REGISTRAR USUARIO (web + bot) + CÓDIGO VERIFICACIÓN + PASSWORD HASH
   // --------------------------------------------------
-  app.post('/register', async (req, res) => {
+  app.post('/register', registerLimiter, async (req, res) => {
     let {
       phone,
       name,
@@ -230,7 +266,7 @@ module.exports = function usersRoutes(app, supabase) {
   // --------------------------------------------------
   // VERIFICAR TELÉFONO CON CÓDIGO
   // --------------------------------------------------
-  app.post('/verify-phone', async (req, res) => {
+  app.post('/verify-phone', accountLimiter, async (req, res) => {
     let { phone, code } = req.body;
 
     if (!phone || !code) {
@@ -255,7 +291,7 @@ module.exports = function usersRoutes(app, supabase) {
       }
 
       if (!user) {
-        return res.status(404).json({ error: 'Usuario no encontrado' });
+        return res.status(400).json({ error: 'Codigo incorrecto o caducado' });
       }
 
       if (user.phone_verified) {
@@ -314,7 +350,7 @@ module.exports = function usersRoutes(app, supabase) {
   // RECUPERAR CONTRASEÑA: ENVIAR CÓDIGO POR WHATSAPP
   // POST /password-reset
   // --------------------------------------------------
-  app.post('/password-reset', async (req, res) => {
+  app.post('/password-reset', accountLimiter, async (req, res) => {
     let { phone } = req.body;
 
     if (!phone) {
@@ -387,7 +423,7 @@ module.exports = function usersRoutes(app, supabase) {
   // RECUPERAR CONTRASEÑA: VERIFICAR CÓDIGO Y CAMBIAR PASSWORD
   // POST /password-reset/verify
   // --------------------------------------------------
-  app.post('/password-reset/verify', async (req, res) => {
+  app.post('/password-reset/verify', accountLimiter, async (req, res) => {
     let { phone, code, password } = req.body;
 
     if (!phone || !code || !password) {
@@ -419,7 +455,7 @@ module.exports = function usersRoutes(app, supabase) {
       }
 
       if (!user) {
-        return res.status(404).json({ error: 'Usuario no encontrado' });
+        return res.status(400).json({ error: 'Codigo incorrecto o caducado' });
       }
 
       // 2) Validar código
@@ -546,7 +582,7 @@ module.exports = function usersRoutes(app, supabase) {
   // --------------------------------------------------
   // OBTENER PREFERENCIAS USANDO TELÉFONO
   // --------------------------------------------------
-  app.post('/users/get-preferences', async (req, res) => {
+  app.post('/users/get-preferences', requireOwnerPhoneOrAdminOrCron, async (req, res) => {
     let { phone } = req.body;
 
     if (!phone) {
@@ -573,7 +609,7 @@ module.exports = function usersRoutes(app, supabase) {
   // GUARDAR PREFERENCIAS USANDO TELÉFONO
   // Ruta legacy — la validación de límites por plan está en preferences.js
   // --------------------------------------------------
-  app.put('/users/preferences', async (req, res) => {
+  app.put('/users/preferences', requireOwnerPhoneOrAdminOrCron, async (req, res) => {
     let { phone } = req.body;
 
     if (!phone) {

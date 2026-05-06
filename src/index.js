@@ -50,6 +50,7 @@ const clicksRoutes     = require('./routes/clicks');
 
 
 const app = express();
+app.set('trust proxy', 1);
 
 /* ---------------------------------------------------
    PROTECCIONES DE SEGURIDAD

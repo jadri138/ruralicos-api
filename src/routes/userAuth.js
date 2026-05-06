@@ -1,15 +1,24 @@
 // src/routes/userAuth.js
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const rateLimit = require('express-rate-limit');
 const { requireAuth } = require('../../authMiddleware');
 const { normalizePhone, LONGITUD_TELEFONO } = require('../utils/phoneNormalizer');
 
 module.exports = (app, supabase) => {
+  const loginLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 12,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Demasiados intentos. Prueba de nuevo en unos minutos.' },
+  });
+
   /**
    * LOGIN POR TELÉFONO: POST /login-phone
    * body: { phone, password } => { token }
    */
-  app.post('/login-phone', async (req, res) => {
+  app.post('/login-phone', loginLimiter, async (req, res) => {
     try {
       let { phone, password } = req.body || {};
       if (!phone || !password) {

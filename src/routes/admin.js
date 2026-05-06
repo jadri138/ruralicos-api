@@ -1,6 +1,7 @@
 const { requireAdmin } = require('../../authMiddleware');
 const { normalizePhone } = require('../utils/phoneNormalizer');
 const { getFechaMadridISO, getRangoDiaMadridUTC } = require('../utils/fechaMadrid');
+const { actualizarPerfilUsuarioMIA } = require('../brain/miaProfile');
 
 const PLANES_VALIDOS = ['free', 'corral', 'agricultor', 'cooperativa'];
 
@@ -35,6 +36,12 @@ async function hitCronPath(path) {
   }
 
   return body;
+}
+
+async function countQuery(query) {
+  const { count, error } = await query;
+  if (error) throw error;
+  return count || 0;
 }
 
 // routes/admin.js
@@ -571,6 +578,132 @@ app.post('/admin/tareas/scrapers-diario', requireAdmin, async (req, res) => {
     } catch (err) {
       console.error('Error en POST /admin/alertas/:id/reprocesar:', err);
       return res.status(500).json({ error: 'Error interno' });
+    }
+  });
+
+  app.get('/admin/mia/overview', requireAdmin, async (req, res) => {
+    try {
+      const fechaHoy = getFechaMadridISO();
+      const { inicio: inicioHoy, fin: inicioManana } = getRangoDiaMadridUTC(fechaHoy);
+
+      const [
+        usuariosTotales,
+        usuariosConPerfil,
+        memoriasHoy,
+        feedbackHoy,
+        clicksHoy,
+        exploracionesPendientes,
+        perfilesActualizadosHoy,
+        webhookErrores,
+        pipelineErrores,
+      ] = await Promise.all([
+        countQuery(supabase.from('users').select('id', { count: 'exact', head: true })),
+        countQuery(supabase.from('users').select('id', { count: 'exact', head: true }).not('perfil_embedding', 'is', null)),
+        countQuery(supabase.from('user_memory').select('id', { count: 'exact', head: true }).gte('created_at', inicioHoy).lt('created_at', inicioManana)),
+        countQuery(supabase.from('alerta_feedback').select('id', { count: 'exact', head: true }).gte('created_at', inicioHoy).lt('created_at', inicioManana)),
+        countQuery(supabase.from('alerta_clicks').select('id', { count: 'exact', head: true }).gte('created_at', inicioHoy).lt('created_at', inicioManana)),
+        countQuery(supabase.from('exploration_log').select('id', { count: 'exact', head: true }).eq('procesado', false)),
+        countQuery(supabase.from('users').select('id', { count: 'exact', head: true }).gte('perfil_actualizado_at', inicioHoy).lt('perfil_actualizado_at', inicioManana)),
+        supabase.from('webhook_events').select('id, created_at, error_msg, result_json', { count: 'exact' }).not('error_msg', 'is', null).order('created_at', { ascending: false }).limit(10),
+        supabase.from('pipeline_runs').select('id, stage, endpoint, created_at, status, error_msg', { count: 'exact' }).eq('status', 'error').order('created_at', { ascending: false }).limit(10),
+      ]);
+
+      return res.json({
+        ok: true,
+        fecha: fechaHoy,
+        usuarios_totales: usuariosTotales,
+        usuarios_con_perfil_embedding: usuariosConPerfil,
+        usuarios_sin_perfil_embedding: Math.max(0, usuariosTotales - usuariosConPerfil),
+        memorias_hoy: memoriasHoy,
+        feedback_hoy: feedbackHoy,
+        clicks_hoy: clicksHoy,
+        exploraciones_pendientes: exploracionesPendientes,
+        perfiles_actualizados_hoy: perfilesActualizadosHoy,
+        errores_recientes: {
+          webhook: webhookErrores.data || [],
+          pipeline: pipelineErrores.data || [],
+        },
+      });
+    } catch (err) {
+      console.error('Error en /admin/mia/overview:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/admin/mia/user', requireAdmin, async (req, res) => {
+    try {
+      const userId = req.query.user_id ? Number(req.query.user_id) : null;
+      const phone = req.query.phone ? normalizePhone(req.query.phone) : null;
+
+      if (!userId && !phone) {
+        return res.status(400).json({ error: 'Indica user_id o phone' });
+      }
+
+      const userQuery = supabase
+        .from('users')
+        .select('id, name, phone, email, subscription, preferences, preferencias_extra, contexto_narrativo, perfil_version, perfil_actualizado_at, ultima_interaccion_at, created_at');
+
+      const { data: user, error: userError } = userId
+        ? await userQuery.eq('id', userId).maybeSingle()
+        : await userQuery.eq('phone', phone).maybeSingle();
+
+      if (userError) return res.status(500).json({ error: userError.message });
+      if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
+
+      const [
+        tags,
+        memorias,
+        feedbacks,
+        clicks,
+        digests,
+        exploracion,
+      ] = await Promise.all([
+        supabase.from('user_interest_profile').select('tag, score, positivos, negativos, updated_at').eq('user_id', user.id).order('score', { ascending: false }).limit(50),
+        supabase.from('user_memory').select('id, tipo, contenido, alerta_id, digest_id, peso_inicial, incorporado_a_embedding, created_at').eq('user_id', user.id).order('created_at', { ascending: false }).limit(50),
+        supabase.from('alerta_feedback').select('id, digest_id, alerta_id, item_numero, valor, raw_text, created_at').eq('user_id', user.id).order('created_at', { ascending: false }).limit(50),
+        supabase.from('alerta_clicks').select('id, digest_id, alerta_id, url_destino, created_at').eq('user_id', user.id).order('created_at', { ascending: false }).limit(50),
+        supabase.from('digests').select('id, fecha, alerta_ids, enviado, enviado_at, created_at, error_msg').eq('user_id', user.id).order('created_at', { ascending: false }).limit(20),
+        supabase.from('exploration_log').select('id, digest_id, alerta_id, tipo_exploracion, motivo, resultado, procesado, created_at').eq('user_id', user.id).order('created_at', { ascending: false }).limit(20),
+      ]);
+
+      for (const result of [tags, memorias, feedbacks, clicks, digests, exploracion]) {
+        if (result.error) throw result.error;
+      }
+
+      const tagsData = tags.data || [];
+
+      return res.json({
+        ok: true,
+        user,
+        tags: {
+          positivos: tagsData.filter((t) => Number(t.score) > 0).slice(0, 20),
+          negativos: tagsData.filter((t) => Number(t.score) < 0).sort((a, b) => Number(a.score) - Number(b.score)).slice(0, 20),
+          todos: tagsData,
+        },
+        memorias: memorias.data || [],
+        feedbacks: feedbacks.data || [],
+        clicks: clicks.data || [],
+        digests: digests.data || [],
+        exploracion: exploracion.data || [],
+      });
+    } catch (err) {
+      console.error('Error en /admin/mia/user:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/admin/mia/recalculate', requireAdmin, async (req, res) => {
+    try {
+      const userId = Number(req.body?.user_id || req.query.user_id);
+      if (!Number.isInteger(userId) || userId <= 0) {
+        return res.status(400).json({ error: 'Indica user_id valido' });
+      }
+
+      const resultado = await actualizarPerfilUsuarioMIA(supabase, userId);
+      return res.json(resultado);
+    } catch (err) {
+      console.error('Error en /admin/mia/recalculate:', err);
+      return res.status(500).json({ error: err.message });
     }
   });
 };
