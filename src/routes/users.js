@@ -127,6 +127,19 @@ module.exports = function usersRoutes(app, supabase) {
     return requireAdmin(req, res, next);
   }
 
+  function generarCodigoVerificacion() {
+    return Math.floor(100000 + Math.random() * 900000).toString();
+  }
+
+  function nuevaCaducidadVerificacion() {
+    return new Date(Date.now() + 15 * 60 * 1000).toISOString();
+  }
+
+  function codigoVerificacionCaducado(fechaCaducidad) {
+    if (!fechaCaducidad) return true;
+    return new Date(fechaCaducidad) < new Date();
+  }
+
   // Ruta de prueba
   app.get('/', (req, res) => {
     res.json({ message: 'La API de Ruralicos esta vivaa!! 🚜' });
@@ -159,7 +172,7 @@ module.exports = function usersRoutes(app, supabase) {
 
       const { data, error } = await supabase
         .from('users')
-        .select('phone, email, subscription')
+        .select('phone, email, subscription, phone_verified')
         .eq('id', userId)
         .single();
 
@@ -252,8 +265,8 @@ module.exports = function usersRoutes(app, supabase) {
     }
 
     // Código 6 dígitos + caducidad 15 minutos
-    const codigoVerificacion = Math.floor(100000 + Math.random() * 900000).toString();
-    const verificacionCaducaEn = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+    const codigoVerificacion = generarCodigoVerificacion();
+    const verificacionCaducaEn = nuevaCaducidadVerificacion();
 
     try {
       // 1) Comprobar si ya existe ese teléfono
@@ -453,8 +466,8 @@ module.exports = function usersRoutes(app, supabase) {
     }
 
     // Código 6 dígitos + caducidad 15 minutos (igual que /register)
-    const codigoReset = Math.floor(100000 + Math.random() * 900000).toString();
-    const caducaEn = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+    const codigoReset = generarCodigoVerificacion();
+    const caducaEn = nuevaCaducidadVerificacion();
 
     try {
       // 1) Comprobar que existe el usuario
@@ -776,9 +789,42 @@ module.exports = function usersRoutes(app, supabase) {
 
       // Objeto con los campos a actualizar
       const updates = {};
+      let codigoVerificacion = null;
+      let telefonoParaVerificar = null;
+
+      const { data: userActual, error: userActualError } = await supabase
+        .from('users')
+        .select('id, phone, email, subscription, phone_verified, phone_verification_expires_at')
+        .eq('id', userId)
+        .single();
+
+      if (userActualError || !userActual) {
+        console.error('Error leyendo usuario actual en PUT /me:', userActualError?.message);
+        return res.status(404).json({ error: 'Usuario no encontrado' });
+      }
       
       if (email !== undefined) {
-        updates.email = email === '' ? null : String(email).trim().toLowerCase();
+        const emailNormalizado = email === '' ? null : String(email).trim().toLowerCase();
+
+        if (emailNormalizado) {
+          const { data: emailExistente, error: emailError } = await supabase
+            .from('users')
+            .select('id')
+            .eq('email', emailNormalizado)
+            .neq('id', userId)
+            .maybeSingle();
+
+          if (emailError) {
+            console.error('Error comprobando email en PUT /me:', emailError.message);
+            return res.status(500).json({ error: 'Error comprobando email' });
+          }
+
+          if (emailExistente) {
+            return res.status(400).json({ error: 'Este email ya esta registrado' });
+          }
+        }
+
+        updates.email = emailNormalizado;
       }
       
       if (phone !== undefined) {
@@ -786,14 +832,53 @@ module.exports = function usersRoutes(app, supabase) {
         if (!isPhoneValid(telefonoNormalizado)) {
           return res.status(400).json({ error: 'NÃºmero de telÃ©fono no vÃ¡lido' });
         }
+        const telefonoCambia = telefonoNormalizado !== String(userActual.phone || '');
+
+        if (telefonoCambia) {
+          const { data: phoneExistente, error: phoneError } = await supabase
+            .from('users')
+            .select('id')
+            .eq('phone', telefonoNormalizado)
+            .neq('id', userId)
+            .maybeSingle();
+
+          if (phoneError) {
+            console.error('Error comprobando telefono en PUT /me:', phoneError.message);
+            return res.status(500).json({ error: 'Error comprobando telefono' });
+          }
+
+          if (phoneExistente) {
+            return res.status(400).json({ error: 'Este numero ya esta registrado' });
+          }
+        }
+
         updates.phone = telefonoNormalizado;
+
+        if (
+          telefonoCambia ||
+          (userActual.phone_verified === false && codigoVerificacionCaducado(userActual.phone_verification_expires_at))
+        ) {
+          codigoVerificacion = generarCodigoVerificacion();
+          telefonoParaVerificar = telefonoNormalizado;
+          updates.phone_verified = false;
+          updates.phone_verification_code = codigoVerificacion;
+          updates.phone_verification_expires_at = nuevaCaducidadVerificacion();
+        }
+      }
+
+      if (Object.keys(updates).length === 0) {
+        return res.json({
+          ok: true,
+          user: userActual,
+          phone_verification_required: false,
+        });
       }
 
       const { data, error } = await supabase
         .from('users')
         .update(updates)
         .eq('id', userId)
-        .select()
+        .select('id, phone, email, subscription, phone_verified')
         .single();
 
       if (error) {
@@ -801,10 +886,93 @@ module.exports = function usersRoutes(app, supabase) {
         return res.status(500).json({ error: 'Error al actualizar los datos' });
       }
 
-      res.json({ ok: true, user: data });
+      res.json({
+        ok: true,
+        user: data,
+        phone_verification_required: Boolean(codigoVerificacion),
+        verification_phone: telefonoParaVerificar,
+      });
+
+      if (codigoVerificacion && telefonoParaVerificar) {
+        enviarWhatsAppVerificacion(telefonoParaVerificar, codigoVerificacion).catch((err) => {
+          console.error('Error enviando WhatsApp de verificacion por cambio de telefono:', err.message);
+        });
+      }
     } catch (err) {
       console.error('Error en PUT /me:', err);
       res.status(500).json({ error: 'Error interno' });
+    }
+  });
+
+  // --------------------------------------------------
+  // VERIFICAR MI TELEFONO DESDE CUENTA
+  // --------------------------------------------------
+  app.post('/me/verify-phone', requireAuth, async (req, res) => {
+    try {
+      const userId = req.user.sub;
+      const code = String(req.body?.code || '').trim();
+
+      if (!code) {
+        return res.status(400).json({ error: 'Falta el codigo' });
+      }
+
+      const { data: user, error } = await supabase
+        .from('users')
+        .select('id, phone, email, subscription, phone_verified, phone_verification_code, phone_verification_expires_at')
+        .eq('id', userId)
+        .single();
+
+      if (error || !user) {
+        console.error('Error buscando usuario en /me/verify-phone:', error?.message);
+        return res.status(404).json({ error: 'Usuario no encontrado' });
+      }
+
+      if (user.phone_verified) {
+        return res.json({
+          ok: true,
+          message: 'Telefono ya verificado',
+          user: {
+            id: user.id,
+            phone: user.phone,
+            email: user.email,
+            subscription: user.subscription,
+            phone_verified: true,
+          },
+        });
+      }
+
+      if (String(user.phone_verification_code || '') !== code) {
+        return res.status(400).json({ error: 'Codigo incorrecto o caducado' });
+      }
+
+      if (codigoVerificacionCaducado(user.phone_verification_expires_at)) {
+        return res.status(400).json({ error: 'Codigo incorrecto o caducado' });
+      }
+
+      const { data, error: updateError } = await supabase
+        .from('users')
+        .update({
+          phone_verified: true,
+          phone_verification_code: null,
+          phone_verification_expires_at: null,
+        })
+        .eq('id', userId)
+        .select('id, phone, email, subscription, phone_verified')
+        .single();
+
+      if (updateError) {
+        console.error('Error verificando telefono en /me/verify-phone:', updateError.message);
+        return res.status(500).json({ error: 'Error confirmando verificacion' });
+      }
+
+      return res.json({
+        ok: true,
+        message: 'Telefono verificado correctamente',
+        user: data,
+      });
+    } catch (err) {
+      console.error('Error en /me/verify-phone:', err);
+      return res.status(500).json({ error: 'Error interno' });
     }
   });
 

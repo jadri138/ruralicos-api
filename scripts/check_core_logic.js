@@ -174,5 +174,63 @@ assert.ok(
   indexRoutes.includes("app.post('/admin/send-broadcast', requireAdmin"),
   '/admin/send-broadcast debe requerir admin'
 );
+assert.ok(
+  indexRoutes.indexOf('clicksRoutes(app, supabase);') < indexRoutes.indexOf('usersRoutes(app, supabase);'),
+  'clicksRoutes debe registrarse antes que usersRoutes para que /?a=token no lo capture la ruta raiz'
+);
+
+const alertasRoutes = fs.readFileSync(path.join(__dirname, '..', 'src/routes/alertas.js'), 'utf8');
+assert.ok(
+  alertasRoutes.includes("app.post('/alertas', requireAdminOrCron"),
+  'POST /alertas debe requerir admin o token de cron'
+);
+assert.ok(
+  alertasRoutes.includes("app.get('/alertas', requireAdminOrCron"),
+  'GET /alertas debe requerir admin o token de cron'
+);
+assert.ok(
+  alertasRoutes.includes("if (fecha) query = query.eq('fecha', fecha);"),
+  'GET /alertas debe aplicar filtro fecha cuando llega fecha=YYYY-MM-DD'
+);
+assert.ok(
+  alertasRoutes.includes("if (limit) query = query.limit(limit);"),
+  'GET /alertas debe aceptar limit opcional sin cambiar la respuesta base'
+);
+
+const usersRoutes = fs.readFileSync(path.join(__dirname, '..', 'src/routes/users.js'), 'utf8');
+assert.ok(
+  usersRoutes.includes("phone_verification_required"),
+  'PUT /me debe indicar cuando un cambio de telefono requiere verificacion'
+);
+assert.ok(
+  usersRoutes.includes("app.post('/me/verify-phone', requireAuth"),
+  'Debe existir /me/verify-phone para verificar cambios de telefono autenticados'
+);
+
+const whatsappRoutes = fs.readFileSync(path.join(__dirname, '..', 'src/whatsapp.js'), 'utf8');
+assert.ok(
+  whatsappRoutes.includes("phone_verified.is.null,phone_verified.eq.true"),
+  'Los envios WhatsApp masivos no deben usar telefonos marcados como no verificados'
+);
+
+const digestRoutes = fs.readFileSync(path.join(__dirname, '..', 'src/routes/digest.js'), 'utf8');
+assert.ok(
+  digestRoutes.includes("phone_verified.is.null,phone_verified.eq.true"),
+  'El digest no debe preparar/enviar a telefonos marcados como no verificados'
+);
+
+const feedbackRoutes = fs.readFileSync(path.join(__dirname, '..', 'src/routes/feedback.js'), 'utf8');
+assert.ok(
+  feedbackRoutes.includes("process.env.NODE_ENV === 'production'"),
+  'El webhook UltraMsg debe exigir token en produccion'
+);
+assert.ok(
+  feedbackRoutes.includes("crypto.timingSafeEqual"),
+  'La comparacion del webhook UltraMsg debe evitar comparacion directa de tokens'
+);
+assert.ok(
+  feedbackRoutes.includes("app.all('/webhooks/ultramsg/feedback'"),
+  'Debe existir el webhook de feedback UltraMsg'
+);
 
 console.log('Core logic checks OK');

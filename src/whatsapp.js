@@ -142,7 +142,8 @@ async function enviarWhatsAppResumen(alerta, supabase) {
     .select('id, phone, preferences, subscription')
     .in('subscription', ['corral', 'agricultor', 'cooperativa'])
     .not('phone', 'is', null)
-    .neq('phone', '');
+    .neq('phone', '')
+    .or('phone_verified.is.null,phone_verified.eq.true');
 
   if (error) {
     console.error('[PRO] Error consultando usuarios PRO:', error.message);
@@ -300,7 +301,8 @@ async function enviarWhatsAppFree(supabase, mensajeFree) {
     .select('id, phone')
     .eq('subscription', 'free')
     .not('phone', 'is', null)
-    .neq('phone', '');
+    .neq('phone', '')
+    .or('phone_verified.is.null,phone_verified.eq.true');
 
   if (error) {
     console.error('[FREE] Error consultando usuarios FREE:', error.message);
@@ -404,7 +406,8 @@ async function enviarWhatsAppTodos(supabase, mensaje) {
     .from('users')
     .select('id, phone')
     .not('phone', 'is', null)
-    .neq('phone', '');
+    .neq('phone', '')
+    .or('phone_verified.is.null,phone_verified.eq.true');
 
   if (error) {
     console.error('Error consultando usuarios:', error.message);
@@ -522,7 +525,8 @@ async function enviarWhatsAppAdmin(mensaje) {
     .select('phone')
     .eq('subscription', 'free')
     .not('phone', 'is', null)
-    .neq('phone', '');
+    .neq('phone', '')
+    .or('phone_verified.is.null,phone_verified.eq.true');
 
   if (error) {
     console.error('[ADMIN ALERT] Error consultando admins free:', error.message);

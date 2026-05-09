@@ -37,5 +37,7 @@ reintentos por lotes y orden correcto de pasos.
 
 - [ ] `docs/supabase_digest_schema.sql` ejecutado en Supabase
 - [ ] `CRON_TOKEN` configurado en la API
+- [ ] `ULTRAMSG_WEBHOOK_TOKEN` configurado en la API
+- [ ] Webhook de UltraMsg apuntando a `/webhooks/ultramsg/feedback?token=TU_TOKEN`
 - [ ] Cron Job en Render con `npm run workflow:digest`
 - [ ] Variables `BASE_URL` y `CRON_TOKEN` en el Cron Job

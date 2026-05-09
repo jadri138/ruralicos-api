@@ -169,6 +169,7 @@ app.post('/admin/send-broadcast', requireAdmin, async (req, res) => {
    ACTIVAR RUTAS
 --------------------------------------------------- */
 
+clicksRoutes(app, supabase);
 usersRoutes(app, supabase);
 alertasRoutes(app, supabase);
 alertasFreeRoutes(app, supabase);
@@ -203,7 +204,6 @@ bomeRoutes(app, supabase);
 bocceRoutes(app, supabase);
 embeddingsRoutes(app, supabase);
 cerebroRoutes(app, supabase);
-clicksRoutes(app, supabase);
 
 
 

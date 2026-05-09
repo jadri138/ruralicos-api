@@ -689,7 +689,8 @@ module.exports = function digestRoutes(app, supabase) {
         .select('id, name, phone, subscription, preferences, preferencias_extra, perfil_embedding, perfil_actualizado_at, contexto_narrativo')
         .in('subscription', ['corral', 'agricultor', 'cooperativa'])
         .not('phone', 'is', null)
-        .neq('phone', '');
+        .neq('phone', '')
+        .or('phone_verified.is.null,phone_verified.eq.true');
 
       if (errUsuarios && /perfil_embedding|perfil_actualizado_at|contexto_narrativo/i.test(errUsuarios.message || '')) {
         const fallback = await supabase
@@ -697,7 +698,8 @@ module.exports = function digestRoutes(app, supabase) {
           .select('id, name, phone, subscription, preferences, preferencias_extra')
           .in('subscription', ['corral', 'agricultor', 'cooperativa'])
           .not('phone', 'is', null)
-          .neq('phone', '');
+          .neq('phone', '')
+          .or('phone_verified.is.null,phone_verified.eq.true');
         usuarios = fallback.data;
         errUsuarios = fallback.error;
       }
@@ -931,7 +933,8 @@ module.exports = function digestRoutes(app, supabase) {
       const { data: usuarios, error: errUsers } = await supabase
         .from('users')
         .select('id, phone')
-        .in('id', userIds);
+        .in('id', userIds)
+        .or('phone_verified.is.null,phone_verified.eq.true');
 
       if (errUsers) return res.status(500).json({ error: errUsers.message });
 

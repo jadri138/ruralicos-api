@@ -3,10 +3,37 @@ const { checkCronToken } = require('../utils/checkCronToken');
 const { llamarIA, parsearJSON } = require('../utils/llamarIA');
 const { enviarWhatsAppResumen } = require('../whatsapp');
 const { getFechaMadridISO } = require('../utils/fechaMadrid');
+const { requireAdmin } = require('../../authMiddleware');
 const DIGEST_ONLY_MODE = (process.env.DIGEST_ONLY_MODE || 'true').toLowerCase() !== 'false';
 const CLASIFICAR_BATCH_SIZE = Number(process.env.CLASIFICAR_BATCH_SIZE || 8);
 const RESUMIR_BATCH_SIZE = Number(process.env.RESUMIR_BATCH_SIZE || 5);
 const REVISAR_BATCH_SIZE = Number(process.env.REVISAR_BATCH_SIZE || 5);
+
+function hasCronToken(req) {
+  const authHeader = String(req.get('authorization') || '');
+  const bearerToken = authHeader.toLowerCase().startsWith('bearer ')
+    ? authHeader.slice(7).trim()
+    : '';
+  const token = req.query.token || req.get('x-cron-token') || bearerToken;
+
+  return Boolean(process.env.CRON_TOKEN && token === process.env.CRON_TOKEN);
+}
+
+function requireAdminOrCron(req, res, next) {
+  if (hasCronToken(req)) return next();
+  return requireAdmin(req, res, next);
+}
+
+function validarFechaISO(fecha) {
+  return typeof fecha === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(fecha);
+}
+
+function leerLimiteAlertas(valor) {
+  if (valor === undefined) return null;
+  const limite = Number.parseInt(valor, 10);
+  if (!Number.isFinite(limite) || limite < 1) return null;
+  return Math.min(limite, 1000);
+}
 
 // ─────────────────────────────────────────────
 // Helper: construir prompt de clasificación para 1 o N alertas
@@ -149,7 +176,7 @@ module.exports = function alertasRoutes(app, supabase) {
   // ══════════════════════════════════════════
   // 1) Insertar alerta manual
   // ══════════════════════════════════════════
-  app.post('/alertas', async (req, res) => {
+  app.post('/alertas', requireAdminOrCron, async (req, res) => {
     const { titulo, resumen, url, fecha, region, fuente } = req.body;
 
     if (!titulo || !url || !fecha) {
@@ -176,14 +203,26 @@ module.exports = function alertasRoutes(app, supabase) {
   // ══════════════════════════════════════════
   // 2) Listar todas las alertas
   // ══════════════════════════════════════════
-  app.get('/alertas', async (req, res) => {
-    const { data, error } = await supabase
+  app.get('/alertas', requireAdminOrCron, async (req, res) => {
+    const fecha = typeof req.query.fecha === 'string' ? req.query.fecha.trim() : '';
+    const limit = leerLimiteAlertas(req.query.limit);
+
+    if (fecha && !validarFechaISO(fecha)) {
+      return res.status(400).json({ error: 'Parametro fecha invalido. Usa YYYY-MM-DD' });
+    }
+
+    let query = supabase
       .from('alertas')
       .select('*')
       .order('created_at', { ascending: false });
 
+    if (fecha) query = query.eq('fecha', fecha);
+    if (limit) query = query.limit(limit);
+
+    const { data, error } = await query;
+
     if (error) return res.status(500).json({ error: error.message });
-    res.json({ count: data.length, alertas: data });
+    res.json({ count: (data || []).length, alertas: data || [] });
   });
 
   // ══════════════════════════════════════════════════════════════

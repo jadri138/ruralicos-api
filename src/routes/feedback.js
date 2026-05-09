@@ -15,15 +15,42 @@ const { enviarDigestPro } = require('../whatsapp');
 const { interpretarMensaje } = require('../utils/cerebro');
 
 function validarWebhookToken(req, res) {
-  const esperado = process.env.ULTRAMSG_WEBHOOK_TOKEN;
-  if (!esperado) return true;
+  const esperado = String(process.env.ULTRAMSG_WEBHOOK_TOKEN || '').trim();
+  const tokenObligatorio =
+    process.env.NODE_ENV === 'production' ||
+    process.env.RENDER === 'true' ||
+    Boolean(process.env.RENDER_SERVICE_ID) ||
+    String(process.env.REQUIRE_ULTRAMSG_WEBHOOK_TOKEN || '').toLowerCase() === 'true';
 
+  if (!esperado) {
+    if (!tokenObligatorio) return true;
+    console.error('[webhook] Falta ULTRAMSG_WEBHOOK_TOKEN con validacion obligatoria');
+    res.status(503).json({ error: 'Webhook no configurado' });
+    return false;
+  }
+
+  const authHeader = String(req.headers.authorization || '');
+  const bearerToken = authHeader.toLowerCase().startsWith('bearer ')
+    ? authHeader.slice(7).trim()
+    : '';
   const recibido =
     req.query.token ||
     req.headers['x-ruralicos-webhook-token'] ||
-    req.headers['x-ultramsg-token'];
+    req.headers['x-ultramsg-token'] ||
+    bearerToken;
 
-  if (recibido && String(recibido) === esperado) return true;
+  const recibidoTexto = String(recibido || '').trim();
+  if (recibidoTexto) {
+    const esperadoBuffer = Buffer.from(esperado);
+    const recibidoBuffer = Buffer.from(recibidoTexto);
+    if (
+      esperadoBuffer.length === recibidoBuffer.length &&
+      crypto.timingSafeEqual(esperadoBuffer, recibidoBuffer)
+    ) {
+      return true;
+    }
+  }
+
   res.status(401).json({ error: 'Webhook token invalido' });
   return false;
 }

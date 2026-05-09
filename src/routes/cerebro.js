@@ -245,13 +245,14 @@ module.exports = function cerebroRoutes(app, supabase) {
 
     const { data: user, error: errUser } = await supabase
       .from('users')
-      .select('id, name, phone, subscription, preferences, preferencias_extra, contexto_narrativo, ultima_interaccion_at')
+      .select('id, name, phone, subscription, preferences, preferencias_extra, contexto_narrativo, ultima_interaccion_at, phone_verified')
       .eq('id', userId)
       .maybeSingle();
 
     if (errUser) throw errUser;
     if (!user) return { ok: false, reason: 'usuario_no_encontrado', user_id: userId };
     if (!user.phone) return { ok: false, reason: 'usuario_sin_telefono', user_id: userId };
+    if (user.phone_verified === false) return { ok: false, reason: 'telefono_no_verificado', user_id: userId };
 
     const { data: memorias, error: errMemorias } = await supabase
       .from('user_memory')
@@ -735,6 +736,7 @@ module.exports = function cerebroRoutes(app, supabase) {
             .in('subscription', ['corral', 'agricultor', 'cooperativa'])
             .not('phone', 'is', null)
             .neq('phone', '')
+            .or('phone_verified.is.null,phone_verified.eq.true')
             .order('ultima_interaccion_at', { ascending: true, nullsFirst: true })
             .limit(disponibles);
 
