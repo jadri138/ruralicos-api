@@ -273,6 +273,7 @@ module.exports = function usersRoutes(app, supabase) {
     const subscriptionNormalizada = PLANES_REGISTRO.includes(String(subscription || '').toLowerCase())
       ? String(subscription).toLowerCase()
       : 'corral';
+    const planRegistro = getPlan(subscriptionNormalizada);
 
     // Campo libre opcional para contexto personal del usuario
     // Acepta snake_case, camelCase o dentro de preferences por compatibilidad.
@@ -288,12 +289,17 @@ module.exports = function usersRoutes(app, supabase) {
 
     const validacionRegistro = validarPreferencias(subscriptionNormalizada, preferences);
     if (!validacionRegistro.ok) {
-      const planRegistro = getPlan(subscriptionNormalizada);
       return res.status(400).json({
         error: 'Límites del plan superados',
         detalles: validacionRegistro.errores,
         plan: planRegistro.nombre,
         limites: planRegistro.limites,
+      });
+    }
+
+    if (preferenciasExtraLimpia && !planRegistro.campo_libre) {
+      return res.status(403).json({
+        error: `El plan ${planRegistro.nombre} no permite preferencias extra.`,
       });
     }
 
@@ -352,7 +358,7 @@ module.exports = function usersRoutes(app, supabase) {
             legal_name: legalName,
             email,               // puede ser null o el email normalizado
             preferences,
-            preferencias_extra: preferenciasExtraLimpia || null,
+            preferencias_extra: planRegistro.campo_libre ? preferenciasExtraLimpia || null : null,
             subscription: subscriptionNormalizada,
             password_hash: passwordHash,
             phone_verified: false,
@@ -791,10 +797,19 @@ module.exports = function usersRoutes(app, supabase) {
 
     const updateData = { preferences: prefs };
 
+    if (!plan.campo_libre) {
+      updateData.preferencias_extra = null;
+    }
+
     if (extraEnviado) {
       const extra = prepararPreferenciasExtra(rawExtra);
       if (!extra.ok) return res.status(400).json({ error: extra.error });
-      updateData.preferencias_extra = extra.valor;
+      if (extra.valor && !plan.campo_libre) {
+        return res.status(403).json({
+          error: `El plan ${plan.nombre} no permite preferencias extra.`,
+        });
+      }
+      updateData.preferencias_extra = plan.campo_libre ? extra.valor : null;
     }
 
     const { error } = await supabase
@@ -1091,12 +1106,14 @@ module.exports = function usersRoutes(app, supabase) {
       const preferencesAjustadas = truncarPreferencias(plan, preferencesActuales);
       const seAjustaronPreferencias =
         JSON.stringify(preferencesAjustadas) !== JSON.stringify(preferencesActuales);
+      const planConfig = getPlan(plan);
 
       const { data, error } = await supabase
         .from('users')
         .update({
           subscription: plan,
           preferences: preferencesAjustadas,
+          ...(planConfig.campo_libre ? {} : { preferencias_extra: null }),
         })
         .eq('id', userId)
         .select('id, phone, email, subscription, preferences, preferencias_extra')
@@ -1106,8 +1123,6 @@ module.exports = function usersRoutes(app, supabase) {
         console.error('Error cambiando plan de /me:', error.message);
         return res.status(500).json({ error: 'No se pudo cambiar el plan' });
       }
-
-      const planConfig = getPlan(plan);
 
       return res.json({
         ok: true,

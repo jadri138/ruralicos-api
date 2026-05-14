@@ -4,7 +4,7 @@
 //
 // Cambios respecto a la versión anterior:
 //   - Validación hard de límites (provincias, sectores, subsectores) según plan
-//   - Campo libre 'preferencias_extra' persistido para cualquier plan
+//   - Campo libre 'preferencias_extra' solo en planes con campo_libre
 //   - GET devuelve también el plan y los límites aplicables (útil para el frontend)
 // ══════════════════════════════════════════════════════════════════════
 
@@ -42,7 +42,7 @@ module.exports = (app, supabase) => {
 
       return res.json({
         preferences:        data.preferences        || {},
-        preferencias_extra: data.preferencias_extra || null,
+        preferencias_extra: plan.campo_libre ? data.preferencias_extra || null : null,
         plan: {
           nombre:            plan.nombre,
           limites:           plan.limites,
@@ -116,11 +116,19 @@ module.exports = (app, supabase) => {
       // 5) Preparar actualización
       const updateData = { preferences };
 
-      // preferencias_extra: validar y guardar para cualquier plan
+      if (!plan.campo_libre) {
+        updateData.preferencias_extra = null;
+      }
+
       if (extraEnviado) {
         const extra = prepararPreferenciasExtra(rawExtra);
         if (!extra.ok) return res.status(400).json({ error: extra.error });
-        updateData.preferencias_extra = extra.valor;
+        if (extra.valor && !plan.campo_libre) {
+          return res.status(403).json({
+            error: `El plan ${plan.nombre} no permite preferencias extra.`,
+          });
+        }
+        updateData.preferencias_extra = plan.campo_libre ? extra.valor : null;
       }
 
       // 6) Guardar en BD
@@ -138,7 +146,13 @@ module.exports = (app, supabase) => {
         ok: true,
         preferences,
         preferencias_extra: updateData.preferencias_extra ?? null,
-        plan: plan.nombre,
+        plan: {
+          nombre: plan.nombre,
+          limites: plan.limites,
+          campo_libre: plan.campo_libre,
+          acceso_anticipado: plan.acceso_anticipado,
+          fuentes_permitidas: plan.fuentes_permitidas,
+        },
       });
 
     } catch (err) {

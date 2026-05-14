@@ -9,7 +9,7 @@
 //
 // Lógica por plan:
 //   corral      → solo alertas fuente BOE, máx 1 provincia / 1 sector / 2 subsectores
-//   agricultor  → BOE + autonómicos, máx 2 provincias / 2 sectores / 4 subsectores, campo libre
+//   agricultor  → BOE + autonómicos, máx 2 provincias / todos los sectores / 4 subsectores, campo libre
 //   cooperativa → todas las fuentes, sin límites, campo libre, modelo IA más potente
 //   free        → no recibe digest (usa alertasFree.js)
 //
