@@ -42,6 +42,19 @@ module.exports = function usersRoutes(app, supabase) {
     };
   }
 
+  function limpiarCampoNombre(value, max = 80) {
+    const cleaned = String(value || '').trim().replace(/\s+/g, ' ');
+    return cleaned ? cleaned.slice(0, max) : null;
+  }
+
+  function construirNombreLegal({ firstName, lastName1, lastName2, fallbackName }) {
+    const partes = [firstName, lastName1, lastName2]
+      .map((value) => limpiarCampoNombre(value))
+      .filter(Boolean);
+    if (partes.length === 3) return partes.join(' ');
+    return limpiarCampoNombre(fallbackName, 180);
+  }
+
   function summarizeMemory(memories = []) {
     return memories.reduce((acc, memory) => {
       acc[memory.tipo] = (acc[memory.tipo] || 0) + 1;
@@ -172,7 +185,7 @@ module.exports = function usersRoutes(app, supabase) {
 
       const { data, error } = await supabase
         .from('users')
-        .select('phone, email, subscription, phone_verified')
+        .select('phone, name, first_name, last_name_1, last_name_2, legal_name, email, subscription, phone_verified')
         .eq('id', userId)
         .single();
 
@@ -199,6 +212,12 @@ module.exports = function usersRoutes(app, supabase) {
     let {
       phone,
       name,
+      first_name,
+      firstName,
+      last_name_1,
+      lastName1,
+      last_name_2,
+      lastName2,
       email,
       password,
       subscription,
@@ -222,8 +241,22 @@ module.exports = function usersRoutes(app, supabase) {
       return res.status(400).json({ error: 'introduce un numero de teléfono válido' });
     }
 
-    // Normalizar nombre y email
-    if (name) name = String(name).trim();
+    // Normalizar identidad legal y email. Se usa para detectar al usuario en listados oficiales.
+    const firstNameClean = limpiarCampoNombre(first_name ?? firstName);
+    const lastName1Clean = limpiarCampoNombre(last_name_1 ?? lastName1);
+    const lastName2Clean = limpiarCampoNombre(last_name_2 ?? lastName2);
+    const legalName = construirNombreLegal({
+      firstName: firstNameClean,
+      lastName1: lastName1Clean,
+      lastName2: lastName2Clean,
+      fallbackName: name,
+    });
+
+    if (!firstNameClean || !lastName1Clean || !lastName2Clean) {
+      return res.status(400).json({ error: 'Indica nombre, primer apellido y segundo apellido' });
+    }
+
+    name = legalName;
     if (email) {
       email = String(email).trim().toLowerCase();
       if (email === '') email = null;
@@ -312,7 +345,11 @@ module.exports = function usersRoutes(app, supabase) {
         .insert([
           {
             phone: telefonoNormalizado,
-            name: name || null,
+            name: legalName || null,
+            first_name: firstNameClean,
+            last_name_1: lastName1Clean,
+            last_name_2: lastName2Clean,
+            legal_name: legalName,
             email,               // puede ser null o el email normalizado
             preferences,
             preferencias_extra: preferenciasExtraLimpia || null,
@@ -323,7 +360,7 @@ module.exports = function usersRoutes(app, supabase) {
             phone_verification_expires_at: verificacionCaducaEn
           }
         ])
-        .select('id, phone, name, email, subscription, preferences, preferencias_extra, phone_verified');
+        .select('id, phone, name, first_name, last_name_1, last_name_2, legal_name, email, subscription, preferences, preferencias_extra, phone_verified');
 
       if (error) {
         // Por si se escapara algún duplicado
@@ -785,7 +822,16 @@ module.exports = function usersRoutes(app, supabase) {
   app.put('/me', requireAuth, async (req, res) => {
     try {
       const userId = req.user.sub;
-      let { email, phone } = req.body;
+      let {
+        email,
+        phone,
+        first_name,
+        firstName,
+        last_name_1,
+        lastName1,
+        last_name_2,
+        lastName2,
+      } = req.body;
 
       // Objeto con los campos a actualizar
       const updates = {};
@@ -794,7 +840,7 @@ module.exports = function usersRoutes(app, supabase) {
 
       const { data: userActual, error: userActualError } = await supabase
         .from('users')
-        .select('id, phone, email, subscription, phone_verified, phone_verification_expires_at')
+        .select('id, name, first_name, last_name_1, last_name_2, legal_name, phone, email, subscription, phone_verified, phone_verification_expires_at')
         .eq('id', userId)
         .single();
 
@@ -825,6 +871,37 @@ module.exports = function usersRoutes(app, supabase) {
         }
 
         updates.email = emailNormalizado;
+      }
+
+      const hayIdentidadEnBody =
+        first_name !== undefined ||
+        firstName !== undefined ||
+        last_name_1 !== undefined ||
+        lastName1 !== undefined ||
+        last_name_2 !== undefined ||
+        lastName2 !== undefined;
+
+      if (hayIdentidadEnBody) {
+        const firstNameClean = limpiarCampoNombre(first_name ?? firstName ?? userActual.first_name);
+        const lastName1Clean = limpiarCampoNombre(last_name_1 ?? lastName1 ?? userActual.last_name_1);
+        const lastName2Clean = limpiarCampoNombre(last_name_2 ?? lastName2 ?? userActual.last_name_2);
+
+        if (!firstNameClean || !lastName1Clean || !lastName2Clean) {
+          return res.status(400).json({ error: 'Indica nombre, primer apellido y segundo apellido' });
+        }
+
+        const legalName = construirNombreLegal({
+          firstName: firstNameClean,
+          lastName1: lastName1Clean,
+          lastName2: lastName2Clean,
+          fallbackName: userActual.name,
+        });
+
+        updates.first_name = firstNameClean;
+        updates.last_name_1 = lastName1Clean;
+        updates.last_name_2 = lastName2Clean;
+        updates.legal_name = legalName;
+        updates.name = legalName;
       }
       
       if (phone !== undefined) {
@@ -878,7 +955,7 @@ module.exports = function usersRoutes(app, supabase) {
         .from('users')
         .update(updates)
         .eq('id', userId)
-        .select('id, phone, email, subscription, phone_verified')
+        .select('id, name, first_name, last_name_1, last_name_2, legal_name, phone, email, subscription, phone_verified')
         .single();
 
       if (error) {
@@ -918,7 +995,7 @@ module.exports = function usersRoutes(app, supabase) {
 
       const { data: user, error } = await supabase
         .from('users')
-        .select('id, phone, email, subscription, phone_verified, phone_verification_code, phone_verification_expires_at')
+        .select('id, name, first_name, last_name_1, last_name_2, legal_name, phone, email, subscription, phone_verified, phone_verification_code, phone_verification_expires_at')
         .eq('id', userId)
         .single();
 
@@ -933,6 +1010,11 @@ module.exports = function usersRoutes(app, supabase) {
           message: 'Telefono ya verificado',
           user: {
             id: user.id,
+            name: user.name,
+            first_name: user.first_name,
+            last_name_1: user.last_name_1,
+            last_name_2: user.last_name_2,
+            legal_name: user.legal_name,
             phone: user.phone,
             email: user.email,
             subscription: user.subscription,
@@ -957,7 +1039,7 @@ module.exports = function usersRoutes(app, supabase) {
           phone_verification_expires_at: null,
         })
         .eq('id', userId)
-        .select('id, phone, email, subscription, phone_verified')
+        .select('id, name, first_name, last_name_1, last_name_2, legal_name, phone, email, subscription, phone_verified')
         .single();
 
       if (updateError) {
@@ -1055,7 +1137,7 @@ module.exports = function usersRoutes(app, supabase) {
     try {
       const userId = req.user.sub;
       const userColumns =
-        'id, name, phone, email, subscription, preferences, preferencias_extra, created_at, perfil_version, perfil_actualizado_at, contexto_narrativo, ultima_interaccion_at';
+        'id, name, first_name, last_name_1, last_name_2, legal_name, phone, email, subscription, preferences, preferencias_extra, created_at, perfil_version, perfil_actualizado_at, contexto_narrativo, ultima_interaccion_at';
 
       let { data: user, error: userError } = await supabase
         .from('users')
@@ -1066,7 +1148,7 @@ module.exports = function usersRoutes(app, supabase) {
       if (userError && /perfil_|contexto_narrativo|ultima_interaccion_at/i.test(userError.message || '')) {
         const fallback = await supabase
           .from('users')
-          .select('id, name, phone, email, subscription, preferences, preferencias_extra, created_at')
+          .select('id, name, first_name, last_name_1, last_name_2, legal_name, phone, email, subscription, preferences, preferencias_extra, created_at')
           .eq('id', userId)
           .single();
 
@@ -1086,6 +1168,7 @@ module.exports = function usersRoutes(app, supabase) {
         clicks,
         conversations,
         explorations,
+        officialMatches,
       ] = await Promise.all([
         selectUserRows('digests', 'id, fecha, mensaje, alerta_ids, enviado, enviado_at, created_at', userId, { order: 'created_at', limit: 300 }),
         selectUserRows('user_memory', 'id, tipo, contenido, alerta_id, digest_id, peso_inicial, incorporado_a_embedding, created_at', userId, { order: 'created_at', limit: 1000 }),
@@ -1094,6 +1177,7 @@ module.exports = function usersRoutes(app, supabase) {
         selectUserRows('alerta_clicks', 'id, digest_id, alerta_id, url_destino, created_at', userId, { order: 'created_at', limit: 1000 }),
         selectUserRows('user_conversations', 'id, tipo, estado, digest_id, abierta_at, cerrada_at, expira_at', userId, { order: 'abierta_at', limit: 300 }),
         selectUserRows('exploration_log', 'id, digest_id, alerta_id, tipo_exploracion, motivo, resultado, procesado, created_at', userId, { order: 'created_at', limit: 300 }),
+        selectUserRows('official_list_matches', 'id, alerta_id, fuente, contexto, listado_titulo, persona_detectada, linea, url_fuente, enviado, enviado_at, created_at', userId, { order: 'created_at', limit: 300 }),
       ]);
 
       return res.json({
@@ -1106,6 +1190,7 @@ module.exports = function usersRoutes(app, supabase) {
         clicks,
         conversations,
         explorations,
+        official_list_matches: officialMatches,
       });
     } catch (err) {
       console.error('Error en GET /me/export:', err);

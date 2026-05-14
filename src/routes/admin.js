@@ -4,7 +4,7 @@ const { getFechaMadridISO, getRangoDiaMadridUTC } = require('../utils/fechaMadri
 const { actualizarPerfilUsuarioMIA } = require('../brain/miaProfile');
 
 const PLANES_VALIDOS = ['free', 'corral', 'agricultor', 'cooperativa'];
-const USER_SELECT_ADMIN = 'id, name, phone, email, subscription, preferences, preferencias_extra, contexto_narrativo, perfil_version, perfil_actualizado_at, ultima_interaccion_at, created_at';
+const USER_SELECT_ADMIN = 'id, name, first_name, last_name_1, last_name_2, legal_name, phone, email, subscription, preferences, preferencias_extra, contexto_narrativo, perfil_version, perfil_actualizado_at, ultima_interaccion_at, created_at';
 
 function limpiarBusquedaUsuario(value) {
   return String(value || '').trim().replace(/\s+/g, ' ').slice(0, 80);
@@ -14,10 +14,27 @@ function escaparLike(value) {
   return limpiarBusquedaUsuario(value).replace(/[\\%_]/g, '\\$&');
 }
 
+function isMissingTableError(error) {
+  return error && ['42P01', '42703', 'PGRST205'].includes(error.code);
+}
+
+function limpiarCampoNombre(value, max = 80) {
+  const cleaned = String(value || '').trim().replace(/\s+/g, ' ');
+  return cleaned ? cleaned.slice(0, max) : null;
+}
+
+function construirNombreLegal(fields) {
+  const partes = [fields.first_name, fields.last_name_1, fields.last_name_2]
+    .map((value) => limpiarCampoNombre(value))
+    .filter(Boolean);
+  if (partes.length === 3) return partes.join(' ');
+  return limpiarCampoNombre(fields.legal_name || fields.name, 180);
+}
+
 function resumenUsuarioSugerido(user) {
   return {
     id: user.id,
-    name: user.name || '',
+    name: user.legal_name || user.name || '',
     phone: user.phone || '',
     email: user.email || '',
     subscription: user.subscription || '',
@@ -181,7 +198,7 @@ module.exports = (app, supabase) => {
     try {
       const { data: users, error } = await supabase
         .from('users')
-        .select('id, name, email, phone, subscription, created_at, preferences, preferencias_extra')
+        .select('id, name, first_name, last_name_1, last_name_2, legal_name, email, phone, subscription, created_at, preferences, preferencias_extra')
         .order('created_at', { ascending: false });
 
       if (error) {
@@ -192,6 +209,10 @@ module.exports = (app, supabase) => {
       const usersSafe = (users || []).map((u) => ({
         id:                 u.id,
         name:               u.name               || '',
+        first_name:         u.first_name         || '',
+        last_name_1:        u.last_name_1        || '',
+        last_name_2:        u.last_name_2        || '',
+        legal_name:         u.legal_name         || u.name || '',
         email:              u.email              || '',
         phone:              u.phone              || '',
         subscription:       u.subscription       || 'free',
@@ -220,9 +241,9 @@ module.exports = (app, supabase) => {
       const pattern = `%${escaparLike(q)}%`;
       const { data, error } = await supabase
         .from('users')
-        .select('id, name, phone, email, subscription')
-        .ilike('name', pattern)
-        .order('name', { ascending: true, nullsFirst: false })
+        .select('id, name, legal_name, phone, email, subscription')
+        .or(`name.ilike.${pattern},legal_name.ilike.${pattern}`)
+        .order('legal_name', { ascending: true, nullsFirst: false })
         .limit(limit);
 
       if (error) return res.status(500).json({ error: error.message });
@@ -249,6 +270,35 @@ module.exports = (app, supabase) => {
       if (req.body.name !== undefined) {
         const name = String(req.body.name || '').trim();
         updates.name = name || null;
+        updates.legal_name = name || null;
+      }
+
+      if (req.body.first_name !== undefined) {
+        updates.first_name = limpiarCampoNombre(req.body.first_name);
+      }
+
+      if (req.body.last_name_1 !== undefined) {
+        updates.last_name_1 = limpiarCampoNombre(req.body.last_name_1);
+      }
+
+      if (req.body.last_name_2 !== undefined) {
+        updates.last_name_2 = limpiarCampoNombre(req.body.last_name_2);
+      }
+
+      if (
+        req.body.first_name !== undefined ||
+        req.body.last_name_1 !== undefined ||
+        req.body.last_name_2 !== undefined
+      ) {
+        const legalName = construirNombreLegal({
+          first_name: updates.first_name ?? req.body.first_name,
+          last_name_1: updates.last_name_1 ?? req.body.last_name_1,
+          last_name_2: updates.last_name_2 ?? req.body.last_name_2,
+          legal_name: req.body.legal_name,
+          name: req.body.name,
+        });
+        updates.legal_name = legalName;
+        updates.name = legalName;
       }
 
       if (req.body.email !== undefined) {
@@ -289,7 +339,7 @@ module.exports = (app, supabase) => {
         .from('users')
         .update(updates)
         .eq('id', id)
-        .select('id, name, email, phone, subscription, created_at, preferences, preferencias_extra')
+        .select('id, name, first_name, last_name_1, last_name_2, legal_name, email, phone, subscription, created_at, preferences, preferencias_extra')
         .single();
 
       if (error || !data) {
@@ -632,6 +682,85 @@ app.post('/admin/tareas/scrapers-diario', requireAdmin, async (req, res) => {
     }
   });
 
+  app.get('/admin/official-list-matches', requireAdmin, async (req, res) => {
+    try {
+      const limit = Math.max(1, Math.min(500, Number(req.query.limit || 100)));
+      const fuente = limpiarBusquedaUsuario(req.query.fuente || '');
+      const enviadoRaw = req.query.enviado;
+
+      let query = supabase
+        .from('official_list_matches')
+        .select(`
+          id,
+          user_id,
+          alerta_id,
+          fuente,
+          contexto,
+          listado_titulo,
+          persona_detectada,
+          archivo,
+          linea,
+          url_fuente,
+          metadata,
+          enviado,
+          enviado_at,
+          created_at,
+          users(id, name, legal_name, phone, subscription),
+          alertas(id, titulo, url, fecha, fuente)
+        `)
+        .order('created_at', { ascending: false })
+        .limit(limit);
+
+      if (fuente) query = query.eq('fuente', fuente.toUpperCase());
+      if (enviadoRaw === 'true') query = query.eq('enviado', true);
+      if (enviadoRaw === 'false') query = query.eq('enviado', false);
+
+      const { data, error } = await query;
+      if (error && isMissingTableError(error)) {
+        return res.json({
+          ok: true,
+          missing_table: true,
+          message: 'Ejecuta docs/official_list_matches_schema.sql',
+          matches: [],
+        });
+      }
+      if (error) return res.status(500).json({ error: error.message });
+
+      return res.json({ ok: true, matches: data || [] });
+    } catch (err) {
+      console.error('Error en /admin/official-list-matches:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.patch('/admin/official-list-matches/:id', requireAdmin, async (req, res) => {
+    try {
+      const updates = {};
+
+      if (req.body.enviado !== undefined) {
+        updates.enviado = Boolean(req.body.enviado);
+        updates.enviado_at = updates.enviado ? new Date().toISOString() : null;
+      }
+
+      if (Object.keys(updates).length === 0) {
+        return res.status(400).json({ error: 'No hay campos para actualizar' });
+      }
+
+      const { data, error } = await supabase
+        .from('official_list_matches')
+        .update(updates)
+        .eq('id', req.params.id)
+        .select('id, enviado, enviado_at')
+        .single();
+
+      if (error) return res.status(500).json({ error: error.message });
+      return res.json({ ok: true, match: data });
+    } catch (err) {
+      console.error('Error en PATCH /admin/official-list-matches/:id:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
   app.get('/admin/mia/overview', requireAdmin, async (req, res) => {
     try {
       const fechaHoy = getFechaMadridISO();
@@ -715,14 +844,14 @@ app.post('/admin/tareas/scrapers-diario', requireAdmin, async (req, res) => {
         const result = await supabase
           .from('users')
           .select(USER_SELECT_ADMIN)
-          .ilike('name', pattern)
-          .order('name', { ascending: true, nullsFirst: false })
+          .or(`name.ilike.${pattern},legal_name.ilike.${pattern}`)
+          .order('legal_name', { ascending: true, nullsFirst: false })
           .limit(8);
 
         userError = result.error;
         const matches = result.data || [];
         const exactos = matches.filter((u) =>
-          String(u.name || '').trim().toLowerCase() === name.toLowerCase()
+          String(u.legal_name || u.name || '').trim().toLowerCase() === name.toLowerCase()
         );
 
         if (!userError && exactos.length === 1) {

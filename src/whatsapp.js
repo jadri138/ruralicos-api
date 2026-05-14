@@ -505,6 +505,38 @@ async function enviarDigestPro(telefono, mensaje) {
   }).catch((e) => console.error('[digest] Error guardando log:', e.message));
 }
 
+async function enviarWhatsAppDirecto(telefono, mensaje, messageType = 'directo') {
+  if (!ULTRAMSG_INSTANCE_ID || !ULTRAMSG_TOKEN) {
+    throw new Error('Faltan ULTRAMSG_INSTANCE_ID o ULTRAMSG_TOKEN en .env');
+  }
+
+  if (!telefono || !telefono.trim()) {
+    throw new Error('enviarWhatsAppDirecto: telefono vacio');
+  }
+
+  if (!mensaje || !mensaje.trim()) {
+    throw new Error('enviarWhatsAppDirecto: mensaje vacio');
+  }
+
+  try {
+    await enviarMensajeUltraMsg(telefono.trim(), mensaje.trim());
+    await guardarLogWhatsApp({
+      phone: telefono.trim(),
+      status: 'sent',
+      message_type: messageType,
+      error_msg: null,
+    });
+  } catch (err) {
+    await guardarLogWhatsApp({
+      phone: telefono.trim(),
+      status: 'failed',
+      message_type: messageType,
+      error_msg: err.message,
+    });
+    throw err;
+  }
+}
+
 async function enviarWhatsAppAdmin(mensaje) {
   if (!mensaje || !mensaje.trim()) {
     console.warn('[ADMIN ALERT] Mensaje vacio, no se manda aviso');
@@ -579,5 +611,6 @@ module.exports = {
   enviarWhatsAppRegistro,
   enviarWhatsAppVerificacion,
   enviarDigestPro,           // Digest diario personalizado por usuario
+  enviarWhatsAppDirecto,
   enviarWhatsAppAdmin,
 };

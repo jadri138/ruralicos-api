@@ -46,6 +46,8 @@ const bocceRoutes      = require('./routes/bocce');
 const embeddingsRoutes = require('./routes/embeddings');
 const cerebroRoutes    = require('./routes/cerebro');
 const clicksRoutes     = require('./routes/clicks');
+const bothaRoutes      = require('./routes/boletines/provinciales/pais_vasco/botha');
+const fegaRoutes       = require('./routes/boletines/estatales/fega');
 
 
 
@@ -170,6 +172,8 @@ app.post('/admin/send-broadcast', requireAdmin, async (req, res) => {
 --------------------------------------------------- */
 
 clicksRoutes(app, supabase);
+bothaRoutes(app, supabase);
+fegaRoutes(app, supabase);
 usersRoutes(app, supabase);
 alertasRoutes(app, supabase);
 alertasFreeRoutes(app, supabase);
