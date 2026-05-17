@@ -53,7 +53,13 @@ module.exports = (app, supabase) => {
         { expiresIn: '8h' }
       );
 
-      res.json({ token });
+      res.json({
+        token,
+        admin: {
+          id: admin.id,
+          username: admin.username,
+        },
+      });
     } catch (err) {
       console.error('Error en /admin/login:', err);
       res.status(500).json({ error: 'Error interno en login' });
