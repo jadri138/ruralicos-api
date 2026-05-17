@@ -3,7 +3,7 @@ const bcrypt = require('bcryptjs');
 const rateLimit = require('express-rate-limit');
 const { checkCronToken } = require('../utils/checkCronToken');
 const { normalizePhone, isPhoneValid, LONGITUD_TELEFONO } = require('../utils/phoneNormalizer');
-const { enviarWhatsAppVerificacion, enviarWhatsAppRegistro } = require('../whatsapp');
+const { enviarWhatsAppVerificacion, enviarWhatsAppRegistro, enviarWhatsAppResetPassword } = require('../whatsapp');
 const { requireAuth, requireAdmin } = require('../../authMiddleware');
 const { getPlan, validarPreferencias, truncarPreferencias } = require('../config/planes');
 const { extraerPreferenciasBody, prepararPreferenciasExtra } = require('../utils/preferenciasRequest');
@@ -492,7 +492,75 @@ module.exports = function usersRoutes(app, supabase) {
   });
 
   // --------------------------------------------------
-  // RECUPERAR CONTRASEÑA: ENVIAR CÓDIGO POR WHATSAPP
+  // REENVIAR CODIGO DE VERIFICACION DE TELEFONO
+  // POST /verify-phone/request
+  // --------------------------------------------------
+  app.post('/verify-phone/request', accountLimiter, async (req, res) => {
+    let { phone } = req.body;
+
+    if (!phone) {
+      return res.status(400).json({ error: 'Falta el telefono' });
+    }
+
+    const telefonoNormalizado = normalizePhone(phone);
+    if (!isPhoneValid(telefonoNormalizado)) {
+      return res.status(400).json({ error: 'Numero de telefono no valido' });
+    }
+
+    try {
+      const { data: user, error } = await supabase
+        .from('users')
+        .select('id, phone_verified')
+        .eq('phone', telefonoNormalizado)
+        .maybeSingle();
+
+      if (error) {
+        console.error('Error buscando usuario en /verify-phone/request:', error.message);
+        return res.status(500).json({ error: 'Error interno' });
+      }
+
+      if (!user) {
+        return res.json({ success: true });
+      }
+
+      if (user.phone_verified === true) {
+        return res.json({
+          success: true,
+          already_verified: true,
+          message: 'Telefono ya verificado',
+        });
+      }
+
+      const codigoVerificacion = generarCodigoVerificacion();
+      const verificacionCaducaEn = nuevaCaducidadVerificacion();
+
+      const { error: updateError } = await supabase
+        .from('users')
+        .update({
+          phone_verified: false,
+          phone_verification_code: codigoVerificacion,
+          phone_verification_expires_at: verificacionCaducaEn,
+        })
+        .eq('id', user.id);
+
+      if (updateError) {
+        console.error('Error guardando codigo en /verify-phone/request:', updateError.message);
+        return res.status(500).json({ error: 'Error preparando verificacion' });
+      }
+
+      res.json({ success: true });
+
+      enviarWhatsAppVerificacion(telefonoNormalizado, codigoVerificacion).catch((err) => {
+        console.error('Error reenviando WhatsApp de verificacion:', err.message);
+      });
+    } catch (err) {
+      console.error('Error inesperado en /verify-phone/request:', err);
+      return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+  });
+
+  // --------------------------------------------------
+  // RECUPERAR CONTRASENA: ENVIAR CODIGO POR WHATSAPP
   // POST /password-reset
   // --------------------------------------------------
   app.post('/password-reset', accountLimiter, async (req, res) => {
@@ -549,7 +617,7 @@ module.exports = function usersRoutes(app, supabase) {
       res.json({ success: true });
 
       // 4) Enviar WhatsApp (reutilizamos tu función actual)
-      enviarWhatsAppVerificacion(telefonoNormalizado, codigoReset).catch((err) => {
+      enviarWhatsAppResetPassword(telefonoNormalizado, codigoReset).catch((err) => {
         console.error('Error enviando WhatsApp reset:', err.message);
       });
 
@@ -624,6 +692,7 @@ module.exports = function usersRoutes(app, supabase) {
         .from('users')
         .update({
           password_hash: passwordHash,
+          phone_verified: true,
           phone_verification_code: null,
           phone_verification_expires_at: null
         })
@@ -922,7 +991,7 @@ module.exports = function usersRoutes(app, supabase) {
       if (phone !== undefined) {
         const telefonoNormalizado = normalizePhone(phone);
         if (!isPhoneValid(telefonoNormalizado)) {
-          return res.status(400).json({ error: 'NÃºmero de telÃ©fono no vÃ¡lido' });
+          return res.status(400).json({ error: 'Numero de telefono no valido' });
         }
         const telefonoCambia = telefonoNormalizado !== String(userActual.phone || '');
 

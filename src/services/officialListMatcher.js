@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const { enviarWhatsAppDirecto } = require('../whatsapp');
+const { fuentePermitida } = require('../config/planes');
 
 function normalizar(texto) {
   return String(texto || '')
@@ -51,6 +52,7 @@ function prepararUsuarios(users = []) {
         id: user.id,
         phone: user.phone,
         name: nombre,
+        subscription: user.subscription,
         nombreNormalizado,
       };
     })
@@ -204,8 +206,10 @@ async function cotejarListadosOficiales(supabase, opciones = {}) {
   for (const alerta of candidatas) {
     const texto = [alerta.titulo, alerta.resumen, alerta.contenido].join('\n');
     const textoNormalizado = normalizar(texto);
+    const fuenteAlerta = alerta.fuente || 'BOE';
+    const usuariosPermitidos = usuarios.filter((user) => fuentePermitida(user.subscription, fuenteAlerta));
 
-    for (const user of usuarios) {
+    for (const user of usuariosPermitidos) {
       if (!textoNormalizado.includes(user.nombreNormalizado)) continue;
 
       const linea = extraerLineaCoincidencia(texto, user.nombreNormalizado);

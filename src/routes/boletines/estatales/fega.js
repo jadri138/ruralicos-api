@@ -1,6 +1,7 @@
 const { checkCronToken } = require('../../../utils/checkCronToken');
 const crypto = require('crypto');
 const { enviarWhatsAppDirecto } = require('../../../whatsapp');
+const { fuentePermitida } = require('../../../config/planes');
 const {
   BENEFICIARIOS_URL,
   obtenerFicheroBeneficiarios,
@@ -59,7 +60,7 @@ async function usuariosBuscables(supabase) {
     .or('phone_verified.is.null,phone_verified.eq.true');
 
   if (error) throw error;
-  return data || [];
+  return (data || []).filter((user) => fuentePermitida(user.subscription, 'FEGA'));
 }
 
 async function guardarCoincidencia(supabase, { ejercicio, fichero, match, enviar }) {
@@ -147,6 +148,23 @@ module.exports = function fegaRoutes(app, supabase) {
       }
 
       const users = await usuariosBuscables(supabase);
+      if (users.length === 0) {
+        return res.json({
+          success: true,
+          ejercicio: fichero.ejercicio,
+          fichero,
+          alerta,
+          usuarios_revisados: 0,
+          archivos_revisados: [],
+          coincidencias: 0,
+          enviados: 0,
+          ya_enviados: 0,
+          missing_table: false,
+          resultados: [],
+          mensaje: 'Sin usuarios con plan permitido para FEGA.',
+        });
+      }
+
       const textos = await descargarTextosBeneficiarios(fichero.urlDescarga);
       const matches = buscarCoincidenciasEnTextos(textos, users);
 

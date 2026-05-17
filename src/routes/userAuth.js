@@ -32,7 +32,7 @@ module.exports = (app, supabase) => {
 
       const { data: user, error } = await supabase
         .from('users')
-        .select('id, phone, password_hash')
+        .select('id, phone, password_hash, phone_verified')
         .eq('phone', normalizedPhone)
         .maybeSingle();
 
@@ -48,6 +48,14 @@ module.exports = (app, supabase) => {
       const ok = await bcrypt.compare(String(password), user.password_hash);
       if (!ok) {
         return res.status(401).json({ error: 'Credenciales incorrectas' });
+      }
+
+      if (user.phone_verified === false) {
+        return res.status(403).json({
+          error: 'Telefono pendiente de verificacion. Pide un codigo nuevo y confirma tu WhatsApp.',
+          code: 'phone_unverified',
+          phone: user.phone,
+        });
       }
 
       const token = jwt.sign(

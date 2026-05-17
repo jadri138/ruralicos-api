@@ -537,6 +537,46 @@ async function enviarWhatsAppDirecto(telefono, mensaje, messageType = 'directo')
   }
 }
 
+async function enviarWhatsAppResetPassword(telefono, codigo) {
+  if (!ULTRAMSG_INSTANCE_ID || !ULTRAMSG_TOKEN) {
+    throw new Error('Faltan credenciales UltraMsg');
+  }
+
+  if (!telefono || !telefono.trim()) {
+    console.warn('[PASSWORD RESET] Usuario sin telefono, no se manda WhatsApp');
+    return;
+  }
+
+  const mensaje =
+    `Ruralicos - recuperacion de acceso\n\n` +
+    `Tu codigo para cambiar la contrasena es: *${codigo}*.\n` +
+    `Caduca en 15 minutos. Si no lo has pedido tu, puedes ignorar este mensaje.`;
+
+  try {
+    await enviarMensajeUltraMsg(telefono.trim(), mensaje);
+
+    await guardarLogWhatsApp({
+      phone: telefono.trim(),
+      status: 'sent',
+      message_type: 'password_reset',
+      error_msg: null,
+    });
+
+    console.log('[PASSWORD RESET] WhatsApp enviado a', telefono);
+  } catch (err) {
+    console.error('[PASSWORD RESET] Error enviando WhatsApp:', err.message);
+
+    await guardarLogWhatsApp({
+      phone: telefono.trim(),
+      status: 'failed',
+      message_type: 'password_reset',
+      error_msg: err.message,
+    });
+
+    throw err;
+  }
+}
+
 async function enviarWhatsAppAdmin(mensaje) {
   if (!mensaje || !mensaje.trim()) {
     console.warn('[ADMIN ALERT] Mensaje vacio, no se manda aviso');
@@ -610,6 +650,7 @@ module.exports = {
   enviarWhatsAppTodos,
   enviarWhatsAppRegistro,
   enviarWhatsAppVerificacion,
+  enviarWhatsAppResetPassword,
   enviarDigestPro,           // Digest diario personalizado por usuario
   enviarWhatsAppDirecto,
   enviarWhatsAppAdmin,

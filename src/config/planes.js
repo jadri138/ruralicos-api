@@ -12,6 +12,29 @@
 //
 // ══════════════════════════════════════════════════════════════════════
 
+const FUENTES_AUTONOMICAS = [
+  'BOE',
+  'BOA',
+  'BOCAN',
+  'BOCANT',
+  'BOCCE',
+  'BOCM',
+  'BOCYL',
+  'BOIB',
+  'BOJA',
+  'BOME',
+  'BON',
+  'BOPA',
+  'BOPV',
+  'BOR',
+  'BORM',
+  'DOCM',
+  'DOE',
+  'DOG',
+  'DOGC',
+  'DOGV',
+];
+
 const PLANES = {
 
   free: {
@@ -51,8 +74,8 @@ const PLANES = {
       sectores:    null,
       subsectores: 4,
     },
-    // BOE + todos los autonomicos disponibles y futuros
-    fuentes_permitidas: null,
+    // BOE + autonomicos. Provinciales, FEGA y fuentes complementarias quedan fuera.
+    fuentes_permitidas: FUENTES_AUTONOMICAS,
     campo_libre: true,
     acceso_anticipado: false,
   },
