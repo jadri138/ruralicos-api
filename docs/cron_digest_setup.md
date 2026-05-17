@@ -1,89 +1,101 @@
-# Cron setup recomendado (Ruralicos digest)
+# Cron setup recomendado (Ruralicos)
 
-Este documento define un orden estable para pasar de alertas sueltas a digest diario por usuario.
+El camino recomendado es un unico cron diario contra el pipeline completo:
+
+```bash
+curl -fsS "$BASE_URL/tareas/pipeline-diario?token=$CRON_TOKEN"
+```
+
+Ese endpoint ejecuta, en orden:
+
+1. Scrapers BOE y boletines autonomicos.
+2. Scrapers complementarios provinciales configurados.
+3. FEGA, solo si se activa.
+4. Cotejo de listados oficiales.
+5. Reparacion de pendientes IA.
+6. Clasificar, resumir y revisar por lotes hasta vaciar cola.
+7. Deduplicar.
+8. Preparar y enviar digest.
+9. Generar y enviar resumen free.
 
 ## Variables necesarias
 
 - `BASE_URL` (ej. `https://tu-api.onrender.com`)
 - `CRON_TOKEN` (debe coincidir con el del backend)
+- `PUBLIC_BASE_URL` en la API, apuntando al mismo servicio publico
 
-> El backend valida token en query string (`?token=...`).  
-> Referencia: `src/utils/checkCronToken.js`.
+El backend valida token en query string (`?token=...`), header `x-cron-token`
+o Bearer token.
 
-## Pipeline PRO (digest por usuario)
+## Boletines provinciales
 
-Ejemplo de comandos (GET):
+Los provinciales entran en el pipeline diario mediante:
 
-```bash
-curl -fsS "$BASE_URL/alertas/clasificar?token=$CRON_TOKEN"
-curl -fsS "$BASE_URL/alertas/resumir?token=$CRON_TOKEN"
-curl -fsS "$BASE_URL/alertas/revisar?token=$CRON_TOKEN"
-curl -fsS "$BASE_URL/alertas/deduplicar?token=$CRON_TOKEN"
-curl -fsS "$BASE_URL/alertas/preparar-digest?token=$CRON_TOKEN"
-curl -fsS "$BASE_URL/alertas/enviar-digest?token=$CRON_TOKEN"
+```text
+COMPLEMENTARY_SCRAPE_PATHS=/scrape-botha-oficial
 ```
 
-## Pipeline FREE (resumen genérico)
+Para sumar otro boletin provincial, anade su endpoint separado por coma:
 
-```bash
-curl -fsS "$BASE_URL/alertas/generar-resumen-free?token=$CRON_TOKEN"
-curl -fsS "$BASE_URL/alertas/enviar-resumen-free?token=$CRON_TOKEN"
+```text
+COMPLEMENTARY_SCRAPE_PATHS=/scrape-botha-oficial,/scrape-nuevo-bop-oficial
 ```
 
-## Horario recomendado (UTC)
+`PIPELINE_INCLUDE_COMPLEMENTARY` viene activado por defecto. Solo ponlo a
+`false` si quieres sacar los provinciales del pipeline diario.
+
+## FEGA
+
+FEGA es una fuente especial y puede ser pesada, por eso no se activa por defecto
+salvo que lo indiques:
+
+```text
+PIPELINE_INCLUDE_FEGA=true
+FEGA_EJERCICIO=2024
+FEGA_ENVIAR_MATCHES=false
+```
+
+Tambien puedes lanzarlo puntualmente:
+
+```bash
+curl -fsS "$BASE_URL/tareas/pipeline-diario?token=$CRON_TOKEN&fega=true&ejercicio=2024"
+```
+
+Antes de activar envios individuales de coincidencias nominales, aplica:
+
+```text
+docs/user_legal_identity_schema.sql
+docs/official_list_matches_schema.sql
+```
+
+## Horario recomendado
+
+Una vez al dia, despues de que los boletines del dia suelan estar disponibles.
+Ejemplo UTC:
 
 ```cron
-# PRO pipeline
-0 6 * * *   curl -fsS "$BASE_URL/alertas/clasificar?token=$CRON_TOKEN"
-20 6 * * *  curl -fsS "$BASE_URL/alertas/resumir?token=$CRON_TOKEN"
-40 6 * * *  curl -fsS "$BASE_URL/alertas/revisar?token=$CRON_TOKEN"
-20 7 * * *  curl -fsS "$BASE_URL/alertas/deduplicar?token=$CRON_TOKEN"
-30 7 * * *  curl -fsS "$BASE_URL/alertas/preparar-digest?token=$CRON_TOKEN"
-0 8 * * *   curl -fsS "$BASE_URL/alertas/enviar-digest?token=$CRON_TOKEN"
-
-# FREE pipeline
-30 8 * * *  curl -fsS "$BASE_URL/alertas/generar-resumen-free?token=$CRON_TOKEN"
-45 8 * * *  curl -fsS "$BASE_URL/alertas/enviar-resumen-free?token=$CRON_TOKEN"
+0 6 * * * curl -fsS "$BASE_URL/tareas/pipeline-diario?token=$CRON_TOKEN"
 ```
 
-## Opción recomendada en Render: Workflow/Job único
+En hora peninsular, ajusta segun invierno/verano y segun la hora real de
+publicacion de las fuentes que mas te importen.
 
-Si no quieres lanzar muchos crons, usa un solo Workflow Job diario con:
+## Endpoints auxiliares
+
+Estos siguen disponibles para pruebas o relanzar partes concretas:
 
 ```bash
-npm run workflow:digest
+curl -fsS "$BASE_URL/tareas/scrapers-diario?token=$CRON_TOKEN"
+curl -fsS "$BASE_URL/tareas/complementarios-diario?token=$CRON_TOKEN"
+curl -fsS "$BASE_URL/tareas/cotejar-listados-oficiales?token=$CRON_TOKEN&enviar=false"
 ```
 
-Variables del job:
-
-- `BASE_URL=https://tu-api.onrender.com`
-- `CRON_TOKEN=...`
-- opcional `MAX_LOOPS=40`
-- opcional `STEP_DELAY_MS=800`
-
-Este script repite automáticamente `clasificar/resumir/revisar` hasta que devuelven
-`procesadas=0`, y después ejecuta los pasos de digest/free una vez.
-
-## Reintentos recomendados
-
-- Si `clasificar/resumir/revisar` falla, reintentar 1 vez a los 10 minutos.
-- Si `preparar-digest` falla, reintentar 1 vez antes de `enviar-digest`.
-- Si `enviar-digest` falla parcialmente, puedes relanzar la misma ruta:
-  solo enviará registros con `enviado=false`.
-
-## Diagnostico de digest
-
-Para ver por que un usuario recibiria o no recibiria cada alerta lista del dia:
+Para diagnosticar por que un usuario recibiria o no recibiria una alerta:
 
 ```bash
 curl -fsS "$BASE_URL/alertas/diagnosticar-digest?phone=600000000&token=$CRON_TOKEN"
 curl -fsS "$BASE_URL/alertas/diagnosticar-digest?user_id=123&fecha=2026-04-29&token=$CRON_TOKEN"
 ```
 
-No llama a IA ni envia WhatsApp. Devuelve motivos como `fuente_no_permitida`,
-`provincia_no_coincide`, `sector_no_coincide`, `subsector_no_coincide`,
-`tipo_alerta_no_coincide` o `preferencias_extra_excluye`.
-## Nota de migración
-
-- Mantener desactivado el flujo legacy por alerta individual (`/alertas/enviar-whatsapp`)
-  mientras `DIGEST_ONLY_MODE=true`.
+Mantener desactivado el flujo legacy por alerta individual
+(`/alertas/enviar-whatsapp`) mientras `DIGEST_ONLY_MODE=true`.

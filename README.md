@@ -63,26 +63,24 @@ Si en tu diagrama solo aparecen `users` y `alertas`, te falta crear la tabla `di
 
 - `docs/supabase_digest_schema.sql`
 
-### Cron recomendado (pipeline digest)
+### Cron recomendado (pipeline completo)
 
 Todas las rutas de cron validan `?token=CRON_TOKEN`.
 
-Orden diario recomendado (UTC):
+El cron recomendado es un unico golpe diario al pipeline completo:
 
-1. `06:00` → `/alertas/clasificar?token=...`
-2. `06:20` → `/alertas/resumir?token=...`
-3. `06:40` → `/alertas/revisar?token=...`
-4. `07:20` → `/alertas/deduplicar?token=...`
-5. `07:30` → `/alertas/preparar-digest?token=...`
-6. `08:00` → `/alertas/enviar-digest?token=...`
-7. `08:30` → `/alertas/generar-resumen-free?token=...`
-8. `08:45` → `/alertas/enviar-resumen-free?token=...`
+```text
+/tareas/pipeline-diario?token=...
+```
+
+Ese endpoint ejecuta scrapers BOE/autonomicos, fuentes complementarias
+provinciales, FEGA si esta activado, cotejo de listados, IA por lotes,
+deduplicacion, digest y resumen free.
 
 Detalle y comandos listos para copiar:
 
 - `docs/cron_digest_setup.md`
-- Script para Render Workflow (1 job diario): `npm run workflow:digest`
-- Guía rápida de Render (qué clicar exactamente): `docs/render_quick_start.md`
+- Guia rapida de Render: `docs/render_quick_start.md`
 
 ---
 

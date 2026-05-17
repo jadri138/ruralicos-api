@@ -31,6 +31,8 @@ const COMPLEMENTARY_SCRAPE_PATHS_DEFAULT = [
   '/scrape-botha-oficial',
 ];
 
+const FEGA_SCRAPE_PATH = '/scrape-fega-beneficiarios';
+
 const SCRAPER_FUENTES = {
   '/scrape-boe-oficial': 'BOE',
   '/scrape-boa-oficial': 'BOA',
@@ -53,6 +55,7 @@ const SCRAPER_FUENTES = {
   '/scrape-dogv': 'DOGV',
   '/scrape-bome-oficial': 'BOME',
   '/scrape-bocce-oficial': 'BOCCE',
+  [FEGA_SCRAPE_PATH]: 'FEGA',
 };
 
 function getBaseUrl() {
@@ -71,6 +74,38 @@ function getComplementaryScrapePaths() {
     .split(',')
     .map((path) => path.trim())
     .filter(Boolean);
+}
+
+function boolValue(value, fallback = false) {
+  if (value === undefined || value === null || value === '') return fallback;
+  return ['1', 'true', 'yes', 'si', 'on'].includes(String(value).trim().toLowerCase());
+}
+
+function uniquePaths(paths) {
+  return Array.from(new Set(paths.filter(Boolean)));
+}
+
+function getAllowedScraperPaths() {
+  return uniquePaths([
+    ...SCRAPE_PATHS_DEFAULT,
+    ...COMPLEMENTARY_SCRAPE_PATHS_DEFAULT,
+    ...getScrapePaths(),
+    ...getComplementaryScrapePaths(),
+    FEGA_SCRAPE_PATH,
+  ]);
+}
+
+function getPipelineScrapePaths(options = {}) {
+  const {
+    incluirComplementarios = true,
+    incluirFega = false,
+  } = options;
+
+  const paths = [...getScrapePaths()];
+  if (incluirComplementarios) paths.push(...getComplementaryScrapePaths());
+  if (incluirFega) paths.push(FEGA_SCRAPE_PATH);
+
+  return uniquePaths(paths);
 }
 
 function buildScrapeUrl(baseUrl, path, token, fechaISO) {
@@ -222,7 +257,7 @@ module.exports = function tareasRoutes(app, supabase) {
     if (!checkCronToken(req, res)) return;
 
     const path = String(req.query.path || '').trim();
-    const pathsPermitidos = [...SCRAPE_PATHS_DEFAULT, ...COMPLEMENTARY_SCRAPE_PATHS_DEFAULT, '/scrape-fega-beneficiarios'];
+    const pathsPermitidos = getAllowedScraperPaths();
     if (!pathsPermitidos.includes(path)) {
       return res.status(400).json({ error: 'Scraper no permitido', permitidos: pathsPermitidos });
     }
@@ -285,8 +320,8 @@ module.exports = function tareasRoutes(app, supabase) {
     const ejercicioFega = req.query.ejercicio || process.env.FEGA_EJERCICIO || null;
     const paths = getComplementaryScrapePaths();
 
-    if (incluirFega && !paths.includes('/scrape-fega-beneficiarios')) {
-      paths.push('/scrape-fega-beneficiarios');
+    if (incluirFega && !paths.includes(FEGA_SCRAPE_PATH)) {
+      paths.push(FEGA_SCRAPE_PATH);
     }
 
     async function hit(path) {
@@ -389,7 +424,16 @@ module.exports = function tareasRoutes(app, supabase) {
       const stepDelayMs = Number(process.env.PIPELINE_STEP_DELAY_MS || 800);
       const httpRetries = Number(process.env.PIPELINE_HTTP_RETRIES || 3);
       const httpRetryDelayMs = Number(process.env.PIPELINE_HTTP_RETRY_DELAY_MS || 5000);
-      const scrapePaths = getScrapePaths();
+      const incluirComplementarios = boolValue(req.query.complementarios, boolValue(process.env.PIPELINE_INCLUDE_COMPLEMENTARY, true));
+      const incluirFega = boolValue(
+        req.query.fega,
+        boolValue(process.env.PIPELINE_INCLUDE_FEGA, boolValue(process.env.COMPLEMENTARY_INCLUDE_FEGA, false))
+      );
+      const enviarFega = boolValue(req.query.enviar_fega, boolValue(process.env.FEGA_ENVIAR_MATCHES, false));
+      const ejercicioFega = req.query.ejercicio || process.env.FEGA_EJERCICIO || null;
+      const enviarListados = boolValue(req.query.enviar_listados, boolValue(process.env.OFFICIAL_LIST_SEND_MATCHES, false));
+      const limitListados = Number(req.query.limit_listados || process.env.OFFICIAL_LIST_MATCH_LIMIT || 500);
+      const scrapePaths = getPipelineScrapePaths({ incluirComplementarios, incluirFega });
       const fecha = /^\d{4}-\d{2}-\d{2}$/.test(req.query.fecha || '')
         ? req.query.fecha
         : getFechaMadridISO();
@@ -397,7 +441,12 @@ module.exports = function tareasRoutes(app, supabase) {
       const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
       function buildPipelineUrl(path) {
-        if (scrapePaths.includes(path)) return buildScrapeUrl(baseUrl, path, token, fecha);
+        if (scrapePaths.includes(path)) {
+          return buildComplementaryScrapeUrl(baseUrl, path, token, fecha, {
+            ejercicio: ejercicioFega,
+            enviarFega,
+          });
+        }
         const params = new URLSearchParams({ token, fecha });
         return `${baseUrl}${path}${path.includes('?') ? '&' : '?'}${params.toString()}`;
       }
@@ -413,11 +462,12 @@ module.exports = function tareasRoutes(app, supabase) {
             if (!response.ok) {
               const err = new Error(`${path} devolvio ${response.status}: ${JSON.stringify(body)}`);
               err.status = response.status;
+              err.body = body;
               err.retryable = isRetryableStatus(response.status);
               throw err;
             }
 
-            return { path, body };
+            return { path, status: response.status, body };
           } catch (err) {
             const canRetry = attempt <= httpRetries && isRetryableError(err);
             if (!canRetry) throw err;
@@ -477,6 +527,58 @@ module.exports = function tareasRoutes(app, supabase) {
               mensaje: `Fase opcional omitida: ${err.message}`,
             },
           };
+        }
+      }
+
+      async function runScraperStage(path) {
+        const startedAt = new Date();
+        const fuente = obtenerFuenteScraper(path);
+
+        try {
+          const result = await hit(path);
+          const finishedAt = new Date();
+
+          await guardarScraperRun(supabase, {
+            fuente,
+            endpoint: path,
+            fecha_objetivo: fecha,
+            started_at: startedAt.toISOString(),
+            finished_at: finishedAt.toISOString(),
+            duration_ms: finishedAt.getTime() - startedAt.getTime(),
+            status: statusRun(true, result.body),
+            http_status: result.status,
+            nuevas: numeroBody(result.body, ['nuevas']),
+            duplicadas: numeroBody(result.body, ['duplicadas']),
+            errores: numeroBody(result.body, ['errores']),
+            relevantes: numeroBody(result.body, ['relevantes', 'documentos_insertables', 'totales', 'coincidencias']) || null,
+            mensaje: result.body?.mensaje || null,
+            error_msg: null,
+            response_json: result.body,
+          });
+
+          return { path, fuente, ok: true, body: result.body };
+        } catch (err) {
+          const finishedAt = new Date();
+
+          await guardarScraperRun(supabase, {
+            fuente,
+            endpoint: path,
+            fecha_objetivo: fecha,
+            started_at: startedAt.toISOString(),
+            finished_at: finishedAt.toISOString(),
+            duration_ms: finishedAt.getTime() - startedAt.getTime(),
+            status: 'error',
+            http_status: err.status || null,
+            nuevas: 0,
+            duplicadas: 0,
+            errores: 1,
+            relevantes: null,
+            mensaje: null,
+            error_msg: err.message,
+            response_json: err.body || null,
+          });
+
+          throw err;
         }
       }
 
@@ -591,12 +693,13 @@ module.exports = function tareasRoutes(app, supabase) {
 
       const scrapers = [];
       for (const path of scrapePaths) {
-        scrapers.push(await hit(path));
+        scrapers.push(await runScraperStage(path));
       }
 
+      const cotejoPath = `/tareas/cotejar-listados-oficiales?enviar=${enviarListados ? 'true' : 'false'}&limit=${encodeURIComponent(limitListados)}`;
       const cotejoListados = await runOptionalStage(
         'cotejar_listados_oficiales',
-        '/tareas/cotejar-listados-oficiales?enviar=false'
+        cotejoPath
       );
       const repararPendientes = await runSimpleStage('reparar_pendientes_ia', '/alertas/reparar-pendientes-ia', 'POST');
       const clasificar = await runBatchedStep('clasificar', '/alertas/clasificar');
@@ -627,6 +730,10 @@ module.exports = function tareasRoutes(app, supabase) {
       res.json({
         success: true,
         mensaje: 'Pipeline diario ejecutado con fases IA por lotes hasta vaciar cola',
+        fuentes: {
+          complementarios: incluirComplementarios,
+          fega: incluirFega ? { incluido: true, enviar: enviarFega, ejercicio: ejercicioFega } : { incluido: false },
+        },
         scrapers,
         cotejoListados: cotejoListados.body,
         repararPendientes: repararPendientes.body,

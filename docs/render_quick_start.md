@@ -1,43 +1,50 @@
-# Render: configuración rápida (sin Workflows Beta)
+# Render: configuracion rapida
 
-Si estás viendo la pantalla de **Workflows Beta** de Render, puedes saltártela.
+La opcion mas simple es un unico Cron Job que llame al pipeline completo de la
+API.
 
-Para tu caso, la opción más simple y estable es:
+## Cron Job recomendado
 
-1. Subir el repo con `scripts/run_digest_workflow.js`.
-2. Crear **un único Cron Job** en Render (no hace falta TypeScript/Python workflow).
-3. Comando del cron:
+Comando:
 
 ```bash
-npm run workflow:digest
+curl -fsS "$BASE_URL/tareas/pipeline-diario?token=$CRON_TOKEN"
 ```
 
-4. Variables de entorno del cron:
+Variables del cron:
 
 - `BASE_URL=https://TU-SERVICIO.onrender.com`
 - `CRON_TOKEN=tu_token`
-- opcional `MAX_LOOPS=40`
-- opcional `STEP_DELAY_MS=800`
 
-5. Frecuencia recomendada:
+Frecuencia recomendada:
 
-- 1 vez al día (ejemplo UTC): `0 6 * * *`
+- 1 vez al dia. Ejemplo UTC: `0 6 * * *`
 
----
+## Variables en la API
 
-## ¿Y la página de Workflows Beta?
+Minimas:
 
-Úsala solo si quieres programar lógica más compleja (ramas, tareas paralelas, etc.).
-Para el pipeline actual no es necesario: el script `workflow:digest` ya hace bucles,
-reintentos por lotes y orden correcto de pasos.
+- `CRON_TOKEN=tu_token`
+- `PUBLIC_BASE_URL=https://TU-SERVICIO.onrender.com`
 
----
+Para boletines provinciales complementarios:
+
+```text
+COMPLEMENTARY_SCRAPE_PATHS=/scrape-botha-oficial,/scrape-nuevo-bop-oficial
+```
+
+Para FEGA dentro del mismo pipeline:
+
+```text
+PIPELINE_INCLUDE_FEGA=true
+FEGA_EJERCICIO=2024
+FEGA_ENVIAR_MATCHES=false
+```
 
 ## Checklist final
 
-- [ ] `docs/supabase_digest_schema.sql` ejecutado en Supabase
-- [ ] `CRON_TOKEN` configurado en la API
-- [ ] `ULTRAMSG_WEBHOOK_TOKEN` configurado en la API
-- [ ] Webhook de UltraMsg apuntando a `/webhooks/ultramsg/feedback?token=TU_TOKEN`
-- [ ] Cron Job en Render con `npm run workflow:digest`
-- [ ] Variables `BASE_URL` y `CRON_TOKEN` en el Cron Job
+- [ ] `docs/supabase_digest_schema.sql` ejecutado en Supabase.
+- [ ] `CRON_TOKEN` configurado en la API y en el Cron Job.
+- [ ] `PUBLIC_BASE_URL` configurado en la API.
+- [ ] Cron Job en Render con `curl -fsS "$BASE_URL/tareas/pipeline-diario?token=$CRON_TOKEN"`.
+- [ ] Si activas FEGA con envios individuales, ejecutar antes `docs/user_legal_identity_schema.sql` y `docs/official_list_matches_schema.sql`.
