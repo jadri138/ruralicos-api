@@ -15,7 +15,7 @@ const { enviarDigestPro } = require('../whatsapp');
 const { interpretarMensaje } = require('../utils/cerebro');
 const { extraerUltraMsg, esEventoMensajeUltraMsg } = require('../utils/ultramsgParser');
 
-function validarWebhookToken(req, res) {
+function comprobarWebhookToken(req) {
   const esperado = String(process.env.ULTRAMSG_WEBHOOK_TOKEN || '').trim();
   const tokenObligatorio =
     process.env.NODE_ENV === 'production' ||
@@ -24,10 +24,14 @@ function validarWebhookToken(req, res) {
     String(process.env.REQUIRE_ULTRAMSG_WEBHOOK_TOKEN || '').toLowerCase() === 'true';
 
   if (!esperado) {
-    if (!tokenObligatorio) return true;
+    if (!tokenObligatorio) return { ok: true };
     console.error('[webhook] Falta ULTRAMSG_WEBHOOK_TOKEN con validacion obligatoria');
-    res.status(503).json({ error: 'Webhook no configurado' });
-    return false;
+    return {
+      ok: false,
+      status: 503,
+      reason: 'webhook_token_no_configurado',
+      error: 'Webhook no configurado',
+    };
   }
 
   const authHeader = String(req.headers.authorization || '');
@@ -48,12 +52,16 @@ function validarWebhookToken(req, res) {
       esperadoBuffer.length === recibidoBuffer.length &&
       crypto.timingSafeEqual(esperadoBuffer, recibidoBuffer)
     ) {
-      return true;
+      return { ok: true };
     }
   }
 
-  res.status(401).json({ error: 'Webhook token invalido' });
-  return false;
+  return {
+    ok: false,
+    status: 401,
+    reason: 'webhook_token_invalido',
+    error: 'Webhook token invalido',
+  };
 }
 
 function getClickBaseUrl() {
@@ -272,6 +280,41 @@ function esMensajeTrivial(texto) {
   return /^(hola|buen[ao]s(?: dias| tardes| noches)?|ok|vale|gracias|muchas gracias|si|no|perfecto|recibido)[\s.!?]*$/.test(limpio);
 }
 
+function candidatosTelefonoUsuario(telefono) {
+  const normalizado = normalizePhone(telefono);
+  const candidatos = new Set();
+
+  if (normalizado) candidatos.add(normalizado);
+  if (normalizado.length === 11 && normalizado.startsWith('34')) {
+    candidatos.add(normalizado.slice(2));
+  }
+  if (normalizado.length === 9) {
+    candidatos.add(`34${normalizado}`);
+  }
+
+  return [...candidatos].filter(Boolean);
+}
+
+async function buscarUsuarioPorTelefonoEntrante(supabase, telefono, select) {
+  const candidatos = candidatosTelefonoUsuario(telefono);
+  if (candidatos.length === 0) return null;
+
+  const { data, error } = await supabase
+    .from('users')
+    .select(select)
+    .in('phone', candidatos)
+    .limit(candidatos.length);
+
+  if (error) throw error;
+
+  const users = data || [];
+  if (users.length === 0) return null;
+
+  return candidatos
+    .map((candidato) => users.find((user) => String(user.phone || '') === candidato))
+    .find(Boolean) || users[0];
+}
+
 function crearMemoriaMensajeEntrante({ texto, digest, interpretacion }) {
   if (esMensajeTrivial(texto)) return null;
 
@@ -426,13 +469,7 @@ module.exports = function feedbackRoutes(app, supabase) {
     if (!telefono) return { ok: false, error: 'Telefono invalido' };
     if (!rawText) return { ok: true, ignored: true, reason: 'texto_vacio' };
 
-    const { data: user, error: errUser } = await supabase
-      .from('users')
-      .select('id, phone')
-      .eq('phone', telefono)
-      .maybeSingle();
-
-    if (errUser) throw errUser;
+    const user = await buscarUsuarioPorTelefonoEntrante(supabase, telefono, 'id, phone');
     if (!user) return { ok: true, ignored: true, reason: 'usuario_no_encontrado', phone: telefono };
 
     const desde = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
@@ -854,7 +891,16 @@ module.exports = function feedbackRoutes(app, supabase) {
   });
 
   app.all('/webhooks/ultramsg/feedback', async (req, res) => {
-    if (!validarWebhookToken(req, res)) return;
+    const tokenValidacion = comprobarWebhookToken(req);
+    if (!tokenValidacion.ok) {
+      const result = {
+        ok: false,
+        ignored: true,
+        reason: tokenValidacion.reason,
+      };
+      await guardarWebhookEvent(req, result, null);
+      return res.status(tokenValidacion.status).json({ error: tokenValidacion.error });
+    }
 
     try {
       const ultra = extraerUltraMsg(req.body);
@@ -880,13 +926,11 @@ module.exports = function feedbackRoutes(app, supabase) {
         return res.json(result);
       }
 
-      const { data: user, error: errUser } = await supabase
-        .from('users')
-        .select('id, phone, name, subscription, preferences, preferencias_extra, contexto_narrativo')
-        .eq('phone', telefono)
-        .maybeSingle();
-
-      if (errUser) throw errUser;
+      const user = await buscarUsuarioPorTelefonoEntrante(
+        supabase,
+        telefono,
+        'id, phone, name, subscription, preferences, preferencias_extra, contexto_narrativo'
+      );
       if (!user) {
         const result = { ok: true, ignored: true, reason: 'usuario_no_encontrado', phone: telefono };
         await guardarWebhookEvent(req, result, null);
