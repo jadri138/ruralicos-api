@@ -13,6 +13,7 @@ const {
 } = require('../brain');
 const { enviarDigestPro } = require('../whatsapp');
 const { interpretarMensaje } = require('../utils/cerebro');
+const { extraerUltraMsg, esEventoMensajeUltraMsg } = require('../utils/ultramsgParser');
 
 function validarWebhookToken(req, res) {
   const esperado = String(process.env.ULTRAMSG_WEBHOOK_TOKEN || '').trim();
@@ -191,18 +192,6 @@ async function sumarTagPerfil(supabase, userId, tema, delta) {
   return true;
 }
 
-function extraerUltraMsg(body = {}) {
-  const data = body.data || {};
-  const eventType = body.event_type || body.eventType || null;
-  return {
-    data,
-    eventType,
-    fromMe: Boolean(data.fromMe),
-    telefono: String(data.from || '').replace('@c.us', '').replace(/\D/g, ''),
-    texto: String(data.body || '').trim(),
-  };
-}
-
 async function buscarConversacionActiva(supabase, userId) {
   const { data, error } = await supabase
     .from('user_conversations')
@@ -272,6 +261,39 @@ async function cargarDigestYAlertas(supabase, userId, conversacionActiva) {
   };
 }
 
+function esMensajeTrivial(texto) {
+  const limpio = String(texto || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase();
+
+  if (limpio.length < 6) return true;
+  return /^(hola|buen[ao]s(?: dias| tardes| noches)?|ok|vale|gracias|muchas gracias|si|no|perfecto|recibido)[\s.!?]*$/.test(limpio);
+}
+
+function crearMemoriaMensajeEntrante({ texto, digest, interpretacion }) {
+  if (esMensajeTrivial(texto)) return null;
+
+  const intencion = interpretacion?.intencion || 'otro';
+  const debeGuardar =
+    !digest ||
+    interpretacion?.requiere_respuesta ||
+    ['pregunta', 'queja', 'conversacion'].includes(intencion);
+
+  if (!debeGuardar) return null;
+
+  const tipo = intencion === 'pregunta' ? 'pregunta_usuario' : 'mensaje_libre';
+  const contenido = String(texto || '').trim().slice(0, 1200);
+  if (!contenido) return null;
+
+  return {
+    tipo,
+    contenido,
+    peso_inicial: intencion === 'pregunta' ? 0.7 : 0.4,
+  };
+}
+
 async function guardarInterpretacionMIA(supabase, { user, digest, alertaIds, alertasOrdenadas, texto, interpretacion }) {
   const ahora = new Date().toISOString();
   const alertasPorItem = new Map(alertasOrdenadas.map((alerta, index) => [index + 1, alerta]));
@@ -316,6 +338,20 @@ async function guardarInterpretacionMIA(supabase, { user, digest, alertaIds, ale
       digest_id: digest?.id || null,
       peso_inicial: memoria.peso_inicial || 0.5,
     });
+  }
+
+  if (feedbackRows.length === 0 && memoryRows.length === 0) {
+    const memoriaEntrante = crearMemoriaMensajeEntrante({ texto, digest, interpretacion });
+    if (memoriaEntrante) {
+      memoryRows.push({
+        user_id: user.id,
+        tipo: memoriaEntrante.tipo,
+        contenido: memoriaEntrante.contenido,
+        alerta_id: null,
+        digest_id: digest?.id || null,
+        peso_inicial: memoriaEntrante.peso_inicial,
+      });
+    }
   }
 
   if (feedbackRows.length > 0) {
@@ -760,6 +796,7 @@ module.exports = function feedbackRoutes(app, supabase) {
       const [
         { data: digests, error: errDigests },
         { data: feedback, error: errFeedback },
+        { data: memoria, error: errMemoria },
         { data: perfil, error: errPerfil },
         { data: eventos, error: errEventos },
       ] = await Promise.all([
@@ -776,6 +813,12 @@ module.exports = function feedbackRoutes(app, supabase) {
           .order('updated_at', { ascending: false })
           .limit(10),
         supabase
+          .from('user_memory')
+          .select('id, tipo, contenido, alerta_id, digest_id, peso_inicial, incorporado_a_embedding, created_at')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(20),
+        supabase
           .from('user_interest_profile')
           .select('tag, score, positivos, negativos, updated_at')
           .eq('user_id', user.id)
@@ -791,6 +834,7 @@ module.exports = function feedbackRoutes(app, supabase) {
 
       if (errDigests) return res.status(500).json({ error: errDigests.message });
       if (errFeedback) return res.status(500).json({ error: errFeedback.message });
+      if (errMemoria) return res.status(500).json({ error: errMemoria.message });
       if (errPerfil) return res.status(500).json({ error: errPerfil.message });
       if (errEventos) return res.status(500).json({ error: errEventos.message });
 
@@ -799,6 +843,7 @@ module.exports = function feedbackRoutes(app, supabase) {
         user,
         digests: digests || [],
         feedback: feedback || [],
+        memoria: memoria || [],
         perfil: perfil || [],
         webhook_events: eventos || [],
       });
@@ -814,7 +859,7 @@ module.exports = function feedbackRoutes(app, supabase) {
     try {
       const ultra = extraerUltraMsg(req.body);
 
-      if (ultra.eventType && ultra.eventType !== 'message_received') {
+      if (!esEventoMensajeUltraMsg(ultra.eventType)) {
         const result = { ok: true, ignored: true, reason: 'event_type_no_procesable', event_type: ultra.eventType };
         await guardarWebhookEvent(req, result, null);
         return res.json(result);

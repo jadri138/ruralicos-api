@@ -4,6 +4,7 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const crypto = require('crypto');
 const { supabase } = require('./supabaseClient');
 const { enviarWhatsAppTodos } = require('./whatsapp');
 const { getFechaMadridISO } = require('./utils/fechaMadrid');
@@ -86,6 +87,33 @@ function isAllowedOrigin(origin) {
   return /^https:\/\/ruralicos-app(?:-[a-z0-9-]+)?\.vercel\.app$/i.test(origin);
 }
 
+function timingSafeTokenEqual(expected, received) {
+  const expectedText = String(expected || '').trim();
+  const receivedText = String(received || '').trim();
+  if (!expectedText || !receivedText) return false;
+
+  const expectedBuffer = Buffer.from(expectedText);
+  const receivedBuffer = Buffer.from(receivedText);
+  return expectedBuffer.length === receivedBuffer.length &&
+    crypto.timingSafeEqual(expectedBuffer, receivedBuffer);
+}
+
+function hasTrustedUltraMsgWebhookToken(req) {
+  if (req.path !== '/webhooks/ultramsg/feedback') return false;
+
+  const authHeader = String(req.headers.authorization || '');
+  const bearerToken = authHeader.toLowerCase().startsWith('bearer ')
+    ? authHeader.slice(7).trim()
+    : '';
+  const received =
+    req.query?.token ||
+    req.headers['x-ruralicos-webhook-token'] ||
+    req.headers['x-ultramsg-token'] ||
+    bearerToken;
+
+  return timingSafeTokenEqual(process.env.ULTRAMSG_WEBHOOK_TOKEN, received);
+}
+
 app.use(
   cors({
     origin: (origin, callback) => {
@@ -137,6 +165,7 @@ const limiter = rateLimit({
   max: 100,                //bajar para ser más estricto
   skip: (req) => {
     if (req.path === '/health') return true;
+    if (hasTrustedUltraMsgWebhookToken(req)) return true;
     const cronToken = process.env.CRON_TOKEN;
     return Boolean(cronToken && req.query?.token && String(req.query.token) === cronToken);
   },
