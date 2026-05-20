@@ -26,6 +26,9 @@ const { getFechaMadridISO }        = require('../utils/fechaMadrid');
 const { leerPerfilIntereses, ordenarAlertasPorPerfil, clasificarPrioridadAlerta, pesoPrioridad } = require('../brain');
 const { similitudCoseno }          = require('../utils/embeddings');
 
+const PREPARAR_DIGEST_BATCH_SIZE = Number(process.env.PREPARAR_DIGEST_BATCH_SIZE || 5);
+const DIGEST_LOCAL_FALLBACK = (process.env.DIGEST_LOCAL_FALLBACK || 'true').toLowerCase() !== 'false';
+
 // ─────────────────────────────────────────────
 // Helper: normaliza strings para comparar
 // ─────────────────────────────────────────────
@@ -175,6 +178,46 @@ function anadirInstruccionFeedback(mensaje, alertas) {
     .trim();
 
   return `${limpio}\n\n${linea}`;
+}
+
+function limpiarLineaDigest(texto, max = 240) {
+  return String(texto || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, max)
+    .trim();
+}
+
+function generarMensajeDigestFallback({ user, alertas, fecha }) {
+  const nombre = limpiarLineaDigest(user?.name, 80);
+  const saludo = nombre ? `Hola *${nombre}*` : 'Hola';
+  const seleccion = (alertas || []).slice(0, 5);
+
+  const bloques = seleccion.map((alerta, index) => {
+    const prioridad = clasificarPrioridadAlerta(alerta);
+    const titulo = limpiarLineaDigest(alerta.titulo, 150) || 'Alerta oficial';
+    const resumen = limpiarLineaDigest(alerta.resumen_final || alerta.resumen || alerta.contenido, 260) ||
+      'Publicacion oficial detectada. Revisa el enlace oficial antes de actuar.';
+    const url = String(alerta.url || '').trim();
+
+    return [
+      `*${index + 1}. ${prioridad.prioridad.toUpperCase()} - ${titulo}*`,
+      resumen,
+      url,
+    ].filter(Boolean).join('\n');
+  }).join('\n\n');
+
+  return [
+    saludo,
+    '',
+    `*Ruralicos - Alertas del ${fecha}*`,
+    '',
+    `Tienes *${seleccion.length} alerta${seleccion.length !== 1 ? 's' : ''}* relevante${seleccion.length !== 1 ? 's' : ''} hoy:`,
+    '',
+    bloques,
+    '',
+    '_Cualquier duda, visita ruralicos.com_',
+  ].join('\n').slice(0, 1600).trim();
 }
 
 function getClickBaseUrl() {
@@ -449,13 +492,13 @@ async function generarMensajeDigest({ user, alertas, fecha, plan, aprendizaje })
 
   const bloqueAlertas = alertas
     .map((a, i) => {
-      const resumen = (a.resumen_final || a.resumen || '').slice(0, 600);
+      const ficha = (a.resumen_final || a.resumen || '').slice(0, 450);
       const fuente = a.fuente || 'Boletin';
       const prioridad = clasificarPrioridadAlerta(a);
       return [
         `ALERTA ${i + 1} [${fuente}] [PRIORIDAD: ${prioridad.prioridad.toUpperCase()}]:`,
         `Titulo: ${a.titulo}`,
-        `Resumen: ${resumen}`,
+        `Ficha IA: ${ficha}`,
         `Enlace: ${a.url}`,
       ].join('\n');
     })
@@ -523,7 +566,7 @@ REGLAS:
 - Respeta la prioridad indicada en cada alerta. Si es URGENTE, abre con "Urgente". Si es BAJA, usa "Para revisar" y se muy breve.
 - Maximo 1600 caracteres en total. Si hay muchas alertas, reduce las frases de cada una.
 - Lenguaje sencillo y directo. El usuario es profesional del campo, no un abogado.
-- NO inventes datos que no esten en los resumenes.
+- NO inventes datos que no esten en las fichas IA.
 - Si el contexto narrativo encaja con una alerta, puedes mencionarlo en una frase corta. Si no encaja, no lo fuerces.
 - No digas "memoria", "MIA", "perfil vectorial" ni nada tecnico al usuario.
 - No preguntes por feedback dentro del mensaje. El sistema anadira una linea fija de feedback despues.
@@ -635,6 +678,8 @@ module.exports = function digestRoutes(app, supabase) {
         : getFechaMadridISO();
 
       const force = String(req.query.force || req.body?.force || '').toLowerCase() === 'true';
+      const limiteRaw = Number(req.query.limit || req.body?.limit || process.env.PREPARAR_DIGEST_BATCH_SIZE || PREPARAR_DIGEST_BATCH_SIZE);
+      const limiteDigests = Math.max(1, Math.min(50, Number.isFinite(limiteRaw) ? limiteRaw : PREPARAR_DIGEST_BATCH_SIZE));
 
       if (!force) {
         const { count: pendientesIA, error: errPendientes } = await supabase
@@ -726,10 +771,12 @@ module.exports = function digestRoutes(app, supabase) {
       let generados  = 0;
       let sinAlertas = 0;
       let saltados   = 0;
+      let fallbackLocal = 0;
       const errores  = [];
 
       // 4) Procesar usuario a usuario
       for (const user of usuarios) {
+        if (generados >= limiteDigests) break;
 
         // Ya tiene digest hoy → saltar
         if (usuariosConDigest.has(user.id)) {
@@ -766,13 +813,22 @@ module.exports = function digestRoutes(app, supabase) {
         console.log(`[digest] User ${user.id} (${plan.nombre}) → ${alertasUsuario.length} alertas → generando...`);
 
         try {
-          const mensajeRaw = await generarMensajeDigest({
-            user,
-            alertas: alertasOrdenadas,
-            fecha:   hoy,
-            plan,
-            aprendizaje,
-          });
+          let mensajeRaw;
+          try {
+            mensajeRaw = await generarMensajeDigest({
+              user,
+              alertas: alertasOrdenadas,
+              fecha:   hoy,
+              plan,
+              aprendizaje,
+            });
+          } catch (errGenerar) {
+            if (!DIGEST_LOCAL_FALLBACK) throw errGenerar;
+            console.warn(`[digest] Fallback local user ${user.id}:`, errGenerar.message);
+            mensajeRaw = generarMensajeDigestFallback({ user, alertas: alertasOrdenadas, fecha: hoy });
+            fallbackLocal++;
+            errores.push({ userId: user.id, warning: 'digest_local_fallback', error: errGenerar.message });
+          }
 
           if (!mensajeRaw || mensajeRaw.trim() === 'SIN_ALERTAS') {
             sinAlertas++;
@@ -884,9 +940,13 @@ module.exports = function digestRoutes(app, supabase) {
         fecha: hoy,
         alertas_disponibles:  alertas.length,
         usuarios_procesados:  usuarios.length,
+        limite_digests:       limiteDigests,
+        procesadas:           generados,
+        actualizadas:         generados,
         digests_generados:    generados,
         usuarios_sin_alertas: sinAlertas,
         saltados,
+        fallback_local:       fallbackLocal,
         errores,
       });
 

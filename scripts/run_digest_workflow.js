@@ -61,7 +61,8 @@ async function hit(path) {
       if (!res.ok) {
         const err = new Error(`[${res.status}] ${path} -> ${JSON.stringify(body)}`);
         err.status = res.status;
-        err.retryable = isRetryableStatus(res.status);
+        err.retryable = isRetryableStatus(res.status) &&
+          !/429|quota|exceeded your current quota/i.test(JSON.stringify(body || {}));
         throw err;
       }
 
@@ -143,7 +144,7 @@ async function main() {
   const deduplicar = await runSingleStep('deduplicar', '/alertas/deduplicar');
   const miaEmbeddings = await runOptionalStep('mia-embeddings', '/cerebro/embeddings/inicializar?limit=100&maxLoops=10');
   const miaCicloPreDigest = await runOptionalStep('mia-ciclo-pre-digest', '/cerebro/ciclo-diario?explorar=false&limit=100&maxLoops=1');
-  const prepararDigest = await runSingleStep('preparar-digest', '/alertas/preparar-digest');
+  const prepararDigest = await runBatchedStep('preparar-digest', '/alertas/preparar-digest');
   const enviarDigest = await runSingleStep('enviar-digest', '/alertas/enviar-digest');
   const miaCicloPostDigest = await runOptionalStep('mia-ciclo-post-digest', '/cerebro/ciclo-diario?explorar=false&limit=100&maxLoops=1');
 
@@ -157,7 +158,7 @@ async function main() {
     deduplicar: deduplicar?.deduplicadas ?? null,
     miaEmbeddings: miaEmbeddings?.ok ?? null,
     miaCicloPreDigest: miaCicloPreDigest?.ok ?? null,
-    prepararDigest: prepararDigest?.digests_generados ?? null,
+    prepararDigest: prepararDigest?.totalProgress ?? null,
     enviarDigest: enviarDigest?.enviados ?? null,
     miaCicloPostDigest: miaCicloPostDigest?.ok ?? null,
     generarFree: generarFree?.procesadas ?? null,

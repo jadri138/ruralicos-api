@@ -463,7 +463,8 @@ module.exports = function tareasRoutes(app, supabase) {
               const err = new Error(`${path} devolvio ${response.status}: ${JSON.stringify(body)}`);
               err.status = response.status;
               err.body = body;
-              err.retryable = isRetryableStatus(response.status);
+              err.retryable = isRetryableStatus(response.status) &&
+                !/429|quota|exceeded your current quota/i.test(JSON.stringify(body || {}));
               throw err;
             }
 
@@ -717,7 +718,8 @@ module.exports = function tareasRoutes(app, supabase) {
         'mia_ciclo_pre_digest',
         '/cerebro/ciclo-diario?explorar=false&limit=100&maxLoops=1'
       );
-      const prepararDigest = await runSimpleStage('preparar_digest', '/alertas/preparar-digest');
+      const prepararDigest = await runBatchedStep('preparar_digest', '/alertas/preparar-digest');
+      if (await abortIfLimited('preparar_digest', prepararDigest)) return;
       const enviarDigest = await runSimpleStage('enviar_digest', '/alertas/enviar-digest');
       const miaCicloPostDigest = await runOptionalStage(
         'mia_ciclo_post_digest',
@@ -743,7 +745,7 @@ module.exports = function tareasRoutes(app, supabase) {
         deduplicar: deduplicar.body,
         miaEmbeddings: miaEmbeddings.body,
         miaCicloPreDigest: miaCicloPreDigest.body,
-        prepararDigest: prepararDigest.body,
+        prepararDigest,
         enviarDigest: enviarDigest.body,
         miaCicloPostDigest: miaCicloPostDigest.body,
         generarResumenFree: generarResumenFree.body,

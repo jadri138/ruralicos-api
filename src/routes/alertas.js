@@ -263,31 +263,44 @@ function limpiarTextoMensaje(texto, max = 420) {
 }
 
 function construirMensajeFallback(alerta) {
-  const titulo = limpiarTextoMensaje(alerta.titulo, 240) || 'Publicacion oficial detectada';
-  const contexto = limpiarTextoMensaje(alerta.contenido, 360);
-  const region = limpiarTextoMensaje(alerta.region, 120) || 'El boletin no lo especifica';
+  const titulo = limpiarTextoMensaje(alerta.titulo, 220) || 'Publicacion oficial detectada';
+  const contexto = limpiarTextoMensaje(alerta.contenido, 260);
+  const territorio = limpiarTextoMensaje(
+    Array.isArray(alerta.provincias) && alerta.provincias.length
+      ? alerta.provincias.join(', ')
+      : alerta.region,
+    120
+  ) || 'no_detectado';
+  const tipo = limpiarTextoMensaje(
+    Array.isArray(alerta.tipos_alerta) && alerta.tipos_alerta.length
+      ? alerta.tipos_alerta.join(', ')
+      : '',
+    120
+  ) || 'normativa_general';
+  const sectores = limpiarTextoMensaje(
+    Array.isArray(alerta.sectores) && alerta.sectores.length
+      ? alerta.sectores.join(', ')
+      : '',
+    120
+  ) || 'sector_agrario';
   const fecha = limpiarTextoMensaje(alerta.fecha, 20) || 'El boletin no lo especifica';
-  const url = String(alerta.url || '').trim();
 
   return [
-    '*Ruralicos te avisa*',
-    '',
-    '*Que ha pasado?*',
-    contexto || titulo,
-    '',
-    '*A quien afecta?*',
-    region,
-    '',
-    '*Punto clave*',
-    `Fecha de publicacion: ${fecha}. Revisa el documento oficial antes de actuar.`,
-    '',
-    url ? `Enlace al boletin completo: ${url}` : 'Enlace al boletin completo: no disponible',
-  ].join('\n').slice(0, 1200).trim();
+    'FICHA_IA',
+    `TIPO: ${tipo}`,
+    'PRIORIDAD: media',
+    `TERRITORIO: ${territorio}`,
+    `AFECTA_A: ${sectores}`,
+    `HECHO: ${contexto || titulo}`,
+    'PLAZO: no_detectado',
+    `ACCION: revisar documento oficial publicado el ${fecha}`,
+    `CLAVES: ${titulo}`,
+  ].join('\n').slice(0, 900).trim();
 }
 
 function limpiarMensajeFinal(mensaje, alerta = {}) {
   const texto = String(mensaje || '').trim();
-  if (texto) return texto.slice(0, 1200).trim();
+  if (texto) return texto.slice(0, 900).trim();
   return construirMensajeFallback(alerta);
 }
 
@@ -641,14 +654,14 @@ module.exports = function alertasRoutes(app, supabase) {
 
   // ══════════════════════════════════════════════════════════════
   // PASO 2 — /alertas/resumir
-  // IA 2: SOLO redacta el mensaje WhatsApp. No clasifica, no decide.
+  // IA 2: genera una ficha compacta para IA. No clasifica, no decide.
   // Cron recomendado: cada 5-10 minutos durante el horario de ingesta
   // ══════════════════════════════════════════════════════════════
   const resumirHandler = async (req, res) => {
     try {
       const { data: alertas, error } = await supabase
         .from('alertas')
-        .select('id, titulo, url, region, fecha, contenido')
+        .select('id, titulo, url, fuente, region, fecha, contenido, provincias, sectores, subsectores, tipos_alerta')
         .eq('estado_ia', 'pendiente_resumir')
         .order('created_at', { ascending: true })
         .limit(RESUMIR_BATCH_SIZE);
@@ -658,10 +671,9 @@ module.exports = function alertasRoutes(app, supabase) {
         return res.json({ success: true, procesadas: 0, mensaje: 'No hay alertas pendientes de resumir' });
       }
 
-      // Procesamos UNA A UNA — el mensaje WhatsApp tiene asteriscos, emojis y
-      // saltos de línea que rompen el JSON cuando van en lote dentro de un string.
-      // La IA devuelve directamente el texto del mensaje, sin envolver en JSON.
-      const instructions = 'Eres un redactor experto en comunicación agraria. Responde SOLO con el texto del mensaje WhatsApp, sin JSON, sin explicaciones, sin nada más.';
+      // Procesamos UNA A UNA para mantener trazabilidad y guardar la ficha en los
+      // mismos campos de resumen sin cambiar la base de datos.
+      const instructions = 'Eres un analista experto en boletines agrarios. Generas fichas compactas para que otra IA las entienda con pocos tokens. Responde SOLO con la ficha, sin JSON, sin explicaciones.';
 
       let actualizadas = 0;
       let fallbackLocal = 0;
@@ -669,40 +681,44 @@ module.exports = function alertasRoutes(app, supabase) {
 
       for (const a of alertas) {
         try {
-          const texto = a.contenido ? a.contenido.slice(0, 4000) : '';
+          const texto = a.contenido ? a.contenido.slice(0, 2800) : '';
+          const provincias = Array.isArray(a.provincias) ? a.provincias.join(', ') : '';
+          const sectores = Array.isArray(a.sectores) ? a.sectores.join(', ') : '';
+          const subsectores = Array.isArray(a.subsectores) ? a.subsectores.join(', ') : '';
+          const tiposAlerta = Array.isArray(a.tipos_alerta) ? a.tipos_alerta.join(', ') : '';
 
           const prompt = `
-Redacta el mensaje WhatsApp para esta alerta agraria. Usa EXACTAMENTE este formato:
+Convierte esta alerta agraria en una ficha esquematica para otra IA.
+No escribas un mensaje para WhatsApp. No embellezcas. No metas emojis.
 
-*Ruralicos te avisa* 🌾🚜
+Usa EXACTAMENTE este formato y estos campos:
 
-📄 *¿Qué ha pasado?*
-[1–3 frases claras explicando la alerta. Si no hay datos: "El boletín no lo especifica."]
-
-⚠️ *¿A quién afecta?*
-[Colectivos afectados. Si no se especifica: "El boletín no lo especifica."]
-
-📌 *Punto clave*
-[Dato más relevante o plazo. Si no hay plazos: "El boletín no lo especifica."]
-
-[1–2 emojis relevantes al tema]
-
-🔗 Enlace al boletín completo: ${a.url}
+FICHA_IA
+TIPO: [uno de: ayudas_subvenciones | normativa_general | agua_infraestructuras | fiscalidad | medio_ambiente | otro]
+PRIORIDAD: [alta | media | baja]
+TERRITORIO: [provincia/CCAA/estatal/no_detectado]
+AFECTA_A: [colectivo agrario afectado en maximo 12 palabras]
+HECHO: [que ocurre en maximo 24 palabras]
+PLAZO: [fecha/plazo si aparece; si no, no_detectado]
+ACCION: [accion recomendada en maximo 14 palabras]
+CLAVES: [3-8 palabras clave separadas por coma]
 
 Reglas:
-- Máximo 1200 caracteres en total.
-- Lenguaje sencillo para agricultores y ganaderos.
-- NO inventar datos que no estén en el texto.
-- Mantener EXACTAMENTE los asteriscos (*) y la estructura.
+- Maximo 900 caracteres en total.
+- Lenguaje literal, seco y util para filtrado posterior.
+- NO inventar datos que no esten en el texto.
+- Si un dato no aparece, escribe no_detectado.
+- No incluyas URL: el sistema ya la adjunta aparte.
+- Mantener exactamente las etiquetas de campo.
 
 Alerta:
-ID=${a.id} | Fecha=${a.fecha} | Region=${a.region} | Titulo=${a.titulo}
+ID=${a.id} | Fecha=${a.fecha} | Fuente=${a.fuente || 'boletin'} | Region=${a.region} | Provincias=${provincias || 'no_detectado'} | Sectores=${sectores || 'no_detectado'} | Subsectores=${subsectores || 'no_detectado'} | Tipos=${tiposAlerta || 'no_detectado'} | Titulo=${a.titulo}
 Texto=${texto}
 
-Responde ÚNICAMENTE con el mensaje WhatsApp. Sin JSON, sin explicaciones, sin nada más.
+Responde UNICAMENTE con la ficha. Sin JSON, sin explicaciones, sin nada mas.
 `.trim();
 
-          const borrador = await llamarIA(prompt, instructions, 'gpt-5-nano');
+          const borrador = await llamarIA(prompt, instructions, 'gpt-5-nano', { maxOutputTokens: 350 });
 
           if (!borrador || !borrador.trim()) {
             throw new Error('La IA devolvio vacio');
@@ -774,7 +790,7 @@ Responde ÚNICAMENTE con el mensaje WhatsApp. Sin JSON, sin explicaciones, sin n
 
   // ══════════════════════════════════════════════════════════════
   // PASO 3 — /alertas/revisar
-  // IA 3: revisa y aprueba (o corrige) el borrador. Guarda en resumen_final.
+  // IA 3: revisa y aprueba (o corrige) la ficha compacta. Guarda en resumen_final.
   // Cron recomendado: cada 5-10 minutos durante el horario de ingesta
   // ══════════════════════════════════════════════════════════════
   const revisarHandler = async (req, res) => {
@@ -791,9 +807,8 @@ Responde ÚNICAMENTE con el mensaje WhatsApp. Sin JSON, sin explicaciones, sin n
         return res.json({ success: true, procesadas: 0, mensaje: 'No hay borradores pendientes de revisión' });
       }
 
-      // Mismo motivo que en resumir: texto WhatsApp con asteriscos y saltos
-      // de línea rompe el JSON en lote. La IA devuelve el texto directamente.
-      const instructions = 'Eres un revisor experto en comunicación agraria. Responde SOLO con el mensaje WhatsApp corregido, sin JSON, sin explicaciones, sin nada más.';
+      // Revisa formato y seguridad factual de la ficha compacta.
+      const instructions = 'Eres un revisor experto en boletines agrarios. Corriges fichas compactas para IA. Responde SOLO con la ficha final, sin JSON, sin explicaciones.';
 
       let aprobadas = 0;
       let fallbackLocal = 0;
@@ -805,24 +820,27 @@ Responde ÚNICAMENTE con el mensaje WhatsApp. Sin JSON, sin explicaciones, sin n
           const borrador = a.resumen_borrador ?? '';
 
           const prompt = `
-Eres un revisor de calidad para mensajes de alerta agraria.
+Eres un revisor de calidad para fichas IA de alertas agrarias.
 
-Revisa este borrador y devuélvelo corregido si es necesario. Comprueba que:
-1. Tiene exactamente esta estructura:
-   - "*Ruralicos te avisa* 🌾🚜"
-   - "📄 *¿Qué ha pasado?*" con 1–3 frases
-   - "⚠️ *¿A quién afecta?*"
-   - "📌 *Punto clave*"
-   - 1–2 emojis en línea propia
-   - "🔗 Enlace al boletín completo: ${a.url}"
-2. No inventa datos que no estén en el texto original
-3. Es claro para agricultores y ganaderos
-4. Usa "El boletín no lo especifica." donde no haya datos
-5. Mantiene los asteriscos (*) en los títulos de sección
-6. No supera 1200 caracteres
+Revisa este borrador y devuelvelo corregido si es necesario. Debe mantener EXACTAMENTE estos campos:
 
-Si está bien → devuélvelo tal cual.
-Si tiene errores → corrígelo.
+FICHA_IA
+TIPO:
+PRIORIDAD:
+TERRITORIO:
+AFECTA_A:
+HECHO:
+PLAZO:
+ACCION:
+CLAVES:
+
+Reglas:
+- Maximo 900 caracteres.
+- Sin emojis, sin markdown decorativo y sin texto para WhatsApp.
+- No incluyas URL.
+- No inventes datos que no esten en el texto original.
+- Si un dato no aparece, usa no_detectado.
+- Mantiene etiquetas en mayusculas y una linea por campo.
 
 Texto original de la alerta:
 ${textoOriginal}
@@ -830,10 +848,10 @@ ${textoOriginal}
 Borrador a revisar:
 ${borrador}
 
-Responde ÚNICAMENTE con el mensaje WhatsApp final. Sin JSON, sin explicaciones, sin nada más.
+Responde UNICAMENTE con la ficha final. Sin JSON, sin explicaciones, sin nada mas.
 `.trim();
 
-          const resumenFinal = await llamarIA(prompt, instructions, 'gpt-5');
+          const resumenFinal = await llamarIA(prompt, instructions, 'gpt-5-nano', { maxOutputTokens: 350 });
 
           if (!resumenFinal || !resumenFinal.trim()) {
             throw new Error('La IA devolvio vacio');
