@@ -9,6 +9,8 @@ const CLASIFICAR_BATCH_SIZE = Number(process.env.CLASIFICAR_BATCH_SIZE || 8);
 const RESUMIR_BATCH_SIZE = Number(process.env.RESUMIR_BATCH_SIZE || 5);
 const REVISAR_BATCH_SIZE = Number(process.env.REVISAR_BATCH_SIZE || 5);
 const CLASIFICAR_LOCAL_FALLBACK = (process.env.CLASIFICAR_LOCAL_FALLBACK || 'true').toLowerCase() !== 'false';
+const RESUMIR_LOCAL_FALLBACK = (process.env.RESUMIR_LOCAL_FALLBACK || 'true').toLowerCase() !== 'false';
+const REVISAR_LOCAL_FALLBACK = (process.env.REVISAR_LOCAL_FALLBACK || 'true').toLowerCase() !== 'false';
 
 const CLASIFICACION_TEXT_FORMAT = {
   type: 'json_schema',
@@ -249,6 +251,44 @@ function normalizarResultadoClasificacion(item, alertasPorId) {
       'fiscalidad', 'medio_ambiente',
     ]),
   };
+}
+
+function limpiarTextoMensaje(texto, max = 420) {
+  return String(texto || '')
+    .replace(/\s+/g, ' ')
+    .replace(/https?:\/\/\S+/g, '')
+    .trim()
+    .slice(0, max)
+    .trim();
+}
+
+function construirMensajeFallback(alerta) {
+  const titulo = limpiarTextoMensaje(alerta.titulo, 240) || 'Publicacion oficial detectada';
+  const contexto = limpiarTextoMensaje(alerta.contenido, 360);
+  const region = limpiarTextoMensaje(alerta.region, 120) || 'El boletin no lo especifica';
+  const fecha = limpiarTextoMensaje(alerta.fecha, 20) || 'El boletin no lo especifica';
+  const url = String(alerta.url || '').trim();
+
+  return [
+    '*Ruralicos te avisa*',
+    '',
+    '*Que ha pasado?*',
+    contexto || titulo,
+    '',
+    '*A quien afecta?*',
+    region,
+    '',
+    '*Punto clave*',
+    `Fecha de publicacion: ${fecha}. Revisa el documento oficial antes de actuar.`,
+    '',
+    url ? `Enlace al boletin completo: ${url}` : 'Enlace al boletin completo: no disponible',
+  ].join('\n').slice(0, 1200).trim();
+}
+
+function limpiarMensajeFinal(mensaje, alerta = {}) {
+  const texto = String(mensaje || '').trim();
+  if (texto) return texto.slice(0, 1200).trim();
+  return construirMensajeFallback(alerta);
 }
 
 // ─────────────────────────────────────────────
@@ -624,6 +664,8 @@ module.exports = function alertasRoutes(app, supabase) {
       const instructions = 'Eres un redactor experto en comunicación agraria. Responde SOLO con el texto del mensaje WhatsApp, sin JSON, sin explicaciones, sin nada más.';
 
       let actualizadas = 0;
+      let fallbackLocal = 0;
+      const errores = [];
 
       for (const a of alertas) {
         try {
@@ -663,8 +705,7 @@ Responde ÚNICAMENTE con el mensaje WhatsApp. Sin JSON, sin explicaciones, sin n
           const borrador = await llamarIA(prompt, instructions, 'gpt-5-nano');
 
           if (!borrador || !borrador.trim()) {
-            console.error(`[resumir] IA devolvió vacío para alerta ${a.id}`);
-            continue;
+            throw new Error('La IA devolvio vacio');
           }
 
           const { error: updError } = await supabase
@@ -677,11 +718,33 @@ Responde ÚNICAMENTE con el mensaje WhatsApp. Sin JSON, sin explicaciones, sin n
             .eq('estado_ia', 'pendiente_resumir');
 
           if (!updError) actualizadas++;
-          else console.error('Error actualizando alerta', a.id, updError.message);
+          else {
+            console.error('Error actualizando alerta', a.id, updError.message);
+            errores.push({ id: a.id, fase: 'update', error: updError.message });
+          }
 
         } catch (errAlerta) {
           console.error(`[resumir] Error procesando alerta ${a.id}:`, errAlerta.message);
-          // Se queda en pendiente_resumir para el siguiente cron
+          errores.push({ id: a.id, fase: 'ia', error: errAlerta.message });
+          if (!RESUMIR_LOCAL_FALLBACK) continue;
+
+          const fallback = construirMensajeFallback(a);
+          const { error: fallbackError } = await supabase
+            .from('alertas')
+            .update({
+              estado_ia: 'pendiente_revisar',
+              resumen_borrador: fallback,
+            })
+            .eq('id', a.id)
+            .eq('estado_ia', 'pendiente_resumir');
+
+          if (!fallbackError) {
+            actualizadas++;
+            fallbackLocal++;
+          } else {
+            console.error('Error actualizando fallback de alerta', a.id, fallbackError.message);
+            errores.push({ id: a.id, fase: 'fallback_update', error: fallbackError.message });
+          }
         }
       }
 
@@ -689,6 +752,8 @@ Responde ÚNICAMENTE con el mensaje WhatsApp. Sin JSON, sin explicaciones, sin n
         success: true,
         procesadas: alertas.length,
         actualizadas,
+        fallback_local: fallbackLocal,
+        errores: errores.slice(0, 20),
         ids: alertas.map((a) => a.id),
       });
 
@@ -731,6 +796,8 @@ Responde ÚNICAMENTE con el mensaje WhatsApp. Sin JSON, sin explicaciones, sin n
       const instructions = 'Eres un revisor experto en comunicación agraria. Responde SOLO con el mensaje WhatsApp corregido, sin JSON, sin explicaciones, sin nada más.';
 
       let aprobadas = 0;
+      let fallbackLocal = 0;
+      const errores = [];
 
       for (const a of alertas) {
         try {
@@ -769,8 +836,7 @@ Responde ÚNICAMENTE con el mensaje WhatsApp final. Sin JSON, sin explicaciones,
           const resumenFinal = await llamarIA(prompt, instructions, 'gpt-5');
 
           if (!resumenFinal || !resumenFinal.trim()) {
-            console.error(`[revisar] IA devolvió vacío para alerta ${a.id}`);
-            continue;
+            throw new Error('La IA devolvio vacio');
           }
 
           const { error: updError } = await supabase
@@ -784,18 +850,44 @@ Responde ÚNICAMENTE con el mensaje WhatsApp final. Sin JSON, sin explicaciones,
             .eq('estado_ia', 'pendiente_revisar');
 
           if (!updError) aprobadas++;
-          else console.error('Error aprobando alerta', a.id, updError.message);
+          else {
+            console.error('Error aprobando alerta', a.id, updError.message);
+            errores.push({ id: a.id, fase: 'update', error: updError.message });
+          }
 
         } catch (errAlerta) {
           console.error(`[revisar] Error procesando alerta ${a.id}:`, errAlerta.message);
-          // Se queda en pendiente_revisar para el siguiente cron
+          errores.push({ id: a.id, fase: 'ia', error: errAlerta.message });
+          if (!REVISAR_LOCAL_FALLBACK) continue;
+
+          const resumenFallback = limpiarMensajeFinal(a.resumen_borrador, a);
+          const { error: fallbackError } = await supabase
+            .from('alertas')
+            .update({
+              estado_ia: 'listo',
+              resumen_final: resumenFallback,
+              resumen: resumenFallback,
+            })
+            .eq('id', a.id)
+            .eq('estado_ia', 'pendiente_revisar');
+
+          if (!fallbackError) {
+            aprobadas++;
+            fallbackLocal++;
+          } else {
+            console.error('Error aprobando fallback de alerta', a.id, fallbackError.message);
+            errores.push({ id: a.id, fase: 'fallback_update', error: fallbackError.message });
+          }
         }
       }
 
       res.json({
         success: true,
         procesadas: alertas.length,
+        actualizadas: aprobadas,
         aprobadas,
+        fallback_local: fallbackLocal,
+        errores: errores.slice(0, 20),
         ids: alertas.map((a) => a.id),
       });
 
