@@ -8,6 +8,57 @@ const DIGEST_ONLY_MODE = (process.env.DIGEST_ONLY_MODE || 'true').toLowerCase() 
 const CLASIFICAR_BATCH_SIZE = Number(process.env.CLASIFICAR_BATCH_SIZE || 8);
 const RESUMIR_BATCH_SIZE = Number(process.env.RESUMIR_BATCH_SIZE || 5);
 const REVISAR_BATCH_SIZE = Number(process.env.REVISAR_BATCH_SIZE || 5);
+const CLASIFICAR_LOCAL_FALLBACK = (process.env.CLASIFICAR_LOCAL_FALLBACK || 'true').toLowerCase() !== 'false';
+
+const CLASIFICACION_TEXT_FORMAT = {
+  type: 'json_schema',
+  name: 'clasificacion_alertas',
+  strict: true,
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['resultados'],
+    properties: {
+      resultados: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['id', 'es_relevante', 'provincias', 'sectores', 'subsectores', 'tipos_alerta'],
+          properties: {
+            id: { type: 'string' },
+            es_relevante: { type: 'boolean' },
+            provincias: { type: 'array', items: { type: 'string' } },
+            sectores: {
+              type: 'array',
+              items: { type: 'string', enum: ['ganaderia', 'agricultura', 'mixto', 'otros'] },
+            },
+            subsectores: {
+              type: 'array',
+              items: {
+                type: 'string',
+                enum: [
+                  'ovino', 'vacuno', 'caprino', 'porcino', 'avicultura', 'cunicultura',
+                  'equinocultura', 'apicultura', 'trigo', 'cebada', 'cereal', 'maiz',
+                  'arroz', 'hortalizas', 'frutales', 'olivar', 'trufas', 'vinedo',
+                  'almendro', 'citricos', 'frutos_secos', 'leguminosas', 'patata',
+                  'forrajes', 'forestal', 'agua', 'energia', 'medio_ambiente',
+                ],
+              },
+            },
+            tipos_alerta: {
+              type: 'array',
+              items: {
+                type: 'string',
+                enum: ['ayudas_subvenciones', 'normativa_general', 'agua_infraestructuras', 'fiscalidad', 'medio_ambiente'],
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+};
 
 function hasCronToken(req) {
   const authHeader = String(req.get('authorization') || '');
@@ -33,6 +84,171 @@ function leerLimiteAlertas(valor) {
   const limite = Number.parseInt(valor, 10);
   if (!Number.isFinite(limite) || limite < 1) return null;
   return Math.min(limite, 1000);
+}
+
+function normalizarTexto(texto) {
+  return String(texto || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
+
+function contieneAlguno(texto, palabras) {
+  return palabras.some((palabra) => texto.includes(normalizarTexto(palabra)));
+}
+
+function limpiarArrayStrings(valor) {
+  if (!Array.isArray(valor)) return [];
+  return valor
+    .map((item) => String(item || '').trim())
+    .filter(Boolean);
+}
+
+function limpiarArrayEnum(valor, permitidos) {
+  const allowed = new Set(permitidos);
+  return Array.from(new Set(
+    limpiarArrayStrings(valor)
+      .map((item) => normalizarTexto(item).replace(/\s+/g, '_'))
+      .filter((item) => allowed.has(item))
+  ));
+}
+
+function leerBooleano(valor) {
+  if (typeof valor === 'boolean') return valor;
+  if (typeof valor === 'string') {
+    return ['true', '1', 'si', 'sí', 'yes', 'relevante'].includes(valor.trim().toLowerCase());
+  }
+  return Boolean(valor);
+}
+
+function extraerResultadosClasificacion(parsed) {
+  if (Array.isArray(parsed?.resultados)) return parsed.resultados;
+  if (Array.isArray(parsed)) return parsed;
+  return [];
+}
+
+function clasificarLocalmente(alerta) {
+  const texto = normalizarTexto(`${alerta.titulo || ''}\n${alerta.region || ''}\n${alerta.contenido || ''}`);
+
+  const ganaderia = contieneAlguno(texto, [
+    'ganader', 'vacuno', 'bovino', 'ovino', 'caprino', 'porcino', 'avicola',
+    'aves', 'apicultura', 'colmena', 'sanidad animal', 'bienestar animal',
+  ]);
+  const agricultura = contieneAlguno(texto, [
+    'agricultur', 'agrari', 'cultivo', 'explotacion agraria', 'olivar',
+    'vinedo', 'vitivinicol', 'cereal', 'trigo', 'cebada', 'maiz', 'arroz',
+    'hortaliza', 'frutal', 'almendro', 'citric', 'fitosanit', 'sanidad vegetal',
+    'plaga', 'fertiliz', 'cuaderno de campo',
+  ]);
+  const rural = contieneAlguno(texto, [
+    'pac', 'fega', 'sigpac', 'regadio', 'riego', 'regante', 'comunidad de regantes',
+    'agua', 'forestal', 'monte', 'medio ambiente', 'agroalimentari', 'cooperativa agraria',
+  ]);
+  const ayuda = contieneAlguno(texto, ['ayuda', 'subvencion', 'convocatoria', 'bases reguladoras', 'beneficiario']);
+  const fiscalidad = contieneAlguno(texto, ['irpf', 'iva', 'modulos', 'fiscal', 'tributari']);
+  const exclusionAdministrativa = contieneAlguno(texto, [
+    'oposicion', 'proceso selectivo', 'bolsa de empleo', 'universidad', 'beca',
+    'notario', 'registrador', 'urbanismo',
+  ]);
+  const pescaAcuicultura = contieneAlguno(texto, ['pesca', 'acuicultura']);
+  const exclusionFuerte = exclusionAdministrativa || (pescaAcuicultura && !ganaderia && !agricultura && !rural);
+
+  const esRelevante = (ganaderia || agricultura || rural) && !exclusionFuerte;
+  if (!esRelevante) {
+    return {
+      id: String(alerta.id),
+      es_relevante: false,
+      provincias: [],
+      sectores: [],
+      subsectores: [],
+      tipos_alerta: [],
+    };
+  }
+
+  const sectores = [];
+  if (ganaderia && agricultura) sectores.push('mixto');
+  else if (ganaderia) sectores.push('ganaderia');
+  else if (agricultura) sectores.push('agricultura');
+  else sectores.push('otros');
+
+  const subsectores = [];
+  const addSubsector = (value, words) => {
+    if (contieneAlguno(texto, words)) subsectores.push(value);
+  };
+  addSubsector('ovino', ['ovino', 'oveja', 'cordero']);
+  addSubsector('vacuno', ['vacuno', 'bovino', 'vaca']);
+  addSubsector('caprino', ['caprino', 'cabra']);
+  addSubsector('porcino', ['porcino', 'cerdo']);
+  addSubsector('avicultura', ['avicola', 'aves', 'gallina']);
+  addSubsector('apicultura', ['apicultura', 'abeja', 'colmena']);
+  addSubsector('trigo', ['trigo']);
+  addSubsector('cebada', ['cebada']);
+  addSubsector('cereal', ['cereal']);
+  addSubsector('maiz', ['maiz']);
+  addSubsector('arroz', ['arroz']);
+  addSubsector('hortalizas', ['hortaliza']);
+  addSubsector('frutales', ['frutal', 'fruta']);
+  addSubsector('olivar', ['olivar', 'aceituna']);
+  addSubsector('vinedo', ['vinedo', 'vitivinicol', 'uva', 'vino']);
+  addSubsector('almendro', ['almendro']);
+  addSubsector('citricos', ['citrico', 'naranja', 'limon']);
+  addSubsector('frutos_secos', ['frutos secos', 'pistacho', 'avellana']);
+  addSubsector('forestal', ['forestal', 'monte']);
+  addSubsector('agua', ['agua', 'riego', 'regadio', 'regante']);
+  addSubsector('energia', ['energia', 'fotovoltaic', 'biomasa']);
+  addSubsector('medio_ambiente', ['medio ambiente', 'ambiental', 'biodiversidad']);
+
+  const tipos_alerta = [];
+  if (ayuda) tipos_alerta.push('ayudas_subvenciones');
+  if (rural && contieneAlguno(texto, ['agua', 'riego', 'regadio', 'regante'])) tipos_alerta.push('agua_infraestructuras');
+  if (fiscalidad) tipos_alerta.push('fiscalidad');
+  if (contieneAlguno(texto, ['medio ambiente', 'ambiental', 'biodiversidad', 'forestal'])) tipos_alerta.push('medio_ambiente');
+  if (tipos_alerta.length === 0) tipos_alerta.push('normativa_general');
+
+  return {
+    id: String(alerta.id),
+    es_relevante: true,
+    provincias: [],
+    sectores: Array.from(new Set(sectores)),
+    subsectores: Array.from(new Set(subsectores)),
+    tipos_alerta: Array.from(new Set(tipos_alerta)),
+  };
+}
+
+function normalizarResultadoClasificacion(item, alertasPorId) {
+  const id = item?.id === undefined || item?.id === null ? '' : String(item.id);
+  if (!id || !alertasPorId.has(id)) return null;
+  if (item.es_relevante === undefined || item.es_relevante === null) return null;
+
+  const esRelevante = leerBooleano(item.es_relevante);
+  if (!esRelevante) {
+    return {
+      id,
+      es_relevante: false,
+      provincias: [],
+      sectores: [],
+      subsectores: [],
+      tipos_alerta: [],
+    };
+  }
+
+  return {
+    id,
+    es_relevante: true,
+    provincias: limpiarArrayStrings(item.provincias),
+    sectores: limpiarArrayEnum(item.sectores, ['ganaderia', 'agricultura', 'mixto', 'otros']),
+    subsectores: limpiarArrayEnum(item.subsectores, [
+      'ovino', 'vacuno', 'caprino', 'porcino', 'avicultura', 'cunicultura',
+      'equinocultura', 'apicultura', 'trigo', 'cebada', 'cereal', 'maiz',
+      'arroz', 'hortalizas', 'frutales', 'olivar', 'trufas', 'vinedo',
+      'almendro', 'citricos', 'frutos_secos', 'leguminosas', 'patata',
+      'forrajes', 'forestal', 'agua', 'energia', 'medio_ambiente',
+    ]),
+    tipos_alerta: limpiarArrayEnum(item.tipos_alerta, [
+      'ayudas_subvenciones', 'normativa_general', 'agua_infraestructuras',
+      'fiscalidad', 'medio_ambiente',
+    ]),
+  };
 }
 
 // ─────────────────────────────────────────────
@@ -105,28 +321,63 @@ ${lista}
 // Helper: clasificar alertas con reintento individual si falla
 // ─────────────────────────────────────────────
 async function clasificarConReintento(alertas) {
+  const alertasPorId = new Map(alertas.map((a) => [String(a.id), a]));
+  const resultadosPorId = new Map();
+  const errores = [];
+  let fallbackLocal = 0;
   const instructions = 'Eres un clasificador experto del sector agrario español. Responde SOLO con JSON válido, sin explicaciones.';
+
+  let usarFormatoEstructurado = true;
+
+  const llamarClasificador = async (prompt, maxOutputTokens) => {
+    if (!usarFormatoEstructurado) {
+      return llamarIA(prompt, instructions, 'gpt-5-nano');
+    }
+
+    try {
+      return await llamarIA(prompt, instructions, 'gpt-5-nano', {
+        textFormat: CLASIFICACION_TEXT_FORMAT,
+        maxOutputTokens,
+      });
+    } catch (err) {
+      const mensaje = String(err.message || '');
+      const pareceErrorFormato = /json_schema|text\.format|unknown parameter|unsupported|invalid_request/i.test(mensaje);
+      if (!pareceErrorFormato) throw err;
+
+      usarFormatoEstructurado = false;
+      console.warn('[clasificar] Formato JSON estructurado no disponible, reintentando sin text.format:', err.message);
+      return llamarIA(prompt, instructions, 'gpt-5-nano');
+    }
+  };
 
   const formatarAlerta = (a) => {
     const texto = a.contenido ? a.contenido.slice(0, 3000) : '';
     return `ID=${a.id} | Fecha=${a.fecha} | Region=${a.region} | URL=${a.url} | Titulo=${a.titulo} | Texto=${texto}`;
   };
 
+  const anadirResultados = (parsed) => {
+    for (const item of extraerResultadosClasificacion(parsed)) {
+      const normalizado = normalizarResultadoClasificacion(item, alertasPorId);
+      if (normalizado && !resultadosPorId.has(normalizado.id)) {
+        resultadosPorId.set(normalizado.id, normalizado);
+      }
+    }
+  };
+
   // Intento en lote
   const lista = alertas.map(formatarAlerta).join('\n\n');
-  let resultados = [];
 
   try {
-    const contenido = await llamarIA(buildPromptClasificar(lista), instructions, 'gpt-5-nano');
+    const contenido = await llamarClasificador(buildPromptClasificar(lista), 4000);
     const parsed = parsearJSON(contenido);
-    resultados = parsed.resultados || [];
+    anadirResultados(parsed);
   } catch (err) {
+    errores.push({ fase: 'lote', error: err.message });
     console.error('Error en clasificación en lote, pasando a reintentos individuales:', err.message);
   }
 
   // Detectar IDs que faltan en la respuesta
-  const idsRecibidos = new Set(resultados.map((r) => String(r.id)));
-  const alertasFallidas = alertas.filter((a) => !idsRecibidos.has(String(a.id)));
+  const alertasFallidas = alertas.filter((a) => !resultadosPorId.has(String(a.id)));
 
   if (alertasFallidas.length > 0) {
     console.warn(`Faltan ${alertasFallidas.length} IDs en la respuesta del lote. Reintentando uno a uno...`);
@@ -134,23 +385,39 @@ async function clasificarConReintento(alertas) {
     for (const alerta of alertasFallidas) {
       try {
         const listaIndividual = formatarAlerta(alerta);
-        const contenido = await llamarIA(buildPromptClasificar(listaIndividual), instructions, 'gpt-5-nano');
+        const contenido = await llamarClasificador(buildPromptClasificar(listaIndividual), 1200);
         const parsed = parsearJSON(contenido);
-        const res = (parsed.resultados || [])[0];
-        if (res && String(res.id) === String(alerta.id)) {
-          resultados.push(res);
+        const antes = resultadosPorId.size;
+        anadirResultados(parsed);
+        if (resultadosPorId.size > antes && resultadosPorId.has(String(alerta.id))) {
+          continue;
         } else {
           console.warn(`Reintento fallido para ID ${alerta.id}: respuesta no coincide. Se deja pendiente.`);
+          errores.push({ fase: 'individual', id: alerta.id, error: 'respuesta no coincide o sin resultado valido' });
           // No se añade → quedará pendiente para el siguiente cron
         }
       } catch (err) {
         console.error(`Error en reintento individual ID ${alerta.id}:`, err.message);
+        errores.push({ fase: 'individual', id: alerta.id, error: err.message });
         // Se deja pendiente para el siguiente cron
       }
     }
   }
 
-  return resultados;
+  const sinResolver = alertas.filter((a) => !resultadosPorId.has(String(a.id)));
+  if (CLASIFICAR_LOCAL_FALLBACK && sinResolver.length > 0) {
+    console.warn(`[clasificar] Usando fallback local para ${sinResolver.length} alerta(s) sin respuesta valida de IA.`);
+    for (const alerta of sinResolver) {
+      resultadosPorId.set(String(alerta.id), clasificarLocalmente(alerta));
+      fallbackLocal++;
+    }
+  }
+
+  return {
+    resultados: Array.from(resultadosPorId.values()),
+    errores,
+    fallbackLocal,
+  };
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -244,16 +511,23 @@ module.exports = function alertasRoutes(app, supabase) {
         return res.json({ success: true, procesadas: 0, mensaje: 'No hay alertas pendientes de clasificar' });
       }
 
-      const resultados = await clasificarConReintento(alertas);
+      const {
+        resultados,
+        errores: erroresClasificacion,
+        fallbackLocal,
+      } = await clasificarConReintento(alertas);
 
       let clasificadas = 0;
       let descartadas = 0;
+      let actualizadas = 0;
+      const erroresUpdate = [];
+      const idsActualizados = new Set();
 
       for (const item of resultados) {
         if (!item.id) continue;
 
         if (!item.es_relevante) {
-          await supabase
+          const { error: updError } = await supabase
             .from('alertas')
             .update({
               estado_ia: 'descartado',
@@ -264,9 +538,15 @@ module.exports = function alertasRoutes(app, supabase) {
               tipos_alerta: [],
             })
             .eq('id', item.id);
+          if (updError) {
+            erroresUpdate.push({ id: item.id, error: updError.message });
+            continue;
+          }
           descartadas++;
+          actualizadas++;
+          idsActualizados.add(String(item.id));
         } else {
-          await supabase
+          const { error: updError } = await supabase
             .from('alertas')
             .update({
               estado_ia: 'pendiente_resumir',
@@ -276,21 +556,31 @@ module.exports = function alertasRoutes(app, supabase) {
               tipos_alerta: item.tipos_alerta ?? [],
             })
             .eq('id', item.id);
+          if (updError) {
+            erroresUpdate.push({ id: item.id, error: updError.message });
+            continue;
+          }
           clasificadas++;
+          actualizadas++;
+          idsActualizados.add(String(item.id));
         }
       }
 
       // Las alertas que no aparecen en resultados se quedan en 'pendiente_clasificar'
       // y serán reintentadas en el siguiente cron
       const idsNoResueltos = alertas
-        .filter((a) => !resultados.find((r) => String(r.id) === String(a.id)))
+        .filter((a) => !idsActualizados.has(String(a.id)))
         .map((a) => a.id);
 
       res.json({
         success: true,
         procesadas: alertas.length,
+        actualizadas,
         clasificadas,
+        clasificados: clasificadas,
         descartadas,
+        fallback_local: fallbackLocal,
+        errores: [...erroresClasificacion, ...erroresUpdate].slice(0, 20),
         pendientes_reintento: idsNoResueltos,
       });
 

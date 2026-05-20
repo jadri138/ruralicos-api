@@ -90,7 +90,7 @@ async function runBatchedStep(name, path) {
     const progress = Number(
       body?.actualizadas ??
       body?.aprobadas ??
-      ((Number(body?.clasificadas ?? 0) + Number(body?.descartadas ?? 0)) || 0)
+      ((Number(body?.clasificadas ?? body?.clasificados ?? 0) + Number(body?.descartadas ?? 0)) || 0)
     );
     total += procesadas;
     totalProgress += progress;

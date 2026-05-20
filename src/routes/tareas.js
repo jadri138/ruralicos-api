@@ -599,7 +599,7 @@ module.exports = function tareasRoutes(app, supabase) {
             const progress = Number(
               result.body?.actualizadas ??
               result.body?.aprobadas ??
-              ((Number(result.body?.clasificadas ?? 0) + Number(result.body?.descartadas ?? 0)) || 0)
+              ((Number(result.body?.clasificadas ?? result.body?.clasificados ?? 0) + Number(result.body?.descartadas ?? 0)) || 0)
             );
             total += procesadas;
             totalProgress += progress;
