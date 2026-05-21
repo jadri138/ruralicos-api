@@ -11,6 +11,7 @@ const REVISAR_BATCH_SIZE = Number(process.env.REVISAR_BATCH_SIZE || 5);
 const CLASIFICAR_LOCAL_FALLBACK = (process.env.CLASIFICAR_LOCAL_FALLBACK || 'true').toLowerCase() !== 'false';
 const RESUMIR_LOCAL_FALLBACK = (process.env.RESUMIR_LOCAL_FALLBACK || 'true').toLowerCase() !== 'false';
 const REVISAR_LOCAL_FALLBACK = (process.env.REVISAR_LOCAL_FALLBACK || 'true').toLowerCase() !== 'false';
+const REVISAR_IA_RESCUE = (process.env.REVISAR_IA_RESCUE || 'false').toLowerCase() === 'true';
 
 const CLASIFICACION_TEXT_FORMAT = {
   type: 'json_schema',
@@ -55,6 +56,41 @@ const CLASIFICACION_TEXT_FORMAT = {
                 enum: ['ayudas_subvenciones', 'normativa_general', 'agua_infraestructuras', 'fiscalidad', 'medio_ambiente'],
               },
             },
+          },
+        },
+      },
+    },
+  },
+};
+
+const FICHA_IA_TEXT_FORMAT = {
+  type: 'json_schema',
+  name: 'fichas_alertas',
+  strict: true,
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['resultados'],
+    properties: {
+      resultados: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['id', 'tipo', 'prioridad', 'territorio', 'afecta_a', 'hecho', 'plazo', 'accion', 'claves'],
+          properties: {
+            id: { type: 'string' },
+            tipo: {
+              type: 'string',
+              enum: ['ayudas_subvenciones', 'normativa_general', 'agua_infraestructuras', 'fiscalidad', 'medio_ambiente', 'otro'],
+            },
+            prioridad: { type: 'string', enum: ['alta', 'media', 'baja'] },
+            territorio: { type: 'string' },
+            afecta_a: { type: 'string' },
+            hecho: { type: 'string' },
+            plazo: { type: 'string' },
+            accion: { type: 'string' },
+            claves: { type: 'array', items: { type: 'string' } },
           },
         },
       },
@@ -300,8 +336,281 @@ function construirMensajeFallback(alerta) {
 
 function limpiarMensajeFinal(mensaje, alerta = {}) {
   const texto = String(mensaje || '').trim();
-  if (texto) return texto.slice(0, 900).trim();
+  if (texto) return normalizarFichaIA(texto, alerta).texto;
   return construirMensajeFallback(alerta);
+}
+
+const FICHA_CAMPOS_REQUERIDOS = ['tipo', 'prioridad', 'territorio', 'afecta_a', 'hecho', 'plazo', 'accion', 'claves'];
+const FICHA_TIPOS = new Set(['ayudas_subvenciones', 'normativa_general', 'agua_infraestructuras', 'fiscalidad', 'medio_ambiente', 'otro']);
+const FICHA_PRIORIDADES = new Set(['alta', 'media', 'baja']);
+
+function limpiarCampoFicha(texto, max = 160) {
+  return String(texto || '')
+    .replace(/https?:\/\/\S+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, max)
+    .trim();
+}
+
+function limitarPalabras(texto, maxPalabras, maxChars) {
+  const limpio = limpiarCampoFicha(texto, maxChars);
+  const palabras = limpio.split(/\s+/).filter(Boolean);
+  if (palabras.length <= maxPalabras) return limpio;
+  return palabras.slice(0, maxPalabras).join(' ');
+}
+
+function primerArray(valor) {
+  return Array.isArray(valor) && valor.length > 0 ? valor[0] : '';
+}
+
+function normalizarTipoFicha(valor) {
+  const raw = normalizarTexto(valor).replace(/\s+/g, '_');
+  if (FICHA_TIPOS.has(raw)) return raw;
+  if (/ayuda|subvencion|convocatoria|pac|fega|feader|feaga/.test(raw)) return 'ayudas_subvenciones';
+  if (/agua|riego|regadio|infraestructura|concesion/.test(raw)) return 'agua_infraestructuras';
+  if (/irpf|iva|fiscal|tribut/.test(raw)) return 'fiscalidad';
+  if (/ambient|forestal|biodiversidad|monte/.test(raw)) return 'medio_ambiente';
+  if (/norma|orden|decreto|resolucion/.test(raw)) return 'normativa_general';
+  return 'otro';
+}
+
+function normalizarPrioridadFicha(valor) {
+  const raw = normalizarTexto(valor);
+  if (FICHA_PRIORIDADES.has(raw)) return raw;
+  if (/urgente|alta|plazo|finaliza|termina|antes del|alegacion/.test(raw)) return 'alta';
+  if (/baja|informativo|menor|para revisar/.test(raw)) return 'baja';
+  return 'media';
+}
+
+function normalizarClavesFicha(valor, fallback = '') {
+  const items = Array.isArray(valor)
+    ? valor
+    : String(valor || '').split(/[,;|]/g);
+
+  const claves = items
+    .map((item) => limpiarCampoFicha(item, 36))
+    .filter(Boolean)
+    .slice(0, 8);
+
+  if (claves.length > 0) return claves;
+
+  const fallbackClaves = normalizarTexto(fallback)
+    .split(/\s+/)
+    .filter((palabra) => palabra.length >= 4)
+    .slice(0, 6);
+  return fallbackClaves.length > 0 ? fallbackClaves : ['alerta_oficial'];
+}
+
+function construirFichaIA(data = {}, alerta = {}) {
+  const titulo = limpiarCampoFicha(alerta.titulo, 180) || 'Publicacion oficial detectada';
+  const territorioBase = Array.isArray(alerta.provincias) && alerta.provincias.length
+    ? alerta.provincias.join(', ')
+    : alerta.region;
+  const sectoresBase = Array.isArray(alerta.sectores) && alerta.sectores.length
+    ? alerta.sectores.join(', ')
+    : 'sector_agrario';
+
+  const ficha = {
+    tipo: normalizarTipoFicha(data.tipo || primerArray(alerta.tipos_alerta)),
+    prioridad: normalizarPrioridadFicha(data.prioridad || data.hecho || titulo),
+    territorio: limpiarCampoFicha(data.territorio || territorioBase || 'no_detectado', 120) || 'no_detectado',
+    afecta_a: limitarPalabras(data.afecta_a || sectoresBase, 12, 120) || 'sector_agrario',
+    hecho: limitarPalabras(data.hecho || alerta.contenido || titulo, 24, 220) || titulo,
+    plazo: limpiarCampoFicha(data.plazo || 'no_detectado', 80) || 'no_detectado',
+    accion: limitarPalabras(data.accion || 'revisar documento oficial', 14, 140) || 'revisar documento oficial',
+    claves: normalizarClavesFicha(data.claves, titulo),
+  };
+
+  return [
+    'FICHA_IA',
+    `TIPO: ${ficha.tipo}`,
+    `PRIORIDAD: ${ficha.prioridad}`,
+    `TERRITORIO: ${ficha.territorio}`,
+    `AFECTA_A: ${ficha.afecta_a}`,
+    `HECHO: ${ficha.hecho}`,
+    `PLAZO: ${ficha.plazo}`,
+    `ACCION: ${ficha.accion}`,
+    `CLAVES: ${ficha.claves.join(', ')}`,
+  ].join('\n').slice(0, 900).trim();
+}
+
+function parsearFichaIA(texto) {
+  const parsed = {};
+  const lineas = String(texto || '').split(/\r?\n/g);
+
+  for (const linea of lineas) {
+    const match = linea.match(/^([A-Z_]+)\s*:\s*(.*)$/);
+    if (!match) continue;
+    const key = match[1].toLowerCase();
+    parsed[key] = match[2].trim();
+  }
+
+  if (Object.keys(parsed).length === 0) return null;
+  if (parsed.claves) parsed.claves = parsed.claves.split(/[,;|]/g).map((item) => item.trim()).filter(Boolean);
+  return parsed;
+}
+
+function normalizarFichaIA(texto, alerta = {}) {
+  const parsed = typeof texto === 'object' && texto !== null ? texto : parsearFichaIA(texto);
+  const validaOriginal = Boolean(parsed && FICHA_CAMPOS_REQUERIDOS.every((campo) => {
+    const valor = parsed[campo];
+    return Array.isArray(valor) ? valor.length > 0 : Boolean(String(valor || '').trim());
+  }));
+
+  return {
+    texto: construirFichaIA(parsed || {}, alerta),
+    validaOriginal,
+  };
+}
+
+function extraerResultadosFichaIA(parsed) {
+  if (Array.isArray(parsed?.resultados)) return parsed.resultados;
+  if (Array.isArray(parsed)) return parsed;
+  return [];
+}
+
+function normalizarResultadoFichaIA(item, alertasPorId) {
+  const id = item?.id === undefined || item?.id === null ? '' : String(item.id);
+  if (!id || !alertasPorId.has(id)) return null;
+  return {
+    id,
+    ficha: construirFichaIA(item, alertasPorId.get(id)),
+  };
+}
+
+function buildPromptFichasIA(lista) {
+  return `
+Convierte cada alerta agraria en una ficha esquematica para otra IA.
+No escribas mensajes para WhatsApp. No embellezcas. No metas emojis.
+
+Campos por alerta:
+- id: ID real de la alerta
+- tipo: ayudas_subvenciones | normativa_general | agua_infraestructuras | fiscalidad | medio_ambiente | otro
+- prioridad: alta | media | baja
+- territorio: provincia/CCAA/estatal/no_detectado
+- afecta_a: colectivo agrario afectado en maximo 12 palabras
+- hecho: que ocurre en maximo 24 palabras
+- plazo: fecha/plazo si aparece; si no, no_detectado
+- accion: accion recomendada en maximo 14 palabras
+- claves: 3-8 palabras clave
+
+Reglas:
+- Lenguaje literal, seco y util para filtrado posterior.
+- NO inventar datos que no esten en el texto.
+- Si un dato no aparece, usa no_detectado.
+- No incluyas URL dentro de campos narrativos.
+- Debes devolver una ficha por cada ID recibido.
+
+SALIDA: devuelve UNICAMENTE JSON valido con esta forma:
+{
+  "resultados": [
+    {
+      "id": "ID real",
+      "tipo": "ayudas_subvenciones",
+      "prioridad": "media",
+      "territorio": "no_detectado",
+      "afecta_a": "sector agrario",
+      "hecho": "descripcion breve",
+      "plazo": "no_detectado",
+      "accion": "revisar documento oficial",
+      "claves": ["palabra1", "palabra2", "palabra3"]
+    }
+  ]
+}
+
+Alertas:
+${lista}
+`.trim();
+}
+
+async function generarFichasIAEnLote(alertas) {
+  const alertasPorId = new Map(alertas.map((a) => [String(a.id), a]));
+  const resultadosPorId = new Map();
+  const errores = [];
+  let fallbackLocal = 0;
+  let usarFormatoEstructurado = true;
+
+  const instructions = 'Eres un analista experto en boletines agrarios. Devuelve SOLO JSON valido con las fichas compactas solicitadas.';
+
+  const formatarAlerta = (a) => {
+    const texto = a.contenido ? a.contenido.slice(0, 2200) : '';
+    const provincias = Array.isArray(a.provincias) ? a.provincias.join(', ') : '';
+    const sectores = Array.isArray(a.sectores) ? a.sectores.join(', ') : '';
+    const subsectores = Array.isArray(a.subsectores) ? a.subsectores.join(', ') : '';
+    const tiposAlerta = Array.isArray(a.tipos_alerta) ? a.tipos_alerta.join(', ') : '';
+    return [
+      `ID=${a.id}`,
+      `Fecha=${a.fecha}`,
+      `Fuente=${a.fuente || 'boletin'}`,
+      `Region=${a.region || 'no_detectado'}`,
+      `Provincias=${provincias || 'no_detectado'}`,
+      `Sectores=${sectores || 'no_detectado'}`,
+      `Subsectores=${subsectores || 'no_detectado'}`,
+      `Tipos=${tiposAlerta || 'no_detectado'}`,
+      `Titulo=${a.titulo || ''}`,
+      `Texto=${texto}`,
+    ].join(' | ');
+  };
+
+  const llamarGenerador = async (prompt) => {
+    const maxOutputTokens = Math.min(4000, Math.max(700, alertas.length * 260 + 300));
+    if (!usarFormatoEstructurado) {
+      return llamarIA(prompt, instructions, 'gpt-5-nano', { maxOutputTokens });
+    }
+
+    try {
+      return await llamarIA(prompt, instructions, 'gpt-5-nano', {
+        textFormat: FICHA_IA_TEXT_FORMAT,
+        maxOutputTokens,
+      });
+    } catch (err) {
+      const mensaje = String(err.message || '');
+      const pareceErrorFormato = /json_schema|text\.format|unknown parameter|unsupported|invalid_request/i.test(mensaje);
+      if (!pareceErrorFormato) throw err;
+
+      usarFormatoEstructurado = false;
+      console.warn('[resumir] Formato JSON estructurado no disponible, reintentando sin text.format:', err.message);
+      return llamarIA(prompt, instructions, 'gpt-5-nano', { maxOutputTokens });
+    }
+  };
+
+  try {
+    const lista = alertas.map(formatarAlerta).join('\n\n---\n\n');
+    const contenido = await llamarGenerador(buildPromptFichasIA(lista));
+    const parsed = parsearJSON(contenido);
+
+    for (const item of extraerResultadosFichaIA(parsed)) {
+      const normalizado = normalizarResultadoFichaIA(item, alertasPorId);
+      if (normalizado && !resultadosPorId.has(normalizado.id)) {
+        resultadosPorId.set(normalizado.id, normalizado);
+      }
+    }
+  } catch (err) {
+    errores.push({ fase: 'lote', error: err.message });
+    console.error('[resumir] Error generando fichas en lote:', err.message);
+  }
+
+  const sinResolver = alertas.filter((a) => !resultadosPorId.has(String(a.id)));
+  if (sinResolver.length > 0) {
+    errores.push({ fase: 'lote', error: `faltan ${sinResolver.length} fichas` });
+  }
+
+  if (RESUMIR_LOCAL_FALLBACK) {
+    for (const alerta of sinResolver) {
+      resultadosPorId.set(String(alerta.id), {
+        id: String(alerta.id),
+        ficha: construirMensajeFallback(alerta),
+      });
+      fallbackLocal++;
+    }
+  }
+
+  return {
+    resultados: Array.from(resultadosPorId.values()),
+    errores,
+    fallbackLocal,
+  };
 }
 
 // ─────────────────────────────────────────────
@@ -671,105 +980,46 @@ module.exports = function alertasRoutes(app, supabase) {
         return res.json({ success: true, procesadas: 0, mensaje: 'No hay alertas pendientes de resumir' });
       }
 
-      // Procesamos UNA A UNA para mantener trazabilidad y guardar la ficha en los
-      // mismos campos de resumen sin cambiar la base de datos.
-      const instructions = 'Eres un analista experto en boletines agrarios. Generas fichas compactas para que otra IA las entienda con pocos tokens. Responde SOLO con la ficha, sin JSON, sin explicaciones.';
+      const {
+        resultados,
+        errores: erroresFichas,
+        fallbackLocal,
+      } = await generarFichasIAEnLote(alertas);
 
       let actualizadas = 0;
-      let fallbackLocal = 0;
-      const errores = [];
+      const erroresUpdate = [];
+      const idsActualizados = new Set();
 
-      for (const a of alertas) {
-        try {
-          const texto = a.contenido ? a.contenido.slice(0, 2800) : '';
-          const provincias = Array.isArray(a.provincias) ? a.provincias.join(', ') : '';
-          const sectores = Array.isArray(a.sectores) ? a.sectores.join(', ') : '';
-          const subsectores = Array.isArray(a.subsectores) ? a.subsectores.join(', ') : '';
-          const tiposAlerta = Array.isArray(a.tipos_alerta) ? a.tipos_alerta.join(', ') : '';
+      for (const item of resultados) {
+        const { error: updError } = await supabase
+          .from('alertas')
+          .update({
+            estado_ia: 'pendiente_revisar',
+            resumen_borrador: item.ficha,
+          })
+          .eq('id', item.id)
+          .eq('estado_ia', 'pendiente_resumir');
 
-          const prompt = `
-Convierte esta alerta agraria en una ficha esquematica para otra IA.
-No escribas un mensaje para WhatsApp. No embellezcas. No metas emojis.
-
-Usa EXACTAMENTE este formato y estos campos:
-
-FICHA_IA
-TIPO: [uno de: ayudas_subvenciones | normativa_general | agua_infraestructuras | fiscalidad | medio_ambiente | otro]
-PRIORIDAD: [alta | media | baja]
-TERRITORIO: [provincia/CCAA/estatal/no_detectado]
-AFECTA_A: [colectivo agrario afectado en maximo 12 palabras]
-HECHO: [que ocurre en maximo 24 palabras]
-PLAZO: [fecha/plazo si aparece; si no, no_detectado]
-ACCION: [accion recomendada en maximo 14 palabras]
-CLAVES: [3-8 palabras clave separadas por coma]
-
-Reglas:
-- Maximo 900 caracteres en total.
-- Lenguaje literal, seco y util para filtrado posterior.
-- NO inventar datos que no esten en el texto.
-- Si un dato no aparece, escribe no_detectado.
-- No incluyas URL: el sistema ya la adjunta aparte.
-- Mantener exactamente las etiquetas de campo.
-
-Alerta:
-ID=${a.id} | Fecha=${a.fecha} | Fuente=${a.fuente || 'boletin'} | Region=${a.region} | Provincias=${provincias || 'no_detectado'} | Sectores=${sectores || 'no_detectado'} | Subsectores=${subsectores || 'no_detectado'} | Tipos=${tiposAlerta || 'no_detectado'} | Titulo=${a.titulo}
-Texto=${texto}
-
-Responde UNICAMENTE con la ficha. Sin JSON, sin explicaciones, sin nada mas.
-`.trim();
-
-          const borrador = await llamarIA(prompt, instructions, 'gpt-5-nano', { maxOutputTokens: 350 });
-
-          if (!borrador || !borrador.trim()) {
-            throw new Error('La IA devolvio vacio');
-          }
-
-          const { error: updError } = await supabase
-            .from('alertas')
-            .update({
-              estado_ia: 'pendiente_revisar',
-              resumen_borrador: borrador.trim(),
-            })
-            .eq('id', a.id)
-            .eq('estado_ia', 'pendiente_resumir');
-
-          if (!updError) actualizadas++;
-          else {
-            console.error('Error actualizando alerta', a.id, updError.message);
-            errores.push({ id: a.id, fase: 'update', error: updError.message });
-          }
-
-        } catch (errAlerta) {
-          console.error(`[resumir] Error procesando alerta ${a.id}:`, errAlerta.message);
-          errores.push({ id: a.id, fase: 'ia', error: errAlerta.message });
-          if (!RESUMIR_LOCAL_FALLBACK) continue;
-
-          const fallback = construirMensajeFallback(a);
-          const { error: fallbackError } = await supabase
-            .from('alertas')
-            .update({
-              estado_ia: 'pendiente_revisar',
-              resumen_borrador: fallback,
-            })
-            .eq('id', a.id)
-            .eq('estado_ia', 'pendiente_resumir');
-
-          if (!fallbackError) {
-            actualizadas++;
-            fallbackLocal++;
-          } else {
-            console.error('Error actualizando fallback de alerta', a.id, fallbackError.message);
-            errores.push({ id: a.id, fase: 'fallback_update', error: fallbackError.message });
-          }
+        if (!updError) {
+          actualizadas++;
+          idsActualizados.add(String(item.id));
+        } else {
+          console.error('Error actualizando alerta', item.id, updError.message);
+          erroresUpdate.push({ id: item.id, fase: 'update', error: updError.message });
         }
       }
+
+      const idsNoResueltos = alertas
+        .filter((a) => !idsActualizados.has(String(a.id)))
+        .map((a) => a.id);
 
       res.json({
         success: true,
         procesadas: alertas.length,
         actualizadas,
         fallback_local: fallbackLocal,
-        errores: errores.slice(0, 20),
+        errores: [...erroresFichas, ...erroresUpdate].slice(0, 20),
+        pendientes_reintento: idsNoResueltos,
         ids: alertas.map((a) => a.id),
       });
 
@@ -790,14 +1040,14 @@ Responde UNICAMENTE con la ficha. Sin JSON, sin explicaciones, sin nada mas.
 
   // ══════════════════════════════════════════════════════════════
   // PASO 3 — /alertas/revisar
-  // IA 3: revisa y aprueba (o corrige) la ficha compacta. Guarda en resumen_final.
+  // Valida la ficha compacta localmente. IA solo como rescate si se activa.
   // Cron recomendado: cada 5-10 minutos durante el horario de ingesta
   // ══════════════════════════════════════════════════════════════
   const revisarHandler = async (req, res) => {
     try {
       const { data: alertas, error } = await supabase
         .from('alertas')
-        .select('id, titulo, url, contenido, resumen_borrador')
+        .select('id, titulo, url, region, fecha, contenido, resumen_borrador, provincias, sectores, subsectores, tipos_alerta')
         .eq('estado_ia', 'pendiente_revisar')
         .order('created_at', { ascending: true })
         .limit(REVISAR_BATCH_SIZE);
@@ -807,7 +1057,7 @@ Responde UNICAMENTE con la ficha. Sin JSON, sin explicaciones, sin nada mas.
         return res.json({ success: true, procesadas: 0, mensaje: 'No hay borradores pendientes de revisión' });
       }
 
-      // Revisa formato y seguridad factual de la ficha compacta.
+      // Revisa formato localmente; la IA queda solo como rescate opcional.
       const instructions = 'Eres un revisor experto en boletines agrarios. Corriges fichas compactas para IA. Responde SOLO con la ficha final, sin JSON, sin explicaciones.';
 
       let aprobadas = 0;
@@ -816,10 +1066,13 @@ Responde UNICAMENTE con la ficha. Sin JSON, sin explicaciones, sin nada mas.
 
       for (const a of alertas) {
         try {
-          const textoOriginal = a.contenido ? a.contenido.slice(0, 2000) : '';
           const borrador = a.resumen_borrador ?? '';
+          let revision = normalizarFichaIA(borrador, a);
+          let resumenFinal = revision.texto;
 
-          const prompt = `
+          if (!revision.validaOriginal && REVISAR_IA_RESCUE) {
+            const textoOriginal = a.contenido ? a.contenido.slice(0, 1800) : '';
+            const prompt = `
 Eres un revisor de calidad para fichas IA de alertas agrarias.
 
 Revisa este borrador y devuelvelo corregido si es necesario. Debe mantener EXACTAMENTE estos campos:
@@ -851,18 +1104,24 @@ ${borrador}
 Responde UNICAMENTE con la ficha final. Sin JSON, sin explicaciones, sin nada mas.
 `.trim();
 
-          const resumenFinal = await llamarIA(prompt, instructions, 'gpt-5-nano', { maxOutputTokens: 350 });
+            const respuestaIA = await llamarIA(prompt, instructions, 'gpt-5-nano', { maxOutputTokens: 350 });
+            revision = normalizarFichaIA(respuestaIA, a);
+            resumenFinal = revision.texto;
+          }
 
-          if (!resumenFinal || !resumenFinal.trim()) {
-            throw new Error('La IA devolvio vacio');
+          if (!revision.validaOriginal) {
+            if (!REVISAR_LOCAL_FALLBACK) {
+              throw new Error('Ficha incompleta y fallback local desactivado');
+            }
+            fallbackLocal++;
           }
 
           const { error: updError } = await supabase
             .from('alertas')
             .update({
               estado_ia: 'listo',
-              resumen_final: resumenFinal.trim(),
-              resumen: resumenFinal.trim(), // sync para compatibilidad con whatsapp.js
+              resumen_final: resumenFinal,
+              resumen: resumenFinal, // sync para compatibilidad con whatsapp.js
             })
             .eq('id', a.id)
             .eq('estado_ia', 'pendiente_revisar');
