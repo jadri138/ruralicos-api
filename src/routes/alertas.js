@@ -77,7 +77,7 @@ const FICHA_IA_TEXT_FORMAT = {
         items: {
           type: 'object',
           additionalProperties: false,
-          required: ['id', 'tipo', 'prioridad', 'territorio', 'afecta_a', 'hecho', 'plazo', 'accion', 'claves'],
+          required: ['id', 'tipo', 'prioridad', 'territorio', 'afecta_a', 'hecho', 'objeto', 'impacto', 'plazo', 'accion', 'detalle', 'claves'],
           properties: {
             id: { type: 'string' },
             tipo: {
@@ -88,8 +88,11 @@ const FICHA_IA_TEXT_FORMAT = {
             territorio: { type: 'string' },
             afecta_a: { type: 'string' },
             hecho: { type: 'string' },
+            objeto: { type: 'string' },
+            impacto: { type: 'string' },
             plazo: { type: 'string' },
             accion: { type: 'string' },
+            detalle: { type: 'string' },
             claves: { type: 'array', items: { type: 'string' } },
           },
         },
@@ -328,10 +331,13 @@ function construirMensajeFallback(alerta) {
     `TERRITORIO: ${territorio}`,
     `AFECTA_A: ${sectores}`,
     `HECHO: ${contexto || titulo}`,
+    `OBJETO: ${titulo}`,
+    'IMPACTO: no_detectado',
     'PLAZO: no_detectado',
     `ACCION: revisar documento oficial publicado el ${fecha}`,
+    'DETALLE: revisar si aplica a la explotacion o actividad del usuario',
     `CLAVES: ${titulo}`,
-  ].join('\n').slice(0, 900).trim();
+  ].join('\n').slice(0, 1400).trim();
 }
 
 function limpiarMensajeFinal(mensaje, alerta = {}) {
@@ -340,7 +346,7 @@ function limpiarMensajeFinal(mensaje, alerta = {}) {
   return construirMensajeFallback(alerta);
 }
 
-const FICHA_CAMPOS_REQUERIDOS = ['tipo', 'prioridad', 'territorio', 'afecta_a', 'hecho', 'plazo', 'accion', 'claves'];
+const FICHA_CAMPOS_REQUERIDOS = ['tipo', 'prioridad', 'territorio', 'afecta_a', 'hecho', 'objeto', 'impacto', 'plazo', 'accion', 'detalle', 'claves'];
 const FICHA_TIPOS = new Set(['ayudas_subvenciones', 'normativa_general', 'agua_infraestructuras', 'fiscalidad', 'medio_ambiente', 'otro']);
 const FICHA_PRIORIDADES = new Set(['alta', 'media', 'baja']);
 
@@ -416,9 +422,12 @@ function construirFichaIA(data = {}, alerta = {}) {
     prioridad: normalizarPrioridadFicha(data.prioridad || data.hecho || titulo),
     territorio: limpiarCampoFicha(data.territorio || territorioBase || 'no_detectado', 120) || 'no_detectado',
     afecta_a: limitarPalabras(data.afecta_a || sectoresBase, 12, 120) || 'sector_agrario',
-    hecho: limitarPalabras(data.hecho || alerta.contenido || titulo, 24, 220) || titulo,
+    hecho: limitarPalabras(data.hecho || alerta.contenido || titulo, 32, 280) || titulo,
+    objeto: limitarPalabras(data.objeto || titulo, 24, 220) || titulo,
+    impacto: limitarPalabras(data.impacto || 'no_detectado', 26, 240) || 'no_detectado',
     plazo: limpiarCampoFicha(data.plazo || 'no_detectado', 80) || 'no_detectado',
-    accion: limitarPalabras(data.accion || 'revisar documento oficial', 14, 140) || 'revisar documento oficial',
+    accion: limitarPalabras(data.accion || 'revisar documento oficial', 18, 170) || 'revisar documento oficial',
+    detalle: limitarPalabras(data.detalle || 'no_detectado', 34, 300) || 'no_detectado',
     claves: normalizarClavesFicha(data.claves, titulo),
   };
 
@@ -429,10 +438,13 @@ function construirFichaIA(data = {}, alerta = {}) {
     `TERRITORIO: ${ficha.territorio}`,
     `AFECTA_A: ${ficha.afecta_a}`,
     `HECHO: ${ficha.hecho}`,
+    `OBJETO: ${ficha.objeto}`,
+    `IMPACTO: ${ficha.impacto}`,
     `PLAZO: ${ficha.plazo}`,
     `ACCION: ${ficha.accion}`,
+    `DETALLE: ${ficha.detalle}`,
     `CLAVES: ${ficha.claves.join(', ')}`,
-  ].join('\n').slice(0, 900).trim();
+  ].join('\n').slice(0, 1400).trim();
 }
 
 function parsearFichaIA(texto) {
@@ -489,16 +501,21 @@ Campos por alerta:
 - tipo: ayudas_subvenciones | normativa_general | agua_infraestructuras | fiscalidad | medio_ambiente | otro
 - prioridad: alta | media | baja
 - territorio: provincia/CCAA/estatal/no_detectado
-- afecta_a: colectivo agrario afectado en maximo 12 palabras
-- hecho: que ocurre en maximo 24 palabras
+- afecta_a: colectivo agrario afectado en maximo 12 palabras; se especifico: agricultores, ganaderos, regantes, viticultores, explotaciones, industria agroalimentaria, titulares concretos, etc.
+- hecho: que ocurre realmente en maximo 32 palabras. No copies la cabecera del boletin; extrae el acto sustantivo.
+- objeto: tema concreto de la publicacion en maximo 24 palabras: ayuda, norma, exposicion publica, autorizacion, sancion, modificacion, convocatoria, etc.
+- impacto: por que puede importar al usuario agrario en maximo 26 palabras; si solo afecta a un titular o expediente individual, dilo.
 - plazo: fecha/plazo si aparece; si no, no_detectado
-- accion: accion recomendada en maximo 14 palabras
+- accion: accion recomendada en maximo 18 palabras
+- detalle: dato especifico util en maximo 34 palabras: importe, cultivo/especie, municipio, expediente, requisito, periodo, tramite o limitacion. Si no aparece, no_detectado.
 - claves: 3-8 palabras clave
 
 Reglas:
 - Lenguaje literal, seco y util para filtrado posterior.
 - NO inventar datos que no esten en el texto.
 - Si un dato no aparece, usa no_detectado.
+- Prioriza el contenido juridico/administrativo real frente a formulas como "Resolucion de..." o nombres de consejerias.
+- Si el texto solo anuncia exposicion publica, indica que documento/expediente se expone y a quien afecta.
 - No incluyas URL dentro de campos narrativos.
 - Debes devolver una ficha por cada ID recibido.
 
@@ -512,8 +529,11 @@ SALIDA: devuelve UNICAMENTE JSON valido con esta forma:
       "territorio": "no_detectado",
       "afecta_a": "sector agrario",
       "hecho": "descripcion breve",
+      "objeto": "tema concreto",
+      "impacto": "por que puede importar",
       "plazo": "no_detectado",
       "accion": "revisar documento oficial",
+      "detalle": "dato especifico util",
       "claves": ["palabra1", "palabra2", "palabra3"]
     }
   ]
@@ -554,7 +574,7 @@ async function generarFichasIAEnLote(alertas) {
   };
 
   const llamarGenerador = async (prompt) => {
-    const maxOutputTokens = Math.min(4000, Math.max(700, alertas.length * 260 + 300));
+    const maxOutputTokens = Math.min(6000, Math.max(900, alertas.length * 420 + 400));
     if (!usarFormatoEstructurado) {
       return llamarIA(prompt, instructions, 'gpt-5-nano', { maxOutputTokens });
     }
@@ -1083,16 +1103,20 @@ PRIORIDAD:
 TERRITORIO:
 AFECTA_A:
 HECHO:
+OBJETO:
+IMPACTO:
 PLAZO:
 ACCION:
+DETALLE:
 CLAVES:
 
 Reglas:
-- Maximo 900 caracteres.
+- Maximo 1400 caracteres.
 - Sin emojis, sin markdown decorativo y sin texto para WhatsApp.
 - No incluyas URL.
 - No inventes datos que no esten en el texto original.
 - Si un dato no aparece, usa no_detectado.
+- HECHO debe explicar el acto sustantivo, no copiar solo cabeceras del boletin.
 - Mantiene etiquetas en mayusculas y una linea por campo.
 
 Texto original de la alerta:
@@ -1104,7 +1128,7 @@ ${borrador}
 Responde UNICAMENTE con la ficha final. Sin JSON, sin explicaciones, sin nada mas.
 `.trim();
 
-            const respuestaIA = await llamarIA(prompt, instructions, 'gpt-5-nano', { maxOutputTokens: 350 });
+            const respuestaIA = await llamarIA(prompt, instructions, 'gpt-5-nano', { maxOutputTokens: 520 });
             revision = normalizarFichaIA(respuestaIA, a);
             resumenFinal = revision.texto;
           }

@@ -492,7 +492,7 @@ async function generarMensajeDigest({ user, alertas, fecha, plan, aprendizaje })
 
   const bloqueAlertas = alertas
     .map((a, i) => {
-      const ficha = (a.resumen_final || a.resumen || '').slice(0, 450);
+      const ficha = (a.resumen_final || a.resumen || '').slice(0, 900);
       const fuente = a.fuente || 'Boletin';
       const prioridad = clasificarPrioridadAlerta(a);
       return [
@@ -567,6 +567,8 @@ REGLAS:
 - Maximo 1600 caracteres en total. Si hay muchas alertas, reduce las frases de cada una.
 - Lenguaje sencillo y directo. El usuario es profesional del campo, no un abogado.
 - NO inventes datos que no esten en las fichas IA.
+- Usa OBJETO, IMPACTO, PLAZO y DETALLE para concretar el resumen. No te quedes solo con HECHO si es generico.
+- Si IMPACTO o DETALLE dicen que es un expediente individual, concesion concreta o exposicion publica limitada, presentalo como "para revisar" y sin exagerar.
 - Si el contexto narrativo encaja con una alerta, puedes mencionarlo en una frase corta. Si no encaja, no lo fuerces.
 - No digas "memoria", "MIA", "perfil vectorial" ni nada tecnico al usuario.
 - No preguntes por feedback dentro del mensaje. El sistema anadira una linea fija de feedback despues.
