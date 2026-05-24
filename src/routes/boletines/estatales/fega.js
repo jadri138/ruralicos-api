@@ -2,6 +2,7 @@ const { checkCronToken } = require('../../../utils/checkCronToken');
 const crypto = require('crypto');
 const { enviarWhatsAppDirecto } = require('../../../whatsapp');
 const { fuentePermitida } = require('../../../config/planes');
+const { conOrganizationId, extraerOrganizationId } = require('../../../mia/organizationContext');
 const {
   BENEFICIARIOS_URL,
   obtenerFicheroBeneficiarios,
@@ -52,7 +53,7 @@ async function insertarAlertaFega(supabase, fichero) {
 async function usuariosBuscables(supabase) {
   const { data, error } = await supabase
     .from('users')
-    .select('id, name, first_name, last_name_1, last_name_2, legal_name, phone, subscription, phone_verified')
+    .select('id, name, first_name, last_name_1, last_name_2, legal_name, phone, subscription, organization_id, phone_verified')
     .in('subscription', ['corral', 'agricultor', 'cooperativa'])
     .not('phone', 'is', null)
     .neq('phone', '')
@@ -69,7 +70,7 @@ async function guardarCoincidencia(supabase, { ejercicio, fichero, match, enviar
     .update(`FEGA|${ejercicio}|${match.archivo}|${match.linea}`)
     .digest('hex');
 
-  const row = {
+  const row = conOrganizationId({
     user_id: match.user_id,
     fuente: 'FEGA',
     contexto: String(ejercicio),
@@ -85,7 +86,7 @@ async function guardarCoincidencia(supabase, { ejercicio, fichero, match, enviar
       tipo_listado: 'beneficiarios_pac',
       descarga: fichero.urlDescarga,
     },
-  };
+  }, extraerOrganizationId(match));
 
   const { data, error } = await supabase
     .from('official_list_matches')
@@ -196,7 +197,7 @@ module.exports = function fegaRoutes(app, supabase) {
         coincidencias: matches.length,
         enviados,
         ya_enviados: yaEnviados,
-        missing_table: missingTable ? 'Ejecuta docs/official_list_matches_schema.sql para guardar y evitar duplicados' : false,
+        missing_table: missingTable ? 'Falta la tabla official_list_matches. Aplica la migracion operativa para guardar y evitar duplicados.' : false,
         resultados,
       });
     } catch (err) {

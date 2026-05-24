@@ -5,6 +5,12 @@ const {
 } = require('../utils/embeddings');
 const { generarContextoNarrativo } = require('../utils/cerebro');
 
+const MISSING_TABLE_CODES = new Set(['42P01', '42703', 'PGRST205']);
+
+function esTablaNoDisponible(error) {
+  return MISSING_TABLE_CODES.has(error?.code);
+}
+
 function vectorToSql(vector) {
   if (!Array.isArray(vector)) throw new Error('Vector invalido');
   return `[${vector.map((n) => Number(n)).join(',')}]`;
@@ -63,11 +69,21 @@ function textoPerfilInicial(user = {}) {
     .trim() || 'Preferencias agrarias generales';
 }
 
-function textoMemorias(memorias = []) {
-  return memorias
+function textoMemorias(memorias = [], memoriasEstructuradas = []) {
+  const legacy = memorias
     .filter((m) => !['feedback_positivo', 'feedback_negativo'].includes(m.tipo))
     .slice(0, 120)
-    .map((m) => `[${m.tipo}] ${m.contenido}`)
+    .map((m) => `[${m.tipo}] ${m.contenido}`);
+
+  const estructuradas = memoriasEstructuradas
+    .slice(0, 180)
+    .map((m) => {
+      const topic = m.topic ? `/${m.topic}` : '';
+      const polarity = m.polarity ? `/${m.polarity}` : '';
+      return `[${m.memory_type || 'memoria'}${topic}${polarity}] ${m.detail}`;
+    });
+
+  return [...legacy, ...estructuradas]
     .join('\n')
     .trim();
 }
@@ -138,7 +154,7 @@ async function actualizarPerfilUsuarioMIA(supabase, userId, options = {}) {
 
   const { data: user, error: errUser } = await supabase
     .from('users')
-    .select('id, name, subscription, preferences, preferencias_extra, perfil_version')
+    .select('id, name, subscription, preferences, preferencias_extra, perfil_version, organization_id')
     .eq('id', userId)
     .maybeSingle();
 
@@ -155,6 +171,26 @@ async function actualizarPerfilUsuarioMIA(supabase, userId, options = {}) {
   if (errMemorias) throw errMemorias;
 
   const memoriasLista = memorias || [];
+  let memoriasEstructuradas = [];
+  let structuredMemoryAvailable = true;
+  try {
+    const { data, error } = await supabase
+      .from('mia_structured_memory')
+      .select('id, memory_type, topic, detail, polarity, confidence, incorporated_at, created_at, last_seen_at')
+      .eq('user_id', user.id)
+      .order('last_seen_at', { ascending: false })
+      .limit(1500);
+
+    if (error) throw error;
+    memoriasEstructuradas = data || [];
+  } catch (error) {
+    if (esTablaNoDisponible(error)) {
+      structuredMemoryAvailable = false;
+    } else {
+      throw error;
+    }
+  }
+
   const memoriasConAlerta = memoriasLista.filter((m) =>
     m.alerta_id && ['feedback_positivo', 'feedback_negativo'].includes(m.tipo)
   );
@@ -206,7 +242,7 @@ async function actualizarPerfilUsuarioMIA(supabase, userId, options = {}) {
     perfilFeedback = centroidePositivo ? restarVector(centroidePositivo, centroideNegativo) : null;
   }
 
-  const textoMemoria = textoMemorias(memoriasLista);
+  const textoMemoria = textoMemorias(memoriasLista, memoriasEstructuradas);
   const embeddingMemorias = textoMemoria ? await generarEmbedding(textoMemoria, usarMock) : null;
   const embeddingPreferencias = await generarEmbedding(textoPerfilInicial(user), usarMock);
 
@@ -225,7 +261,16 @@ async function actualizarPerfilUsuarioMIA(supabase, userId, options = {}) {
 
   let contextoNarrativo = null;
   try {
-    contextoNarrativo = await generarContextoNarrativo(user, memoriasLista);
+    const memoriasParaNarrativa = [
+      ...memoriasLista,
+      ...memoriasEstructuradas.slice(0, 120).map((m) => ({
+        tipo: m.memory_type || 'mensaje_libre',
+        contenido: `[${m.topic || 'general'}] ${m.detail}`,
+        peso_inicial: m.confidence || 0.5,
+        created_at: m.last_seen_at || m.created_at,
+      })),
+    ];
+    contextoNarrativo = await generarContextoNarrativo(user, memoriasParaNarrativa);
     contextoNarrativo = ajustarContextoNarrativoPorPerfil(user, contextoNarrativo);
   } catch (err) {
     console.warn(`[mia:perfil] No se pudo generar contexto narrativo user ${user.id}:`, err.message);
@@ -261,14 +306,32 @@ async function actualizarPerfilUsuarioMIA(supabase, userId, options = {}) {
     }
   }
 
+  const memoriaEstructuradaIdsPendientes = memoriasEstructuradas
+    .filter((m) => !m.incorporated_at)
+    .map((m) => Number(m.id))
+    .filter(Boolean);
+
+  if (memoriaEstructuradaIdsPendientes.length > 0) {
+    const { error: errMarcadoEstructurado } = await supabase
+      .from('mia_structured_memory')
+      .update({ incorporated_at: new Date().toISOString() })
+      .in('id', memoriaEstructuradaIdsPendientes);
+
+    if (errMarcadoEstructurado && !esTablaNoDisponible(errMarcadoEstructurado)) {
+      console.warn(`[mia:perfil] No se pudieron marcar memorias estructuradas incorporadas user ${user.id}:`, errMarcadoEstructurado.message);
+    }
+  }
+
   return {
     ok: true,
     user_id: user.id,
     perfil_version: perfilVersion,
     memorias_usadas: memoriasLista.length,
+    memorias_estructuradas_usadas: memoriasEstructuradas.length,
+    mia_structured_memory_available: structuredMemoryAvailable,
     feedbacks_positivos_usados: feedbacksPositivosUsados,
     feedbacks_negativos_usados: feedbacksNegativosUsados,
-    memorias_textuales_usadas: textoMemoria ? memoriasLista.length - memoriasConAlerta.length : 0,
+    memorias_textuales_usadas: textoMemoria ? (memoriasLista.length - memoriasConAlerta.length) + memoriasEstructuradas.length : 0,
     embedding_length: perfilFinal.length,
     contexto_narrativo_actualizado: Boolean(contextoNarrativo),
     source: usarMock ? 'mock' : 'openai',
@@ -288,6 +351,7 @@ module.exports = {
   actualizarPerfilUsuarioMIA,
   actualizarPerfilUsuarioMIASafe,
   ajustarContextoNarrativoPorPerfil,
+  textoMemorias,
   parseVector,
   vectorToSql,
   vectorValido,

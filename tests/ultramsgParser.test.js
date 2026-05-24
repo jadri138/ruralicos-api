@@ -28,14 +28,19 @@ assert(parseBoolean('true') === true, 'Interpreta string "true" como true');
 const payloadObjeto = extraerUltraMsg({
   event_type: 'message_received',
   data: {
+    id: 'wamid.TEST-1',
     from: '34600000000@c.us',
     body: 'Me interesa la ayuda de olivar',
     fromMe: 'false',
+    timestamp: 1779472800,
   },
 });
 
 assert(payloadObjeto.eventType === 'message_received', 'Extrae event_type de UltraMsg');
 assert(payloadObjeto.fromMe === false, 'No marca fromMe "false" como mensaje propio');
+assert(payloadObjeto.messageId === 'wamid.TEST-1', 'Extrae id del mensaje de UltraMsg');
+assert(payloadObjeto.timestamp === '1779472800', 'Extrae timestamp del mensaje de UltraMsg');
+assert(payloadObjeto.senderKind === 'user', 'Clasifica contactos normales como usuario');
 assert(payloadObjeto.telefono === '34600000000', 'Limpia telefono con sufijo @c.us');
 assert(payloadObjeto.texto === 'Me interesa la ayuda de olivar', 'Extrae texto de data.body');
 
@@ -51,6 +56,14 @@ const payloadJson = extraerUltraMsg({
 assert(payloadJson.fromMe === false, 'Parsea data JSON string');
 assert(payloadJson.telefono === '34600000000', 'Normaliza telefono desde data JSON string');
 assert(payloadJson.texto === 'Quiero saber mas de la PAC', 'Extrae texto desde data JSON string');
+
+const payloadNewsletter = extraerUltraMsg({
+  data: {
+    from: '120363215146551718@newsletter',
+    body: 'Contenido de canal',
+  },
+});
+assert(payloadNewsletter.senderKind === 'newsletter', 'Clasifica newsletters de WhatsApp');
 
 assert(esEventoMensajeUltraMsg('message_received') === true, 'Acepta message_received');
 assert(esEventoMensajeUltraMsg('message') === true, 'Acepta message');

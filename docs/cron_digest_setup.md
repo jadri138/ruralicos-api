@@ -61,12 +61,10 @@ Tambien puedes lanzarlo puntualmente:
 curl -fsS "$BASE_URL/tareas/pipeline-diario?token=$CRON_TOKEN&fega=true&ejercicio=2024"
 ```
 
-Antes de activar envios individuales de coincidencias nominales, aplica:
-
-```text
-docs/user_legal_identity_schema.sql
-docs/official_list_matches_schema.sql
-```
+Antes de activar envios individuales de coincidencias nominales, comprueba que
+existen en Supabase las columnas de identidad legal en `users` y la tabla
+`official_list_matches`. Ya no se mantienen SQL sueltos en `docs`; usa la
+migracion operativa vigente.
 
 ## Horario recomendado
 

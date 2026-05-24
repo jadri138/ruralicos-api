@@ -2,10 +2,14 @@
   "name": "ruralicos-api",
   "version": "1.0.0",
   "main": "index.js",
+  "engines": {
+    "node": ">=20.18.1"
+  },
   "scripts": {
     "start": "node src/index.js",
     "workflow:digest": "node scripts/run_digest_workflow.js",
-    "check:core": "node scripts/check_core_logic.js"
+    "check:core": "node scripts/check_core_logic.js",
+    "test:local": "node tests/ultramsgParser.test.js && node tests/feedbackParser.test.js && node tests/miaInbound.test.js && node tests/miaWebhookEvent.test.js && node tests/miaDecisionCore.test.js && node tests/miaDigestItems.test.js && node tests/miaStructuredMemory.test.js && node tests/miaOrganizationContext.test.js && node tests/miaUserProfile.test.js && node tests/miaProfileRecalculation.test.js && node tests/miaPolicy.test.js && node tests/miaDecisionStore.test.js && node tests/miaActionExecutor.test.js && node tests/miaKnowledgeBase.test.js && node tests/miaGroundedAnswer.test.js && node tests/miaReplyGuard.test.js && node tests/miaQualityReport.test.js && node tests/miaAnswerAudit.test.js && node tests/miaAlertQuality.test.js && node tests/miaOutbox.test.js && node tests/miaReplay.test.js && node tests/miaEvals.test.js && node tests/adminAuditLog.test.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",
@@ -16,12 +20,11 @@
     "dotenv": "^16.4.5",
     "express": "^4.18.2",
     "express-rate-limit": "^8.2.1",
-    "fast-xml-parser": "^4.4.0",
+    "fast-xml-parser": "^5.8.0",
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.2",
     "node-fetch": "^2.7.0",
     "openai": "^6.35.0",
-    "pdf-parse": "^2.4.5",
-    "pdfjs-dist": "^3.11.174"
+    "pdf-parse": "^2.4.5"
   }
 }

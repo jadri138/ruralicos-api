@@ -76,6 +76,36 @@ function formatearAlertas(alertas = []) {
   )).join('\n\n');
 }
 
+function normalizarTextoCerebro(texto) {
+  return String(texto || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase();
+}
+
+function esMensajePreferenciaFutura(mensajeUsuario) {
+  const texto = normalizarTextoCerebro(mensajeUsuario);
+  if (!texto) return false;
+
+  const pideRecibir =
+    /\b(me gustaria|quisiera|quiero|me interesaria|podriais|podeis|mandadme|enviadme|avisadme|avisame|avisenme)\b[^.!?]{0,80}\b(recibir|avisos?|avisarais|avisarme|avisarnos|alertas?|notificaciones?|mensajes?|informacion)\b/.test(texto) ||
+    /\b(recibir|mandadme|enviadme|avisadme|avisame|avisenme|avisarais|avisarme|avisarnos)\b[^.!?]{0,80}\b(avisos?|alertas?|notificaciones?|informacion)\b/.test(texto);
+
+  return pideRecibir && /\b(sobre|de|del|para)\b/.test(texto);
+}
+
+function tieneReferenciaDirectaADigest(mensajeUsuario) {
+  const texto = normalizarTextoCerebro(mensajeUsuario);
+  if (!texto) return false;
+
+  return (
+    /[+-]\s*\d{1,2}\b/.test(texto) ||
+    /\b\d{1,2}\s*[+-]\b/.test(texto) ||
+    /\b(item|items|numero|numeros|primera|segunda|tercera|cuarta|quinta|sexta|septima|esta|esa|la de|lo de|ambas|todas|todos|ninguna|ninguno|resto)\b/.test(texto)
+  );
+}
+
 function reforzarInterpretacionConReglasLocales(interpretacion, mensajeUsuario, alertasDelDigest = []) {
   const totalItems = Array.isArray(alertasDelDigest) ? alertasDelDigest.length : 0;
   if (totalItems <= 0) return interpretacion;
@@ -125,6 +155,16 @@ function reforzarInterpretacionConReglasLocales(interpretacion, mensajeUsuario, 
   const resumenExtra = votosLocales.some((voto) => voto.valor === -1)
     ? ' Reglas locales reforzaron desintereses suaves.'
     : '';
+
+  if (esMensajePreferenciaFutura(mensajeUsuario) && !tieneReferenciaDirectaADigest(mensajeUsuario)) {
+    return normalizarInterpretacion({
+      ...interpretacion,
+      feedbacks: [],
+      memoria,
+      intencion: memoria.length > 0 ? 'conversacion' : 'otro',
+      resumen_para_log: `${interpretacion.resumen_para_log || ''} Preferencia futura guardada sin votar el digest.`.trim(),
+    });
+  }
 
   return normalizarInterpretacion({
     ...interpretacion,
@@ -225,9 +265,11 @@ Reglas:
 - Si el usuario dice "me interesa 2 y 3, el resto no/no tanto/no me interesa tanto", marca 2 y 3 como positivos y los demas items del digest como negativos con confianza media.
 - Si dice que un tema no le interesa tanto, por ejemplo "lo del agua no me interesa tanto", marca negativos los items del digest relacionados con ese tema aunque no cite su numero.
 - "No me interesa tanto" es una senal negativa suave: guardala como feedback negativo de confianza media y como desinteres_detectado, no la ignores.
+- Si el usuario pide recibir avisos, alertas o informacion sobre temas futuros ("quiero recibir avisos sobre PAC", "me gustaria que me avisarais de tractores"), NO lo conviertas en feedback del digest salvo que mencione claramente un item o una alerta del digest. Guardalo solo como memoria/interes_detectado.
 - memoria solo si hay informacion util para el futuro.
 - Tipos memoria permitidos: interes_detectado, desinteres_detectado, dato_explotacion, pregunta_usuario, mensaje_libre, evento_estacional, respuesta_exploracion.
 - Responde por WhatsApp solo si pregunta, se queja, esta confuso o hay una oportunidad natural. Si solo da feedback simple, requiere_respuesta false.
+- Si respondes, hazlo sobrio y directo. No uses nombre y apellidos, ni saludos largos, ni despedidas creativas, ni frases tipo "que tengas buen dia en tu granja/campo/con tus animales".
 `.trim();
 
   try {
@@ -291,4 +333,9 @@ module.exports = {
   generarPreguntaExploracion,
   generarContextoNarrativo,
   normalizarInterpretacion,
+  __testing: {
+    reforzarInterpretacionConReglasLocales,
+    esMensajePreferenciaFutura,
+    tieneReferenciaDirectaADigest,
+  },
 };

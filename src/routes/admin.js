@@ -2,9 +2,36 @@ const { requireAdmin } = require('../../authMiddleware');
 const { normalizePhone } = require('../utils/phoneNormalizer');
 const { getFechaMadridISO, getRangoDiaMadridUTC } = require('../utils/fechaMadrid');
 const { actualizarPerfilUsuarioMIA } = require('../brain/miaProfile');
+const { enviarDigestPro } = require('../whatsapp');
+const {
+  cargarOutboxPendiente,
+  procesarOutboxItemMIA,
+  generarOutboxHealthMIA,
+} = require('../mia/outbox');
+const {
+  analizarWebhookEventParaReplay,
+  parseJsonObject,
+} = require('../mia/replay');
+const { resolverPreguntaConBaseConocimientoMIA } = require('../mia/knowledgeBase');
+const { generarQualityReportMIA } = require('../mia/qualityReport');
+const { generarAnswerAuditMIA } = require('../mia/answerAudit');
+const { cargarPerfilOperativoMIA } = require('../mia/userProfile');
+const { ejecutarEvalsMIA } = require('../mia/evalHarness');
+const { generarReporteCalidadOperativaMIA } = require('../mia/alertQuality');
+const {
+  cargarOrganizationContextMIA,
+  normalizarOrganizationId,
+  obtenerMiaBranding,
+} = require('../mia/organizationContext');
+const {
+  registrarAdminAuditLog,
+  getAdminActor,
+} = require('../admin/auditLog');
 
 const PLANES_VALIDOS = ['free', 'corral', 'agricultor', 'cooperativa'];
-const USER_SELECT_ADMIN = 'id, name, first_name, last_name_1, last_name_2, legal_name, phone, email, subscription, preferences, preferencias_extra, contexto_narrativo, perfil_version, perfil_actualizado_at, ultima_interaccion_at, created_at';
+const ORGANIZATION_STATUS_VALIDOS = ['active', 'paused', 'disabled'];
+const ORGANIZATION_MEMBER_ROLES = ['owner', 'admin', 'agent', 'viewer', 'member'];
+const USER_SELECT_ADMIN = 'id, name, first_name, last_name_1, last_name_2, legal_name, phone, email, subscription, organization_id, preferences, preferencias_extra, contexto_narrativo, perfil_version, perfil_actualizado_at, ultima_interaccion_at, created_at';
 
 function limpiarBusquedaUsuario(value) {
   return String(value || '').trim().replace(/\s+/g, ' ').slice(0, 80);
@@ -15,7 +42,27 @@ function escaparLike(value) {
 }
 
 function isMissingTableError(error) {
-  return error && ['42P01', '42703', 'PGRST205'].includes(error.code);
+  return error && ['42P01', '42703', 'PGRST204', 'PGRST205'].includes(error.code);
+}
+
+function normalizarAdminUserId(value) {
+  const id = Number(value);
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+
+function getAdminUserIdFromRequest(req) {
+  return normalizarAdminUserId(req?.admin?.sub || req?.admin?.id || req?.admin?.admin_user_id);
+}
+
+async function auditarAdmin(supabase, req, action, resourceType, resourceId, organizationId, metadata = {}) {
+  return registrarAdminAuditLog(supabase, {
+    req,
+    action,
+    resourceType,
+    resourceId,
+    organizationId,
+    metadata,
+  });
 }
 
 function limpiarCampoNombre(value, max = 80) {
@@ -38,11 +85,67 @@ function resumenUsuarioSugerido(user) {
     phone: user.phone || '',
     email: user.email || '',
     subscription: user.subscription || '',
+    organization_id: user.organization_id || null,
   };
 }
 
 function getPublicBaseUrl() {
   return process.env.PUBLIC_BASE_URL || `http://localhost:${process.env.PORT || 3000}`;
+}
+
+function crearSlugOrganizacion(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80) || null;
+}
+
+function limpiarJsonPlano(value, fallback = {}) {
+  if (value === undefined) return undefined;
+  if (!value) return fallback;
+  if (typeof value === 'object' && !Array.isArray(value)) return value;
+  if (typeof value === 'string') return parseJsonObject(value);
+  return fallback;
+}
+
+function limpiarOrganizacionBody(body = {}, { partial = false } = {}) {
+  const patch = {};
+
+  if (!partial || body.name !== undefined) {
+    const name = String(body.name || '').trim().replace(/\s+/g, ' ').slice(0, 180);
+    if (!name) throw new Error('name requerido');
+    patch.name = name;
+  }
+
+  if (body.slug !== undefined || (!partial && patch.name)) {
+    patch.slug = crearSlugOrganizacion(body.slug || patch.name);
+  }
+
+  if (body.kind !== undefined || !partial) {
+    const kind = String(body.kind || 'cooperativa').trim().slice(0, 40);
+    patch.kind = kind || 'cooperativa';
+  }
+
+  if (body.status !== undefined || !partial) {
+    const status = String(body.status || 'active').trim();
+    if (!ORGANIZATION_STATUS_VALIDOS.includes(status)) {
+      throw new Error('status invalido');
+    }
+    patch.status = status;
+  }
+
+  if (body.branding_json !== undefined || body.branding !== undefined) {
+    patch.branding_json = limpiarJsonPlano(body.branding_json ?? body.branding, {});
+  }
+
+  if (body.settings_json !== undefined || body.settings !== undefined) {
+    patch.settings_json = limpiarJsonPlano(body.settings_json ?? body.settings, {});
+  }
+
+  return patch;
 }
 
 async function hitCronPath(path) {
@@ -198,7 +301,7 @@ module.exports = (app, supabase) => {
     try {
       const { data: users, error } = await supabase
         .from('users')
-        .select('id, name, first_name, last_name_1, last_name_2, legal_name, email, phone, subscription, created_at, preferences, preferencias_extra')
+        .select('id, name, first_name, last_name_1, last_name_2, legal_name, email, phone, subscription, organization_id, created_at, preferences, preferencias_extra')
         .order('created_at', { ascending: false });
 
       if (error) {
@@ -216,6 +319,7 @@ module.exports = (app, supabase) => {
         email:              u.email              || '',
         phone:              u.phone              || '',
         subscription:       u.subscription       || 'free',
+        organization_id:    u.organization_id    || null,
         created_at:         u.created_at,
         preferences:        u.preferences        || {},
         preferencias_extra: u.preferencias_extra || null,
@@ -241,7 +345,7 @@ module.exports = (app, supabase) => {
       const pattern = `%${escaparLike(q)}%`;
       const { data, error } = await supabase
         .from('users')
-        .select('id, name, legal_name, phone, email, subscription')
+        .select('id, name, legal_name, phone, email, subscription, organization_id')
         .or(`name.ilike.${pattern},legal_name.ilike.${pattern}`)
         .order('legal_name', { ascending: true, nullsFirst: false })
         .limit(limit);
@@ -257,6 +361,206 @@ module.exports = (app, supabase) => {
       });
     } catch (err) {
       console.error('Error en /admin/users/search:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/admin/organizations', requireAdmin, async (req, res) => {
+    try {
+      const { data, error } = await supabase
+        .from('organizations')
+        .select('id, name, slug, kind, status, branding_json, settings_json, created_at, updated_at')
+        .order('name', { ascending: true });
+
+      if (error) {
+        if (isMissingTableError(error)) {
+          return res.json({ ok: true, available: false, reason: 'organizations_no_disponible', items: [] });
+        }
+        throw error;
+      }
+
+      return res.json({ ok: true, available: true, items: data || [] });
+    } catch (err) {
+      console.error('Error en /admin/organizations:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/admin/audit-log', requireAdmin, async (req, res) => {
+    try {
+      const limit = Math.max(1, Math.min(500, Number(req.query.limit || 100)));
+      const organizationId = normalizarOrganizationId(req.query.organization_id);
+      const action = req.query.action ? String(req.query.action).trim().slice(0, 120) : null;
+      const resourceType = req.query.resource_type ? String(req.query.resource_type).trim().slice(0, 120) : null;
+
+      let query = supabase
+        .from('admin_audit_log')
+        .select('id, admin_user_id, actor_username, organization_id, action, resource_type, resource_id, metadata_json, ip_hash, user_agent, created_at')
+        .order('created_at', { ascending: false })
+        .limit(limit);
+
+      if (organizationId) query = query.eq('organization_id', organizationId);
+      if (action) query = query.eq('action', action);
+      if (resourceType) query = query.eq('resource_type', resourceType);
+
+      const { data, error } = await query;
+      if (error) {
+        if (isMissingTableError(error)) {
+          return res.json({ ok: true, available: false, reason: 'admin_audit_log_no_disponible', items: [] });
+        }
+        throw error;
+      }
+
+      return res.json({
+        ok: true,
+        available: true,
+        actor: getAdminActor(req),
+        items: data || [],
+      });
+    } catch (err) {
+      console.error('Error en /admin/audit-log:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/admin/organizations', requireAdmin, async (req, res) => {
+    try {
+      const row = limpiarOrganizacionBody(req.body || {});
+      const { data, error } = await supabase
+        .from('organizations')
+        .insert(row)
+        .select('id, name, slug, kind, status, branding_json, settings_json, created_at, updated_at')
+        .single();
+
+      if (error) {
+        if (isMissingTableError(error)) {
+          return res.json({ ok: true, available: false, reason: 'organizations_no_disponible' });
+        }
+        throw error;
+      }
+
+      await auditarAdmin(supabase, req, 'organization.create', 'organization', data.id, data.id, {
+        name: data.name,
+        slug: data.slug,
+        status: data.status,
+      });
+
+      return res.status(201).json({ ok: true, available: true, item: data });
+    } catch (err) {
+      const status = /requerido|invalido/i.test(err.message || '') ? 400 : 500;
+      console.error('Error en POST /admin/organizations:', err);
+      return res.status(status).json({ error: err.message });
+    }
+  });
+
+  app.patch('/admin/organizations/:id', requireAdmin, async (req, res) => {
+    try {
+      const id = normalizarOrganizationId(req.params.id);
+      if (!id) return res.status(400).json({ error: 'id invalido' });
+
+      const patch = limpiarOrganizacionBody(req.body || {}, { partial: true });
+      patch.updated_at = new Date().toISOString();
+      if (Object.keys(patch).length <= 1) return res.status(400).json({ error: 'No hay campos para actualizar' });
+
+      const { data, error } = await supabase
+        .from('organizations')
+        .update(patch)
+        .eq('id', id)
+        .select('id, name, slug, kind, status, branding_json, settings_json, created_at, updated_at')
+        .single();
+
+      if (error) {
+        if (isMissingTableError(error)) {
+          return res.json({ ok: true, available: false, reason: 'organizations_no_disponible' });
+        }
+        throw error;
+      }
+
+      await auditarAdmin(supabase, req, 'organization.update', 'organization', data.id, data.id, {
+        fields: Object.keys(patch).filter((field) => field !== 'updated_at'),
+        status: data.status,
+      });
+
+      return res.json({ ok: true, available: true, item: data });
+    } catch (err) {
+      const status = /requerido|invalido/i.test(err.message || '') ? 400 : 500;
+      console.error('Error en PATCH /admin/organizations/:id:', err);
+      return res.status(status).json({ error: err.message });
+    }
+  });
+
+  app.get('/admin/organizations/:id/users', requireAdmin, async (req, res) => {
+    try {
+      const id = normalizarOrganizationId(req.params.id);
+      if (!id) return res.status(400).json({ error: 'id invalido' });
+
+      const { data, error } = await supabase
+        .from('users')
+        .select('id, name, legal_name, first_name, phone, email, subscription, organization_id, created_at')
+        .eq('organization_id', id)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      return res.json({ ok: true, organization_id: id, users: data || [] });
+    } catch (err) {
+      console.error('Error en /admin/organizations/:id/users:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/admin/organizations/:id/users/:userId', requireAdmin, async (req, res) => {
+    try {
+      const organizationId = normalizarOrganizationId(req.params.id);
+      const userId = Number(req.params.userId);
+      if (!organizationId) return res.status(400).json({ error: 'organization id invalido' });
+      if (!Number.isSafeInteger(userId) || userId <= 0) return res.status(400).json({ error: 'user id invalido' });
+
+      const role = String(req.body?.role || 'member').trim().slice(0, 40) || 'member';
+      if (!ORGANIZATION_MEMBER_ROLES.includes(role)) {
+        return res.status(400).json({ error: `role invalido. Opciones: ${ORGANIZATION_MEMBER_ROLES.join(', ')}` });
+      }
+      const { data: user, error: userError } = await supabase
+        .from('users')
+        .update({ organization_id: organizationId })
+        .eq('id', userId)
+        .select(USER_SELECT_ADMIN)
+        .single();
+
+      if (userError) throw userError;
+
+      const memberResult = await supabase
+        .from('organization_members')
+        .upsert({
+          organization_id: organizationId,
+          user_id: userId,
+          role,
+          status: 'active',
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'organization_id,user_id' })
+        .select('organization_id, user_id, role, status')
+        .maybeSingle();
+
+      const memberAvailable = !memberResult.error || !isMissingTableError(memberResult.error);
+      if (memberResult.error && !isMissingTableError(memberResult.error)) {
+        console.warn('[admin:organizations] No se pudo actualizar organization_members:', memberResult.error.message);
+      }
+
+      await auditarAdmin(supabase, req, 'organization.user.assign', 'user', userId, organizationId, {
+        user_id: userId,
+        role,
+        member_available: memberAvailable,
+      });
+
+      return res.json({
+        ok: true,
+        organization_id: organizationId,
+        user,
+        member: memberResult.data || null,
+        member_available: memberAvailable,
+        member_error: memberResult.error && !isMissingTableError(memberResult.error) ? memberResult.error.message : null,
+      });
+    } catch (err) {
+      console.error('Error en POST /admin/organizations/:id/users/:userId:', err);
       return res.status(500).json({ error: err.message });
     }
   });
@@ -319,6 +623,14 @@ module.exports = (app, supabase) => {
         updates.subscription = subscription;
       }
 
+      if (Object.prototype.hasOwnProperty.call(req.body || {}, 'organization_id')) {
+        const organizationId = normalizarOrganizationId(req.body.organization_id);
+        if (req.body.organization_id !== null && req.body.organization_id !== '' && !organizationId) {
+          return res.status(400).json({ error: 'organization_id invalido' });
+        }
+        updates.organization_id = organizationId;
+      }
+
       if (req.body.preferences !== undefined) {
         if (!req.body.preferences || typeof req.body.preferences !== 'object' || Array.isArray(req.body.preferences)) {
           return res.status(400).json({ error: 'preferences debe ser un objeto JSON' });
@@ -339,13 +651,17 @@ module.exports = (app, supabase) => {
         .from('users')
         .update(updates)
         .eq('id', id)
-        .select('id, name, first_name, last_name_1, last_name_2, legal_name, email, phone, subscription, created_at, preferences, preferencias_extra')
+        .select('id, name, first_name, last_name_1, last_name_2, legal_name, email, phone, subscription, organization_id, created_at, preferences, preferencias_extra')
         .single();
 
       if (error || !data) {
         console.error('Error actualizando usuario admin:', error?.message);
         return res.status(500).json({ error: 'Error actualizando usuario' });
       }
+
+      await auditarAdmin(supabase, req, 'user.update', 'user', data.id, data.organization_id || updates.organization_id || null, {
+        fields: Object.keys(updates),
+      });
 
       return res.json({ success: true, user: data });
     } catch (err) {
@@ -541,7 +857,7 @@ app.post('/admin/tareas/scrapers-diario', requireAdmin, async (req, res) => {
       if (error) {
         if (error.code === '42P01') {
           return res.status(503).json({
-            error: 'Falta crear la tabla scraper_runs. Ejecuta docs/scraper_runs_schema.sql en Supabase.',
+            error: 'Falta crear la tabla scraper_runs. Aplica la migracion operativa en Supabase antes de usar este panel.',
           });
         }
         return res.status(500).json({ error: error.message });
@@ -580,7 +896,7 @@ app.post('/admin/tareas/scrapers-diario', requireAdmin, async (req, res) => {
       if (error) {
         if (error.code === '42P01') {
           return res.status(503).json({
-            error: 'Falta crear la tabla pipeline_runs. Ejecuta docs/pipeline_runs_schema.sql en Supabase.',
+            error: 'Falta crear la tabla pipeline_runs. Aplica la migracion operativa en Supabase antes de usar este panel.',
           });
         }
         return res.status(500).json({ error: error.message });
@@ -720,7 +1036,7 @@ app.post('/admin/tareas/scrapers-diario', requireAdmin, async (req, res) => {
         return res.json({
           ok: true,
           missing_table: true,
-          message: 'Ejecuta docs/official_list_matches_schema.sql',
+          message: 'Falta la tabla official_list_matches. Aplica la migracion operativa en Supabase.',
           matches: [],
         });
       }
@@ -999,6 +1315,949 @@ app.post('/admin/tareas/scrapers-diario', requireAdmin, async (req, res) => {
       return res.status(500).json({ error: err.message });
     }
   });
+
+  app.get('/admin/mia/inbound', requireAdmin, async (req, res) => {
+    try {
+      const limit = Math.max(1, Math.min(300, Number(req.query.limit || 100)));
+      const status = req.query.status ? String(req.query.status).trim() : null;
+
+      let query = supabase
+        .from('mia_inbound_messages')
+        .select('id, source, external_message_id, from_phone, from_raw, chat_id, sender_kind, event_type, text_body, status, ignored_reason, user_id, organization_id, digest_id, conversation_id, decision_json, result_json, error_msg, duplicate_count, first_seen_at, last_seen_at, processed_at, created_at')
+        .order('created_at', { ascending: false })
+        .limit(limit);
+
+      if (status) query = query.eq('status', status);
+
+      const { data, error } = await query;
+      if (error) {
+        if (isMissingTableError(error)) {
+          return res.json({ ok: true, available: false, reason: 'mia_inbound_messages_no_disponible', items: [] });
+        }
+        throw error;
+      }
+
+      return res.json({ ok: true, available: true, items: data || [] });
+    } catch (err) {
+      console.error('Error en /admin/mia/inbound:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/admin/mia/structured-memory', requireAdmin, async (req, res) => {
+    try {
+      const limit = Math.max(1, Math.min(300, Number(req.query.limit || 100)));
+      const userId = req.query.user_id ? Number(req.query.user_id) : null;
+
+      let query = supabase
+        .from('mia_structured_memory')
+        .select('id, user_id, organization_id, digest_id, inbound_id, source, memory_type, topic, detail, polarity, confidence, evidence, decision_version, metadata_json, incorporated_at, created_at')
+        .order('created_at', { ascending: false })
+        .limit(limit);
+
+      if (Number.isInteger(userId) && userId > 0) query = query.eq('user_id', userId);
+
+      const { data, error } = await query;
+      if (error) {
+        if (isMissingTableError(error)) {
+          return res.json({ ok: true, available: false, reason: 'mia_structured_memory_no_disponible', items: [] });
+        }
+        throw error;
+      }
+
+      return res.json({ ok: true, available: true, items: data || [] });
+    } catch (err) {
+      console.error('Error en /admin/mia/structured-memory:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/admin/mia/outbox', requireAdmin, async (req, res) => {
+    try {
+      const limit = Math.max(1, Math.min(300, Number(req.query.limit || 100)));
+      const status = req.query.status ? String(req.query.status).trim() : null;
+
+      let query = supabase
+        .from('mia_outbox')
+        .select('id, decision_id, inbound_id, user_id, organization_id, channel, to_phone, body, status, attempts, last_error, next_attempt_at, sent_at, metadata_json, created_at, updated_at')
+        .order('created_at', { ascending: false })
+        .limit(limit);
+
+      if (status) query = query.eq('status', status);
+
+      const { data, error } = await query;
+      if (error) {
+        if (isMissingTableError(error)) {
+          return res.json({ ok: true, available: false, reason: 'mia_outbox_no_disponible', items: [] });
+        }
+        throw error;
+      }
+
+      return res.json({ ok: true, available: true, items: data || [] });
+    } catch (err) {
+      console.error('Error en /admin/mia/outbox:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/admin/mia/outbox-health', requireAdmin, async (req, res) => {
+    try {
+      const hours = Math.max(1, Math.min(720, Number(req.query.hours || 72)));
+      const limit = Math.max(50, Math.min(5000, Number(req.query.limit || 1000)));
+      const report = await generarOutboxHealthMIA(supabase, { hours, limit });
+      return res.json({ ok: report.ok !== false, ...report, params: { hours, limit } });
+    } catch (err) {
+      console.error('Error en /admin/mia/outbox-health:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/admin/mia/decisions', requireAdmin, async (req, res) => {
+    try {
+      const limit = Math.max(1, Math.min(300, Number(req.query.limit || 100)));
+      const intent = req.query.intent ? String(req.query.intent).trim() : null;
+      const userId = req.query.user_id ? Number(req.query.user_id) : null;
+
+      let query = supabase
+        .from('mia_decisions')
+        .select('id, inbound_id, user_id, organization_id, digest_id, conversation_id, decision_version, intent, confidence, risk_flags, summary, decision_json, result_json, created_at, updated_at')
+        .order('created_at', { ascending: false })
+        .limit(limit);
+
+      if (intent) query = query.eq('intent', intent);
+      if (Number.isInteger(userId) && userId > 0) query = query.eq('user_id', userId);
+
+      const { data, error } = await query;
+      if (error) {
+        if (isMissingTableError(error)) {
+          return res.json({ ok: true, available: false, reason: 'mia_decisions_no_disponible', items: [] });
+        }
+        throw error;
+      }
+
+      return res.json({ ok: true, available: true, items: data || [] });
+    } catch (err) {
+      console.error('Error en /admin/mia/decisions:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/admin/mia/actions', requireAdmin, async (req, res) => {
+    try {
+      const limit = Math.max(1, Math.min(300, Number(req.query.limit || 100)));
+      const status = req.query.status ? String(req.query.status).trim() : null;
+      const actionType = req.query.action_type ? String(req.query.action_type).trim() : null;
+
+      let query = supabase
+        .from('mia_actions')
+        .select('id, decision_id, inbound_id, user_id, organization_id, digest_id, action_type, status, action_json, result_json, error_msg, created_at, executed_at')
+        .order('created_at', { ascending: false })
+        .limit(limit);
+
+      if (status) query = query.eq('status', status);
+      if (actionType) query = query.eq('action_type', actionType);
+
+      const { data, error } = await query;
+      if (error) {
+        if (isMissingTableError(error)) {
+          return res.json({ ok: true, available: false, reason: 'mia_actions_no_disponible', items: [] });
+        }
+        throw error;
+      }
+
+      return res.json({ ok: true, available: true, items: data || [] });
+    } catch (err) {
+      console.error('Error en /admin/mia/actions:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/admin/mia/agent-cases', requireAdmin, async (req, res) => {
+    try {
+      const limit = Math.max(1, Math.min(300, Number(req.query.limit || 100)));
+      const status = req.query.status ? String(req.query.status).trim() : null;
+      const userId = req.query.user_id ? Number(req.query.user_id) : null;
+
+      let query = supabase
+        .from('mia_agent_cases')
+        .select('id, user_id, organization_id, inbound_id, decision_id, digest_id, conversation_id, status, priority, reason, question_text, summary, assigned_to, assigned_to_admin_user_id, resolution_text, decision_json, metadata_json, created_at, updated_at, closed_at')
+        .order('created_at', { ascending: false })
+        .limit(limit);
+
+      if (status) query = query.eq('status', status);
+      if (Number.isInteger(userId) && userId > 0) query = query.eq('user_id', userId);
+
+      const { data, error } = await query;
+      if (error) {
+        if (isMissingTableError(error)) {
+          return res.json({ ok: true, available: false, reason: 'mia_agent_cases_no_disponible', items: [] });
+        }
+        throw error;
+      }
+
+      return res.json({ ok: true, available: true, items: data || [] });
+    } catch (err) {
+      console.error('Error en /admin/mia/agent-cases:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/admin/mia/knowledge-search', requireAdmin, async (req, res) => {
+    try {
+      const texto = String(req.query.q || req.query.texto || '').trim();
+      if (!texto) return res.status(400).json({ error: 'Falta q o texto' });
+
+      const limit = Math.max(1, Math.min(10, Number(req.query.limit || 5)));
+      const organizationId = req.query.organization_id ? Number(req.query.organization_id) : null;
+      const organizationContext = Number.isInteger(organizationId) && organizationId > 0
+        ? await cargarOrganizationContextMIA(supabase, { organization_id: organizationId })
+        : null;
+      const result = await resolverPreguntaConBaseConocimientoMIA(supabase, {
+        texto,
+        limit,
+        organizationId: Number.isInteger(organizationId) && organizationId > 0 ? organizationId : null,
+        organizationContext,
+      });
+
+      return res.json({ ok: true, ...result });
+    } catch (err) {
+      console.error('Error en /admin/mia/knowledge-search:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.patch('/admin/mia/agent-cases/:id', requireAdmin, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'id invalido' });
+
+      const status = req.body?.status ? String(req.body.status).trim() : null;
+      const allowedStatus = new Set(['open', 'in_progress', 'resolved', 'dismissed']);
+      const patch = {
+        updated_at: new Date().toISOString(),
+      };
+
+      if (status) {
+        if (!allowedStatus.has(status)) return res.status(400).json({ error: 'status invalido' });
+        patch.status = status;
+        if (['resolved', 'dismissed'].includes(status)) patch.closed_at = new Date().toISOString();
+        if (['open', 'in_progress'].includes(status)) patch.closed_at = null;
+      }
+
+      if (Object.prototype.hasOwnProperty.call(req.body || {}, 'assigned_to')) {
+        patch.assigned_to = String(req.body.assigned_to || '').trim().slice(0, 120) || null;
+      }
+      if (Object.prototype.hasOwnProperty.call(req.body || {}, 'assigned_to_admin_user_id')) {
+        const assignedId = req.body.assigned_to_admin_user_id === null || req.body.assigned_to_admin_user_id === ''
+          ? null
+          : normalizarAdminUserId(req.body.assigned_to_admin_user_id);
+        if (req.body.assigned_to_admin_user_id !== null && req.body.assigned_to_admin_user_id !== '' && !assignedId) {
+          return res.status(400).json({ error: 'assigned_to_admin_user_id invalido' });
+        }
+        patch.assigned_to_admin_user_id = assignedId;
+      }
+      if (Object.prototype.hasOwnProperty.call(req.body || {}, 'resolution_text')) {
+        patch.resolution_text = String(req.body.resolution_text || '').trim().slice(0, 2000) || null;
+      }
+      if (Object.prototype.hasOwnProperty.call(req.body || {}, 'priority')) {
+        const priority = String(req.body.priority || '').trim();
+        const allowedPriority = new Set(['baja', 'normal', 'media', 'alta', 'critica']);
+        if (!allowedPriority.has(priority)) return res.status(400).json({ error: 'priority invalida' });
+        patch.priority = priority;
+      }
+
+      const { data, error } = await supabase
+        .from('mia_agent_cases')
+        .update(patch)
+        .eq('id', id)
+        .select('id, user_id, organization_id, status, priority, reason, assigned_to, assigned_to_admin_user_id, resolution_text, updated_at, closed_at')
+        .single();
+
+      if (error) {
+        if (isMissingTableError(error)) {
+          return res.json({ ok: true, available: false, reason: 'mia_agent_cases_no_disponible' });
+        }
+        throw error;
+      }
+
+      await auditarAdmin(supabase, req, 'mia_agent_case.update', 'mia_agent_case', data.id, data.organization_id || null, {
+        fields: Object.keys(patch).filter((field) => field !== 'updated_at'),
+        status: data.status,
+        priority: data.priority,
+      });
+
+      return res.json({ ok: true, available: true, item: data });
+    } catch (err) {
+      console.error('Error en PATCH /admin/mia/agent-cases/:id:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/admin/mia/agent-cases/:id/reply', requireAdmin, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'id invalido' });
+
+      const texto = String(req.body?.texto || req.body?.message || '').trim();
+      if (texto.length < 2) return res.status(400).json({ error: 'texto requerido' });
+      if (texto.length > 2500) return res.status(400).json({ error: 'texto demasiado largo' });
+
+      const dryRun = req.body?.dry_run === true || req.query.dry_run === 'true';
+      const { data: caso, error: caseError } = await supabase
+        .from('mia_agent_cases')
+        .select('id, user_id, organization_id, inbound_id, decision_id, digest_id, conversation_id, status, priority, reason, question_text, summary, metadata_json')
+        .eq('id', id)
+        .maybeSingle();
+
+      if (caseError) {
+        if (isMissingTableError(caseError)) {
+          return res.json({ ok: true, available: false, reason: 'mia_agent_cases_no_disponible' });
+        }
+        throw caseError;
+      }
+      if (!caso?.id) return res.status(404).json({ error: 'caso_no_encontrado' });
+
+      const { data: user, error: userError } = await supabase
+        .from('users')
+        .select('id, phone, name, first_name, organization_id')
+        .eq('id', caso.user_id)
+        .maybeSingle();
+
+      if (userError) throw userError;
+      if (!user?.phone) return res.status(400).json({ error: 'usuario_sin_telefono' });
+
+      const phone = normalizePhone(user.phone);
+      const organizationId = normalizarOrganizationId(caso.organization_id || user.organization_id);
+      const organizationContext = await cargarOrganizationContextMIA(supabase, { organization_id: organizationId });
+      const branding = obtenerMiaBranding(organizationContext);
+      const assignedTo = String(req.body?.assigned_to || branding.reply_sender || 'Ruralicos').trim().slice(0, 120) || 'Ruralicos';
+      let assignedToAdminUserId = getAdminUserIdFromRequest(req);
+      if (Object.prototype.hasOwnProperty.call(req.body || {}, 'assigned_to_admin_user_id')) {
+        assignedToAdminUserId = req.body.assigned_to_admin_user_id === null || req.body.assigned_to_admin_user_id === ''
+          ? null
+          : normalizarAdminUserId(req.body.assigned_to_admin_user_id);
+        if (req.body.assigned_to_admin_user_id !== null && req.body.assigned_to_admin_user_id !== '' && !assignedToAdminUserId) {
+          return res.status(400).json({ error: 'assigned_to_admin_user_id invalido' });
+        }
+      }
+      const prefix = `Respuesta de ${branding.reply_sender}`;
+      const body = texto.toLowerCase().startsWith(String(branding.reply_sender || '').toLowerCase())
+        ? texto
+        : `${prefix}:\n${texto}`;
+
+      if (dryRun) {
+        return res.json({
+          ok: true,
+          dry_run: true,
+          available: true,
+          case_id: caso.id,
+          user_id: user.id,
+          phone,
+          body,
+        });
+      }
+
+      await enviarDigestPro(phone, body);
+
+      const now = new Date().toISOString();
+      const metadata = parseJsonObject(caso.metadata_json);
+      const { data: updatedCase, error: updateCaseError } = await supabase
+        .from('mia_agent_cases')
+        .update({
+          status: 'resolved',
+          assigned_to: assignedTo,
+          assigned_to_admin_user_id: assignedToAdminUserId,
+          resolution_text: texto,
+          metadata_json: {
+            ...metadata,
+            agent_reply: {
+              sent_at: now,
+              channel: 'whatsapp',
+              phone,
+              assigned_to: assignedTo,
+              assigned_to_admin_user_id: assignedToAdminUserId,
+              organization_id: organizationId || null,
+              reply_sender: branding.reply_sender,
+            },
+          },
+          updated_at: now,
+          closed_at: now,
+        })
+        .eq('id', caso.id)
+        .select('id, organization_id, status, assigned_to, assigned_to_admin_user_id, resolution_text, updated_at, closed_at')
+        .single();
+
+      if (updateCaseError) throw updateCaseError;
+
+      await auditarAdmin(supabase, req, 'mia_agent_case.reply', 'mia_agent_case', caso.id, organizationId, {
+        user_id: user.id,
+        inbound_id: caso.inbound_id || null,
+        decision_id: caso.decision_id || null,
+        sent: true,
+        channel: 'whatsapp',
+      });
+
+      const { error: conversationError } = await supabase
+        .from('user_conversations')
+        .update({
+          estado: 'resuelta',
+          cerrada_at: now,
+        })
+        .eq('user_id', user.id)
+        .eq('tipo', 'respuesta_consulta')
+        .eq('estado', 'activa');
+
+      if (conversationError && !isMissingTableError(conversationError)) {
+        console.warn('[mia:agent_reply] No se pudo cerrar conversacion agente:', conversationError.message);
+      }
+
+      return res.json({
+        ok: true,
+        dry_run: false,
+        available: true,
+        sent: true,
+        case: updatedCase,
+        user: {
+          id: user.id,
+          phone,
+          name: user.first_name || user.name || null,
+        },
+      });
+    } catch (err) {
+      console.error('Error en POST /admin/mia/agent-cases/:id/reply:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/admin/mia/console', requireAdmin, async (req, res) => {
+    try {
+      const hours = Math.max(1, Math.min(168, Number(req.query.hours || 24)));
+      const desde = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+
+      async function safeCount(query, key) {
+        const { count, error } = await query;
+        if (error) {
+          if (isMissingTableError(error)) return { key, available: false, count: 0 };
+          throw error;
+        }
+        return { key, available: true, count: count || 0 };
+      }
+
+      const counts = await Promise.all([
+        safeCount(supabase.from('mia_inbound_messages').select('id', { count: 'exact', head: true }).gte('created_at', desde), 'inbound_total'),
+        safeCount(supabase.from('mia_inbound_messages').select('id', { count: 'exact', head: true }).eq('status', 'processed').gte('created_at', desde), 'inbound_processed'),
+        safeCount(supabase.from('mia_inbound_messages').select('id', { count: 'exact', head: true }).eq('status', 'ignored').gte('created_at', desde), 'inbound_ignored'),
+        safeCount(supabase.from('mia_inbound_messages').select('id', { count: 'exact', head: true }).eq('status', 'failed').gte('created_at', desde), 'inbound_failed'),
+        safeCount(supabase.from('mia_decisions').select('id', { count: 'exact', head: true }).gte('created_at', desde), 'decisions_total'),
+        safeCount(supabase.from('mia_actions').select('id', { count: 'exact', head: true }).eq('status', 'failed').gte('created_at', desde), 'actions_failed'),
+        safeCount(supabase.from('mia_outbox').select('id', { count: 'exact', head: true }).in('status', ['queued', 'failed']), 'outbox_pending'),
+        safeCount(supabase.from('mia_structured_memory').select('id', { count: 'exact', head: true }).gte('created_at', desde), 'structured_memory_new'),
+        safeCount(supabase.from('mia_agent_cases').select('id', { count: 'exact', head: true }).in('status', ['open', 'in_progress']), 'agent_cases_open'),
+      ]);
+
+      const byKey = Object.fromEntries(counts.map((item) => [item.key, item.count]));
+      const available = counts.every((item) => item.available);
+
+      const [
+        decisionsRecent,
+        outboxRecent,
+        inboundFailed,
+        webhookReplay,
+        agentCases,
+      ] = await Promise.all([
+        supabase
+          .from('mia_decisions')
+          .select('id, user_id, intent, confidence, risk_flags, summary, created_at')
+          .gte('created_at', desde)
+          .order('created_at', { ascending: false })
+          .limit(20),
+        supabase
+          .from('mia_outbox')
+          .select('id, user_id, to_phone, status, attempts, last_error, next_attempt_at, created_at')
+          .in('status', ['queued', 'failed'])
+          .order('created_at', { ascending: false })
+          .limit(20),
+        supabase
+          .from('mia_inbound_messages')
+          .select('id, from_phone, status, ignored_reason, error_msg, text_body, created_at')
+          .eq('status', 'failed')
+          .gte('created_at', desde)
+          .order('created_at', { ascending: false })
+          .limit(20),
+        supabase
+          .from('webhook_events')
+          .select('id, source, processed, result_json, error_msg, body_json, created_at')
+          .eq('source', 'ultramsg')
+          .eq('processed', false)
+          .gte('created_at', desde)
+          .order('created_at', { ascending: false })
+          .limit(50),
+        supabase
+          .from('mia_agent_cases')
+          .select('id, user_id, status, priority, reason, question_text, summary, created_at')
+          .in('status', ['open', 'in_progress'])
+          .order('created_at', { ascending: false })
+          .limit(20),
+      ]);
+
+      const optional = (result, fallback = []) => {
+        if (result.error && isMissingTableError(result.error)) return fallback;
+        if (result.error) throw result.error;
+        return result.data || fallback;
+      };
+      const replayCandidates = optional(webhookReplay)
+        .map((event) => analizarWebhookEventParaReplay(event))
+        .filter((candidate) => candidate.eligible);
+      byKey.replay_candidates = replayCandidates.length;
+
+      return res.json({
+        ok: byKey.inbound_failed === 0 && byKey.actions_failed === 0 && byKey.replay_candidates === 0,
+        available,
+        hours,
+        metrics: byKey,
+        recent: {
+          decisions: optional(decisionsRecent),
+          outbox_pending: optional(outboxRecent),
+          inbound_failed: optional(inboundFailed),
+          agent_cases: optional(agentCases),
+          replay_candidates: replayCandidates.slice(0, 20),
+        },
+      });
+    } catch (err) {
+      console.error('Error en /admin/mia/console:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/admin/mia/quality-report', requireAdmin, async (req, res) => {
+    try {
+      const hours = Math.max(1, Math.min(720, Number(req.query.hours || 24)));
+      const limit = Math.max(50, Math.min(2000, Number(req.query.limit || 500)));
+      const report = await generarQualityReportMIA(supabase, { hours, limit });
+      return res.json({ ok: true, ...report });
+    } catch (err) {
+      console.error('Error en /admin/mia/quality-report:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/admin/mia/answer-audit', requireAdmin, async (req, res) => {
+    try {
+      const hours = Math.max(1, Math.min(720, Number(req.query.hours || 72)));
+      const limit = Math.max(50, Math.min(3000, Number(req.query.limit || 500)));
+      const report = await generarAnswerAuditMIA(supabase, { hours, limit });
+      return res.json({ ok: report.ok !== false, ...report, params: { hours, limit } });
+    } catch (err) {
+      console.error('Error en /admin/mia/answer-audit:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/admin/mia/profile', requireAdmin, async (req, res) => {
+    try {
+      const userId = req.query.user_id ? Number(req.query.user_id) : null;
+      const phone = req.query.phone ? normalizePhone(String(req.query.phone)) : null;
+      if ((!Number.isInteger(userId) || userId <= 0) && !phone) {
+        return res.status(400).json({ error: 'Indica user_id o phone' });
+      }
+
+      let user = null;
+      if (Number.isInteger(userId) && userId > 0) {
+        const { data, error } = await supabase
+          .from('users')
+          .select('id, name, first_name, subscription, preferences, preferencias_extra, contexto_narrativo, organization_id')
+          .eq('id', userId)
+          .maybeSingle();
+        if (error) throw error;
+        user = data;
+      } else if (phone) {
+        const { data, error } = await supabase
+          .from('users')
+          .select('id, name, first_name, subscription, preferences, preferencias_extra, contexto_narrativo, organization_id')
+          .eq('phone', phone)
+          .maybeSingle();
+        if (error) throw error;
+        user = data;
+      }
+
+      if (!user?.id) return res.status(404).json({ error: 'usuario_no_encontrado' });
+
+      const profile = await cargarPerfilOperativoMIA(supabase, user.id, { user });
+      return res.json({ ok: true, profile });
+    } catch (err) {
+      console.error('Error en /admin/mia/profile:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/admin/mia/evals', requireAdmin, async (req, res) => {
+    try {
+      const includeDetails = String(req.query.details || 'false').toLowerCase() === 'true';
+      const report = ejecutarEvalsMIA();
+      if (!includeDetails) {
+        return res.json({
+          ok: report.ok,
+          scenarios_total: report.scenarios_total,
+          scenarios_passed: report.scenarios_passed,
+          checks_total: report.checks_total,
+          checks_failed: report.checks_failed,
+          failed_checks: report.failed_checks,
+        });
+      }
+      return res.json(report);
+    } catch (err) {
+      console.error('Error en /admin/mia/evals:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/admin/mia/replay-candidates', requireAdmin, async (req, res) => {
+    try {
+      const hours = Math.max(1, Math.min(720, Number(req.query.hours || 168)));
+      const limit = Math.max(1, Math.min(500, Number(req.query.limit || 100)));
+      const includeRaw = req.query.include_raw === 'true';
+      const includeProcessed = req.query.include_processed === 'true';
+      const soloElegibles = req.query.only_eligible === 'true';
+      const desde = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+
+      let query = supabase
+        .from('webhook_events')
+        .select('id, source, processed, result_json, error_msg, body_json, created_at')
+        .eq('source', 'ultramsg')
+        .gte('created_at', desde);
+
+      if (!includeProcessed) query = query.eq('processed', false);
+      query = query
+        .order('created_at', { ascending: false })
+        .limit(limit);
+
+      const { data, error } = await query;
+      if (error) throw error;
+
+      let items = (data || []).map((event) => analizarWebhookEventParaReplay(event, { includeRaw }));
+      if (soloElegibles) items = items.filter((item) => item.eligible);
+
+      const reasons = {};
+      for (const item of items) {
+        const key = item.reason || 'sin_reason';
+        reasons[key] = (reasons[key] || 0) + 1;
+      }
+
+      return res.json({
+        ok: true,
+        hours,
+        include_processed: includeProcessed,
+        include_raw: includeRaw,
+        total: items.length,
+        elegibles: items.filter((item) => item.eligible).length,
+        forceables: items.filter((item) => item.forceable).length,
+        reasons,
+        items,
+      });
+    } catch (err) {
+      console.error('Error en /admin/mia/replay-candidates:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/admin/mia/replay-webhook-events', requireAdmin, async (req, res) => {
+    try {
+      const ids = Array.isArray(req.body?.ids)
+        ? req.body.ids.map(Number).filter((id) => Number.isInteger(id) && id > 0)
+        : [];
+      const hours = Math.max(1, Math.min(720, Number(req.body?.hours || req.query.hours || 168)));
+      const limit = Math.max(1, Math.min(50, Number(req.body?.limit || req.query.limit || 10)));
+      const force = req.body?.force === true || req.query.force === 'true';
+      const dryRun = req.body?.dry_run !== false && req.query.dry_run !== 'false';
+      const desde = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+
+      let query = supabase
+        .from('webhook_events')
+        .select('id, source, processed, result_json, error_msg, body_json, created_at')
+        .eq('source', 'ultramsg')
+        .eq('processed', false);
+
+      if (ids.length > 0) {
+        query = query.in('id', ids);
+      } else {
+        query = query.gte('created_at', desde);
+      }
+      query = query
+        .order('created_at', { ascending: true })
+        .limit(limit);
+
+      const { data, error } = await query;
+      if (error) throw error;
+
+      const eventos = data || [];
+      const candidatos = eventos
+        .map((event) => ({
+          event,
+          candidate: analizarWebhookEventParaReplay(event, { includeRaw: true }),
+        }))
+        .filter(({ candidate }) => force ? (candidate.eligible || candidate.forceable) : candidate.eligible);
+
+      if (dryRun) {
+        return res.json({
+          ok: true,
+          dry_run: true,
+          force,
+          encontrados: eventos.length,
+          replayables: candidatos.length,
+          items: candidatos.map(({ candidate }) => candidate),
+        });
+      }
+
+      if (req.body?.confirm !== 'REPLAY') {
+        return res.status(400).json({
+          error: 'Para ejecutar replay real envia dry_run=false y confirm="REPLAY".',
+          encontrados: eventos.length,
+          replayables: candidatos.length,
+        });
+      }
+
+      const webhookToken = String(process.env.ULTRAMSG_WEBHOOK_TOKEN || '').trim();
+      if (!webhookToken) {
+        return res.status(503).json({ error: 'ULTRAMSG_WEBHOOK_TOKEN no configurado. Replay real bloqueado.' });
+      }
+
+      const baseUrl = String(process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
+      const replayUrl = `${baseUrl}/webhooks/ultramsg/feedback?token=${encodeURIComponent(webhookToken)}`;
+      const resultados = [];
+
+      for (const { event, candidate } of candidatos) {
+        try {
+          const response = await fetch(replayUrl, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(event.body_json || {}),
+          });
+          const raw = await response.text();
+          let body = null;
+          try {
+            body = raw ? JSON.parse(raw) : null;
+          } catch {
+            body = { raw: raw.slice(0, 2000) };
+          }
+
+          const ok = response.ok && body?.ok !== false;
+          const originalResult = parseJsonObject(event.result_json);
+          await supabase
+            .from('webhook_events')
+            .update({
+              processed: ok,
+              result_json: {
+                ...originalResult,
+                replay: {
+                  attempted_at: new Date().toISOString(),
+                  ok,
+                  http_status: response.status,
+                  response: body,
+                },
+              },
+              error_msg: ok ? null : `Replay fallo HTTP ${response.status}`,
+            })
+            .eq('id', event.id);
+
+          resultados.push({
+            id: event.id,
+            ok,
+            http_status: response.status,
+            reason: candidate.reason,
+            response: body,
+          });
+        } catch (errReplay) {
+          await supabase
+            .from('webhook_events')
+            .update({
+              result_json: {
+                ...parseJsonObject(event.result_json),
+                replay: {
+                  attempted_at: new Date().toISOString(),
+                  ok: false,
+                  error: errReplay.message,
+                },
+              },
+              error_msg: `Replay fallo: ${errReplay.message}`.slice(0, 1000),
+            })
+            .eq('id', event.id);
+
+          resultados.push({
+            id: event.id,
+            ok: false,
+            reason: candidate.reason,
+            error: errReplay.message,
+          });
+        }
+      }
+
+      return res.json({
+        ok: resultados.every((item) => item.ok),
+        dry_run: false,
+        force,
+        encontrados: eventos.length,
+        replayables: candidatos.length,
+        procesados: resultados.length,
+        exitosos: resultados.filter((item) => item.ok).length,
+        fallidos: resultados.filter((item) => !item.ok).length,
+        resultados,
+      });
+    } catch (err) {
+      console.error('Error en /admin/mia/replay-webhook-events:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/admin/mia/outbox/send-pending', requireAdmin, async (req, res) => {
+    try {
+      const limit = Math.max(1, Math.min(50, Number(req.body?.limit || req.query.limit || 20)));
+      const dryRun = req.body?.dry_run === true || req.query.dry_run === 'true';
+      const pendientes = await cargarOutboxPendiente(supabase, limit);
+
+      if (!pendientes.available) {
+        return res.json({ ok: true, available: false, reason: pendientes.reason, enviados: 0, items: [] });
+      }
+      if (!pendientes.ok) return res.status(500).json({ ok: false, error: pendientes.error });
+
+      const resultados = [];
+      for (const item of pendientes.items) {
+        if (dryRun) {
+          resultados.push({ id: item.id, dry_run: true, to_phone: item.to_phone, body: item.body });
+          continue;
+        }
+
+        const result = await procesarOutboxItemMIA(supabase, item, enviarDigestPro);
+        resultados.push(result);
+      }
+
+      return res.json({
+        ok: resultados.every((item) => item.ok !== false),
+        available: true,
+        dry_run: dryRun,
+        procesados: resultados.length,
+        enviados: resultados.filter((item) => item.status === 'sent').length,
+        fallidos: resultados.filter((item) => item.ok === false).length,
+        omitidos: resultados.filter((item) => item.skipped).length,
+        resultados,
+      });
+    } catch (err) {
+      console.error('Error en /admin/mia/outbox/send-pending:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/admin/operations/scrapers-quality', requireAdmin, async (req, res) => {
+    try {
+      const days = Math.max(1, Math.min(30, Number(req.query.days || 7)));
+      const desde = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+
+      const { data, error } = await supabase
+        .from('scraper_runs')
+        .select('id, fuente, endpoint, fecha_objetivo, started_at, finished_at, duration_ms, status, http_status, nuevas, duplicadas, errores, relevantes, error_msg')
+        .gte('started_at', desde)
+        .order('started_at', { ascending: false })
+        .limit(2000);
+
+      if (error) {
+        if (isMissingTableError(error)) {
+          return res.json({ ok: true, available: false, reason: 'scraper_runs_no_disponible', fuentes: [] });
+        }
+        throw error;
+      }
+
+      const porFuente = new Map();
+      for (const run of data || []) {
+        const fuente = run.fuente || run.endpoint || 'desconocida';
+        if (!porFuente.has(fuente)) {
+          porFuente.set(fuente, {
+            fuente,
+            runs: 0,
+            ok: 0,
+            warnings: 0,
+            errors: 0,
+            nuevas: 0,
+            duplicadas: 0,
+            errores_reportados: 0,
+            relevantes: 0,
+            ultimo_run_at: null,
+            ultimo_ok_at: null,
+            ultimo_error: null,
+            duracion_media_ms: 0,
+            flags: [],
+          });
+        }
+
+        const item = porFuente.get(fuente);
+        item.runs++;
+        item.nuevas += Number(run.nuevas || 0);
+        item.duplicadas += Number(run.duplicadas || 0);
+        item.errores_reportados += Number(run.errores || 0);
+        item.relevantes += Number(run.relevantes || 0);
+        item.duracion_media_ms += Number(run.duration_ms || 0);
+        item.ultimo_run_at = item.ultimo_run_at || run.started_at;
+
+        if (run.status === 'ok') {
+          item.ok++;
+          item.ultimo_ok_at = item.ultimo_ok_at || run.started_at;
+        } else if (run.status === 'warning') {
+          item.warnings++;
+        } else if (run.status === 'error') {
+          item.errors++;
+          item.ultimo_error = item.ultimo_error || run.error_msg || `HTTP ${run.http_status || 'desconocido'}`;
+        }
+      }
+
+      const fuentes = [...porFuente.values()].map((item) => {
+        item.duracion_media_ms = item.runs ? Math.round(item.duracion_media_ms / item.runs) : 0;
+        if (item.ok === 0) item.flags.push('sin_ok_reciente');
+        if (item.errors > 0) item.flags.push('errores_recientes');
+        if (item.runs >= 2 && item.nuevas === 0 && item.duplicadas === 0) item.flags.push('sin_volumen');
+        if (item.duplicadas > item.nuevas * 5 && item.duplicadas > 20) item.flags.push('duplicados_altos');
+        if (item.errores_reportados > 0) item.flags.push('errores_en_respuesta');
+        return item;
+      });
+
+      return res.json({
+        ok: fuentes.every((fuente) => fuente.flags.length === 0),
+        available: true,
+        days,
+        total_runs: (data || []).length,
+        fuentes: fuentes.sort((a, b) => b.flags.length - a.flags.length || a.fuente.localeCompare(b.fuente)),
+      });
+    } catch (err) {
+      console.error('Error en /admin/operations/scrapers-quality:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  async function handleOperationalDataQuality(req, res) {
+    try {
+      const days = Math.max(1, Math.min(60, Number(req.query.days || 7)));
+      const limit = Math.max(100, Math.min(5000, Number(req.query.limit || 1000)));
+      const fecha = req.query.fecha ? String(req.query.fecha).trim() : null;
+
+      if (fecha && !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
+        return res.status(400).json({ error: 'fecha debe tener formato YYYY-MM-DD' });
+      }
+
+      const report = await generarReporteCalidadOperativaMIA(supabase, {
+        days,
+        fecha,
+        limit,
+      });
+
+      return res.json({
+        ...report,
+        params: { days, fecha, limit },
+      });
+    } catch (err) {
+      console.error('Error en /admin/operations/data-quality:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
+  app.get('/admin/operations/data-quality', requireAdmin, handleOperationalDataQuality);
+  app.get('/admin/operations/alerts-quality', requireAdmin, handleOperationalDataQuality);
 
   app.post('/admin/mia/backfill-profiles', requireAdmin, async (req, res) => {
     try {

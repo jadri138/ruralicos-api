@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const { checkCronToken } = require('../utils/checkCronToken');
+const { conOrganizationId, extraerOrganizationId } = require('../mia/organizationContext');
 
 function hashIp(ip) {
   const salt = process.env.JWT_SECRET || process.env.CRON_TOKEN || 'ruralicos';
@@ -51,14 +52,14 @@ async function guardarMemoriaClickSiPrimero(supabase, link) {
 
   const { error: memoriaError } = await supabase
     .from('user_memory')
-    .insert({
+    .insert(conOrganizationId({
       user_id: link.user_id,
       tipo: 'feedback_positivo',
       contenido: `Hizo click en la alerta: ${alerta?.titulo || link.url_destino}`,
       alerta_id: link.alerta_id,
       digest_id: link.digest_id,
       peso_inicial: 0.45,
-    });
+    }, extraerOrganizationId(link)));
 
   if (memoriaError) {
     console.warn('[clicks] No se pudo guardar memoria de click:', memoriaError.message);
@@ -75,7 +76,7 @@ module.exports = function clicksRoutes(app, supabase) {
     try {
       const { data: link, error } = await supabase
         .from('alerta_click_links')
-        .select('token, user_id, digest_id, alerta_id, url_destino, click_count')
+        .select('token, user_id, organization_id, digest_id, alerta_id, url_destino, click_count')
         .eq('token', token)
         .maybeSingle();
 
@@ -93,7 +94,7 @@ module.exports = function clicksRoutes(app, supabase) {
 
       const { error: insertError } = await supabase
         .from('alerta_clicks')
-        .insert({
+        .insert(conOrganizationId({
           token: link.token,
           user_id: link.user_id,
           digest_id: link.digest_id,
@@ -102,7 +103,7 @@ module.exports = function clicksRoutes(app, supabase) {
           user_agent: userAgent,
           referer,
           ip_hash: ipHash,
-        });
+        }, extraerOrganizationId(link)));
 
       if (insertError) {
         console.warn('[clicks] No se pudo registrar click:', insertError.message);

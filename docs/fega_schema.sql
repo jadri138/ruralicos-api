@@ -1,7 +1,0 @@
--- Compatibilidad: FEGA usa ahora la tabla general de coincidencias nominales.
--- Ejecutar el esquema generico:
---
---   docs/official_list_matches_schema.sql
---
--- Este archivo queda como recordatorio para instalaciones antiguas que
--- esperaban un SQL especifico de FEGA.

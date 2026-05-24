@@ -1,8 +1,13 @@
 // src/routes/tareas.js
 const { checkCronToken } = require('../utils/checkCronToken');
-const { enviarWhatsAppAdmin } = require('../whatsapp');
+const { enviarWhatsAppAdmin, enviarDigestPro } = require('../whatsapp');
 const { getFechaMadridISO } = require('../utils/fechaMadrid');
 const { cotejarListadosOficiales } = require('../services/officialListMatcher');
+const {
+  cargarOutboxPendiente,
+  procesarOutboxItemMIA,
+  generarOutboxHealthMIA,
+} = require('../mia/outbox');
 
 const SCRAPE_PATHS_DEFAULT = [
   '/scrape-boe-oficial',
@@ -181,6 +186,73 @@ async function guardarPipelineRun(supabase, run) {
 }
 
 module.exports = function tareasRoutes(app, supabase) {
+  app.all('/tareas/mia-outbox', async (req, res) => {
+    if (!checkCronToken(req, res)) return;
+
+    try {
+      const limit = Math.max(1, Math.min(100, Number(req.query.limit || req.body?.limit || 50)));
+      const dryRun = String(req.query.dry_run || req.body?.dry_run || 'false').toLowerCase() === 'true';
+      const pendientes = await cargarOutboxPendiente(supabase, limit);
+
+      if (!pendientes.available) {
+        return res.json({
+          success: true,
+          available: false,
+          reason: pendientes.reason || 'mia_outbox_no_disponible',
+          procesados: 0,
+          enviados: 0,
+          fallidos: 0,
+          resultados: [],
+        });
+      }
+
+      if (!pendientes.ok) {
+        return res.status(500).json({ success: false, error: pendientes.error || 'mia_outbox_error' });
+      }
+
+      const resultados = [];
+      for (const item of pendientes.items || []) {
+        if (dryRun) {
+          resultados.push({
+            id: item.id,
+            dry_run: true,
+            status: item.status,
+            attempts: item.attempts || 0,
+            to_phone: item.to_phone,
+            body_preview: String(item.body || '').slice(0, 240),
+          });
+          continue;
+        }
+
+        const result = await procesarOutboxItemMIA(supabase, item, enviarDigestPro);
+        resultados.push(result);
+      }
+
+      const fallidos = resultados.filter((item) => item.ok === false);
+      const health = await generarOutboxHealthMIA(supabase, { hours: 72, limit: 1000 });
+
+      return res.status(fallidos.length ? 207 : 200).json({
+        success: fallidos.length === 0,
+        dry_run: dryRun,
+        available: true,
+        procesados: resultados.length,
+        enviados: resultados.filter((item) => item.status === 'sent').length,
+        fallidos: fallidos.length,
+        omitidos: resultados.filter((item) => item.skipped).length,
+        resultados,
+        health: {
+          ok: health.ok,
+          score: health.score,
+          metrics: health.metrics,
+          recovered_stuck: health.recovered_stuck || 0,
+        },
+      });
+    } catch (err) {
+      console.error('Error en /tareas/mia-outbox', err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   app.get('/tareas/scrapers-diario', async (req, res) => {
     if (!checkCronToken(req, res)) return;
 
@@ -725,6 +797,10 @@ module.exports = function tareasRoutes(app, supabase) {
         'mia_ciclo_post_digest',
         '/cerebro/ciclo-diario?explorar=false&limit=100&maxLoops=1'
       );
+      const miaOutbox = await runOptionalStage(
+        'mia_outbox',
+        '/tareas/mia-outbox?limit=50'
+      );
       const generarResumenFree = await runSimpleStage('generar_resumen_free', '/alertas/generar-resumen-free');
       const enviarResumenFree = await runSimpleStage('enviar_resumen_free', '/alertas/enviar-resumen-free');
       const estadoFinal = await runSimpleStage('estado_pipeline_final', '/alertas/estado-pipeline');
@@ -748,6 +824,7 @@ module.exports = function tareasRoutes(app, supabase) {
         prepararDigest,
         enviarDigest: enviarDigest.body,
         miaCicloPostDigest: miaCicloPostDigest.body,
+        miaOutbox: miaOutbox.body,
         generarResumenFree: generarResumenFree.body,
         enviarResumenFree: enviarResumenFree.body,
         estadoFinal: estadoFinal.body,

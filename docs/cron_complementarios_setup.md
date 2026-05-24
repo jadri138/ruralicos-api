@@ -43,12 +43,9 @@ GET /tareas/complementarios-diario?token=CRON_TOKEN
 GET /tareas/complementarios-diario?token=CRON_TOKEN&fega=true&ejercicio=2024&enviar_fega=true
 ```
 
-Antes de activar envios individuales hay que aplicar:
-
-```text
-docs/user_legal_identity_schema.sql
-docs/official_list_matches_schema.sql
-```
+Antes de activar envios individuales hay que comprobar que existen en Supabase
+las columnas de identidad legal en `users` y la tabla `official_list_matches`.
+Ya no se mantienen SQL sueltos en `docs`; usa la migracion operativa vigente.
 
 Tambien se puede lanzar solo el cotejo nominal sobre alertas ya guardadas:
 

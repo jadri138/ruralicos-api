@@ -12,8 +12,43 @@ const {
   analizarFeedbackCompleto,
 } = require('../brain');
 const { enviarDigestPro } = require('../whatsapp');
-const { interpretarMensaje } = require('../utils/cerebro');
 const { extraerUltraMsg, esEventoMensajeUltraMsg } = require('../utils/ultramsgParser');
+const { registrarInboundMIA, actualizarInboundMIA } = require('../mia/inbound');
+const { decidirMensajeMIA } = require('../mia/decisionCore');
+const { cargarDigestItemsMIA } = require('../mia/digestItems');
+const { registrarMemoriaEstructuradaMIA } = require('../mia/structuredMemory');
+const {
+  ejecutarAccionesMIA,
+  registrarCasoAgenteMIA,
+  abrirConversacionAgenteMIA,
+} = require('../mia/actionExecutor');
+const {
+  resolverPreguntaConBaseConocimientoMIA,
+  aplicarRespuestaConocimientoADecision,
+} = require('../mia/knowledgeBase');
+const {
+  registrarDecisionYAccionesMIA,
+  actualizarDecisionResultadoMIA,
+  actualizarAccionesPorTipoMIA,
+} = require('../mia/decisionStore');
+const {
+  encolarRespuestaMIA,
+  procesarOutboxItemMIA,
+} = require('../mia/outbox');
+const { guardarWebhookEventSeguro } = require('../mia/webhookEvent');
+const {
+  cargarPerfilOperativoMIA,
+  aplicarPerfilOperativoAUsuario,
+} = require('../mia/userProfile');
+const { evaluarPoliticaDecisionMIA } = require('../mia/policy');
+const {
+  conOrganizationId,
+  extraerOrganizationId,
+  filtrarAlertasPorOrganization,
+  cargarOrganizationContextMIA,
+  aplicarOrganizationContextAUsuario,
+  obtenerMiaBranding,
+} = require('../mia/organizationContext');
 
 function comprobarWebhookToken(req) {
   const esperado = String(process.env.ULTRAMSG_WEBHOOK_TOKEN || '').trim();
@@ -87,7 +122,7 @@ function escaparRegExp(texto) {
   return String(texto || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-async function aplicarLinksTrackingDigest(supabase, { mensaje, userId, digestId, alertas }) {
+async function aplicarLinksTrackingDigest(supabase, { mensaje, userId, digestId, alertas, organizationId = null }) {
   if ((process.env.CLICK_TRACKING_ENABLED || 'true').toLowerCase() === 'false') {
     return { mensaje, links: [], enabled: false };
   }
@@ -101,13 +136,13 @@ async function aplicarLinksTrackingDigest(supabase, { mensaje, userId, digestId,
     const token = generarTokenClick();
     const { data, error } = await supabase
       .from('alerta_click_links')
-      .upsert({
+      .upsert(conOrganizationId({
         token,
         user_id: userId,
         digest_id: digestId,
         alerta_id: alerta.id,
         url_destino: alerta.url,
-      }, { onConflict: 'user_id,digest_id,alerta_id' })
+      }, organizationId), { onConflict: 'user_id,digest_id,alerta_id' })
       .select('token, alerta_id, url_destino')
       .single();
 
@@ -130,7 +165,13 @@ async function aplicarLinksTrackingDigest(supabase, { mensaje, userId, digestId,
   return { mensaje: mensajeFinal, links, enabled: true };
 }
 
-async function abrirConversacionFeedbackPrueba(supabase, { userId, digestId, alertaIds, fecha }) {
+async function abrirConversacionFeedbackPrueba(supabase, {
+  userId,
+  digestId,
+  alertaIds,
+  fecha,
+  organizationId = null,
+}) {
   const ahora = new Date().toISOString();
 
   const { error: cerrarError } = await supabase
@@ -149,7 +190,7 @@ async function abrirConversacionFeedbackPrueba(supabase, { userId, digestId, ale
 
   const { error } = await supabase
     .from('user_conversations')
-    .insert({
+    .insert(conOrganizationId({
       user_id: userId,
       tipo: 'feedback_digest',
       estado: 'activa',
@@ -161,14 +202,14 @@ async function abrirConversacionFeedbackPrueba(supabase, { userId, digestId, ale
       },
       digest_id: digestId,
       expira_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-    });
+    }, organizationId));
 
   if (error) {
     console.warn('[feedback:prueba] No se pudo abrir conversacion de prueba:', error.message);
   }
 }
 
-async function sumarTagPerfil(supabase, userId, tema, delta) {
+async function sumarTagPerfil(supabase, userId, tema, delta, organizationId = null) {
   const { data: actual, error: selectError } = await supabase
     .from('user_interest_profile')
     .select('score, positivos, negativos')
@@ -183,14 +224,14 @@ async function sumarTagPerfil(supabase, userId, tema, delta) {
 
   const { error: upsertError } = await supabase
     .from('user_interest_profile')
-    .upsert({
+    .upsert(conOrganizationId({
       user_id: userId,
       tag: tema,
       score: (Number(actual?.score) || 0) + delta,
       positivos: (Number(actual?.positivos) || 0) + (delta > 0 ? 1 : 0),
       negativos: (Number(actual?.negativos) || 0) + (delta < 0 ? 1 : 0),
       updated_at: new Date().toISOString(),
-    }, { onConflict: 'user_id,tag' });
+    }, organizationId), { onConflict: 'user_id,tag' });
 
   if (upsertError) {
     console.warn(`[feedback] Error actualizando tag ${tema}:`, upsertError.message);
@@ -215,14 +256,14 @@ async function buscarConversacionActiva(supabase, userId) {
   return data || null;
 }
 
-async function cargarDigestYAlertas(supabase, userId, conversacionActiva) {
+async function cargarDigestYAlertas(supabase, userId, conversacionActiva, organizationId = null) {
   let digest = null;
 
   const digestId = conversacionActiva?.contexto_json?.digest_id || conversacionActiva?.digest_id;
   if (digestId) {
     const { data, error } = await supabase
       .from('digests')
-      .select('id, user_id, fecha, alerta_ids')
+      .select('id, user_id, fecha, alerta_ids, organization_id')
       .eq('id', digestId)
       .eq('user_id', userId)
       .maybeSingle();
@@ -234,7 +275,7 @@ async function cargarDigestYAlertas(supabase, userId, conversacionActiva) {
     const desde = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
     const { data, error } = await supabase
       .from('digests')
-      .select('id, user_id, fecha, alerta_ids, enviado_at, created_at')
+      .select('id, user_id, fecha, alerta_ids, organization_id, enviado_at, created_at')
       .eq('user_id', userId)
       .eq('enviado', true)
       .or(`enviado_at.gte.${desde},created_at.gte.${desde}`)
@@ -246,9 +287,12 @@ async function cargarDigestYAlertas(supabase, userId, conversacionActiva) {
     digest = data || null;
   }
 
-  const alertaIds = Array.isArray(digest?.alerta_ids)
-    ? digest.alerta_ids.map(Number).filter(Boolean)
-    : [];
+  const digestItems = await cargarDigestItemsMIA(supabase, digest?.id);
+  const alertaIds = Array.isArray(digestItems) && digestItems.length > 0
+    ? digestItems.map((item) => Number(item.alerta_id)).filter(Boolean)
+    : Array.isArray(digest?.alerta_ids)
+      ? digest.alerta_ids.map(Number).filter(Boolean)
+      : [];
 
   if (!digest || alertaIds.length === 0) {
     return { digest, alertaIds: [], alertasOrdenadas: [] };
@@ -256,28 +300,21 @@ async function cargarDigestYAlertas(supabase, userId, conversacionActiva) {
 
   const { data: alertas, error: errAlertas } = await supabase
     .from('alertas')
-    .select('id, titulo, resumen, resumen_final, provincias, sectores, subsectores, tipos_alerta, fuente')
+    .select('id, titulo, resumen, resumen_final, provincias, sectores, subsectores, tipos_alerta, fuente, organization_id')
     .in('id', alertaIds);
 
   if (errAlertas) throw errAlertas;
 
   const alertasPorId = new Map((alertas || []).map((alerta) => [Number(alerta.id), alerta]));
+  const alertasVisibles = filtrarAlertasPorOrganization(
+    alertaIds.map((id) => alertasPorId.get(id)).filter(Boolean),
+    organizationId
+  );
   return {
     digest,
     alertaIds,
-    alertasOrdenadas: alertaIds.map((id) => alertasPorId.get(id)).filter(Boolean),
+    alertasOrdenadas: alertasVisibles,
   };
-}
-
-function esMensajeTrivial(texto) {
-  const limpio = String(texto || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .trim()
-    .toLowerCase();
-
-  if (limpio.length < 6) return true;
-  return /^(hola|buen[ao]s(?: dias| tardes| noches)?|ok|vale|gracias|muchas gracias|si|no|perfecto|recibido)[\s.!?]*$/.test(limpio);
 }
 
 function candidatosTelefonoUsuario(telefono) {
@@ -315,151 +352,9 @@ async function buscarUsuarioPorTelefonoEntrante(supabase, telefono, select) {
     .find(Boolean) || users[0];
 }
 
-function crearMemoriaMensajeEntrante({ texto, digest, interpretacion }) {
-  if (esMensajeTrivial(texto)) return null;
-
-  const intencion = interpretacion?.intencion || 'otro';
-  const debeGuardar =
-    !digest ||
-    interpretacion?.requiere_respuesta ||
-    ['pregunta', 'queja', 'conversacion'].includes(intencion);
-
-  if (!debeGuardar) return null;
-
-  const tipo = intencion === 'pregunta' ? 'pregunta_usuario' : 'mensaje_libre';
-  const contenido = String(texto || '').trim().slice(0, 1200);
-  if (!contenido) return null;
-
-  return {
-    tipo,
-    contenido,
-    peso_inicial: intencion === 'pregunta' ? 0.7 : 0.4,
-  };
-}
-
-async function guardarInterpretacionMIA(supabase, { user, digest, alertaIds, alertasOrdenadas, texto, interpretacion }) {
-  const ahora = new Date().toISOString();
-  const alertasPorItem = new Map(alertasOrdenadas.map((alerta, index) => [index + 1, alerta]));
-  const feedbackRows = [];
-  const memoryRows = [];
-
-  for (const feedback of interpretacion.feedbacks || []) {
-    if (feedback.confianza === 'baja') continue;
-    const alerta = alertasPorItem.get(Number(feedback.item_numero));
-    const alertaId = alerta?.id || alertaIds[Number(feedback.item_numero) - 1];
-    if (!alertaId || ![-1, 0, 1].includes(Number(feedback.valor))) continue;
-
-    feedbackRows.push({
-      user_id: user.id,
-      digest_id: digest?.id || null,
-      alerta_id: alertaId,
-      item_numero: Number(feedback.item_numero),
-      valor: Number(feedback.valor),
-      canal: 'whatsapp',
-      raw_text: texto,
-      updated_at: ahora,
-    });
-
-    if (Number(feedback.valor) !== 0) {
-      memoryRows.push({
-        user_id: user.id,
-        tipo: Number(feedback.valor) > 0 ? 'feedback_positivo' : 'feedback_negativo',
-        contenido: alerta?.titulo || feedback.razon || `Feedback item ${feedback.item_numero}`,
-        alerta_id: alertaId,
-        digest_id: digest?.id || null,
-        peso_inicial: 1.0,
-      });
-    }
-  }
-
-  for (const memoria of interpretacion.memoria || []) {
-    memoryRows.push({
-      user_id: user.id,
-      tipo: memoria.tipo,
-      contenido: memoria.contenido,
-      alerta_id: null,
-      digest_id: digest?.id || null,
-      peso_inicial: memoria.peso_inicial || 0.5,
-    });
-  }
-
-  if (feedbackRows.length === 0 && memoryRows.length === 0) {
-    const memoriaEntrante = crearMemoriaMensajeEntrante({ texto, digest, interpretacion });
-    if (memoriaEntrante) {
-      memoryRows.push({
-        user_id: user.id,
-        tipo: memoriaEntrante.tipo,
-        contenido: memoriaEntrante.contenido,
-        alerta_id: null,
-        digest_id: digest?.id || null,
-        peso_inicial: memoriaEntrante.peso_inicial,
-      });
-    }
-  }
-
-  if (feedbackRows.length > 0) {
-    const { error } = await supabase
-      .from('alerta_feedback')
-      .upsert(feedbackRows, { onConflict: 'user_id,digest_id,alerta_id' });
-    if (error) throw error;
-
-    for (const row of feedbackRows) {
-      if (row.valor === 0) continue;
-      const alerta = alertasOrdenadas.find((a) => Number(a.id) === Number(row.alerta_id));
-      if (alerta) {
-        await aplicarFeedbackAlPerfil(supabase, {
-          userId: user.id,
-          alerta,
-          delta: row.valor,
-        });
-      }
-    }
-  }
-
-  if (memoryRows.length > 0) {
-    const { error } = await supabase
-      .from('user_memory')
-      .insert(memoryRows);
-    if (error) throw error;
-  }
-
-  return {
-    feedbacks_guardados: feedbackRows.length,
-    memorias_guardadas: memoryRows.length,
-  };
-}
-
 module.exports = function feedbackRoutes(app, supabase) {
   async function guardarWebhookEvent(req, result = null, error = null) {
-    const query = { ...(req.query || {}) };
-    if (query.token) query.token = '[redacted]';
-
-    try {
-      const { data, error: insertError } = await supabase
-        .from('webhook_events')
-        .insert({
-          source: 'ultramsg',
-          path: req.path,
-          method: req.method,
-          content_type: req.headers['content-type'] || null,
-          query_json: query,
-          body_json: req.body || {},
-          processed: Boolean(result?.ok && !result?.ignored),
-          result_json: result,
-          error_msg: error ? String(error.message || error).slice(0, 1000) : null,
-        })
-        .select('id')
-        .single();
-
-      if (insertError) {
-        console.warn('[webhook_events] No se pudo guardar evento:', insertError.message);
-        return null;
-      }
-      return data?.id || null;
-    } catch (err) {
-      console.warn('[webhook_events] Error inesperado guardando evento:', err.message);
-      return null;
-    }
+    return guardarWebhookEventSeguro(supabase, req, result, error);
   }
 
   async function guardarFeedbackDesdeTexto({ phone, texto }) {
@@ -469,13 +364,14 @@ module.exports = function feedbackRoutes(app, supabase) {
     if (!telefono) return { ok: false, error: 'Telefono invalido' };
     if (!rawText) return { ok: true, ignored: true, reason: 'texto_vacio' };
 
-    const user = await buscarUsuarioPorTelefonoEntrante(supabase, telefono, 'id, phone');
+    const user = await buscarUsuarioPorTelefonoEntrante(supabase, telefono, 'id, phone, organization_id');
     if (!user) return { ok: true, ignored: true, reason: 'usuario_no_encontrado', phone: telefono };
+    const organizationId = extraerOrganizationId(user);
 
     const desde = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
     const { data: digest, error: errDigest } = await supabase
       .from('digests')
-      .select('id, user_id, fecha, alerta_ids, enviado_at, created_at')
+      .select('id, user_id, fecha, alerta_ids, organization_id, enviado_at, created_at')
       .eq('user_id', user.id)
       .eq('enviado', true)
       .or(`enviado_at.gte.${desde},created_at.gte.${desde}`)
@@ -494,7 +390,7 @@ module.exports = function feedbackRoutes(app, supabase) {
 
     const { data: alertas, error: errAlertas } = await supabase
       .from('alertas')
-      .select('id, titulo, resumen, resumen_final, provincias, sectores, subsectores, tipos_alerta, fuente')
+      .select('id, titulo, resumen, resumen_final, provincias, sectores, subsectores, tipos_alerta, fuente, organization_id')
       .in('id', alertaIds);
 
     if (errAlertas) throw errAlertas;
@@ -521,7 +417,7 @@ module.exports = function feedbackRoutes(app, supabase) {
         .map((voto) => {
           const alertaId = alertaIds[voto.item - 1];
           if (!alertasPorId.has(alertaId)) return null;
-          return {
+          return conOrganizationId({
             user_id: user.id,
             digest_id: digest.id,
             alerta_id: alertaId,
@@ -530,7 +426,7 @@ module.exports = function feedbackRoutes(app, supabase) {
             canal: 'whatsapp',
             raw_text: rawText,
             updated_at: new Date().toISOString(),
-          };
+          }, organizationId);
         })
         .filter(Boolean);
 
@@ -587,11 +483,11 @@ module.exports = function feedbackRoutes(app, supabase) {
     let aprendizajesNegativos = 0;
 
     for (const tema of analisis.aprende_positivo || []) {
-      if (await sumarTagPerfil(supabase, user.id, tema, 1)) aprendizajesPositivos++;
+      if (await sumarTagPerfil(supabase, user.id, tema, 1, organizationId)) aprendizajesPositivos++;
     }
 
     for (const tema of analisis.aprende_negativo || []) {
-      if (await sumarTagPerfil(supabase, user.id, tema, -1)) aprendizajesNegativos++;
+      if (await sumarTagPerfil(supabase, user.id, tema, -1, organizationId)) aprendizajesNegativos++;
     }
 
     return {
@@ -647,22 +543,26 @@ module.exports = function feedbackRoutes(app, supabase) {
 
       const { data: user, error: errUser } = await supabase
         .from('users')
-        .select('id, name, phone')
+        .select('id, name, phone, organization_id')
         .eq('phone', phone)
         .maybeSingle();
 
       if (errUser) return res.status(500).json({ error: errUser.message });
       if (!user) return res.status(404).json({ error: 'Usuario no encontrado para ese telefono' });
+      const organizationContext = await cargarOrganizationContextMIA(supabase, user);
+      const organizationId = organizationContext.organization_id || extraerOrganizationId(user);
+      const branding = obtenerMiaBranding(organizationContext);
 
-      const { data: alertas, error: errAlertas } = await supabase
+      const { data: alertasRaw, error: errAlertas } = await supabase
         .from('alertas')
-        .select('id, titulo, url, fuente, resumen_final, resumen')
+        .select('id, titulo, url, fuente, resumen_final, resumen, organization_id')
         .eq('estado_ia', 'listo')
         .order('fecha', { ascending: false })
         .order('id', { ascending: false })
         .limit(2);
 
       if (errAlertas) return res.status(500).json({ error: errAlertas.message });
+      const alertas = filtrarAlertasPorOrganization(alertasRaw || [], organizationId);
       if (!alertas || alertas.length === 0) {
         return res.status(404).json({ error: 'No hay alertas listas para construir la prueba' });
       }
@@ -673,7 +573,7 @@ module.exports = function feedbackRoutes(app, supabase) {
       const bloques = alertas.map((a, index) => {
         const resumen = (a.resumen_final || a.resumen || a.titulo || '').replace(/\s+/g, ' ').slice(0, 280);
         return [
-          `*${index + 1}. ${a.titulo || 'Alerta Ruralicos'}*`,
+          `*${index + 1}. ${a.titulo || `Alerta ${branding.reply_sender}`}*`,
           resumen,
           a.url || '',
         ].filter(Boolean).join('\n');
@@ -682,7 +582,7 @@ module.exports = function feedbackRoutes(app, supabase) {
       let mensaje = [
         `Hola${nombre}`,
         '',
-        '*Ruralicos - prueba de valoracion*',
+        `*${branding.digest_title} - prueba de valoracion*`,
         '',
         'Este es un digest simulado para comprobar que el sistema aprende de tus respuestas.',
         '',
@@ -693,7 +593,7 @@ module.exports = function feedbackRoutes(app, supabase) {
 
       const { data: digest, error: digestError } = await supabase
         .from('digests')
-        .upsert({
+        .upsert(conOrganizationId({
           user_id: user.id,
           fecha,
           mensaje,
@@ -701,8 +601,8 @@ module.exports = function feedbackRoutes(app, supabase) {
           enviado: true,
           enviado_at: new Date().toISOString(),
           error_msg: null,
-        }, { onConflict: 'user_id,fecha' })
-        .select('id, user_id, fecha, alerta_ids')
+        }, organizationId), { onConflict: 'user_id,fecha' })
+        .select('id, user_id, fecha, alerta_ids, organization_id')
         .single();
 
       if (digestError) return res.status(500).json({ error: digestError.message });
@@ -718,6 +618,7 @@ module.exports = function feedbackRoutes(app, supabase) {
         userId: user.id,
         digestId: digest.id,
         alertas,
+        organizationId,
       });
 
       if (tracking.enabled && tracking.mensaje !== mensaje) {
@@ -737,6 +638,7 @@ module.exports = function feedbackRoutes(app, supabase) {
         digestId: digest.id,
         alertaIds: alertas.map((a) => a.id),
         fecha: digestPruebaRef,
+        organizationId,
       });
 
       await enviarDigestPro(phone, mensaje);
@@ -786,7 +688,7 @@ module.exports = function feedbackRoutes(app, supabase) {
 
       const { data: user, error: errUser } = await supabase
         .from('users')
-        .select('id, phone, name')
+        .select('id, phone, name, organization_id')
         .eq('phone', phone)
         .maybeSingle();
 
@@ -823,7 +725,7 @@ module.exports = function feedbackRoutes(app, supabase) {
 
       const { data: user, error: errUser } = await supabase
         .from('users')
-        .select('id, phone, name, subscription')
+        .select('id, phone, name, subscription, organization_id')
         .eq('phone', phone)
         .maybeSingle();
 
@@ -902,6 +804,8 @@ module.exports = function feedbackRoutes(app, supabase) {
       return res.status(tokenValidacion.status).json({ error: tokenValidacion.error });
     }
 
+    let inboundMIA = null;
+
     try {
       const ultra = extraerUltraMsg(req.body);
 
@@ -926,42 +830,227 @@ module.exports = function feedbackRoutes(app, supabase) {
         return res.json(result);
       }
 
-      const user = await buscarUsuarioPorTelefonoEntrante(
-        supabase,
+      inboundMIA = await registrarInboundMIA(supabase, {
+        source: 'ultramsg',
+        ultra,
         telefono,
-        'id, phone, name, subscription, preferences, preferencias_extra, contexto_narrativo'
-      );
-      if (!user) {
-        const result = { ok: true, ignored: true, reason: 'usuario_no_encontrado', phone: telefono };
+        texto,
+        body: req.body || {},
+      });
+
+      if (inboundMIA.duplicate) {
+        const result = {
+          ok: true,
+          ignored: true,
+          reason: 'mensaje_duplicado',
+          mia_inbound_id: inboundMIA.id || null,
+          message_id: inboundMIA.identity?.external_message_id || null,
+          duplicate_count: inboundMIA.duplicate_count || null,
+        };
         await guardarWebhookEvent(req, result, null);
         return res.json(result);
       }
+
+      if (ultra.senderKind && ultra.senderKind !== 'user') {
+        const result = {
+          ok: true,
+          ignored: true,
+          reason: 'canal_no_usuario',
+          sender_kind: ultra.senderKind,
+          mia_inbound_id: inboundMIA?.id || null,
+          message_id: inboundMIA?.identity?.external_message_id || null,
+        };
+        await actualizarInboundMIA(supabase, inboundMIA?.id, {
+          status: 'ignored',
+          ignored_reason: 'canal_no_usuario',
+          result_json: result,
+        });
+        await guardarWebhookEvent(req, result, null);
+        return res.json(result);
+      }
+
+      const user = await buscarUsuarioPorTelefonoEntrante(
+        supabase,
+        telefono,
+        'id, phone, name, subscription, preferences, preferencias_extra, contexto_narrativo, organization_id'
+      );
+      if (!user) {
+        const result = {
+          ok: true,
+          ignored: true,
+          reason: 'usuario_no_encontrado',
+          phone: telefono,
+          mia_inbound_id: inboundMIA?.id || null,
+          message_id: inboundMIA?.identity?.external_message_id || null,
+        };
+        await actualizarInboundMIA(supabase, inboundMIA?.id, {
+          status: 'ignored',
+          ignored_reason: 'usuario_no_encontrado',
+          result_json: result,
+        });
+        await guardarWebhookEvent(req, result, null);
+        return res.json(result);
+      }
+
+      const organizationContext = await cargarOrganizationContextMIA(supabase, user);
+      const organizationId = organizationContext.organization_id || null;
+      const userConOrganization = aplicarOrganizationContextAUsuario(user, organizationContext);
 
       await supabase
         .from('users')
         .update({ ultima_interaccion_at: new Date().toISOString() })
         .eq('id', user.id);
 
+      const perfilOperativoMIA = await cargarPerfilOperativoMIA(supabase, user.id, { user: userConOrganization });
+      const usuarioMIA = aplicarPerfilOperativoAUsuario(userConOrganization, perfilOperativoMIA);
       const conversacionActiva = await buscarConversacionActiva(supabase, user.id);
-      const { digest, alertaIds, alertasOrdenadas } = await cargarDigestYAlertas(supabase, user.id, conversacionActiva);
-
-      const interpretacion = await interpretarMensaje({
-        mensajeUsuario: texto,
-        usuario: user,
+      const { digest, alertasOrdenadas } = await cargarDigestYAlertas(
+        supabase,
+        user.id,
         conversacionActiva,
+        organizationId
+      );
+
+      let decisionMIA = await decidirMensajeMIA({
+        mensajeUsuario: texto,
+        usuario: usuarioMIA,
+        conversacionActiva,
+        digest,
         alertasDelDigest: alertasOrdenadas,
       });
+      decisionMIA = {
+        ...decisionMIA,
+        organization_context: organizationContext,
+      };
 
-      const guardado = await guardarInterpretacionMIA(supabase, {
-        user,
-        digest,
-        alertaIds,
-        alertasOrdenadas,
+      if (['pregunta_usuario', 'unknown'].includes(decisionMIA.intent)) {
+        try {
+          const respuestaConocimiento = await resolverPreguntaConBaseConocimientoMIA(supabase, {
+            texto,
+            limit: 5,
+            organizationId,
+            organizationContext,
+          });
+          decisionMIA = aplicarRespuestaConocimientoADecision({
+            ...decisionMIA,
+            organization_context: organizationContext,
+          }, respuestaConocimiento);
+        } catch (error) {
+          console.warn(`[mia:knowledge] No se pudo consultar la base ${organizationContext.reply_sender || 'Ruralicos'}:`, error.message);
+          decisionMIA = {
+            ...decisionMIA,
+            risk_flags: [...new Set([...(decisionMIA.risk_flags || []), 'knowledge_lookup_failed'])],
+            knowledge_context: {
+              answered: false,
+              needs_agent: true,
+              error: error.message,
+            },
+          };
+        }
+      }
+      decisionMIA = evaluarPoliticaDecisionMIA({
+        decision: {
+          ...decisionMIA,
+          organization_context: organizationContext,
+        },
         texto,
-        interpretacion,
+        usuario: usuarioMIA,
+        perfilOperativo: perfilOperativoMIA,
+        conversacionActiva,
+        digest,
+        alertasDelDigest: alertasOrdenadas,
+      });
+      const interpretacion = decisionMIA.legacy_interpretacion;
+      const decisionStore = await registrarDecisionYAccionesMIA(supabase, {
+        inboundId: inboundMIA?.id || null,
+        userId: user.id,
+        digestId: digest?.id || null,
+        conversationId: conversacionActiva?.id || null,
+        organizationId,
+        decision: decisionMIA,
       });
 
-      if (conversacionActiva) {
+      const guardado = await ejecutarAccionesMIA(supabase, {
+        user: userConOrganization,
+        digest,
+        alertasOrdenadas,
+        texto,
+        decision: decisionMIA,
+        organizationId,
+        aplicarFeedbackAlPerfil,
+      });
+      await actualizarAccionesPorTipoMIA(supabase, {
+        decisionId: decisionStore.decision_id,
+        actionType: 'feedback_digest',
+        status: guardado.feedbacks_guardados > 0 ? 'executed' : 'skipped',
+        resultJson: { feedbacks_guardados: guardado.feedbacks_guardados },
+      });
+
+      const memoriaEstructurada = await registrarMemoriaEstructuradaMIA(supabase, {
+        userId: user.id,
+        digestId: digest?.id || null,
+        inboundId: inboundMIA?.id || null,
+        decision: decisionMIA,
+        textoOriginal: texto,
+        source: 'whatsapp',
+        organizationId,
+      });
+
+      const casoAgente = await registrarCasoAgenteMIA(supabase, {
+        user: userConOrganization,
+        inboundId: inboundMIA?.id || null,
+        decisionId: decisionStore.decision_id || null,
+        digestId: digest?.id || null,
+        conversationId: conversacionActiva?.id || null,
+        texto,
+        decision: decisionMIA,
+        organizationId,
+      });
+      const conversacionAgente = await abrirConversacionAgenteMIA(supabase, {
+        user: userConOrganization,
+        caseId: casoAgente.id || null,
+        inboundId: inboundMIA?.id || null,
+        decisionId: decisionStore.decision_id || null,
+        digestId: digest?.id || null,
+        conversationId: conversacionActiva?.id || null,
+        texto,
+        decision: decisionMIA,
+        organizationId,
+      });
+      await actualizarAccionesPorTipoMIA(supabase, {
+        decisionId: decisionStore.decision_id,
+        actionType: 'handoff_agent',
+        status: (casoAgente.created || casoAgente.existing || conversacionAgente.created || conversacionAgente.updated) ? 'executed' : 'skipped',
+        resultJson: {
+          case_id: casoAgente.id || null,
+          created: casoAgente.created || false,
+          existing: casoAgente.existing || false,
+          available: casoAgente.available !== false,
+          conversation_id: conversacionAgente.id || null,
+          conversation_created: conversacionAgente.created || false,
+          conversation_updated: conversacionAgente.updated || false,
+          conversation_available: conversacionAgente.available !== false,
+          reason: casoAgente.reason || null,
+        },
+        errorMsg: casoAgente.error || conversacionAgente.error || null,
+      });
+      await actualizarAccionesPorTipoMIA(supabase, {
+        decisionId: decisionStore.decision_id,
+        actionType: 'memory',
+        status: (guardado.memorias_guardadas > 0 || memoriaEstructurada.inserted > 0 || memoriaEstructurada.merged > 0) ? 'executed' : 'skipped',
+        resultJson: {
+          memorias_guardadas: guardado.memorias_guardadas,
+          estructuradas_inserted: memoriaEstructurada.inserted || 0,
+          estructuradas_merged: memoriaEstructurada.merged || 0,
+        },
+      });
+
+      const mantenerConversacionConsulta =
+        conversacionActiva &&
+        conversacionAgente.id &&
+        Number(conversacionActiva.id) === Number(conversacionAgente.id);
+
+      if (conversacionActiva && !mantenerConversacionConsulta) {
         await supabase
           .from('user_conversations')
           .update({
@@ -971,21 +1060,106 @@ module.exports = function feedbackRoutes(app, supabase) {
           .eq('id', conversacionActiva.id);
       }
 
-      if (interpretacion.requiere_respuesta && interpretacion.respuesta) {
-        enviarDigestPro(telefono, interpretacion.respuesta)
-          .catch((err) => console.error('[feedback] Error enviando respuesta MIA:', err.message));
+      const outboxMIA = await encolarRespuestaMIA(supabase, {
+        decision: decisionMIA,
+        inboundId: inboundMIA?.id || null,
+        decisionId: decisionStore.decision_id || null,
+        userId: user.id,
+        toPhone: telefono,
+        organizationId,
+      });
+      await actualizarAccionesPorTipoMIA(supabase, {
+        decisionId: decisionStore.decision_id,
+        actionType: 'reply',
+        status: outboxMIA.queued || outboxMIA.body ? 'executed' : 'skipped',
+        resultJson: {
+          outbox_id: outboxMIA.id || null,
+          queued: outboxMIA.queued || false,
+          existing: outboxMIA.existing || false,
+          status: outboxMIA.status || null,
+          available: outboxMIA.available !== false,
+        },
+        errorMsg: outboxMIA.error || null,
+      });
+
+      if (decisionMIA.reply_action?.canal === 'whatsapp' && decisionMIA.reply_action?.texto) {
+        const textoRespuesta = outboxMIA.body || decisionMIA.reply_action.texto;
+        const enviarInmediato = String(process.env.MIA_OUTBOX_IMMEDIATE_SEND || 'true').toLowerCase() !== 'false';
+        if (outboxMIA.id && enviarInmediato) {
+          procesarOutboxItemMIA(supabase, {
+            id: outboxMIA.id,
+            to_phone: telefono,
+            body: textoRespuesta,
+            attempts: outboxMIA.attempts || 0,
+          }, enviarDigestPro)
+            .then((result) => {
+              if (result.ok === false) console.error('[feedback] Error enviando respuesta MIA:', result.error);
+            })
+            .catch((err) => console.error('[feedback] Error inesperado procesando outbox MIA:', err.message));
+        } else if (!outboxMIA.id && enviarInmediato) {
+          enviarDigestPro(telefono, textoRespuesta)
+            .catch((err) => console.error('[feedback] Error enviando respuesta MIA sin outbox:', err.message));
+        }
       }
 
       const result = {
         ok: true,
         user_id: user.id,
+        organization_id: organizationId,
         digest_id: digest?.id || null,
         conversacion_id: conversacionActiva?.id || null,
+        mia_inbound_id: inboundMIA?.id || null,
+        message_id: inboundMIA?.identity?.external_message_id || null,
+        mia_decision_version: decisionMIA.version,
+        mia_intent: decisionMIA.intent,
+        mia_confidence: decisionMIA.confidence,
+        mia_risk_flags: decisionMIA.risk_flags,
+        mia_policy: decisionMIA.policy || null,
+        mia_knowledge_context: decisionMIA.knowledge_context || null,
+        mia_user_profile: {
+          version: perfilOperativoMIA.version,
+          summary: perfilOperativoMIA.summary || null,
+          interests: (perfilOperativoMIA.interests || []).slice(0, 5),
+          dislikes: (perfilOperativoMIA.dislikes || []).slice(0, 5),
+          availability: perfilOperativoMIA.availability || null,
+        },
+        mia_organization: {
+          organization_id: organizationContext.organization_id || null,
+          brand_name: organizationContext.brand_name || 'Ruralicos',
+          available: organizationContext.available !== false,
+        },
+        mia_decision_id: decisionStore.decision_id || null,
+        mia_actions_planned: decisionStore.actions_planned || 0,
+        mia_actions_inserted: decisionStore.actions_inserted || 0,
         intencion: interpretacion.intencion,
         resumen_para_log: interpretacion.resumen_para_log,
-        requiere_respuesta: interpretacion.requiere_respuesta,
+        requiere_respuesta: Boolean(decisionMIA.reply_action),
+        mia_outbox_id: outboxMIA.id || null,
+        mia_outbox_queued: outboxMIA.queued || false,
+        mia_outbox_existing: outboxMIA.existing || false,
+        mia_outbox_available: outboxMIA.available !== false,
+        mia_agent_case_id: casoAgente.id || null,
+        mia_agent_case_created: casoAgente.created || false,
+        mia_agent_case_existing: casoAgente.existing || false,
+        mia_agent_case_available: casoAgente.available !== false,
+        mia_agent_conversation_id: conversacionAgente.id || null,
+        mia_agent_conversation_created: conversacionAgente.created || false,
+        mia_agent_conversation_updated: conversacionAgente.updated || false,
+        memorias_estructuradas_guardadas: memoriaEstructurada.inserted || 0,
+        memoria_estructurada_available: memoriaEstructurada.available !== false,
         ...guardado,
       };
+
+      await actualizarInboundMIA(supabase, inboundMIA?.id, {
+        status: 'processed',
+        user_id: user.id,
+        organization_id: organizationId,
+        digest_id: digest?.id || null,
+        conversation_id: conversacionActiva?.id || null,
+        decision_json: decisionMIA,
+        result_json: result,
+      });
+      await actualizarDecisionResultadoMIA(supabase, decisionStore.decision_id, result);
 
       await guardarWebhookEvent(req, result, null);
 
@@ -999,6 +1173,10 @@ module.exports = function feedbackRoutes(app, supabase) {
       return res.json(result);
     } catch (err) {
       console.error('Error en /webhooks/ultramsg/feedback:', err);
+      await actualizarInboundMIA(supabase, inboundMIA?.id, {
+        status: 'failed',
+        error_msg: err.message,
+      });
       await guardarWebhookEvent(req, null, err);
       return res.status(500).json({ error: err.message });
     }

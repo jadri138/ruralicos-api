@@ -3,6 +3,7 @@ const {
   extraerMencionesPosNeg,
   parsearVotosNaturalesPorAlertas,
 } = require('../src/brain/feedbackParser');
+const { __testing: cerebroTesting } = require('../src/utils/cerebro');
 
 let passed = 0;
 let failed = 0;
@@ -107,6 +108,31 @@ assert(
   natural2.votos.some(v => v.item === 1 && v.valor === -1 && v.tema === 'agua') &&
     natural2.votos.some(v => v.item === 2 && v.valor === 1 && v.tema === 'ayuda'),
   'Convierte tema positivo y desinteres suave por agua en votos sobre alertas'
+);
+
+const menciones6 = extraerMencionesPosNeg('Me gustaria recibir avisos sobre la PAC y ayudas para tractores');
+assert(
+  menciones6.positivas.includes('pac') &&
+    menciones6.positivas.includes('ayuda') &&
+    menciones6.positivas.includes('maquinaria agricola'),
+  'Detecta PAC, ayudas y tractores como intereses aprendibles'
+);
+
+const futura1 = cerebroTesting.reforzarInterpretacionConReglasLocales(
+  {
+    feedbacks: [{ item_numero: 1, valor: -1, confianza: 'media', razon: 'La IA lo interpreto como rechazo del item' }],
+    memoria: [],
+    intencion: 'feedback',
+    resumen_para_log: 'Feedback negativo item 1',
+  },
+  'Me gustaria recibir avisos sobre la PAC y ayudas para tractores',
+  [{ titulo: 'Subvenciones agrarias', tipos_alerta: ['ayudas_subvenciones'] }]
+);
+assert(
+  futura1.feedbacks.length === 0 &&
+    futura1.memoria.some((m) => m.tipo === 'interes_detectado' && /pac/i.test(m.contenido)) &&
+    futura1.intencion !== 'feedback',
+  'Una preferencia futura no vota negativamente el digest activo'
 );
 
 console.log(`\nResultados: ${passed} aprobados, ${failed} fallidos`);

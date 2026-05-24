@@ -35,6 +35,7 @@ function extraerUltraMsg(body = {}) {
   const data = asObject(body.data);
   const message = asObject(body.message);
   const dataMessage = asObject(data.message);
+  const messageIdObject = asObject(dataMessage.id || message.id || data.id || body.id);
 
   const eventType = firstString([
     body.event_type,
@@ -87,10 +88,72 @@ function extraerUltraMsg(body = {}) {
     dataMessage.text,
   ]);
 
+  const messageId = firstString([
+    body.message_id,
+    body.messageId,
+    body.id,
+    body.idMessage,
+    data.message_id,
+    data.messageId,
+    data.id,
+    data.idMessage,
+    message.message_id,
+    message.messageId,
+    message.id,
+    message.idMessage,
+    dataMessage.message_id,
+    dataMessage.messageId,
+    dataMessage.id,
+    dataMessage.idMessage,
+    messageIdObject.id,
+    messageIdObject._serialized,
+  ]);
+
+  const chatId = firstString([
+    body.chatId,
+    body.chat_id,
+    body.to,
+    data.chatId,
+    data.chat_id,
+    data.to,
+    message.chatId,
+    message.chat_id,
+    message.to,
+    dataMessage.chatId,
+    dataMessage.chat_id,
+    dataMessage.to,
+    telefonoRaw,
+  ]);
+
+  const timestamp = firstString([
+    body.timestamp,
+    body.time,
+    body.t,
+    data.timestamp,
+    data.time,
+    data.t,
+    message.timestamp,
+    message.time,
+    dataMessage.timestamp,
+    dataMessage.time,
+  ]);
+
+  const rawDestino = `${telefonoRaw} ${chatId}`.toLowerCase();
+  const senderKind = rawDestino.includes('@newsletter')
+    ? 'newsletter'
+    : rawDestino.includes('@g.us')
+      ? 'group'
+      : 'user';
+
   return {
     data,
     eventType,
     fromMe,
+    messageId,
+    chatId,
+    timestamp,
+    telefonoRaw,
+    senderKind,
     telefono: telefonoRaw.replace('@c.us', '').replace(/\D/g, ''),
     texto,
   };

@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const { enviarWhatsAppDirecto } = require('../whatsapp');
 const { fuentePermitida } = require('../config/planes');
+const { conOrganizationId, extraerOrganizationId } = require('../mia/organizationContext');
 
 function normalizar(texto) {
   return String(texto || '')
@@ -53,6 +54,7 @@ function prepararUsuarios(users = []) {
         phone: user.phone,
         name: nombre,
         subscription: user.subscription,
+        organization_id: user.organization_id || null,
         nombreNormalizado,
       };
     })
@@ -95,7 +97,7 @@ function isMissingTableError(error) {
 async function cargarUsuariosBuscables(supabase) {
   const { data, error } = await supabase
     .from('users')
-    .select('id, name, first_name, last_name_1, last_name_2, legal_name, phone, subscription, phone_verified')
+    .select('id, name, first_name, last_name_1, last_name_2, legal_name, phone, subscription, organization_id, phone_verified')
     .in('subscription', ['corral', 'agricultor', 'cooperativa'])
     .not('phone', 'is', null)
     .neq('phone', '')
@@ -114,7 +116,7 @@ async function guardarYEnviarCoincidencia(supabase, { alerta, user, linea, envia
     .update(`${fuente}|${alerta.id}|${user.id}|${linea}`)
     .digest('hex');
 
-  const row = {
+  const row = conOrganizationId({
     user_id: user.id,
     alerta_id: alerta.id,
     fuente,
@@ -131,7 +133,7 @@ async function guardarYEnviarCoincidencia(supabase, { alerta, user, linea, envia
       fecha: alerta.fecha || null,
       detector: 'alertas_contenido',
     },
-  };
+  }, extraerOrganizationId(user));
 
   const { data, error } = await supabase
     .from('official_list_matches')
@@ -242,7 +244,7 @@ async function cotejarListadosOficiales(supabase, opciones = {}) {
     guardadas,
     enviados,
     ya_enviados: yaEnviados,
-    missing_table: missingTable ? 'Ejecuta docs/official_list_matches_schema.sql' : false,
+    missing_table: missingTable ? 'Falta la tabla official_list_matches. Aplica la migracion operativa en Supabase.' : false,
     resultados,
   };
 }

@@ -206,6 +206,7 @@ function buscarCoincidenciasEnTextos(textos, users) {
 
         coincidencias.push({
           user_id: user.id,
+          organization_id: user.organization_id || null,
           phone: user.phone,
           user_name: user.name,
           beneficiario: user.name,

@@ -59,9 +59,8 @@ La ruta legacy `/alertas/enviar-whatsapp` queda desactivada por defecto con `DIG
 ### Requisito de base de datos para digest
 
 Si en tu diagrama solo aparecen `users` y `alertas`, te falta crear la tabla `digests`
-(y algunos índices/constraints). Usa el script:
-
-- `docs/supabase_digest_schema.sql`
+(y algunos indices/constraints). Aplica la migracion operativa en Supabase antes de
+lanzar el pipeline de digest.
 
 ### Cron recomendado (pipeline completo)
 

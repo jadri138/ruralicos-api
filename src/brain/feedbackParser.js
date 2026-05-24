@@ -1,6 +1,7 @@
-const { llamarIA } = require('../utils/llamarIA');
+const { llamarIA, parsearJSON } = require('../utils/llamarIA');
 
 const TEMAS_AGRARIOS = [
+  { canonico: 'pac', aliases: ['pac', 'politica agraria comun'] },
   { canonico: 'olivar', aliases: ['olivar', 'olivo', 'olivos', 'aceituna', 'aceitunas'] },
   { canonico: 'porcino', aliases: ['porcino', 'cerdo', 'cerdos', 'cochino', 'cochinos'] },
   { canonico: 'vacuno', aliases: ['vacuno', 'vaca', 'vacas', 'bovino', 'bovinos'] },
@@ -16,6 +17,7 @@ const TEMAS_AGRARIOS = [
   { canonico: 'arroz', aliases: ['arroz'] },
   { canonico: 'agua', aliases: ['agua', 'riego', 'regadio', 'regadios', 'pozo', 'pozos'] },
   { canonico: 'ayuda', aliases: ['ayuda', 'ayudas', 'subvencion', 'subvenciones', 'subsidio', 'subsidios'] },
+  { canonico: 'maquinaria agricola', aliases: ['maquinaria agricola', 'maquinaria', 'maquina', 'maquinas', 'tractor', 'tractores', 'apero', 'aperos'] },
   { canonico: 'normativa', aliases: ['normativa', 'norma', 'normas', 'ley', 'leyes'] },
   { canonico: 'medio ambiente', aliases: ['medio ambiente', 'medioambiental', 'ambiental'] },
   { canonico: 'apicultura', aliases: ['apicultura', 'abeja', 'abejas', 'miel'] },
@@ -355,7 +357,12 @@ Devuelve solo JSON:
 }
     `.trim();
 
-    const respuesta = await llamarIA(prompt, 'json', 0.2);
+    const respuestaTexto = await llamarIA(
+      prompt,
+      'Devuelve solo JSON valido. Sin markdown, sin explicaciones.',
+      'gpt-4o-mini'
+    );
+    const respuesta = parsearJSON(respuestaTexto);
     if (respuesta?.sentimiento && Array.isArray(respuesta.temas)) {
       return {
         sentimiento: respuesta.sentimiento || 'neutral',
