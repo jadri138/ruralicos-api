@@ -3,7 +3,11 @@ const DEFAULT_MAX_ATTEMPTS = 5;
 const DEFAULT_BASE_RETRY_MS = 5 * 60 * 1000;
 const DEFAULT_MAX_RETRY_MS = 60 * 60 * 1000;
 const DEFAULT_SENDING_TIMEOUT_MS = 10 * 60 * 1000;
-const { limpiarRespuestaMIA, evaluarRespuestaMIA } = require('./replyGuard');
+const {
+  limpiarRespuestaMIA,
+  evaluarRespuestaMIA,
+  formatearRespuestaWhatsAppMIA,
+} = require('./replyGuard');
 const { conOrganizationId, obtenerMiaBranding } = require('./organizationContext');
 
 function esTablaNoDisponible(error) {
@@ -63,7 +67,14 @@ function construirOutboxDesdeDecision({
     supportLabel: branding.support_label,
   });
   if (!guarded.text) return null;
-  const evaluation = evaluarRespuestaMIA(guarded.text, {
+  const formatted = formatearRespuestaWhatsAppMIA(guarded.text, {
+    maxChars: 4000,
+    assistantName: branding.assistant_name,
+    senderName: branding.reply_sender,
+    supportLabel: branding.agent_label,
+  });
+  if (!formatted.text) return null;
+  const evaluation = evaluarRespuestaMIA(formatted.text, {
     decision,
     senderName: branding.reply_sender,
     supportLabel: branding.support_label,
@@ -75,7 +86,7 @@ function construirOutboxDesdeDecision({
     user_id: userId,
     channel: 'whatsapp',
     to_phone: toPhone,
-    body: guarded.text,
+    body: formatted.text,
     status: 'queued',
     attempts: 0,
     next_attempt_at: new Date().toISOString(),
@@ -87,8 +98,8 @@ function construirOutboxDesdeDecision({
       knowledge_context: decision.knowledge_context || null,
       organization_context: decision.organization_context || null,
       reply_guard: {
-        flags: [...new Set([...(guarded.flags || []), ...(evaluation.flags || [])])],
-        changed: guarded.changed,
+        flags: [...new Set([...(guarded.flags || []), ...(formatted.flags || []), ...(evaluation.flags || [])])],
+        changed: guarded.changed || formatted.changed,
       },
     },
   }, organizationId);

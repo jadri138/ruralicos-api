@@ -1,5 +1,7 @@
 const {
   limpiarRespuestaMIA,
+  limpiarTerminosInternosMIA,
+  formatearRespuestaWhatsAppMIA,
   evaluarRespuestaMIA,
   contienePatronProhibido,
 } = require('../src/mia/replyGuard');
@@ -39,6 +41,19 @@ const senderCooperativa = limpiarRespuestaMIA('Soy Jaime y mi pareja y yo lo mir
 assert(senderCooperativa.text.includes('Cooperativa Los Olivos'), 'Sustituye remitente personal por marca configurada');
 assert(senderCooperativa.text.includes('equipo tecnico'), 'Sustituye referencias personales por equipo configurado');
 
+const internos = limpiarTerminosInternosMIA('No hay novedades en el digest ni en outbox.');
+assert(!/\bdigest\b|\boutbox\b/i.test(internos.text), 'Limpia terminos internos del texto visible');
+assert(internos.text.includes('resumen de alertas'), 'Sustituye digest por lenguaje de usuario');
+
+const whatsapp = formatearRespuestaWhatsAppMIA('No hay novedades en el digest.', {
+  assistantName: 'MIA',
+  senderName: 'Ruralicos',
+  supportLabel: 'un agente de Ruralicos',
+});
+assert(whatsapp.text.startsWith('*MIA de Ruralicos*'), 'Anade cabecera de MIA en negrita');
+assert(whatsapp.text.includes('_Respuesta autom'), 'Anade descargo en cursiva');
+assert(!/\bdigest\b/i.test(whatsapp.text), 'No deja digest en la respuesta final');
+
 const audit = evaluarRespuestaMIA('MIA ha encontrado referencias relacionadas.', {
   decision: {
     auto_answered: true,
@@ -70,7 +85,9 @@ const outbox = construirOutboxDesdeDecision({
     knowledge_context: { answered: true },
   },
 });
-assert(outbox.body.startsWith('MIA ha encontrado'), 'Outbox aplica guard final antes de enviar');
+assert(outbox.body.startsWith('*MIA de Ruralicos*'), 'Outbox aplica cabecera final antes de enviar');
+assert(outbox.body.includes('_Respuesta autom'), 'Outbox aplica descargo antes de enviar');
+assert(outbox.body.includes('MIA ha encontrado'), 'Outbox conserva el cuerpo limpio de respuesta');
 assert(outbox.metadata_json.reply_guard.flags.includes('removed_personal_greeting'), 'Outbox guarda flags del guard');
 
 console.log(`\nResultados: ${passed} aprobados, ${failed} fallidos`);

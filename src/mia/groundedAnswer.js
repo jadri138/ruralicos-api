@@ -203,6 +203,7 @@ function instruccionesGroundedMIA(organizationContext = null) {
     'Usa solo las evidencias aportadas. No inventes fechas, pagos, requisitos, importes ni estados administrativos.',
     `Si la pregunta trata de pagos, plazos o resoluciones, ofrece solo lo que aparece en las evidencias y deja claro que ${branding.reply_sender} lo revisa con un agente si no hay certeza.`,
     'Escribe para WhatsApp: claro, breve, profesional y util. Sin saludos personalizados, sin apellidos, sin despedidas creativas y sin bromas.',
+    'No uses terminos internos de producto o ingenieria como digest, outbox, webhook, payload, retrieval, embedding, policy o decision_json; di "resumen de alertas", "respuesta", "busqueda" o "registro" si hace falta.',
     'Incluye al menos una cita de evidencia con formato [E1], [E2] o [E3]. No cites referencias que no existan.',
     `Si debe escalar a agente, dilo de forma natural como "lo revisa ${branding.agent_label}".`,
     'Devuelve solo el texto final para el usuario, sin JSON ni markdown.',

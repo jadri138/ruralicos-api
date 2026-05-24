@@ -87,6 +87,8 @@ console.log('\n=== TESTS: mia outbox ===\n');
   assert(outbox.status === 'queued', 'Crea outbox en estado queued');
   assert(outbox.to_phone === '34644899647', 'Conserva telefono destino');
   assert(outbox.organization_id === 12, 'Propaga organization_id al outbox');
+  assert(outbox.body.startsWith('*MIA de Ruralicos*'), 'Aplica cabecera profesional de MIA');
+  assert(outbox.body.includes('_Respuesta autom'), 'Incluye descargo breve en cursiva');
   assert(outbox.body.includes('fecha clara'), 'Conserva cuerpo de respuesta');
   assert(outbox.metadata_json.intent === 'pregunta_usuario', 'Guarda metadata de decision');
   assert(outbox.metadata_json.risk_flags.includes('knowledge_partial_answer'), 'Guarda risk_flags en metadata');
@@ -107,6 +109,17 @@ console.log('\n=== TESTS: mia outbox ===\n');
   });
   assert(outboxMarca.body.includes('Cooperativa Los Olivos'), 'Outbox usa remitente de organizacion al limpiar respuesta');
   assert(outboxMarca.metadata_json.organization_context.reply_sender === 'Cooperativa Los Olivos', 'Outbox conserva contexto de organizacion en metadata');
+
+  const outboxSinInternos = construirOutboxDesdeDecision({
+    userId: 141,
+    toPhone: '34644899647',
+    decision: {
+      intent: 'pregunta_usuario',
+      reply_action: { canal: 'whatsapp', texto: 'No hay novedades sobre tractores en el digest.' },
+    },
+  });
+  assert(!/\bdigest\b/i.test(outboxSinInternos.body), 'Outbox elimina terminos internos antes de enviar');
+  assert(outboxSinInternos.body.includes('resumen de alertas'), 'Outbox reemplaza digest por lenguaje entendible');
 
   const sinRespuesta = construirOutboxDesdeDecision({
     userId: 141,

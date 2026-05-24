@@ -8,6 +8,16 @@ const FORBIDDEN_PATTERNS = [
 ];
 
 const JAIME_PATTERN = /\bjaime\b/i;
+const INTERNAL_TERM_REPLACEMENTS = [
+  { pattern: /\bdigest\b/gi, replacement: 'resumen de alertas' },
+  { pattern: /\boutbox\b/gi, replacement: 'cola de respuestas' },
+  { pattern: /\bwebhook\b/gi, replacement: 'entrada automatica' },
+  { pattern: /\bretrieval\b/gi, replacement: 'busqueda' },
+  { pattern: /\bembedding(?:s)?\b/gi, replacement: 'busqueda semantica' },
+  { pattern: /\bpayload\b/gi, replacement: 'datos recibidos' },
+  { pattern: /\bdecision_json\b|\bresult_json\b|\bmetadata_json\b/gi, replacement: 'registro tecnico' },
+  { pattern: /\bmia_(?:outbox|inbound_messages|decisions|actions|agent_cases|structured_memory)\b/gi, replacement: 'sistema de MIA' },
+];
 
 function normalizar(texto) {
   return String(texto || '')
@@ -34,6 +44,76 @@ function pareceSaludoPersonal(linea) {
 
 function contienePatronProhibido(texto) {
   return FORBIDDEN_PATTERNS.some((pattern) => pattern.test(String(texto || '')));
+}
+
+function limpiarTerminosInternosMIA(texto) {
+  let cleaned = String(texto || '');
+  let changed = false;
+
+  for (const { pattern, replacement } of INTERNAL_TERM_REPLACEMENTS) {
+    const next = cleaned.replace(pattern, replacement);
+    if (next !== cleaned) changed = true;
+    cleaned = next;
+  }
+
+  return {
+    text: cleaned,
+    flags: changed ? ['removed_internal_terms'] : [],
+    changed,
+  };
+}
+
+function limpiarMarkdownLinea(texto, max = 100) {
+  return String(texto || '')
+    .replace(/[*_`~\r\n]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, max);
+}
+
+function formatearRespuestaWhatsAppMIA(texto, {
+  maxChars = 4000,
+  assistantName = 'MIA',
+  senderName = 'Ruralicos',
+  supportLabel = null,
+} = {}) {
+  const flags = [];
+  const assistant = limpiarMarkdownLinea(assistantName, 40) || 'MIA';
+  const sender = limpiarMarkdownLinea(senderName, 80) || 'Ruralicos';
+  const support = limpiarMarkdownLinea(supportLabel || `un agente de ${sender}`, 120) || `un agente de ${sender}`;
+  const original = String(texto || '').trim();
+  if (!original) return { text: '', flags: ['empty_reply'], changed: false };
+
+  const internal = limpiarTerminosInternosMIA(original);
+  if (internal.changed) flags.push(...internal.flags);
+
+  const header = `*${assistant} de ${sender}*`;
+  const disclaimer = `_Respuesta autom\u00e1tica basada en la informaci\u00f3n disponible en ${sender}. Si requiere confirmaci\u00f3n, la revisar\u00e1 ${support}._`;
+  const alreadyWrapped = new RegExp(`^\\*\\s*${assistant.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(internal.text);
+  let body = internal.text.trim();
+
+  if (alreadyWrapped) {
+    flags.push('already_wrapped');
+  } else {
+    const reserved = header.length + disclaimer.length + 4;
+    const limit = Math.max(200, Number(maxChars || 4000) - reserved);
+    if (body.length > limit) {
+      flags.push('truncated_reply');
+      body = body.slice(0, limit).trim();
+    }
+    body = `${header}\n${disclaimer}\n\n${body}`.trim();
+  }
+
+  if (body.length > maxChars) {
+    flags.push('truncated_reply');
+    body = body.slice(0, maxChars).trim();
+  }
+
+  return {
+    text: body,
+    flags: [...new Set(flags)],
+    changed: body !== original,
+  };
 }
 
 function limpiarRespuestaMIA(texto, {
@@ -74,6 +154,12 @@ function limpiarRespuestaMIA(texto, {
     .replace(/\byo personalmente\b/gi, safeSender)
     .replace(/\s+\n/g, '\n')
     .trim();
+
+  const internal = limpiarTerminosInternosMIA(cleaned);
+  if (internal.changed) {
+    flags.push(...internal.flags);
+    cleaned = internal.text.trim();
+  }
 
   if (cleaned.length > maxChars) {
     flags.push('truncated_reply');
@@ -132,6 +218,8 @@ function evaluarRespuestaMIA(texto, { decision = {}, senderName = null, supportL
 
 module.exports = {
   limpiarRespuestaMIA,
+  limpiarTerminosInternosMIA,
+  formatearRespuestaWhatsAppMIA,
   evaluarRespuestaMIA,
   contienePatronProhibido,
 };
