@@ -75,6 +75,7 @@ const allowedOrigins = [
   'http://localhost:3000',
   'http://127.0.0.1:3000',
   'http://localhost:5173',
+  'http://localhost:5174',
   'https://ruralicos-panel.onrender.com',
   ...String(process.env.FRONTEND_ORIGINS || '')
     .split(',')
@@ -183,12 +184,16 @@ app.use(express.static('public'));
 
 app.post('/admin/send-broadcast', requireAdmin, async (req, res) => {
   try {
-    const mensaje =
-      req.body?.mensaje ||
-        'Ya esta operativo de nuevo el panel personal\n\nAccede aquí 👉 https://ruralicos.es/login \n\nSentimos las molestias. Podeis responder a este whatsapp si en algun momento teneis alguna duda o para dar vuestra opinión.\n\n Muchas Gracias!';
+    const mensaje = String(req.body?.mensaje || '').trim();
+    if (mensaje.length < 5) {
+      return res.status(400).json({ error: 'Mensaje requerido' });
+    }
+    if (mensaje.length > 4000) {
+      return res.status(400).json({ error: 'Mensaje demasiado largo' });
+    }
 
-    await enviarWhatsAppTodos(supabase, mensaje);
-    res.json({ ok: true, mensajeEnviado: mensaje });
+    const resultado = await enviarWhatsAppTodos(supabase, mensaje);
+    res.json({ ok: true, mensajeEnviado: mensaje, resultado });
   } catch (err) {
     console.error('Error en /admin/send-broadcast:', err);
     res.status(500).json({ error: 'Error enviando mensajes' });

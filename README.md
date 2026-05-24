@@ -2,7 +2,7 @@
 
 ![Status](https://img.shields.io/badge/status-beta-green)
 ![License](https://img.shields.io/badge/license-MIT-blue)
-![Node](https://img.shields.io/badge/node-%3E%3D18.x-brightgreen)
+![Node](https://img.shields.io/badge/node-%3E%3D20.18.1-brightgreen)
 ![API](https://img.shields.io/badge/type-REST_API-orange)
 ![IA](https://img.shields.io/badge/IA-OpenAI-purple)
 
@@ -103,6 +103,8 @@ Las alertas se revisan automáticamente salvo que se marquen como no relevantes.
 - Cron jobs
 - WordPress (frontend externo)
 
+Requisito de runtime: Node.js `>=20.18.1`.
+
 ---
 
 ## Estructura del proyecto
@@ -126,8 +128,13 @@ Copiar código
 SUPABASE_URL=...
 SUPABASE_SERVICE_ROLE_KEY=...
 OPENAI_API_KEY=...
+JWT_SECRET=...
 CRON_TOKEN=...
 ULTRAMSG_WEBHOOK_TOKEN=...
+ULTRAMSG_INSTANCE_ID=...
+ULTRAMSG_TOKEN=...
+PUBLIC_BASE_URL=...
+FRONTEND_ORIGINS=https://panel.example.com,http://localhost:5174
 
 Webhook UltraMsg
 

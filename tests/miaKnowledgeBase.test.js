@@ -72,6 +72,29 @@ assert(rankingHibrido[0].id === 2, 'La evidencia semantica fuerte puede liderar 
 assert(rankingHibrido[0].retrieval_sources.includes('semantic'), 'Conserva fuente semantic en evidencia');
 assert(rankingHibrido[0].score_breakdown.semantic_points > 0, 'Expone desglose de puntuacion semantica');
 
+const rankingConManual = combinarYRankearAlertasMIA({
+  lexicalItems: [],
+  semanticItems: [{
+    id: 10,
+    source_type: 'manual',
+    document_id: 2,
+    titulo: 'Manual SIGPAC: recintos y parcelas',
+    resumen: 'SIGPAC permite consultar parcelas, recintos, usos agrarios y referencias declarativas.',
+    categoria: 'SIGPAC',
+    fuente: 'MAPA',
+    similitud: 0.84,
+  }],
+  contexto: {
+    terminos: ['sigpac', 'parcelas'],
+    regiones: [],
+    tipoPregunta: 'general',
+  },
+  limit: 1,
+});
+
+assert(rankingConManual[0].source_type === 'manual', 'Puede rankear manuales curados como evidencia');
+assert(rankingConManual[0].document_id === 2, 'Conserva document_id del manual');
+
 const respuestaSimple = construirRespuestaConAlertasMIA({
   texto: 'Hay ayudas para tractores?',
   terminos: ['tractores', 'maquinaria'],

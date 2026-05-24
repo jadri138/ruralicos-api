@@ -2,7 +2,14 @@
   "permissions": {
     "allow": [
       "Bash(Get-ChildItem -Path . -Directory)",
-      "Bash(Select-Object -ExpandProperty Name)"
+      "Bash(Select-Object -ExpandProperty Name)",
+      "Bash(git -C \"c:\\\\Users\\\\jadri\\\\Desktop\\\\Jaime\\\\RURALICOS\\\\COPIA SEGURIDAD\\\\RURALICOS\\\\API\\\\ruralicos-web\" status)",
+      "Bash(git -C \"c:\\\\Users\\\\jadri\\\\Desktop\\\\Jaime\\\\RURALICOS\\\\COPIA SEGURIDAD\\\\RURALICOS\\\\API\" rev-parse --show-toplevel)",
+      "Bash(git -C \"c:\\\\Users\\\\jadri\\\\Desktop\\\\Jaime\\\\RURALICOS\\\\COPIA SEGURIDAD\\\\RURALICOS\\\\API\\\\ruralicos-api\" rev-parse --show-toplevel)",
+      "Bash(git -C \"c:\\\\Users\\\\jadri\\\\Desktop\\\\Jaime\\\\RURALICOS\\\\COPIA SEGURIDAD\\\\RURALICOS\\\\API\\\\ruralicos-web\" init)",
+      "Bash(git -C \"c:\\\\Users\\\\jadri\\\\Desktop\\\\Jaime\\\\RURALICOS\\\\COPIA SEGURIDAD\\\\RURALICOS\\\\API\\\\ruralicos-web\" add .)",
+      "Bash(git -C \"c:\\\\Users\\\\jadri\\\\Desktop\\\\Jaime\\\\RURALICOS\\\\COPIA SEGURIDAD\\\\RURALICOS\\\\API\\\\ruralicos-web\" add .gitignore)",
+      "Bash(git -C 'c:\\\\Users\\\\jadri\\\\Desktop\\\\Jaime\\\\RURALICOS\\\\COPIA SEGURIDAD\\\\RURALICOS\\\\API\\\\ruralicos-web' commit -m ' *)"
     ]
   }
 }

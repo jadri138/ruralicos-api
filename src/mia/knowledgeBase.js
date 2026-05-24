@@ -137,6 +137,7 @@ const MESES = [
 ];
 
 const SEMANTIC_RPC_NAME = 'buscar_alertas_por_embedding_mia';
+const KNOWLEDGE_CHUNKS_RPC_NAME = 'buscar_mia_knowledge_chunks_por_embedding';
 const SEMANTIC_MISSING_CODES = new Set(['42883', 'PGRST202', 'PGRST204']);
 
 function normalizarTexto(texto) {
@@ -222,6 +223,8 @@ function textoAlerta(alerta = {}) {
     alerta.titulo,
     alerta.resumen_final,
     alerta.resumen,
+    alerta.snippet,
+    alerta.categoria,
     alerta.region,
     alerta.fuente,
     Array.isArray(alerta.provincias) ? alerta.provincias.join(' ') : '',
@@ -332,12 +335,15 @@ function clasificarEvidencia(score, matchingTerms = [], terminos = []) {
 function resumirMatch(alerta = {}, detalle = {}, contexto = {}) {
   return {
     id: alerta.id,
+    source_type: alerta.source_type || 'alerta',
+    document_id: alerta.document_id || null,
     titulo: alerta.titulo || '',
     resumen: alerta.resumen_final || alerta.resumen || '',
     snippet: construirSnippet(alerta, contexto.terminos || []),
     fecha: alerta.fecha || null,
     region: alerta.region || null,
     fuente: alerta.fuente || null,
+    categoria: alerta.categoria || null,
     url: alerta.url || null,
     organization_id: alerta.organization_id || null,
     score: Number((detalle.score || 0).toFixed(2)),
@@ -357,13 +363,17 @@ function esRpcSemanticaNoDisponible(error) {
 function normalizarCandidatoAlerta(alerta = {}, source = 'unknown') {
   return {
     id: Number(alerta.id),
+    source_type: alerta.source_type || 'alerta',
+    document_id: alerta.document_id || null,
     titulo: alerta.titulo || '',
     resumen: alerta.resumen || '',
     resumen_final: alerta.resumen_final || '',
+    snippet: alerta.snippet || '',
     url: alerta.url || null,
     fecha: alerta.fecha || null,
     region: alerta.region || null,
     fuente: alerta.fuente || null,
+    categoria: alerta.categoria || null,
     provincias: alerta.provincias || [],
     sectores: alerta.sectores || [],
     subsectores: alerta.subsectores || [],
@@ -395,22 +405,23 @@ function combinarYRankearAlertasMIA({ lexicalItems = [], semanticItems = [], con
   for (const item of lexicalItems) {
     if (!item?.id) continue;
     const normalizado = normalizarCandidatoAlerta(item, 'lexical');
-    porId.set(Number(normalizado.id), normalizado);
+    porId.set(`${normalizado.source_type}:${normalizado.id}`, normalizado);
   }
 
   for (const item of semanticItems) {
     if (!item?.id) continue;
     const normalizado = normalizarCandidatoAlerta(item, 'semantic');
-    const existente = porId.get(Number(normalizado.id));
+    const key = `${normalizado.source_type}:${normalizado.id}`;
+    const existente = porId.get(key);
     if (existente) {
-      porId.set(Number(normalizado.id), {
+      porId.set(key, {
         ...existente,
         ...normalizado,
         retrieval_sources: [...new Set([...(existente.retrieval_sources || []), 'semantic'])],
         semantic_similarity: normalizado.semantic_similarity ?? existente.semantic_similarity ?? null,
       });
     } else {
-      porId.set(Number(normalizado.id), normalizado);
+      porId.set(key, normalizado);
     }
   }
 
@@ -421,8 +432,9 @@ function combinarYRankearAlertasMIA({ lexicalItems = [], semanticItems = [], con
         ? Number(alerta.semantic_similarity)
         : null;
       const sourceBoost = (alerta.retrieval_sources || []).includes('semantic') ? 1.5 : 0;
+      const manualBoost = alerta.source_type === 'manual' ? 1 : 0;
       const semanticPoints = semanticSimilarity === null ? 0 : semanticSimilarity * 14;
-      const finalScore = detalle.score + semanticPoints + sourceBoost;
+      const finalScore = detalle.score + semanticPoints + sourceBoost + manualBoost;
       return {
         ...resumirMatch(alerta, {
           ...detalle,
@@ -430,7 +442,7 @@ function combinarYRankearAlertasMIA({ lexicalItems = [], semanticItems = [], con
           scoreBreakdown: construirScoreBreakdown({
             lexicalScore: detalle.score,
             semanticSimilarity,
-            sourceBoost,
+            sourceBoost: sourceBoost + manualBoost,
             finalScore,
           }),
         }, contexto),
@@ -439,6 +451,35 @@ function combinarYRankearAlertasMIA({ lexicalItems = [], semanticItems = [], con
     .filter((item) => Number(item.score || 0) > 0)
     .sort((a, b) => Number(b.score || 0) - Number(a.score || 0))
     .slice(0, limit);
+}
+
+function normalizarCandidatoManualMIA(row = {}) {
+  return {
+    id: Number(row.id),
+    source_type: 'manual',
+    document_id: row.document_id || null,
+    titulo: row.titulo || '',
+    resumen: row.resumen || row.snippet || '',
+    resumen_final: row.resumen || row.snippet || '',
+    snippet: row.snippet || row.resumen || '',
+    url: row.url || null,
+    fecha: row.fecha || null,
+    region: null,
+    fuente: row.fuente || row.fuente_tipo || 'manual',
+    categoria: row.categoria || null,
+    provincias: [],
+    sectores: [],
+    subsectores: [],
+    tipos_alerta: [],
+    estado_ia: 'listo',
+    duplicado_de: null,
+    organization_id: row.organization_id || null,
+    created_at: null,
+    semantic_similarity: Number.isFinite(Number(row.similitud ?? row.similarity))
+      ? Number(row.similitud ?? row.similarity)
+      : null,
+    retrieval_sources: ['manual_semantic', 'semantic'],
+  };
 }
 
 async function buscarAlertasLexicasMIA(supabase, {
@@ -551,6 +592,46 @@ async function buscarAlertasSemanticasMIA(supabase, {
   }
 }
 
+async function buscarManualesSemanticosMIA(supabase, {
+  texto,
+  limit = 20,
+  usarMock = false,
+  organizationId = null,
+} = {}) {
+  if (String(process.env.MIA_KNOWLEDGE_MANUALS_ENABLED || 'true').toLowerCase() === 'false') {
+    return { ok: true, available: false, skipped: true, reason: 'manuals_disabled', items: [] };
+  }
+
+  if (!usarMock && !process.env.OPENAI_API_KEY) {
+    return { ok: true, available: false, skipped: true, reason: 'openai_api_key_missing', items: [] };
+  }
+
+  try {
+    inicializarOpenAI();
+    const embedding = await generarEmbedding(String(texto || '').trim(), usarMock);
+    const { data, error } = await supabase.rpc(KNOWLEDGE_CHUNKS_RPC_NAME, {
+      p_query_embedding: vectorToSql(embedding),
+      p_match_count: Math.max(3, Math.min(50, Number(limit) || 20)),
+      p_min_similarity: Number(process.env.MIA_KNOWLEDGE_MANUAL_MIN_SIMILARITY || 0.2),
+      p_organization_id: normalizarOrganizationId(organizationId),
+    });
+
+    if (error) throw error;
+    return {
+      ok: true,
+      available: true,
+      skipped: false,
+      items: (data || []).map(normalizarCandidatoManualMIA).filter((item) => item.id),
+    };
+  } catch (error) {
+    if (esRpcSemanticaNoDisponible(error)) {
+      return { ok: true, available: false, skipped: true, reason: 'manuals_rpc_missing', items: [] };
+    }
+    console.warn('[mia:knowledge] Busqueda semantica en manuales no disponible:', error.message);
+    return { ok: false, available: false, skipped: true, reason: 'manuals_error', error: error.message, items: [] };
+  }
+}
+
 async function buscarAlertasRelacionadasMIA(supabase, {
   texto,
   limit = 5,
@@ -572,14 +653,18 @@ async function buscarAlertasRelacionadasMIA(supabase, {
   }
 
   const contexto = { terminos, regiones, tipoPregunta };
-  const [lexicalItems, semanticResult] = await Promise.all([
+  const [lexicalItems, semanticResult, manualResult] = await Promise.all([
     buscarAlertasLexicasMIA(supabase, { terminos, regiones, limit: 100, organizationId }),
     buscarAlertasSemanticasMIA(supabase, { texto, limit: 50, usarMock: usarMockEmbedding, organizationId }),
+    buscarManualesSemanticosMIA(supabase, { texto, limit: 30, usarMock: usarMockEmbedding, organizationId }),
   ]);
 
   const items = combinarYRankearAlertasMIA({
     lexicalItems,
-    semanticItems: semanticResult.items || [],
+    semanticItems: [
+      ...(semanticResult.items || []),
+      ...(manualResult.items || []),
+    ],
     contexto,
     limit,
   });
@@ -589,12 +674,16 @@ async function buscarAlertasRelacionadasMIA(supabase, {
     regiones,
     tipo_pregunta: tipoPregunta,
     retrieval: {
-      mode: semanticResult.available ? 'hybrid' : 'lexical',
+      mode: (semanticResult.available || manualResult.available) ? 'hybrid' : 'lexical',
       lexical_count: lexicalItems.length,
       semantic_count: (semanticResult.items || []).length,
-      semantic_available: semanticResult.available === true,
+      manual_count: (manualResult.items || []).length,
+      semantic_available: semanticResult.available === true || manualResult.available === true,
       semantic_reason: semanticResult.reason || null,
       semantic_error: semanticResult.error || null,
+      manuals_available: manualResult.available === true,
+      manuals_reason: manualResult.reason || null,
+      manuals_error: manualResult.error || null,
     },
     items,
     organization_id: normalizarOrganizationId(organizationId),
@@ -767,6 +856,7 @@ module.exports = {
   puntuarAlerta,
   buscarAlertasLexicasMIA,
   buscarAlertasSemanticasMIA,
+  buscarManualesSemanticosMIA,
   combinarYRankearAlertasMIA,
   buscarAlertasRelacionadasMIA,
   construirRespuestaConAlertasMIA,

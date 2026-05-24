@@ -399,7 +399,7 @@ async function enviarWhatsAppTodos(supabase, mensaje) {
   }
   if (!mensaje?.trim()) {
     console.warn('Mensaje vacío → no se envía');
-    return;
+    return { total: 0, enviados: 0, fallidos: 0, errores: [] };
   }
 
   const { data: users, error } = await supabase
@@ -416,21 +416,35 @@ async function enviarWhatsAppTodos(supabase, mensaje) {
 
   if (!users || users.length === 0) {
     console.warn('No hay usuarios con teléfono → no se envía');
-    return;
+    return { total: 0, enviados: 0, fallidos: 0, errores: [] };
   }
 
   console.log(`Enviando mensaje a ${users.length} usuarios...`);
+  const resultado = {
+    total: users.length,
+    enviados: 0,
+    fallidos: 0,
+    errores: [],
+  };
 
   for (const user of users) {
     const telefono = user.phone.trim();
     try {
       await enviarMensajeUltraMsg(telefono, mensaje);
+      resultado.enviados++;
     } catch (err) {
+      resultado.fallidos++;
+      resultado.errores.push({
+        user_id: user.id,
+        phone: telefono ? `****${telefono.slice(-4)}` : null,
+        error: err.message,
+      });
       console.error(`Error enviando a ${telefono}:`, err.message);
     }
   }
 
-  console.log('Mensaje enviado a todos los usuarios.');
+  console.log(`Mensaje enviado a todos los usuarios. OK=${resultado.enviados} FAIL=${resultado.fallidos}`);
+  return resultado;
 }
 
 async function enviarWhatsAppVerificacion(telefono, codigo) {
