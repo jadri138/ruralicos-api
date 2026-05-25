@@ -48,6 +48,7 @@ const embeddingsRoutes = require('./routes/embeddings');
 const cerebroRoutes    = require('./routes/cerebro');
 const clicksRoutes     = require('./routes/clicks');
 const bothaRoutes      = require('./routes/boletines/provinciales/pais_vasco/botha');
+const bogRoutes        = require('./routes/boletines/provinciales/pais_vasco/bog');
 const bopAragonRoutes  = require('./routes/boletines/provinciales/aragon/bopAragon');
 const fegaRoutes       = require('./routes/boletines/estatales/fega');
 
@@ -208,6 +209,7 @@ app.post('/admin/send-broadcast', requireAdmin, async (req, res) => {
 
 clicksRoutes(app, supabase);
 bothaRoutes(app, supabase);
+bogRoutes(app, supabase);
 bopAragonRoutes(app, supabase);
 fegaRoutes(app, supabase);
 usersRoutes(app, supabase);
