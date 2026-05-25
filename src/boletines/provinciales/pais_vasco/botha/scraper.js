@@ -78,6 +78,10 @@ function esTituloCandidato(texto) {
   return true;
 }
 
+function esEnlaceDocumentoCastellano(href) {
+  return /Resultado\.aspx\?File=Boletines\/\d{4}\/\d{3}\/\d{4}_\d{3}_\d{5}_C\.xml/i.test(String(href || ''));
+}
+
 function dedupeKey(doc) {
   return doc.idOficial || doc.url || doc.titulo;
 }
@@ -89,10 +93,12 @@ function parsearSumario(html, esRuralRelevante) {
   const vistos = new Set();
 
   $('a[href]').each((_, el) => {
+    const href = $(el).attr('href') || '';
+    if (!esEnlaceDocumentoCastellano(href)) return;
+
     const titulo = normalizarEspacios($(el).text()).slice(0, 300);
     if (!esTituloCandidato(titulo)) return;
 
-    const href = $(el).attr('href') || '';
     const url = absoluteUrl(href);
     const parentText = normalizarEspacios($(el).parent().text());
     const contexto = normalizarEspacios([
@@ -209,4 +215,3 @@ module.exports = {
   obtenerDocumentosBothaConTexto,
   parsearSumario,
 };
-

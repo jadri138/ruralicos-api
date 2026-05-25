@@ -30,11 +30,13 @@ const SCRAPE_PATHS_DEFAULT = [
   '/scrape-dogv',
   '/scrape-bome-oficial',
   '/scrape-bocce-oficial',
+  '/scrape-botha-oficial',
+  '/scrape-bopz-oficial',
+  '/scrape-boph-oficial',
+  '/scrape-bopt-oficial',
 ];
 
-const COMPLEMENTARY_SCRAPE_PATHS_DEFAULT = [
-  '/scrape-botha-oficial',
-];
+const COMPLEMENTARY_SCRAPE_PATHS_DEFAULT = [];
 
 const FEGA_SCRAPE_PATH = '/scrape-fega-beneficiarios';
 
@@ -51,6 +53,9 @@ const SCRAPER_FUENTES = {
   '/scrape-bopa-oficial': 'BOPA',
   '/scrape-bopv-oficial': 'BOPV',
   '/scrape-botha-oficial': 'BOTHA',
+  '/scrape-bopz-oficial': 'BOPZ',
+  '/scrape-boph-oficial': 'BOPH',
+  '/scrape-bopt-oficial': 'BOPT',
   '/scrape-bor-oficial': 'BOR',
   '/scrape-borm-oficial': 'BORM',
   '/scrape-docm-oficial': 'DOCM',

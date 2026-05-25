@@ -96,7 +96,64 @@ function readUInt32LE(buffer, offset) {
   return buffer.readUInt32LE(offset);
 }
 
+function getZipFileName(buffer, start, length, flags) {
+  const bytes = buffer.slice(start, start + length);
+  return bytes.toString(flags & 0x0800 ? 'utf8' : 'latin1');
+}
+
+function getZipEntryData(buffer, localHeaderOffset, compressedSize) {
+  if (localHeaderOffset < 0 || localHeaderOffset > buffer.length - 30) return null;
+  if (readUInt32LE(buffer, localHeaderOffset) !== 0x04034b50) return null;
+
+  const fileNameLength = buffer.readUInt16LE(localHeaderOffset + 26);
+  const extraLength = buffer.readUInt16LE(localHeaderOffset + 28);
+  const dataStart = localHeaderOffset + 30 + fileNameLength + extraLength;
+  const dataEnd = dataStart + compressedSize;
+
+  if (dataStart < 0 || dataEnd > buffer.length || compressedSize <= 0) return null;
+  return buffer.slice(dataStart, dataEnd);
+}
+
+function extraerTextosZipCentralDirectory(buffer) {
+  const textos = [];
+  let offset = 0;
+
+  while (offset < buffer.length - 46) {
+    const signature = readUInt32LE(buffer, offset);
+    if (signature !== 0x02014b50) {
+      offset++;
+      continue;
+    }
+
+    const flags = buffer.readUInt16LE(offset + 8);
+    const compression = buffer.readUInt16LE(offset + 10);
+    const compressedSize = readUInt32LE(buffer, offset + 20);
+    const fileNameLength = buffer.readUInt16LE(offset + 28);
+    const extraLength = buffer.readUInt16LE(offset + 30);
+    const commentLength = buffer.readUInt16LE(offset + 32);
+    const localHeaderOffset = readUInt32LE(buffer, offset + 42);
+    const nameStart = offset + 46;
+    const nextOffset = nameStart + fileNameLength + extraLength + commentLength;
+    const fileName = getZipFileName(buffer, nameStart, fileNameLength, flags);
+
+    if (/\.(csv|txt|tsv)$/i.test(fileName)) {
+      const compressed = getZipEntryData(buffer, localHeaderOffset, compressedSize);
+      let data = null;
+      if (compressed && compression === 0) data = compressed;
+      if (compressed && compression === 8) data = zlib.inflateRawSync(compressed);
+      if (data) textos.push({ fileName, text: data.toString('latin1') });
+    }
+
+    offset = nextOffset > offset ? nextOffset : offset + 46;
+  }
+
+  return textos;
+}
+
 function extraerTextosZip(buffer) {
+  const desdeDirectorio = extraerTextosZipCentralDirectory(buffer);
+  if (desdeDirectorio.length > 0) return desdeDirectorio;
+
   const textos = [];
   let offset = 0;
 
