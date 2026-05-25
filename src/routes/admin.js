@@ -19,6 +19,10 @@ const { cargarPerfilOperativoMIA } = require('../mia/userProfile');
 const { ejecutarEvalsMIA } = require('../mia/evalHarness');
 const { generarReporteCalidadOperativaMIA } = require('../mia/alertQuality');
 const {
+  ingestKnowledgeDocument,
+  normalizeBase64,
+} = require('../mia/knowledgeIngest');
+const {
   cargarOrganizationContextMIA,
   normalizarOrganizationId,
   obtenerMiaBranding,
@@ -1522,6 +1526,77 @@ app.post('/admin/tareas/scrapers-diario', requireAdmin, async (req, res) => {
       return res.json({ ok: true, ...result });
     } catch (err) {
       console.error('Error en /admin/mia/knowledge-search:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/admin/mia/knowledge-documents', requireAdmin, async (req, res) => {
+    try {
+      const limit = Math.max(1, Math.min(200, Number(req.query.limit || 80)));
+      const organizationId = normalizarOrganizationId(req.query.organization_id);
+
+      let query = supabase
+        .from('mia_knowledge_documents')
+        .select('id, organization_id, titulo, categoria, fuente, fuente_tipo, url, fecha_documento, version, status, metadata_json, created_at, updated_at')
+        .order('updated_at', { ascending: false })
+        .limit(limit);
+
+      if (organizationId) query = query.eq('organization_id', organizationId);
+
+      const { data, error } = await query;
+      if (error) {
+        if (isMissingTableError(error)) {
+          return res.json({ ok: true, available: false, reason: 'mia_knowledge_documents_no_disponible', items: [] });
+        }
+        throw error;
+      }
+
+      return res.json({ ok: true, available: true, items: data || [] });
+    } catch (err) {
+      console.error('Error en /admin/mia/knowledge-documents:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/admin/mia/knowledge-upload', requireAdmin, async (req, res) => {
+    try {
+      const body = req.body || {};
+      const fileName = String(body.file_name || body.fileName || '').trim();
+      const fileBase64 = normalizeBase64(body.file_base64 || body.fileBase64 || body.content_base64 || '');
+      const title = String(body.title || body.titulo || '').trim();
+      const category = String(body.category || body.categoria || '').trim();
+
+      if (!fileName) return res.status(400).json({ error: 'file_name requerido' });
+      if (!fileBase64) return res.status(400).json({ error: 'file_base64 requerido' });
+      if (!title) return res.status(400).json({ error: 'title requerido' });
+      if (!category) return res.status(400).json({ error: 'category requerida' });
+
+      const buffer = Buffer.from(fileBase64, 'base64');
+      if (!buffer.length) return res.status(400).json({ error: 'Archivo vacio' });
+      if (buffer.length > 18 * 1024 * 1024) {
+        return res.status(413).json({ error: 'Archivo demasiado grande. Maximo 18 MB.' });
+      }
+
+      const result = await ingestKnowledgeDocument(supabase, {
+        buffer,
+        fileName,
+        title,
+        category,
+        source: body.source || body.fuente || null,
+        sourceType: body.source_type || body.fuente_tipo || 'manual',
+        url: body.url || null,
+        date: body.date || body.fecha_documento || null,
+        version: body.version || null,
+        organizationId: normalizarOrganizationId(body.organization_id),
+        chunkWords: body.chunk_words || body.chunkWords,
+        overlapWords: body.overlap_words || body.overlapWords,
+        useMockEmbeddings: body.mock === true,
+        dryRun: body.dry_run === true,
+      });
+
+      return res.json(result);
+    } catch (err) {
+      console.error('Error en /admin/mia/knowledge-upload:', err);
       return res.status(500).json({ error: err.message });
     }
   });

@@ -60,8 +60,8 @@ app.set('trust proxy', 1);
 --------------------------------------------------- */
 
 // Leer JSON del body (solo una vez)
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '25mb' }));
+app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 
 // Seguridad HTTP
 app.use(helmet());
