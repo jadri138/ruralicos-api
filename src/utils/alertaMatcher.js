@@ -10,14 +10,59 @@ function norm(str) {
 }
 
 const intersecta = (a, b) => a.some((x) => b.includes(x));
+const PROVINCIAS_POR_FUENTE = {
+  BOE: ['nacional'],
+  FEGA: ['nacional'],
+  BOA: ['huesca', 'zaragoza', 'teruel'],
+  BOPZ: ['zaragoza'],
+  BOPH: ['huesca'],
+  BOPT: ['teruel'],
+  DOGC: ['barcelona', 'girona', 'lleida', 'tarragona'],
+  DOGV: ['alicante', 'castellon', 'castellon', 'valencia'],
+  DOG: ['a coruna', 'lugo', 'ourense', 'pontevedra'],
+  DOCM: ['albacete', 'ciudad real', 'cuenca', 'guadalajara', 'toledo'],
+  DOE: ['badajoz', 'caceres'],
+  BOJA: ['almeria', 'cadiz', 'cordoba', 'granada', 'huelva', 'jaen', 'malaga', 'sevilla'],
+  BOCYL: ['avila', 'burgos', 'leon', 'palencia', 'salamanca', 'segovia', 'soria', 'valladolid', 'zamora'],
+  BOCM: ['madrid'],
+  BON: ['navarra'],
+  BOPA: ['asturias'],
+  BOPV: ['alava', 'araba', 'bizkaia', 'vizcaya', 'gipuzkoa', 'guipuzcoa'],
+  BOTHA: ['alava', 'araba'],
+  BOG: ['gipuzkoa', 'guipuzcoa'],
+  BOR: ['la rioja'],
+  BORM: ['murcia'],
+  BOIB: ['illes balears', 'islas baleares', 'baleares'],
+  BOCAN: ['las palmas', 'santa cruz de tenerife'],
+  BOCANT: ['cantabria'],
+  BOME: ['melilla'],
+  BOCCE: ['ceuta'],
+};
 const MARCADORES_NACIONALES = new Set(['nacional', 'espana', 'españa', 'estatal', 'todas', 'todo el territorio nacional']);
 
+function fuenteNormalizada(alerta = {}) {
+  return norm(alerta.fuente || '').toUpperCase();
+}
+
+function provinciasDerivadasAlerta(alerta = {}) {
+  const provincias = Array.isArray(alerta.provincias)
+    ? alerta.provincias.map(norm).filter(Boolean)
+    : [];
+  if (provincias.length > 0) return provincias;
+
+  const porFuente = PROVINCIAS_POR_FUENTE[fuenteNormalizada(alerta)] || [];
+  if (porFuente.length > 0) return porFuente.map(norm);
+
+  const region = norm(alerta.region || '');
+  return region ? [region] : [];
+}
+
 function esAlertaNacional(alerta = {}, provinciasNorm = []) {
-  if (provinciasNorm.length === 0) return true;
   if (provinciasNorm.some((p) => MARCADORES_NACIONALES.has(p))) return true;
 
   // BOE no significa automaticamente nacional: si el clasificador ha detectado
   // una provincia concreta, se respeta como filtro duro.
+  if (provinciasNorm.length === 0 && ['BOE', 'FEGA'].includes(fuenteNormalizada(alerta))) return true;
   return false;
 }
 
@@ -43,9 +88,7 @@ function diagnosticarAlertaUsuario(alerta, user, options = {}) {
     : [];
   const tiposUser = prefs.tipos_alerta || {};
 
-  const provinciasANorm = Array.isArray(alerta.provincias)
-    ? alerta.provincias.map(norm)
-    : [];
+  const provinciasANorm = provinciasDerivadasAlerta(alerta);
   const alertaNacional = esAlertaNacional(alerta, provinciasANorm);
   const sectoresANorm = Array.isArray(alerta.sectores)
     ? alerta.sectores.map(norm)

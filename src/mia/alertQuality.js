@@ -8,6 +8,9 @@ const CRITICAL_ALERT_FLAGS = new Set([
   'url_invalida',
   'sin_resumen_util',
   'listo_sin_resumen_final',
+  'titulo_boletin_raw',
+  'proceso_personal_publico',
+  'resumen_boilerplate_portal',
 ]);
 
 const FUENTES_SCRAPER_ESPERADAS = [
@@ -114,6 +117,7 @@ function contieneAlguno(textoNormalizado, terms) {
 function tituloPareceRawBoletin(titulo) {
   const text = normalizarTextoCalidad(titulo);
   if (!text) return false;
+  if (/^(boa|bop|dog|docm|doe|bon|bor|borm|boc|boib|bopv|botha|bog)\b/.test(text) && text.includes('boletin oficial')) return true;
   const markers = [
     'boletin oficial',
     'csv:',
@@ -159,6 +163,49 @@ function detectarExpedienteIndividual(alerta = {}) {
   ]);
 
   return individual && !broad;
+}
+
+function detectarProcesoPersonalPublico(alerta = {}) {
+  const text = normalizarTextoCalidad([
+    alerta.titulo,
+    alerta.resumen_final,
+    alerta.resumen_borrador,
+    alerta.resumen,
+    alerta.contenido,
+  ].filter(Boolean).join('\n'));
+
+  if (!text) return false;
+  return contieneAlguno(text, [
+    'concurso especifico de meritos',
+    'concurso de meritos y capacidades',
+    'provision de un puesto',
+    'provision de puestos',
+    'puesto singular',
+    'puesto de trabajo',
+    'relacion de puestos de trabajo',
+    'personal funcionario',
+    'personal laboral',
+    'funcionarios de carrera',
+    'empleo publico',
+    'oferta publica de empleo',
+    'bolsa de trabajo',
+    'proceso selectivo',
+    'oposicion',
+  ]);
+}
+
+function detectarBoilerplatePortal(texto) {
+  const text = normalizarTextoCalidad(texto);
+  if (!text) return false;
+  const marcas = [
+    'cargando',
+    'datos del documento',
+    'descriptores relacionados',
+    'autenticidad e integridad',
+    'portal juridic',
+    'acciones guardar',
+  ];
+  return marcas.filter((marca) => text.includes(marca)).length >= 2;
 }
 
 function detectarTonoRaro(texto) {
@@ -254,6 +301,10 @@ function evaluarCalidadAlerta(alerta = {}, { now = new Date(), staleHours = 24 }
       penalty += restar(issues, 'resumen_tono_raro', 10, 'El resumen contiene tono conversacional impropio de una ficha tecnica.');
       recommendations.push('Regenerar resumen en tono sobrio, sin saludos ni personalizacion.');
     }
+    if (detectarBoilerplatePortal(resumenUtil)) {
+      penalty += restar(issues, 'resumen_boilerplate_portal', 35, 'El resumen contiene texto de interfaz del portal, no contenido oficial util.');
+      recommendations.push('Regenerar la ficha usando contenido limpio del boletin.');
+    }
   }
 
   if (estado === 'listo' && !resumenFinal) {
@@ -288,6 +339,11 @@ function evaluarCalidadAlerta(alerta = {}, { now = new Date(), staleHours = 24 }
   if (estado === 'listo' && !alerta.embedding_generated_at) {
     penalty += restar(issues, 'sin_embedding', 8, 'Lista para usuario pero sin embedding registrado.');
     recommendations.push('Generar embedding para que MIA pueda recuperarla en preguntas.');
+  }
+
+  if (detectarProcesoPersonalPublico(alerta)) {
+    penalty += restar(issues, 'proceso_personal_publico', 55, 'La alerta trata de empleo publico, provision de puestos o concurso de meritos.');
+    recommendations.push('Descartarla del pipeline agrario aunque el organismo sea de agricultura.');
   }
 
   if (detectarExpedienteIndividual(alerta)) {

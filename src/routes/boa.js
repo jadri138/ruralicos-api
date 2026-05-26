@@ -71,6 +71,8 @@ function generarTituloBoa(texto, fechaSQL) {
       const n = normalizar(l);
       if (!l) return false;
       if (n.includes('num.') || n.includes('núm.') || n.includes('bop')) return false;
+      if (n.includes('boletin oficial') || n.includes('boletín oficial')) return false;
+      if (/^boa\b/.test(n)) return false;
       if (n.includes('seccion') || n.includes('sección')) return false;
       return l.length >= 12;
     }) || (lineas[0] || 'Documento BOA');

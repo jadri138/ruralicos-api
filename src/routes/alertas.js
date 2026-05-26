@@ -77,7 +77,7 @@ const FICHA_IA_TEXT_FORMAT = {
         items: {
           type: 'object',
           additionalProperties: false,
-          required: ['id', 'tipo', 'prioridad', 'territorio', 'afecta_a', 'hecho', 'objeto', 'impacto', 'plazo', 'accion', 'detalle', 'claves'],
+          required: ['id', 'tipo', 'prioridad', 'territorio', 'afecta_a', 'hecho', 'objeto', 'impacto', 'plazo', 'accion', 'detalle', 'resumen_digest', 'claves'],
           properties: {
             id: { type: 'string' },
             tipo: {
@@ -93,6 +93,7 @@ const FICHA_IA_TEXT_FORMAT = {
             plazo: { type: 'string' },
             accion: { type: 'string' },
             detalle: { type: 'string' },
+            resumen_digest: { type: 'string' },
             claves: { type: 'array', items: { type: 'string' } },
           },
         },
@@ -138,6 +139,47 @@ function contieneAlguno(texto, palabras) {
   return palabras.some((palabra) => texto.includes(normalizarTexto(palabra)));
 }
 
+function textoAlertaNormalizado(alerta = {}) {
+  return normalizarTexto([
+    alerta.titulo,
+    alerta.resumen,
+    alerta.resumen_borrador,
+    alerta.resumen_final,
+    alerta.contenido,
+  ].filter(Boolean).join('\n'));
+}
+
+function esProcesoAdministrativoPersonal(alerta = {}) {
+  const texto = textoAlertaNormalizado(alerta);
+  if (!texto) return false;
+
+  return contieneAlguno(texto, [
+    'concurso especifico de meritos',
+    'concurso específico de méritos',
+    'concurso de meritos y capacidades',
+    'concurso de méritos y capacidades',
+    'provision de un puesto',
+    'provisión de un puesto',
+    'provision de puestos',
+    'provisión de puestos',
+    'puesto singular',
+    'puesto de trabajo',
+    'relacion de puestos de trabajo',
+    'relación de puestos de trabajo',
+    'personal funcionario',
+    'personal laboral',
+    'funcionarios de carrera',
+    'empleo publico',
+    'empleo público',
+    'oferta publica de empleo',
+    'oferta pública de empleo',
+    'bolsa de trabajo',
+    'proceso selectivo',
+    'oposicion',
+    'oposición',
+  ]);
+}
+
 function limpiarArrayStrings(valor) {
   if (!Array.isArray(valor)) return [];
   return valor
@@ -169,6 +211,17 @@ function extraerResultadosClasificacion(parsed) {
 }
 
 function clasificarLocalmente(alerta) {
+  if (esProcesoAdministrativoPersonal(alerta)) {
+    return {
+      id: String(alerta.id),
+      es_relevante: false,
+      provincias: [],
+      sectores: [],
+      subsectores: [],
+      tipos_alerta: [],
+    };
+  }
+
   const texto = normalizarTexto(`${alerta.titulo || ''}\n${alerta.region || ''}\n${alerta.contenido || ''}`);
 
   const ganaderia = contieneAlguno(texto, [
@@ -188,8 +241,10 @@ function clasificarLocalmente(alerta) {
   const ayuda = contieneAlguno(texto, ['ayuda', 'subvencion', 'convocatoria', 'bases reguladoras', 'beneficiario']);
   const fiscalidad = contieneAlguno(texto, ['irpf', 'iva', 'modulos', 'fiscal', 'tributari']);
   const exclusionAdministrativa = contieneAlguno(texto, [
-    'oposicion', 'proceso selectivo', 'bolsa de empleo', 'universidad', 'beca',
-    'notario', 'registrador', 'urbanismo',
+    'oposicion', 'oposicion', 'proceso selectivo', 'bolsa de empleo', 'bolsa de trabajo',
+    'concurso especifico de meritos', 'concurso de meritos y capacidades',
+    'provision de puestos', 'puesto singular', 'personal funcionario', 'empleo publico',
+    'universidad', 'beca', 'notario', 'registrador', 'urbanismo',
   ]);
   const pescaAcuicultura = contieneAlguno(texto, ['pesca', 'acuicultura']);
   const exclusionFuerte = exclusionAdministrativa || (pescaAcuicultura && !ganaderia && !agricultura && !rural);
@@ -261,6 +316,18 @@ function normalizarResultadoClasificacion(item, alertasPorId) {
   if (!id || !alertasPorId.has(id)) return null;
   if (item.es_relevante === undefined || item.es_relevante === null) return null;
 
+  const alerta = alertasPorId.get(id);
+  if (esProcesoAdministrativoPersonal(alerta)) {
+    return {
+      id,
+      es_relevante: false,
+      provincias: [],
+      sectores: [],
+      subsectores: [],
+      tipos_alerta: [],
+    };
+  }
+
   const esRelevante = leerBooleano(item.es_relevante);
   if (!esRelevante) {
     return {
@@ -301,9 +368,82 @@ function limpiarTextoMensaje(texto, max = 420) {
     .trim();
 }
 
+function lineaBoletinPocoUtil(linea) {
+  const texto = normalizarTexto(linea);
+  if (!texto) return true;
+  if (texto.length < 24) return true;
+
+  const patrones = [
+    /^boletin oficial\b/,
+    /^boletin\b/,
+    /^csv\b/,
+    /^numero\s+\d+/,
+    /^num\.\s*\d+/,
+    /^pagina\s+\d+/,
+    /^sumario\b/,
+    /^indice\b/,
+    /^cargando\b/,
+    /^i+\.\s+/,
+    /^v+\.\s+anuncios\b/,
+    /^departamento de\b/,
+    /^consejeria de\b/,
+    /^administracion\b/,
+  ];
+
+  if (patrones.some((patron) => patron.test(texto))) return true;
+
+  const marcasPortal = [
+    'datos del documento',
+    'descriptores relacionados',
+    'autenticidad e integridad',
+    'portal juridic',
+    'portal juridic de catalunya',
+    'acciones guardar',
+  ];
+  const hitsPortal = marcasPortal.filter((marca) => texto.includes(marca)).length;
+  return hitsPortal >= 2;
+}
+
+function extraerExtractoBoletin(alerta = {}, max = 420) {
+  const raw = String(alerta.contenido || '')
+    .replace(/https?:\/\/\S+/g, '')
+    .replace(/\r/g, '\n')
+    .trim();
+
+  if (!raw) return limpiarTextoMensaje(alerta.titulo, max);
+
+  const lineas = raw
+    .split(/\n+/g)
+    .map((linea) => limpiarTextoMensaje(linea, 520))
+    .filter((linea) => linea && !lineaBoletinPocoUtil(linea));
+
+  const texto = (lineas.length ? lineas.slice(0, 4).join(' ') : raw)
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return limpiarTextoMensaje(texto, max);
+}
+
+function campoFichaGenerico(valor) {
+  const texto = normalizarTexto(valor);
+  if (!texto) return true;
+  if (texto === 'no_detectado' || texto === 'no especificado' || texto === 'sin especificar') return true;
+  if (texto === 'no_enviar_digest') return true;
+  if (texto === 'sector_agrario' || texto === 'sector agrario') return true;
+  if (/^publicacion oficial\b/.test(texto)) return true;
+  if (/^alerta oficial\b/.test(texto)) return true;
+  if (/^boletin oficial\b/.test(texto)) return true;
+  if (/revis(ar|a) si (aplica|afecta)/.test(texto)) return true;
+  if (/revisar documento oficial/.test(texto)) return true;
+  if (/documento oficial publicado/.test(texto)) return true;
+  if (/determinar su aplicabilidad/.test(texto)) return true;
+  return false;
+}
+
 function construirMensajeFallback(alerta) {
   const titulo = limpiarTextoMensaje(alerta.titulo, 220) || 'Publicacion oficial detectada';
-  const contexto = limpiarTextoMensaje(alerta.contenido, 260);
+  const extracto = extraerExtractoBoletin(alerta, 360);
+  const contexto = extracto || limpiarTextoMensaje(alerta.contenido, 260);
   const territorio = limpiarTextoMensaje(
     Array.isArray(alerta.provincias) && alerta.provincias.length
       ? alerta.provincias.join(', ')
@@ -323,6 +463,9 @@ function construirMensajeFallback(alerta) {
     120
   ) || 'sector_agrario';
   const fecha = limpiarTextoMensaje(alerta.fecha, 20) || 'El boletin no lo especifica';
+  const detalle = contexto
+    ? `El boletin indica: ${contexto}`
+    : 'no_detectado';
 
   return [
     'FICHA_IA',
@@ -334,10 +477,11 @@ function construirMensajeFallback(alerta) {
     `OBJETO: ${titulo}`,
     'IMPACTO: no_detectado',
     'PLAZO: no_detectado',
-    `ACCION: revisar documento oficial publicado el ${fecha}`,
-    'DETALLE: revisar si aplica a la explotacion o actividad del usuario',
+    `ACCION: leer el anuncio oficial publicado el ${fecha}`,
+    `DETALLE: ${detalle}`,
+    `RESUMEN_DIGEST: ${contexto ? `El boletin publica: ${contexto}` : 'no_detectado'}`,
     `CLAVES: ${titulo}`,
-  ].join('\n').slice(0, 1400).trim();
+  ].join('\n').slice(0, 2200).trim();
 }
 
 function limpiarMensajeFinal(mensaje, alerta = {}) {
@@ -346,7 +490,7 @@ function limpiarMensajeFinal(mensaje, alerta = {}) {
   return construirMensajeFallback(alerta);
 }
 
-const FICHA_CAMPOS_REQUERIDOS = ['tipo', 'prioridad', 'territorio', 'afecta_a', 'hecho', 'objeto', 'impacto', 'plazo', 'accion', 'detalle', 'claves'];
+const FICHA_CAMPOS_REQUERIDOS = ['tipo', 'prioridad', 'territorio', 'afecta_a', 'hecho', 'objeto', 'impacto', 'plazo', 'accion', 'detalle', 'resumen_digest', 'claves'];
 const FICHA_TIPOS = new Set(['ayudas_subvenciones', 'normativa_general', 'agua_infraestructuras', 'fiscalidad', 'medio_ambiente', 'otro']);
 const FICHA_PRIORIDADES = new Set(['alta', 'media', 'baja']);
 
@@ -408,28 +552,85 @@ function normalizarClavesFicha(valor, fallback = '') {
   return fallbackClaves.length > 0 ? fallbackClaves : ['alerta_oficial'];
 }
 
+function construirResumenDigestFicha({
+  resumen,
+  hecho,
+  detalle,
+  impacto,
+  plazo,
+  territorio,
+  extracto,
+  titulo,
+}) {
+  if (!campoFichaGenerico(resumen)) {
+    return limitarPalabras(resumen, 78, 620) || 'no_detectado';
+  }
+
+  const partes = [];
+  if (!campoFichaGenerico(hecho)) partes.push(hecho);
+  if (!campoFichaGenerico(detalle)) partes.push(detalle);
+  if (!campoFichaGenerico(plazo)) partes.push(`Plazo: ${plazo}`);
+  if (!campoFichaGenerico(impacto)) partes.push(`Importancia: ${impacto}`);
+  if (!campoFichaGenerico(territorio)) partes.push(`Territorio: ${territorio}`);
+
+  const base = limpiarCampoFicha(partes.join(' '), 620) || extracto || titulo;
+  if (!base) return 'no_detectado';
+
+  const limpio = base.replace(/^el boletin (indica|publica|recoge|dice)\s*:\s*/i, '').trim();
+  return limitarPalabras(`El boletin publica: ${limpio}`, 78, 620) || 'no_detectado';
+}
+
 function construirFichaIA(data = {}, alerta = {}) {
   const titulo = limpiarCampoFicha(alerta.titulo, 180) || 'Publicacion oficial detectada';
+  const extracto = extraerExtractoBoletin(alerta, 420);
   const territorioBase = Array.isArray(alerta.provincias) && alerta.provincias.length
     ? alerta.provincias.join(', ')
     : alerta.region;
   const sectoresBase = Array.isArray(alerta.sectores) && alerta.sectores.length
     ? alerta.sectores.join(', ')
     : 'sector_agrario';
+  const hechoBase = campoFichaGenerico(data.hecho)
+    ? (extracto || alerta.contenido || titulo)
+    : data.hecho;
+  const objetoBase = campoFichaGenerico(data.objeto)
+    ? titulo
+    : data.objeto;
+  const impactoBase = campoFichaGenerico(data.impacto)
+    ? 'no_detectado'
+    : data.impacto;
+  const plazoBase = campoFichaGenerico(data.plazo)
+    ? 'no_detectado'
+    : data.plazo;
+  const accionBase = campoFichaGenerico(data.accion)
+    ? 'leer el anuncio oficial completo'
+    : data.accion;
+  const detalleBase = campoFichaGenerico(data.detalle)
+    ? (extracto ? `El boletin indica: ${extracto}` : 'no_detectado')
+    : data.detalle;
 
   const ficha = {
     tipo: normalizarTipoFicha(data.tipo || primerArray(alerta.tipos_alerta)),
     prioridad: normalizarPrioridadFicha(data.prioridad || data.hecho || titulo),
     territorio: limpiarCampoFicha(data.territorio || territorioBase || 'no_detectado', 120) || 'no_detectado',
     afecta_a: limitarPalabras(data.afecta_a || sectoresBase, 12, 120) || 'sector_agrario',
-    hecho: limitarPalabras(data.hecho || alerta.contenido || titulo, 32, 280) || titulo,
-    objeto: limitarPalabras(data.objeto || titulo, 24, 220) || titulo,
-    impacto: limitarPalabras(data.impacto || 'no_detectado', 26, 240) || 'no_detectado',
-    plazo: limpiarCampoFicha(data.plazo || 'no_detectado', 80) || 'no_detectado',
-    accion: limitarPalabras(data.accion || 'revisar documento oficial', 18, 170) || 'revisar documento oficial',
-    detalle: limitarPalabras(data.detalle || 'no_detectado', 34, 300) || 'no_detectado',
+    hecho: limitarPalabras(hechoBase, 32, 280) || titulo,
+    objeto: limitarPalabras(objetoBase, 24, 220) || titulo,
+    impacto: limitarPalabras(impactoBase, 26, 240) || 'no_detectado',
+    plazo: limpiarCampoFicha(plazoBase, 80) || 'no_detectado',
+    accion: limitarPalabras(accionBase, 18, 170) || 'leer el anuncio oficial completo',
+    detalle: limitarPalabras(detalleBase, 34, 300) || 'no_detectado',
     claves: normalizarClavesFicha(data.claves, titulo),
   };
+  ficha.resumen_digest = construirResumenDigestFicha({
+    resumen: data.resumen_digest || data.resumen,
+    hecho: ficha.hecho,
+    detalle: ficha.detalle,
+    impacto: ficha.impacto,
+    plazo: ficha.plazo,
+    territorio: ficha.territorio,
+    extracto,
+    titulo,
+  });
 
   return [
     'FICHA_IA',
@@ -443,8 +644,9 @@ function construirFichaIA(data = {}, alerta = {}) {
     `PLAZO: ${ficha.plazo}`,
     `ACCION: ${ficha.accion}`,
     `DETALLE: ${ficha.detalle}`,
+    `RESUMEN_DIGEST: ${ficha.resumen_digest}`,
     `CLAVES: ${ficha.claves.join(', ')}`,
-  ].join('\n').slice(0, 1400).trim();
+  ].join('\n').slice(0, 2200).trim();
 }
 
 function parsearFichaIA(texto) {
@@ -502,18 +704,22 @@ Campos por alerta:
 - prioridad: alta | media | baja
 - territorio: provincia/CCAA/estatal/no_detectado
 - afecta_a: colectivo agrario afectado en maximo 12 palabras; se especifico: agricultores, ganaderos, regantes, viticultores, explotaciones, industria agroalimentaria, titulares concretos, etc.
-- hecho: que ocurre realmente en maximo 32 palabras. No copies la cabecera del boletin; extrae el acto sustantivo.
+- hecho: que publica el boletin en maximo 32 palabras. Debe explicar el acto sustantivo: convocatoria, modificacion, exposicion publica, autorizacion, resolucion, notificacion, sancion, norma, etc.
 - objeto: tema concreto de la publicacion en maximo 24 palabras: ayuda, norma, exposicion publica, autorizacion, sancion, modificacion, convocatoria, etc.
 - impacto: por que puede importar al usuario agrario en maximo 26 palabras; si solo afecta a un titular o expediente individual, dilo.
 - plazo: fecha/plazo si aparece; si no, no_detectado
 - accion: accion recomendada en maximo 18 palabras
-- detalle: dato especifico util en maximo 34 palabras: importe, cultivo/especie, municipio, expediente, requisito, periodo, tramite o limitacion. Si no aparece, no_detectado.
+- detalle: dato especifico util en maximo 34 palabras: importe, cultivo/especie, municipio, expediente, requisito, periodo, tramite, limitacion o destinatario. Si no aparece, no_detectado.
+- resumen_digest: resumen narrativo suficiente para WhatsApp en 2-4 frases cortas o 55-90 palabras. Debe dar contexto real al digest: que publica el boletin, a quien/que afecta, territorio, tramite/plazo y dato concreto si aparece.
 - claves: 3-8 palabras clave
 
 Reglas:
 - Lenguaje literal, seco y util para filtrado posterior.
 - NO inventar datos que no esten en el texto.
 - Si un dato no aparece, usa no_detectado.
+- La ficha debe explicar lo que dice el boletin. Prohibido resolver con frases genericas como "publicacion oficial relevante", "revisa si aplica", "revisar documento oficial", "puede afectar a tu explotacion" o "determinar su aplicabilidad".
+- HECHO, DETALLE y RESUMEN_DIGEST deben salir del Texto recibido. Si el Texto no permite saber que acto se publica, pon prioridad=baja, hecho=no_detectado, impacto=no_detectado, accion=no_enviar_digest, detalle=no_detectado y resumen_digest=no_detectado.
+- RESUMEN_DIGEST no es marketing ni saludo. Es la explicacion que luego vera el usuario en el digest; tiene que poder entenderse sin abrir el PDF.
 - Prioriza el contenido juridico/administrativo real frente a formulas como "Resolucion de..." o nombres de consejerias.
 - Si el texto solo anuncia exposicion publica, indica que documento/expediente se expone y a quien afecta.
 - No incluyas URL dentro de campos narrativos.
@@ -534,6 +740,7 @@ SALIDA: devuelve UNICAMENTE JSON valido con esta forma:
       "plazo": "no_detectado",
       "accion": "revisar documento oficial",
       "detalle": "dato especifico util",
+      "resumen_digest": "El boletin publica una actuacion concreta, explica a quien afecta, el territorio, el tramite o plazo y el dato util disponible.",
       "claves": ["palabra1", "palabra2", "palabra3"]
     }
   ]
@@ -574,7 +781,7 @@ async function generarFichasIAEnLote(alertas) {
   };
 
   const llamarGenerador = async (prompt) => {
-    const maxOutputTokens = Math.min(6000, Math.max(900, alertas.length * 420 + 400));
+    const maxOutputTokens = Math.min(8000, Math.max(1200, alertas.length * 650 + 500));
     if (!usarFormatoEstructurado) {
       return llamarIA(prompt, instructions, 'gpt-5-nano', { maxOutputTokens });
     }
@@ -663,7 +870,7 @@ Te paso una lista de alertas de boletines oficiales. Para CADA una debes:
 🚫 NO IMPORTA — Una alerta NO es relevante si:
 ────────────────────────────
 - Es una concesión o ayuda resuelta a favor de un único titular concreto (persona física o empresa individual), SALVO que afecte a una comunidad de regantes, a infraestructura pública agraria, o que abra un procedimiento con plazos de alegaciones que puedan afectar a terceros
-- Es convocatoria de oposiciones, bolsa de empleo o proceso selectivo público
+- Es convocatoria de oposiciones, bolsa de empleo, proceso selectivo publico, concurso de meritos/capacidades, provision de puestos, puesto singular, personal funcionario/laboral u oferta de empleo publico, aunque lo publique una consejeria de agricultura
 - Es nombramiento o cese de cargos administrativos menores: jefes de sección, delegados provinciales, registradores, notarios, funcionarios de oficinas concretas
 - Es licitación de obras de construcción, urbanismo o infraestructuras no agrarias
 - Es subvención o ayuda generalista para PYMEs/autónomos sin mención al sector agrario
@@ -1108,15 +1315,20 @@ IMPACTO:
 PLAZO:
 ACCION:
 DETALLE:
+RESUMEN_DIGEST:
 CLAVES:
 
 Reglas:
-- Maximo 1400 caracteres.
+- Maximo 2200 caracteres.
 - Sin emojis, sin markdown decorativo y sin texto para WhatsApp.
 - No incluyas URL.
 - No inventes datos que no esten en el texto original.
 - Si un dato no aparece, usa no_detectado.
-- HECHO debe explicar el acto sustantivo, no copiar solo cabeceras del boletin.
+- HECHO debe explicar que publica el boletin, no copiar solo cabeceras del boletin.
+- DETALLE debe contener un dato concreto del texto original si existe: expediente, municipio, ayuda, requisito, periodo, beneficiario, especie, cultivo, importe o tramite.
+- RESUMEN_DIGEST debe ser 2-4 frases cortas con contexto suficiente para el digest: que publica el boletin, a quien afecta, territorio, tramite/plazo y dato concreto si aparece.
+- Prohibido dejar frases genericas como "publicacion oficial relevante", "revisa si aplica", "revisar documento oficial" o "determinar su aplicabilidad".
+- Si no se puede extraer el acto publicado, usa prioridad=baja, hecho=no_detectado, impacto=no_detectado, accion=no_enviar_digest, detalle=no_detectado y resumen_digest=no_detectado.
 - Mantiene etiquetas en mayusculas y una linea por campo.
 
 Texto original de la alerta:
@@ -1128,7 +1340,7 @@ ${borrador}
 Responde UNICAMENTE con la ficha final. Sin JSON, sin explicaciones, sin nada mas.
 `.trim();
 
-            const respuestaIA = await llamarIA(prompt, instructions, 'gpt-5-nano', { maxOutputTokens: 520 });
+            const respuestaIA = await llamarIA(prompt, instructions, 'gpt-5-nano', { maxOutputTokens: 820 });
             revision = normalizarFichaIA(respuestaIA, a);
             resumenFinal = revision.texto;
           }

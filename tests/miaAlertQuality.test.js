@@ -86,6 +86,28 @@ const individualAlert = evaluarCalidadAlerta({
 
 assert(individualAlert.flags.includes('expediente_individual'), 'Detecta expedientes particulares de bajo valor general');
 
+const publicEmploymentAlert = evaluarCalidadAlerta({
+  ...goodAlert,
+  id: 5,
+  titulo: 'Resolucion ARP/1587/2026, de convocatoria de concurso especifico de meritos y capacidades para la provision de un puesto singular',
+  resumen_final: 'FICHA_IA\nTIPO: ayudas_subvenciones\nHECHO: concurso especifico de meritos y capacidades para la provision de un puesto singular\nRESUMEN_DIGEST: El boletin publica un concurso de meritos para cubrir un puesto singular de la administracion.',
+  contenido: 'Convocatoria de concurso especifico de meritos y capacidades para la provision de un puesto singular. Personal funcionario.',
+  sectores: ['mixto'],
+  tipos_alerta: ['ayudas_subvenciones'],
+}, { now });
+
+assert(publicEmploymentAlert.flags.includes('proceso_personal_publico'), 'Detecta concursos de meritos/provision de puestos como no aptos para digest');
+assert(publicEmploymentAlert.critical === true, 'Marca empleo publico como critico para bloquear digest');
+
+const boilerplateAlert = evaluarCalidadAlerta({
+  ...goodAlert,
+  id: 6,
+  resumen_final: 'Cargando... Datos del documento Descriptores relacionados Autenticidad e integridad Portal Juridic de Catalunya Acciones Guardar.',
+}, { now });
+
+assert(boilerplateAlert.flags.includes('resumen_boilerplate_portal'), 'Detecta resumen contaminado por texto de portal');
+assert(boilerplateAlert.critical === true, 'Bloquea resumen contaminado por boilerplate de portal');
+
 const alertSummary = resumirCalidadAlertas([goodAlert, rawBadAlert], { now });
 assert(alertSummary.metrics.total_alertas === 2, 'Resume total de alertas');
 assert(alertSummary.metrics.ready_for_mia === 1, 'Cuenta alertas listas para MIA');

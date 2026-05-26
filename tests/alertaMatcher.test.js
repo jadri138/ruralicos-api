@@ -93,5 +93,56 @@ test('boletin autonomico con provincia distinta no pasa filtro duro', () => {
   assert.strictEqual(result.motivo, 'provincia_no_coincide');
 });
 
+const userHuesca = {
+  subscription: 'cooperativa',
+  preferences: {
+    provincias: ['Huesca'],
+    sectores: ['ganaderia'],
+    subsectores: ['ovino'],
+    tipos_alerta: { normativa_general: true },
+  },
+};
+
+test('autonomico sin provincias deriva territorio de la fuente y no se trata como nacional', () => {
+  const alerta = {
+    fuente: 'DOGC',
+    provincias: [],
+    sectores: ['ganaderia'],
+    subsectores: ['ovino'],
+    tipos_alerta: ['normativa_general'],
+  };
+
+  const result = diagnosticarAlertaUsuario(alerta, userHuesca);
+  assert.strictEqual(result.ok, false);
+  assert.strictEqual(result.motivo, 'provincia_no_coincide');
+});
+
+test('BOA sin provincias pasa para usuario de Huesca por territorio de fuente', () => {
+  const alerta = {
+    fuente: 'BOA',
+    provincias: [],
+    sectores: ['ganaderia'],
+    subsectores: ['ovino'],
+    tipos_alerta: ['normativa_general'],
+  };
+
+  const result = diagnosticarAlertaUsuario(alerta, userHuesca);
+  assert.strictEqual(result.ok, true);
+});
+
+test('BOP provincial sin provincias solo pasa para su provincia', () => {
+  const alerta = {
+    fuente: 'BOPZ',
+    provincias: [],
+    sectores: ['ganaderia'],
+    subsectores: ['ovino'],
+    tipos_alerta: ['normativa_general'],
+  };
+
+  const result = diagnosticarAlertaUsuario(alerta, userHuesca);
+  assert.strictEqual(result.ok, false);
+  assert.strictEqual(result.motivo, 'provincia_no_coincide');
+});
+
 console.log(`\nResultados alertaMatcher: ${passed} aprobados, ${failed} fallidos`);
 if (failed > 0) process.exit(1);

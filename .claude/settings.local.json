@@ -15,7 +15,9 @@
       "Bash(ls \"c:\\\\Users\\\\jadri\\\\Desktop\\\\Jaime\\\\RURALICOS\\\\COPIA SEGURIDAD\\\\RURALICOS\\\\API\\\\ruralicos-web\\\\app\")",
       "Read(//c/Users/jadri/Desktop/Jaime/RURALICOS/COPIA SEGURIDAD/RURALICOS/API/ruralicos-web/app/**)",
       "Bash(ls \"c:\\\\Users\\\\jadri\\\\Desktop\\\\Jaime\\\\RURALICOS\\\\COPIA SEGURIDAD\\\\RURALICOS\\\\API\\\\ruralicos-web\\\\components\")",
-      "Read(//c/Users/jadri/Desktop/Jaime/RURALICOS/COPIA SEGURIDAD/RURALICOS/API/ruralicos-web/components/**)"
+      "Read(//c/Users/jadri/Desktop/Jaime/RURALICOS/COPIA SEGURIDAD/RURALICOS/API/ruralicos-web/components/**)",
+      "Bash(python3 -c ' *)",
+      "Bash(node -e ' *)"
     ]
   }
 }

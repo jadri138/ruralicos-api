@@ -204,6 +204,141 @@ function limpiarLineaDigest(texto, max = 240) {
     .trim();
 }
 
+function lineaBoletinPocoUtilDigest(linea) {
+  const texto = norm(linea || '');
+  if (!texto) return true;
+  if (texto.length < 24) return true;
+
+  const patrones = [
+    /^boletin oficial\b/,
+    /^boletin\b/,
+    /^csv\b/,
+    /^numero\s+\d+/,
+    /^num\.\s*\d+/,
+    /^pagina\s+\d+/,
+    /^sumario\b/,
+    /^indice\b/,
+    /^cargando\b/,
+    /^i+\.\s+/,
+    /^v+\.\s+anuncios\b/,
+    /^departamento de\b/,
+    /^consejeria de\b/,
+    /^administracion\b/,
+  ];
+
+  if (patrones.some((patron) => patron.test(texto))) return true;
+
+  const marcasPortal = [
+    'datos del documento',
+    'descriptores relacionados',
+    'autenticidad e integridad',
+    'portal juridic',
+    'portal juridic de catalunya',
+    'acciones guardar',
+  ];
+  const hitsPortal = marcasPortal.filter((marca) => texto.includes(marca)).length;
+  return hitsPortal >= 2;
+}
+
+function extraerExtractoOficialDigest(alerta = {}, max = 700) {
+  const raw = String(alerta.contenido || '')
+    .replace(/https?:\/\/\S+/g, '')
+    .replace(/\r/g, '\n')
+    .trim();
+
+  if (!raw) return limpiarLineaDigest(alerta.titulo, max);
+
+  const lineas = raw
+    .split(/\n+/g)
+    .map((linea) => limpiarLineaDigest(linea, 520))
+    .filter((linea) => linea && !lineaBoletinPocoUtilDigest(linea));
+
+  const texto = (lineas.length ? lineas.slice(0, 5).join(' ') : raw)
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return limpiarLineaDigest(texto, max);
+}
+
+function parsearFichaDigest(texto) {
+  const campos = {};
+  for (const linea of String(texto || '').split(/\r?\n/g)) {
+    const match = linea.match(/^([A-Z_]+)\s*:\s*(.*)$/);
+    if (!match) continue;
+    const key = match[1].toLowerCase();
+    campos[key] = limpiarLineaDigest(match[2], key === 'resumen_digest' ? 720 : 420);
+  }
+  return campos;
+}
+
+function campoDigestUtil(valor) {
+  const texto = norm(valor || '');
+  if (!texto) return false;
+  if (texto === 'no_detectado' || texto === 'no especificado' || texto === 'sin especificar') return false;
+  if (texto === 'no_enviar_digest') return false;
+  if (texto === 'sector_agrario' || texto === 'sector agrario') return false;
+  if (/^publicacion oficial\b/.test(texto)) return false;
+  if (/^alerta oficial\b/.test(texto)) return false;
+  if (/^boletin oficial\b/.test(texto)) return false;
+  if (/revis(ar|a) si (aplica|afecta)/.test(texto)) return false;
+  if (/revisar documento oficial/.test(texto)) return false;
+  if (/determinar su aplicabilidad/.test(texto)) return false;
+  return true;
+}
+
+function construirLecturaBoletinDigest(alerta = {}) {
+  const ficha = parsearFichaDigest(alerta.resumen_final || alerta.resumen || '');
+  const partes = [];
+
+  if (campoDigestUtil(ficha.resumen_digest)) partes.push(`Resumen: ${ficha.resumen_digest}`);
+  if (campoDigestUtil(ficha.hecho)) partes.push(`Hecho: ${ficha.hecho}`);
+  if (campoDigestUtil(ficha.objeto)) partes.push(`Objeto: ${ficha.objeto}`);
+  if (campoDigestUtil(ficha.impacto)) partes.push(`Impacto: ${ficha.impacto}`);
+  if (campoDigestUtil(ficha.plazo)) partes.push(`Plazo: ${ficha.plazo}`);
+  if (campoDigestUtil(ficha.detalle)) partes.push(`Detalle: ${ficha.detalle}`);
+  if (campoDigestUtil(ficha.accion)) partes.push(`Accion: ${ficha.accion}`);
+
+  const extracto = extraerExtractoOficialDigest(alerta, 700);
+  return {
+    lectura: limpiarLineaDigest(partes.join(' | '), 950) || extracto,
+    extracto,
+  };
+}
+
+function quitarPrefijoBoletinDigest(texto) {
+  return limpiarLineaDigest(texto, 520)
+    .replace(/^el boletin (indica|publica|recoge|dice)\s*:\s*/i, '')
+    .trim();
+}
+
+function construirResumenOficialDigest(alerta = {}, max = 320) {
+  const ficha = parsearFichaDigest(alerta.resumen_final || alerta.resumen || '');
+  const partes = [];
+
+  if (campoDigestUtil(ficha.resumen_digest)) {
+    return limpiarLineaDigest(ficha.resumen_digest, max);
+  }
+
+  if (campoDigestUtil(ficha.hecho)) {
+    partes.push(quitarPrefijoBoletinDigest(ficha.hecho));
+  }
+
+  if (campoDigestUtil(ficha.detalle)) {
+    const detalle = quitarPrefijoBoletinDigest(ficha.detalle);
+    const hechoNorm = norm(partes[0] || '');
+    if (detalle && (!hechoNorm || !hechoNorm.includes(norm(detalle).slice(0, 45)))) {
+      partes.push(detalle);
+    }
+  }
+
+  if (campoDigestUtil(ficha.plazo)) partes.push(`Plazo: ${ficha.plazo}`);
+  if (campoDigestUtil(ficha.impacto)) partes.push(`Impacto: ${ficha.impacto}`);
+
+  const base = limpiarLineaDigest(partes.filter(Boolean).join(' '), max - 22) ||
+    extraerExtractoOficialDigest(alerta, max - 22);
+  return base ? `El boletin publica: ${base}` : '';
+}
+
 function obtenerNombreCortoDigest(user = {}) {
   const firstName = limpiarLineaDigest(user.first_name, 40);
   const base = firstName || limpiarLineaDigest(user.name || user.legal_name, 80);
@@ -245,6 +380,22 @@ function limpiarMensajeDigestIA(mensaje, saludoEsperado) {
     limpio = limpio.replace(/^Hola[^\n]*/i, saludoEsperado);
   }
   return limpio;
+}
+
+function mensajeDigestPareceGenerico(mensaje) {
+  const texto = norm(mensaje || '');
+  if (!texto) return true;
+
+  const patrones = [
+    /publicacion oficial relevante/,
+    /revisa(r)? el documento completo/,
+    /revis(ar|a) si (aplica|afecta)/,
+    /determinar su aplicabilidad/,
+    /verifica(r)? si es relevante/,
+    /puede afectar a tu explotacion/,
+  ];
+
+  return patrones.some((patron) => patron.test(texto));
 }
 
 function filtrarAlertasPorCalidadDigest(alertas = [], { minScore = 65 } = {}) {
@@ -293,8 +444,10 @@ function generarMensajeDigestFallback({ user, alertas, fecha, organizationContex
   const bloques = seleccion.map((alerta, index) => {
     const prioridad = clasificarPrioridadAlerta(alerta);
     const titulo = limpiarLineaDigest(alerta.titulo, 150) || 'Alerta oficial';
-    const resumen = limpiarLineaDigest(alerta.resumen_final || alerta.resumen || alerta.contenido, 260) ||
-      'Publicacion oficial detectada. Revisa el enlace oficial antes de actuar.';
+    const lectura = construirLecturaBoletinDigest(alerta);
+    const resumen = construirResumenOficialDigest(alerta, 320) ||
+      limpiarLineaDigest(lectura.lectura || alerta.resumen_final || alerta.resumen || alerta.contenido, 300) ||
+      'Sin extracto oficial suficiente para resumirla con seguridad.';
     const url = String(alerta.url || '').trim();
 
     return [
@@ -614,15 +767,25 @@ async function generarMensajeDigest({ user, alertas, fecha, plan, aprendizaje, o
 
   const esCooperativa = user.subscription === 'cooperativa';
   const preferenciasExtra = (user.preferencias_extra || '').trim();
+  const preferenciasBase = user.preferences && typeof user.preferences === 'object'
+    ? JSON.stringify(user.preferences)
+    : '{}';
 
   const bloqueAlertas = alertas
     .map((a, i) => {
       const ficha = (a.resumen_final || a.resumen || '').slice(0, 900);
       const fuente = a.fuente || 'Boletin';
       const prioridad = clasificarPrioridadAlerta(a);
+      const lectura = construirLecturaBoletinDigest(a);
       return [
         `ALERTA ${i + 1} [${fuente}] [PRIORIDAD: ${prioridad.prioridad.toUpperCase()}]:`,
         `Titulo: ${a.titulo}`,
+        `Provincias detectadas: ${Array.isArray(a.provincias) && a.provincias.length ? a.provincias.join(', ') : (a.region || 'No especificadas')}`,
+        `Sectores detectados: ${Array.isArray(a.sectores) && a.sectores.length ? a.sectores.join(', ') : 'No especificados'}`,
+        `Subsectores detectados: ${Array.isArray(a.subsectores) && a.subsectores.length ? a.subsectores.join(', ') : 'No especificados'}`,
+        `Tipos detectados: ${Array.isArray(a.tipos_alerta) && a.tipos_alerta.length ? a.tipos_alerta.join(', ') : 'No especificados'}`,
+        `Lectura obligatoria del boletin: ${lectura.lectura || 'No disponible'}`,
+        `Extracto oficial: ${lectura.extracto || 'No disponible'}`,
         `Ficha IA: ${ficha}`,
         `Enlace: ${a.url}`,
       ].join('\n');
@@ -657,6 +820,8 @@ Eres el asistente de alertas agrarias de ${branding.reply_sender}. Redacta el me
 Fecha: ${fecha}
 Plan del usuario: ${plan.nombre}
 Marca/remitente autorizado: ${branding.reply_sender}
+PREFERENCIAS ESTRUCTURADAS DEL USUARIO:
+${preferenciasBase}
 ${bloqueExtra}
 ${bloqueAprendizaje}
 ${bloqueContextoMIA}
@@ -692,8 +857,14 @@ REGLAS:
 - Respeta la prioridad indicada en cada alerta. Si es URGENTE, abre con "Urgente". Si es BAJA, usa "Para revisar" y se muy breve.
 - Maximo 1600 caracteres en total. Si hay muchas alertas, reduce las frases de cada una.
 - Lenguaje sencillo, directo y profesional. Cercano, pero sin confianza excesiva.
-- NO inventes datos que no esten en las fichas IA.
+- Cada resumen debe explicar que publica el boletin: acto, destinatario/territorio, tramite, plazo o dato concreto si aparece. No basta con decir que es "relevante".
+- Si la ficha trae RESUMEN_DIGEST, usalo como base principal y solo recortalo si hace falta por longitud.
+- Usa primero "Lectura obligatoria del boletin" y "Extracto oficial"; si contradicen la ficha IA, manda el contenido oficial.
+- NO inventes datos que no esten en la ficha IA, la lectura obligatoria o el extracto oficial.
+- No digas que una alerta es relevante para ganaderia, agricultura, Huesca, ovino o vacuno salvo que aparezca en sus tags detectados, la ficha IA, la lectura obligatoria o el extracto oficial.
+- Si una ficha IA es generica ("publicacion oficial relevante", "revisa si afecta", "boletin oficial") y no contiene objeto concreto, destinatario, territorio o actuacion, responde "SIN_ALERTAS" si todas son asi; si solo una es asi, resumirla como "Para revisar" sin inventar impacto.
 - Usa OBJETO, IMPACTO, PLAZO y DETALLE para concretar el resumen. No te quedes solo con HECHO si es generico.
+- Prohibidas frases comodin como "revisa el documento completo para determinar su aplicabilidad", "se recomienda revisar si afecta" o "publicacion oficial relevante" si puedes leer el extracto oficial.
 - Si IMPACTO o DETALLE dicen que es un expediente individual, concesion concreta o exposicion publica limitada, presentalo como "para revisar" y sin exagerar.
 - Si el contexto narrativo encaja con una alerta, usalo solo para elegir que dato destacar, no para saludar ni adornar.
 - No uses frases como "que tengas buen dia", "en tu granja", "con tus vacas", "en tu finca", "animo con la jornada", "buena cosecha" o similares, salvo que sea un dato literal de la alerta.
@@ -713,7 +884,12 @@ Responde UNICAMENTE con el mensaje WhatsApp final. Sin JSON, sin explicaciones, 
   const instructions = 'Eres un redactor experto en comunicacion agraria para WhatsApp. Responde SOLO con el texto del mensaje. Sin JSON, sin explicaciones.';
 
   const mensaje = await llamarIA(prompt, instructions, modelo);
-  return limpiarMensajeDigestIA(mensaje, saludo);
+  const limpio = limpiarMensajeDigestIA(mensaje, saludo);
+  if (mensajeDigestPareceGenerico(limpio)) {
+    console.warn('[digest] La IA genero un mensaje generico; usando fallback con lectura del boletin.');
+    return generarMensajeDigestFallback({ user, alertas, fecha, organizationContext });
+  }
+  return limpio;
 }
 // RUTAS
 // ══════════════════════════════════════════════════════════════════════
@@ -931,10 +1107,10 @@ module.exports = function digestRoutes(app, supabase) {
       // 3) Usuarios que ya tienen digest hoy (idempotencia)
       const { data: digestsExistentes } = await supabase
         .from('digests')
-        .select('user_id')
+        .select('id, user_id, enviado')
         .eq('fecha', hoy);
 
-      const usuariosConDigest = new Set((digestsExistentes || []).map((d) => d.user_id));
+      const digestsPorUsuario = new Map((digestsExistentes || []).map((d) => [d.user_id, d]));
 
       let generados  = 0;
       let sinAlertas = 0;
@@ -947,7 +1123,10 @@ module.exports = function digestRoutes(app, supabase) {
         if (generados >= limiteDigests) break;
 
         // Ya tiene digest hoy → saltar
-        if (usuariosConDigest.has(user.id)) {
+        // Con force=true se rehace solo si aun no fue enviado.
+        const digestExistente = digestsPorUsuario.get(user.id);
+
+        if (digestExistente && (!force || digestExistente.enviado)) {
           saltados++;
           continue;
         }
@@ -1024,28 +1203,62 @@ module.exports = function digestRoutes(app, supabase) {
           );
 
           const alertaIdsDigest = alertasOrdenadas.map((a) => a.id);
-          const { data: digestInsertado, error: insertError } = await supabase
-            .from('digests')
-            .insert(conOrganizationId({
-              user_id:    user.id,
-              fecha:      hoy,
-              mensaje:    mensaje.trim(),
-              alerta_ids: alertaIdsDigest,
-              enviado:    false,
-            }, organizationId))
-            .select('id')
-            .single();
+          let digestInsertado = null;
+          let writeError = null;
+          const regenerandoDigestExistente = Boolean(digestExistente && force && !digestExistente.enviado);
 
-          if (insertError) {
-            if (insertError.code === '23505') {
+          if (regenerandoDigestExistente) {
+            const updateResult = await supabase
+              .from('digests')
+              .update(conOrganizationId({
+                mensaje: mensaje.trim(),
+                alerta_ids: alertaIdsDigest,
+                enviado: false,
+              }, organizationId))
+              .eq('id', digestExistente.id)
+              .eq('enviado', false)
+              .select('id')
+              .single();
+            digestInsertado = updateResult.data;
+            writeError = updateResult.error;
+          } else {
+            const insertResult = await supabase
+              .from('digests')
+              .insert(conOrganizationId({
+                user_id:    user.id,
+                fecha:      hoy,
+                mensaje:    mensaje.trim(),
+                alerta_ids: alertaIdsDigest,
+                enviado:    false,
+              }, organizationId))
+              .select('id')
+              .single();
+            digestInsertado = insertResult.data;
+            writeError = insertResult.error;
+          }
+
+          if (writeError) {
+            if (writeError.code === '23505') {
               // Carrera entre crons — no es error crítico
               console.warn(`[digest] UNIQUE violation user ${user.id} — ya existe, saltando`);
               saltados++;
             } else {
-              console.error(`[digest] Error insertando digest user ${user.id}:`, insertError.message);
-              errores.push({ userId: user.id, error: insertError.message });
+              console.error(`[digest] Error guardando digest user ${user.id}:`, writeError.message);
+              errores.push({ userId: user.id, error: writeError.message });
             }
           } else {
+            if (regenerandoDigestExistente) {
+              for (const tabla of ['digest_items', 'alerta_click_links']) {
+                const { error: cleanupError } = await supabase
+                  .from(tabla)
+                  .delete()
+                  .eq('digest_id', digestInsertado.id);
+                if (cleanupError) {
+                  console.warn(`[digest] No se pudo limpiar ${tabla} del digest ${digestInsertado.id}:`, cleanupError.message);
+                }
+              }
+            }
+
             const digestItems = await registrarDigestItemsMIA(supabase, {
               digestId: digestInsertado.id,
               userId: user.id,
