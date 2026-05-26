@@ -10,6 +10,8 @@ const CRITICAL_ALERT_FLAGS = new Set([
   'listo_sin_resumen_final',
   'titulo_boletin_raw',
   'proceso_personal_publico',
+  'pesca_maritimo_no_agrario',
+  'administracion_general_no_agraria',
   'resumen_boilerplate_portal',
 ]);
 
@@ -194,6 +196,88 @@ function detectarProcesoPersonalPublico(alerta = {}) {
   ]);
 }
 
+function detectarPescaOMaritimoNoAgrario(alerta = {}) {
+  const text = normalizarTextoCalidad([
+    alerta.titulo,
+    alerta.resumen_final,
+    alerta.resumen_borrador,
+    alerta.resumen,
+    alerta.contenido,
+  ].filter(Boolean).join('\n'));
+
+  if (!text) return false;
+  const pescaOMaritimo = contieneAlguno(text, [
+    'politica maritima',
+    'pesca maritima',
+    'sector pesquero',
+    'actividad pesquera',
+    'flota pesquera',
+    'acuicultura',
+    'marisqueo',
+    'maritimo',
+  ]);
+  if (!pescaOMaritimo) return false;
+
+  return !contieneAlguno(text, [
+    'agrario',
+    'agraria',
+    'agricola',
+    'ganaderia',
+    'agricultor',
+    'ganadero',
+    'explotacion agraria',
+    'explotacion ganadera',
+    'regadio',
+    'regante',
+    'pac',
+    'fega',
+    'sigpac',
+  ]);
+}
+
+function detectarAdministracionGeneralNoAgraria(alerta = {}) {
+  const text = normalizarTextoCalidad([
+    alerta.titulo,
+    alerta.resumen_final,
+    alerta.resumen_borrador,
+    alerta.resumen,
+    alerta.contenido,
+  ].filter(Boolean).join('\n'));
+
+  if (!text) return false;
+  const administrativo = contieneAlguno(text, [
+    'beca universitaria',
+    'universidad',
+    'notario',
+    'registrador',
+    'registro de la propiedad',
+    'convenio colectivo',
+    'urbanismo',
+    'planeamiento urbanistico',
+    'licencia urbanistica',
+  ]);
+  if (!administrativo) return false;
+
+  return !contieneAlguno(text, [
+    'agrario',
+    'agraria',
+    'agricola',
+    'ganaderia',
+    'agricultor',
+    'ganadero',
+    'explotacion agraria',
+    'explotacion ganadera',
+    'regadio',
+    'regante',
+    'camino rural',
+    'via pecuaria',
+    'monte publico',
+    'fega',
+    'pac',
+    'sigpac',
+  ]);
+}
+
 function detectarBoilerplatePortal(texto) {
   const text = normalizarTextoCalidad(texto);
   if (!text) return false;
@@ -344,6 +428,16 @@ function evaluarCalidadAlerta(alerta = {}, { now = new Date(), staleHours = 24 }
   if (detectarProcesoPersonalPublico(alerta)) {
     penalty += restar(issues, 'proceso_personal_publico', 55, 'La alerta trata de empleo publico, provision de puestos o concurso de meritos.');
     recommendations.push('Descartarla del pipeline agrario aunque el organismo sea de agricultura.');
+  }
+
+  if (detectarPescaOMaritimoNoAgrario(alerta)) {
+    penalty += restar(issues, 'pesca_maritimo_no_agrario', 45, 'La alerta trata de pesca, acuicultura o politica maritima sin relacion agraria.');
+    recommendations.push('Excluirla del digest agrario.');
+  }
+
+  if (detectarAdministracionGeneralNoAgraria(alerta)) {
+    penalty += restar(issues, 'administracion_general_no_agraria', 45, 'La alerta es administracion general sin impacto agrario directo.');
+    recommendations.push('Excluirla salvo que mencione explotaciones, regadio, PAC o actividad agraria concreta.');
   }
 
   if (detectarExpedienteIndividual(alerta)) {

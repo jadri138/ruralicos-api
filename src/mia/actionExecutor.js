@@ -158,6 +158,7 @@ async function ejecutarAccionesMIA(supabase, {
             userId: user.id,
             alerta,
             delta: row.valor,
+            rawText: texto,
           });
         }
       }

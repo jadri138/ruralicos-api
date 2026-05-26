@@ -446,6 +446,7 @@ module.exports = function feedbackRoutes(app, supabase) {
           userId: user.id,
           alerta: alertasPorId.get(Number(fila.alerta_id)),
           delta: fila.valor,
+          rawText,
         });
         tagsActualizados += Number(resultado?.updated || 0);
       }

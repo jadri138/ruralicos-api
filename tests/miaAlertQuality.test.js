@@ -108,6 +108,26 @@ const boilerplateAlert = evaluarCalidadAlerta({
 assert(boilerplateAlert.flags.includes('resumen_boilerplate_portal'), 'Detecta resumen contaminado por texto de portal');
 assert(boilerplateAlert.critical === true, 'Bloquea resumen contaminado por boilerplate de portal');
 
+const maritimeAlert = evaluarCalidadAlerta({
+  ...goodAlert,
+  id: 7,
+  titulo: 'Resolucion sobre politica maritima y sector pesquero',
+  resumen_final: 'Publicacion sobre politica maritima y actividad pesquera.',
+  contenido: 'Direccion General de Politica Maritima. Sector pesquero y flota pesquera.',
+}, { now });
+
+assert(maritimeAlert.flags.includes('pesca_maritimo_no_agrario'), 'Detecta pesca/maritimo sin relacion agraria');
+
+const generalAdminAlert = evaluarCalidadAlerta({
+  ...goodAlert,
+  id: 8,
+  titulo: 'Convenio colectivo de personal de una universidad publica',
+  resumen_final: 'El boletin publica un convenio colectivo universitario de personal laboral.',
+  contenido: 'Universidad publica. Convenio colectivo de personal laboral.',
+}, { now });
+
+assert(generalAdminAlert.flags.includes('administracion_general_no_agraria'), 'Detecta administracion general no agraria');
+
 const alertSummary = resumirCalidadAlertas([goodAlert, rawBadAlert], { now });
 assert(alertSummary.metrics.total_alertas === 2, 'Resume total de alertas');
 assert(alertSummary.metrics.ready_for_mia === 1, 'Cuenta alertas listas para MIA');

@@ -23,6 +23,39 @@ function scoreAlerta(alerta, pesos = {}) {
   return tagsAlerta(alerta).reduce((acc, tag) => acc + Number(pesos[tag] || 0), 0);
 }
 
+function esRechazoGlobalFeedback(texto = '') {
+  const value = norm(texto);
+  if (!value) return false;
+  return /^(ninguna|ninguno|nada|no)$/.test(value) ||
+    /\bninguna\b/.test(value) && !/\d/.test(value);
+}
+
+function calcularAjusteFeedbackTag(tag = '', delta = 0, rawText = '') {
+  const ajuste = Number(delta || 0);
+  if (!ajuste) return 0;
+  if (ajuste > 0) return ajuste;
+
+  const normalizedTag = norm(tag);
+  const rechazoGlobal = esRechazoGlobalFeedback(rawText);
+
+  // Un voto negativo no debe desmontar preferencias base declaradas.
+  if (/^(provincia|sector):/.test(normalizedTag)) return 0;
+
+  if (rechazoGlobal) {
+    if (/^tramite:/.test(normalizedTag)) return -0.45;
+    if (/^entidad:/.test(normalizedTag)) return -0.35;
+    if (/^fuente:/.test(normalizedTag)) return -0.25;
+    if (/^tipo:/.test(normalizedTag)) return -0.15;
+    return 0;
+  }
+
+  if (/^tramite:/.test(normalizedTag)) return -0.7;
+  if (/^entidad:/.test(normalizedTag)) return -0.5;
+  if (/^fuente:/.test(normalizedTag)) return -0.35;
+  if (/^(tipo|concepto|subsector):/.test(normalizedTag)) return -0.35;
+  return Math.max(ajuste, -0.25);
+}
+
 async function leerPerfilIntereses(supabase, userId) {
   const { data, error } = await supabase
     .from('user_interest_profile')
@@ -54,7 +87,7 @@ async function leerPerfilIntereses(supabase, userId) {
   return { pesos, resumen };
 }
 
-async function aplicarFeedbackAlPerfil(supabase, { userId, alerta, delta }) {
+async function aplicarFeedbackAlPerfil(supabase, { userId, alerta, delta, rawText = '' }) {
   const tags = tagsAlerta(alerta);
   if (!userId || tags.length === 0) return { updated: 0 };
 
@@ -62,7 +95,14 @@ async function aplicarFeedbackAlPerfil(supabase, { userId, alerta, delta }) {
   if (!ajuste) return { updated: 0 };
 
   let updated = 0;
+  let skipped = 0;
   for (const tag of tags) {
+    const ajusteTag = calcularAjusteFeedbackTag(tag, ajuste, rawText);
+    if (!ajusteTag) {
+      skipped++;
+      continue;
+    }
+
     const { data: actual, error: selectError } = await supabase
       .from('user_interest_profile')
       .select('score, positivos, negativos')
@@ -78,9 +118,9 @@ async function aplicarFeedbackAlPerfil(supabase, { userId, alerta, delta }) {
     const next = {
       user_id: userId,
       tag,
-      score: Number(actual?.score || 0) + ajuste,
-      positivos: Number(actual?.positivos || 0) + (ajuste > 0 ? 1 : 0),
-      negativos: Number(actual?.negativos || 0) + (ajuste < 0 ? 1 : 0),
+      score: Number(actual?.score || 0) + ajusteTag,
+      positivos: Number(actual?.positivos || 0) + (ajusteTag > 0 ? 1 : 0),
+      negativos: Number(actual?.negativos || 0) + (ajusteTag < 0 ? 1 : 0),
       updated_at: new Date().toISOString(),
     };
 
@@ -95,7 +135,7 @@ async function aplicarFeedbackAlPerfil(supabase, { userId, alerta, delta }) {
     updated++;
   }
 
-  return { updated };
+  return { updated, skipped };
 }
 
 function ordenarAlertasPorPerfil(alertas, perfil) {
@@ -105,6 +145,8 @@ function ordenarAlertasPorPerfil(alertas, perfil) {
 
 module.exports = {
   aplicarFeedbackAlPerfil,
+  calcularAjusteFeedbackTag,
+  esRechazoGlobalFeedback,
   leerPerfilIntereses,
   ordenarAlertasPorPerfil,
   scoreAlerta,

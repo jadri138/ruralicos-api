@@ -2,6 +2,7 @@ const POLICY_VERSION = 'mia_policy_v1';
 const { obtenerMiaBranding } = require('./organizationContext');
 
 const FEEDBACK_CLARIFICATION_REPLY = 'No he podido asociar tu respuesta a una alerta concreta. Puedes responder con el numero de la alerta, por ejemplo 1, 2 o ninguna.';
+const NEGATIVE_FEEDBACK_FOLLOWUP = 'Entendido. Para afinar mejor, dime si no encajaba por la zona, por el tema, porque era poco concreto o porque no aplicaba a tu explotacion.';
 
 function construirTextosPolitica(organizationContext = null) {
   const branding = obtenerMiaBranding(organizationContext);
@@ -83,6 +84,17 @@ function esFeedbackCorto(texto) {
     /^\d{1,2}\s*[+-]$/.test(value) ||
     /^(ninguna|ninguno|ambas|todos|todas)$/.test(value) ||
     /^[+-]$/.test(value);
+}
+
+function esFeedbackNegativoSinDetalle(decision = {}, texto = '') {
+  const feedbacks = decision.feedback_actions || [];
+  if (!feedbacks.length) return false;
+  if (!feedbacks.every((item) => Number(item.valor) < 0)) return false;
+
+  const value = normalizar(texto);
+  if (/^(ninguna|ninguno|nada|no)$/.test(value)) return true;
+  if (value.split(/\s+/).filter(Boolean).length <= 4) return true;
+  return !/\b(zona|pueblo|municipio|tema|agua|riego|ayuda|subvencion|pac|vacuno|ovino|porcino|poco concreto|no aplica|no aplicaba)\b/.test(value);
 }
 
 function preguntaDemasiadoVaga(texto, perfilOperativo = {}) {
@@ -238,18 +250,24 @@ function evaluarPoliticaDecisionMIA({
 
   if (intent === 'feedback_digest') {
     if (hasFeedback) {
+      const shouldAskWhy = esFeedbackNegativoSinDetalle(decision, texto);
+      if (shouldAskWhy && !hasReply) {
+        next = conReply(next, NEGATIVE_FEEDBACK_FOLLOWUP);
+      }
+
       const policy = construirPolicy({
-        outcome: questionish ? 'record_feedback_with_reply' : 'record_feedback',
-        reasons: ['valid_digest_feedback'],
+        outcome: questionish || shouldAskWhy ? 'record_feedback_with_reply' : 'record_feedback',
+        reasons: shouldAskWhy ? ['valid_digest_feedback', 'negative_feedback_needs_context'] : ['valid_digest_feedback'],
         requiresAgent: false,
-        shouldReply: questionish && hasReply,
+        shouldReply: (questionish && hasReply) || shouldAskWhy,
         shouldStoreMemory: hasMemory,
         shouldFeedback: true,
         confidence: decision.confidence,
       });
-      return aplicarPolicy(questionish && hasReply ? next : sinReply(next), policy, {
+      const replyAction = (questionish && hasReply) || shouldAskWhy ? next.reply_action : null;
+      return aplicarPolicy(replyAction ? next : sinReply(next), policy, {
         riskFlags,
-        replyAction: questionish && hasReply ? next.reply_action : null,
+        replyAction,
         autoAnswered: true,
       });
     }

@@ -158,6 +158,28 @@ assert(feedback.policy.outcome === 'record_feedback', 'Registra feedback claro')
 assert(feedback.reply_action === null, 'No responde a feedback simple para no molestar');
 assert(feedback.policy.should_feedback === true, 'Policy marca que hay feedback ejecutable');
 
+const feedbackNegativo = evaluarPoliticaDecisionMIA({
+  texto: 'ninguna',
+  digest: { id: 13 },
+  alertasDelDigest: [{ id: 100 }, { id: 101 }],
+  decision: {
+    intent: 'feedback_digest',
+    confidence: 0.95,
+    risk_flags: [],
+    feedback_actions: [
+      { item_numero: 1, valor: -1, confianza: 'alta' },
+      { item_numero: 2, valor: -1, confianza: 'alta' },
+    ],
+    memory_actions: [],
+    reply_action: null,
+    summary: 'Feedback negativo',
+  },
+});
+
+assert(feedbackNegativo.policy.outcome === 'record_feedback_with_reply', 'Pregunta por contexto cuando rechaza todas');
+assert(feedbackNegativo.reply_action.texto.includes('zona'), 'La pregunta de seguimiento pide motivo util');
+assert(feedbackNegativo.policy.requires_agent === false, 'No escala a agente por pedir motivo de rechazo');
+
 const feedbackAmbiguo = evaluarPoliticaDecisionMIA({
   texto: 'la otra',
   digest: { id: 12 },

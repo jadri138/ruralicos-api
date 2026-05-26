@@ -180,6 +180,111 @@ function esProcesoAdministrativoPersonal(alerta = {}) {
   ]);
 }
 
+function esPescaOMaritimoNoAgrario(alerta = {}) {
+  const texto = textoAlertaNormalizado(alerta);
+  if (!texto) return false;
+
+  const pescaOMaritimo = contieneAlguno(texto, [
+    'politica maritima',
+    'política marítima',
+    'pesca maritima',
+    'pesca marítima',
+    'sector pesquero',
+    'actividad pesquera',
+    'flota pesquera',
+    'acuicultura',
+    'marisqueo',
+    'maritimo',
+    'marítimo',
+  ]);
+
+  if (!pescaOMaritimo) return false;
+  return !contieneAlguno(texto, [
+    'agrario',
+    'agraria',
+    'agricola',
+    'agrícola',
+    'ganaderia',
+    'ganadería',
+    'agricultor',
+    'ganadero',
+    'explotacion agraria',
+    'explotación agraria',
+    'explotacion ganadera',
+    'explotación ganadera',
+    'regadio',
+    'regadío',
+    'regante',
+    'pac',
+    'fega',
+    'sigpac',
+  ]);
+}
+
+function esAdministracionGeneralNoAgraria(alerta = {}) {
+  const texto = textoAlertaNormalizado(alerta);
+  if (!texto) return false;
+
+  const administrativo = contieneAlguno(texto, [
+    'beca universitaria',
+    'universidad',
+    'notario',
+    'registrador',
+    'registro de la propiedad',
+    'convenio colectivo',
+    'urbanismo',
+    'planeamiento urbanistico',
+    'planeamiento urbanístico',
+    'licencia urbanistica',
+    'licencia urbanística',
+  ]);
+  if (!administrativo) return false;
+
+  return !contieneAlguno(texto, [
+    'agrario',
+    'agraria',
+    'agricola',
+    'agrícola',
+    'ganaderia',
+    'ganadería',
+    'agricultor',
+    'ganadero',
+    'explotacion agraria',
+    'explotación agraria',
+    'explotacion ganadera',
+    'explotación ganadera',
+    'regadio',
+    'regadío',
+    'regante',
+    'camino rural',
+    'via pecuaria',
+    'vía pecuaria',
+    'monte publico',
+    'monte público',
+    'fega',
+    'pac',
+    'sigpac',
+  ]);
+}
+
+function detectarExclusionDuraAlerta(alerta = {}) {
+  if (esProcesoAdministrativoPersonal(alerta)) return 'proceso_personal_publico';
+  if (esPescaOMaritimoNoAgrario(alerta)) return 'pesca_maritimo_no_agrario';
+  if (esAdministracionGeneralNoAgraria(alerta)) return 'administracion_general_no_agraria';
+  return null;
+}
+
+function clasificacionDescartada(id) {
+  return {
+    id: String(id),
+    es_relevante: false,
+    provincias: [],
+    sectores: [],
+    subsectores: [],
+    tipos_alerta: [],
+  };
+}
+
 function limpiarArrayStrings(valor) {
   if (!Array.isArray(valor)) return [];
   return valor
@@ -211,16 +316,7 @@ function extraerResultadosClasificacion(parsed) {
 }
 
 function clasificarLocalmente(alerta) {
-  if (esProcesoAdministrativoPersonal(alerta)) {
-    return {
-      id: String(alerta.id),
-      es_relevante: false,
-      provincias: [],
-      sectores: [],
-      subsectores: [],
-      tipos_alerta: [],
-    };
-  }
+  if (detectarExclusionDuraAlerta(alerta)) return clasificacionDescartada(alerta.id);
 
   const texto = normalizarTexto(`${alerta.titulo || ''}\n${alerta.region || ''}\n${alerta.contenido || ''}`);
 
@@ -229,7 +325,7 @@ function clasificarLocalmente(alerta) {
     'aves', 'apicultura', 'colmena', 'sanidad animal', 'bienestar animal',
   ]);
   const agricultura = contieneAlguno(texto, [
-    'agricultur', 'agrari', 'cultivo', 'explotacion agraria', 'olivar',
+    'agricultor', 'agricola', 'agrario', 'agraria', 'cultivo', 'explotacion agraria', 'olivar',
     'vinedo', 'vitivinicol', 'cereal', 'trigo', 'cebada', 'maiz', 'arroz',
     'hortaliza', 'frutal', 'almendro', 'citric', 'fitosanit', 'sanidad vegetal',
     'plaga', 'fertiliz', 'cuaderno de campo',
@@ -251,14 +347,7 @@ function clasificarLocalmente(alerta) {
 
   const esRelevante = (ganaderia || agricultura || rural) && !exclusionFuerte;
   if (!esRelevante) {
-    return {
-      id: String(alerta.id),
-      es_relevante: false,
-      provincias: [],
-      sectores: [],
-      subsectores: [],
-      tipos_alerta: [],
-    };
+    return clasificacionDescartada(alerta.id);
   }
 
   const sectores = [];
@@ -317,28 +406,10 @@ function normalizarResultadoClasificacion(item, alertasPorId) {
   if (item.es_relevante === undefined || item.es_relevante === null) return null;
 
   const alerta = alertasPorId.get(id);
-  if (esProcesoAdministrativoPersonal(alerta)) {
-    return {
-      id,
-      es_relevante: false,
-      provincias: [],
-      sectores: [],
-      subsectores: [],
-      tipos_alerta: [],
-    };
-  }
+  if (detectarExclusionDuraAlerta(alerta)) return clasificacionDescartada(id);
 
   const esRelevante = leerBooleano(item.es_relevante);
-  if (!esRelevante) {
-    return {
-      id,
-      es_relevante: false,
-      provincias: [],
-      sectores: [],
-      subsectores: [],
-      tipos_alerta: [],
-    };
-  }
+  if (!esRelevante) return clasificacionDescartada(id);
 
   return {
     id,
@@ -404,7 +475,7 @@ function lineaBoletinPocoUtil(linea) {
   return hitsPortal >= 2;
 }
 
-function extraerExtractoBoletin(alerta = {}, max = 420) {
+function limpiarContenidoBoletinParaIA(alerta = {}, max = 2800) {
   const raw = String(alerta.contenido || '')
     .replace(/https?:\/\/\S+/g, '')
     .replace(/\r/g, '\n')
@@ -412,16 +483,28 @@ function extraerExtractoBoletin(alerta = {}, max = 420) {
 
   if (!raw) return limpiarTextoMensaje(alerta.titulo, max);
 
+  const vistas = new Set();
   const lineas = raw
     .split(/\n+/g)
-    .map((linea) => limpiarTextoMensaje(linea, 520))
-    .filter((linea) => linea && !lineaBoletinPocoUtil(linea));
+    .map((linea) => limpiarTextoMensaje(linea, 620))
+    .filter(Boolean)
+    .filter((linea) => !lineaBoletinPocoUtil(linea))
+    .filter((linea) => {
+      const clave = normalizarTexto(linea).slice(0, 140);
+      if (!clave || vistas.has(clave)) return false;
+      vistas.add(clave);
+      return true;
+    });
 
-  const texto = (lineas.length ? lineas.slice(0, 4).join(' ') : raw)
+  const texto = (lineas.length ? lineas.slice(0, 18).join(' ') : raw)
     .replace(/\s+/g, ' ')
     .trim();
 
   return limpiarTextoMensaje(texto, max);
+}
+
+function extraerExtractoBoletin(alerta = {}, max = 420) {
+  return limpiarContenidoBoletinParaIA(alerta, max);
 }
 
 function campoFichaGenerico(valor) {
@@ -761,7 +844,7 @@ async function generarFichasIAEnLote(alertas) {
   const instructions = 'Eres un analista experto en boletines agrarios. Devuelve SOLO JSON valido con las fichas compactas solicitadas.';
 
   const formatarAlerta = (a) => {
-    const texto = a.contenido ? a.contenido.slice(0, 2200) : '';
+    const texto = limpiarContenidoBoletinParaIA(a, 2600);
     const provincias = Array.isArray(a.provincias) ? a.provincias.join(', ') : '';
     const sectores = Array.isArray(a.sectores) ? a.sectores.join(', ') : '';
     const subsectores = Array.isArray(a.subsectores) ? a.subsectores.join(', ') : '';
@@ -940,7 +1023,7 @@ async function clasificarConReintento(alertas) {
   };
 
   const formatarAlerta = (a) => {
-    const texto = a.contenido ? a.contenido.slice(0, 3000) : '';
+    const texto = limpiarContenidoBoletinParaIA(a, 3000);
     return `ID=${a.id} | Fecha=${a.fecha} | Region=${a.region} | URL=${a.url} | Titulo=${a.titulo} | Texto=${texto}`;
   };
 
@@ -953,8 +1036,25 @@ async function clasificarConReintento(alertas) {
     }
   };
 
+  for (const alerta of alertas) {
+    const exclusion = detectarExclusionDuraAlerta(alerta);
+    if (exclusion) {
+      resultadosPorId.set(String(alerta.id), clasificacionDescartada(alerta.id));
+      errores.push({ fase: 'prefiltro', id: alerta.id, motivo: exclusion });
+    }
+  }
+
+  const alertasParaIA = alertas.filter((a) => !resultadosPorId.has(String(a.id)));
+  if (alertasParaIA.length === 0) {
+    return {
+      resultados: Array.from(resultadosPorId.values()),
+      errores,
+      fallbackLocal,
+    };
+  }
+
   // Intento en lote
-  const lista = alertas.map(formatarAlerta).join('\n\n');
+  const lista = alertasParaIA.map(formatarAlerta).join('\n\n');
 
   try {
     const contenido = await llamarClasificador(buildPromptClasificar(lista), 4000);
@@ -966,7 +1066,7 @@ async function clasificarConReintento(alertas) {
   }
 
   // Detectar IDs que faltan en la respuesta
-  const alertasFallidas = alertas.filter((a) => !resultadosPorId.has(String(a.id)));
+  const alertasFallidas = alertasParaIA.filter((a) => !resultadosPorId.has(String(a.id)));
 
   if (alertasFallidas.length > 0) {
     console.warn(`Faltan ${alertasFallidas.length} IDs en la respuesta del lote. Reintentando uno a uno...`);
@@ -993,7 +1093,7 @@ async function clasificarConReintento(alertas) {
     }
   }
 
-  const sinResolver = alertas.filter((a) => !resultadosPorId.has(String(a.id)));
+  const sinResolver = alertasParaIA.filter((a) => !resultadosPorId.has(String(a.id)));
   if (CLASIFICAR_LOCAL_FALLBACK && sinResolver.length > 0) {
     console.warn(`[clasificar] Usando fallback local para ${sinResolver.length} alerta(s) sin respuesta valida de IA.`);
     for (const alerta of sinResolver) {
@@ -1207,15 +1307,48 @@ module.exports = function alertasRoutes(app, supabase) {
         return res.json({ success: true, procesadas: 0, mensaje: 'No hay alertas pendientes de resumir' });
       }
 
+      const alertasDescartadasPrefiltro = alertas
+        .map((alerta) => ({ alerta, motivo: detectarExclusionDuraAlerta(alerta) }))
+        .filter((item) => item.motivo);
+      const idsDescartadosPrefiltro = new Set(alertasDescartadasPrefiltro.map((item) => String(item.alerta.id)));
+      const alertasParaResumir = alertas.filter((alerta) => !idsDescartadosPrefiltro.has(String(alerta.id)));
+
       const {
         resultados,
         errores: erroresFichas,
         fallbackLocal,
-      } = await generarFichasIAEnLote(alertas);
+      } = alertasParaResumir.length > 0
+        ? await generarFichasIAEnLote(alertasParaResumir)
+        : { resultados: [], errores: [], fallbackLocal: 0 };
 
       let actualizadas = 0;
+      let descartadas = 0;
       const erroresUpdate = [];
       const idsActualizados = new Set();
+
+      for (const { alerta, motivo } of alertasDescartadasPrefiltro) {
+        const { error: updError } = await supabase
+          .from('alertas')
+          .update({
+            estado_ia: 'descartado',
+            resumen: `NO IMPORTA: ${motivo}`,
+            resumen_borrador: null,
+            provincias: [],
+            sectores: [],
+            subsectores: [],
+            tipos_alerta: [],
+          })
+          .eq('id', alerta.id)
+          .eq('estado_ia', 'pendiente_resumir');
+
+        if (!updError) {
+          descartadas++;
+          actualizadas++;
+          idsActualizados.add(String(alerta.id));
+        } else {
+          erroresUpdate.push({ id: alerta.id, fase: 'prefiltro', error: updError.message });
+        }
+      }
 
       for (const item of resultados) {
         const { error: updError } = await supabase
@@ -1244,6 +1377,7 @@ module.exports = function alertasRoutes(app, supabase) {
         success: true,
         procesadas: alertas.length,
         actualizadas,
+        descartadas_prefiltro: descartadas,
         fallback_local: fallbackLocal,
         errores: [...erroresFichas, ...erroresUpdate].slice(0, 20),
         pendientes_reintento: idsNoResueltos,
@@ -1288,17 +1422,41 @@ module.exports = function alertasRoutes(app, supabase) {
       const instructions = 'Eres un revisor experto en boletines agrarios. Corriges fichas compactas para IA. Responde SOLO con la ficha final, sin JSON, sin explicaciones.';
 
       let aprobadas = 0;
+      let descartadas = 0;
       let fallbackLocal = 0;
       const errores = [];
 
       for (const a of alertas) {
         try {
           const borrador = a.resumen_borrador ?? '';
+          const exclusion = detectarExclusionDuraAlerta({ ...a, resumen_borrador: borrador });
+          if (exclusion) {
+            const { error: updError } = await supabase
+              .from('alertas')
+              .update({
+                estado_ia: 'descartado',
+                resumen: `NO IMPORTA: ${exclusion}`,
+                resumen_final: null,
+                provincias: [],
+                sectores: [],
+                subsectores: [],
+                tipos_alerta: [],
+              })
+              .eq('id', a.id)
+              .eq('estado_ia', 'pendiente_revisar');
+
+            if (!updError) {
+              descartadas++;
+              continue;
+            }
+            errores.push({ id: a.id, fase: 'prefiltro', error: updError.message });
+          }
+
           let revision = normalizarFichaIA(borrador, a);
           let resumenFinal = revision.texto;
 
           if (!revision.validaOriginal && REVISAR_IA_RESCUE) {
-            const textoOriginal = a.contenido ? a.contenido.slice(0, 1800) : '';
+            const textoOriginal = limpiarContenidoBoletinParaIA(a, 1800);
             const prompt = `
 Eres un revisor de calidad para fichas IA de alertas agrarias.
 
@@ -1397,8 +1555,9 @@ Responde UNICAMENTE con la ficha final. Sin JSON, sin explicaciones, sin nada ma
       res.json({
         success: true,
         procesadas: alertas.length,
-        actualizadas: aprobadas,
+        actualizadas: aprobadas + descartadas,
         aprobadas,
+        descartadas_prefiltro: descartadas,
         fallback_local: fallbackLocal,
         errores: errores.slice(0, 20),
         ids: alertas.map((a) => a.id),
