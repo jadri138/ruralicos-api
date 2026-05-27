@@ -64,6 +64,29 @@ function esRespuestaCortaDeFeedbackMIA(texto) {
   );
 }
 
+function esRespuestaOrigenCaptacionMIA(texto) {
+  const limpio = normalizarTexto(texto)
+    .replace(/[¿?¡!.,;:()[\]{}"'`*_~]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!limpio) return false;
+  const palabras = limpio.split(/\s+/).filter(Boolean);
+  if (palabras.length > 8 || limpio.length > 80) return false;
+
+  const patrones = [
+    /^(por\s+)?(las?\s+)?red(es)?\s+social(es)?$/,
+    /^(por\s+)?(instagram|facebook|tiktok|tik tok|twitter|linkedin|youtube|google|internet|buscador|web|pagina web)$/,
+    /^(por\s+)?(anuncio|publicidad|radio|prensa|periodico|revista)$/,
+    /^(por\s+)?(un\s+|una\s+)?(amigo|amiga|conocido|conocida|familiar|cliente|vecino|vecina|companero|companera)$/,
+    /^(por\s+)?(recomendacion|boca a boca|cooperativa|asociacion|sindicato|feria|evento|jornada|charla)$/,
+    /^(me\s+)?(lo\s+)?(dijo|recomendo|paso)\s+(un\s+|una\s+)?(amigo|amiga|conocido|conocida|familiar|cliente|vecino|vecina|companero|companera)$/,
+    /^(os|te)\s+(vi|he visto|conoci|conoci)\s+en\s+(redes|instagram|facebook|google|internet)$/,
+  ];
+
+  return patrones.some((patron) => patron.test(limpio));
+}
+
 function limpiarRespuestaMIA(texto) {
   const limpio = String(texto || '')
     .replace(/\r/g, '\n')
@@ -286,6 +309,22 @@ function construirDecisionDesdeInterpretacion({
 }
 
 async function decidirMensajeMIA({ mensajeUsuario, usuario, conversacionActiva, digest, alertasDelDigest }) {
+  if (esRespuestaOrigenCaptacionMIA(mensajeUsuario)) {
+    return normalizarDecision({
+      intent: 'mensaje_libre',
+      confidence: 0.98,
+      summary: 'Respuesta a pregunta de origen/captacion sin acciones MIA.',
+      legacy_interpretacion: {
+        feedbacks: [],
+        memoria: [],
+        requiere_respuesta: false,
+        respuesta: '',
+        intencion: 'otro',
+        resumen_para_log: 'Respuesta de origen/captacion ignorada',
+      },
+    });
+  }
+
   if (esMensajeTrivialMIA(mensajeUsuario)) {
     return normalizarDecision({
       intent: 'trivial',
@@ -327,4 +366,5 @@ module.exports = {
   aplicarContratoAcciones,
   esMensajeTrivialMIA,
   esRespuestaCortaDeFeedbackMIA,
+  esRespuestaOrigenCaptacionMIA,
 };

@@ -1,6 +1,7 @@
 const {
   construirDecisionDesdeInterpretacion,
   esRespuestaCortaDeFeedbackMIA,
+  esRespuestaOrigenCaptacionMIA,
   esMensajeTrivialMIA,
   limpiarRespuestaMIA,
 } = require('../src/mia/decisionCore');
@@ -27,6 +28,9 @@ assert(esRespuestaCortaDeFeedbackMIA('+1') === true, 'Detecta voto corto positiv
 assert(esRespuestaCortaDeFeedbackMIA('ninguna') === true, 'Detecta voto corto ninguna');
 assert(esMensajeTrivialMIA('1') === false, 'No marca "1" como trivial');
 assert(esMensajeTrivialMIA('ninguna') === false, 'No marca "ninguna" como trivial');
+assert(esRespuestaOrigenCaptacionMIA('Redes sociales') === true, 'Detecta respuesta corta de origen por redes sociales');
+assert(esRespuestaOrigenCaptacionMIA('por un amigo') === true, 'Detecta respuesta corta de origen por recomendacion');
+assert(esRespuestaOrigenCaptacionMIA('me interesa la alerta de redes de riego') === false, 'No confunde alertas agrarias con origen de captacion');
 
 const decisionFeedback = construirDecisionDesdeInterpretacion({
   texto: 'me interesa la 1',

@@ -2,6 +2,7 @@
 const { checkCronToken } = require('../utils/checkCronToken');
 const { enviarWhatsAppAdmin, enviarDigestPro } = require('../whatsapp');
 const { getFechaMadridISO } = require('../utils/fechaMadrid');
+const { evaluarRespuestaScraper } = require('../utils/scraperRunQuality');
 const { cotejarListadosOficiales } = require('../services/officialListMatcher');
 const {
   cargarOutboxPendiente,
@@ -152,13 +153,6 @@ function numeroBody(body, keys) {
   return 0;
 }
 
-function statusRun(responseOk, body) {
-  if (!responseOk) return 'error';
-  const errores = numeroBody(body, ['errores']);
-  if (errores > 0) return 'warning';
-  return 'ok';
-}
-
 async function readResponseBody(response) {
   const raw = await response.text();
   if (!raw) return null;
@@ -285,6 +279,14 @@ module.exports = function tareasRoutes(app, supabase) {
         status: response.status,
         body,
       };
+      const quality = evaluarRespuestaScraper({
+        responseOk: response.ok,
+        httpStatus: response.status,
+        body,
+        fuente: result.fuente,
+        endpoint: path,
+      });
+      result.quality = quality;
 
       await guardarScraperRun(supabase, {
         fuente: result.fuente,
@@ -293,7 +295,7 @@ module.exports = function tareasRoutes(app, supabase) {
         started_at: startedAt.toISOString(),
         finished_at: finishedAt.toISOString(),
         duration_ms: finishedAt.getTime() - startedAt.getTime(),
-        status: statusRun(response.ok, body),
+        status: quality.severity,
         http_status: response.status,
         nuevas: numeroBody(body, ['nuevas']),
         duplicadas: numeroBody(body, ['duplicadas']),
@@ -301,7 +303,7 @@ module.exports = function tareasRoutes(app, supabase) {
         relevantes: numeroBody(body, ['relevantes', 'documentos_insertables', 'totales']) || null,
         mensaje: body?.mensaje || null,
         error_msg: response.ok ? null : (body?.error || `HTTP ${response.status}`),
-        response_json: body,
+        response_json: { ...(body && typeof body === 'object' ? body : { raw: body }), quality },
       });
 
       return result;
@@ -318,16 +320,20 @@ module.exports = function tareasRoutes(app, supabase) {
     }
 
     const fallidos = resultados.filter((result) => !result.ok);
+    const advertencias = resultados.filter((result) => result.quality?.severity === 'warning');
 
     res.status(fallidos.length ? 207 : 200).json({
       success: fallidos.length === 0,
       fecha,
       mensaje: fallidos.length
         ? `Scrapers ejecutados con ${fallidos.length} fallo(s)`
-        : 'Scrapers diarios ejecutados correctamente',
+        : advertencias.length
+          ? `Scrapers diarios ejecutados con ${advertencias.length} advertencia(s) de calidad`
+          : 'Scrapers diarios ejecutados correctamente',
       total: resultados.length,
       correctos: resultados.length - fallidos.length,
       fallidos: fallidos.length,
+      advertencias: advertencias.length,
       resultados,
     });
   });
@@ -364,6 +370,14 @@ module.exports = function tareasRoutes(app, supabase) {
       status: response.status,
       body,
     };
+    const quality = evaluarRespuestaScraper({
+      responseOk: response.ok,
+      httpStatus: response.status,
+      body,
+      fuente: result.fuente,
+      endpoint: path,
+    });
+    result.quality = quality;
 
     await guardarScraperRun(supabase, {
       fuente: result.fuente,
@@ -372,7 +386,7 @@ module.exports = function tareasRoutes(app, supabase) {
       started_at: startedAt.toISOString(),
       finished_at: finishedAt.toISOString(),
       duration_ms: finishedAt.getTime() - startedAt.getTime(),
-      status: statusRun(response.ok, body),
+      status: quality.severity,
       http_status: response.status,
       nuevas: numeroBody(body, ['nuevas']),
       duplicadas: numeroBody(body, ['duplicadas']),
@@ -380,10 +394,10 @@ module.exports = function tareasRoutes(app, supabase) {
       relevantes: numeroBody(body, ['relevantes', 'documentos_insertables', 'totales', 'coincidencias']) || null,
       mensaje: body?.mensaje || null,
       error_msg: response.ok ? null : (body?.error || `HTTP ${response.status}`),
-      response_json: body,
+      response_json: { ...(body && typeof body === 'object' ? body : { raw: body }), quality },
     });
 
-    return res.status(response.ok ? 200 : 207).json(result);
+    return res.status(response.ok && quality.severity === 'ok' ? 200 : 207).json(result);
   });
 
   app.get('/tareas/complementarios-diario', async (req, res) => {
@@ -420,6 +434,14 @@ module.exports = function tareasRoutes(app, supabase) {
         status: response.status,
         body,
       };
+      const quality = evaluarRespuestaScraper({
+        responseOk: response.ok,
+        httpStatus: response.status,
+        body,
+        fuente: result.fuente,
+        endpoint: path,
+      });
+      result.quality = quality;
 
       await guardarScraperRun(supabase, {
         fuente: result.fuente,
@@ -428,7 +450,7 @@ module.exports = function tareasRoutes(app, supabase) {
         started_at: startedAt.toISOString(),
         finished_at: finishedAt.toISOString(),
         duration_ms: finishedAt.getTime() - startedAt.getTime(),
-        status: statusRun(response.ok, body),
+        status: quality.severity,
         http_status: response.status,
         nuevas: numeroBody(body, ['nuevas']),
         duplicadas: numeroBody(body, ['duplicadas']),
@@ -436,7 +458,7 @@ module.exports = function tareasRoutes(app, supabase) {
         relevantes: numeroBody(body, ['relevantes', 'documentos_insertables', 'totales', 'coincidencias']) || null,
         mensaje: body?.mensaje || null,
         error_msg: response.ok ? null : (body?.error || `HTTP ${response.status}`),
-        response_json: body,
+        response_json: { ...(body && typeof body === 'object' ? body : { raw: body }), quality },
       });
 
       return result;
@@ -459,15 +481,19 @@ module.exports = function tareasRoutes(app, supabase) {
     });
 
     const fallidos = resultados.filter((result) => !result.ok);
+    const advertencias = resultados.filter((result) => result.quality?.severity === 'warning');
     return res.status(fallidos.length ? 207 : 200).json({
       success: fallidos.length === 0,
       fecha,
       mensaje: fallidos.length
         ? `Boletines complementarios ejecutados con ${fallidos.length} fallo(s)`
-        : 'Boletines complementarios ejecutados correctamente',
+        : advertencias.length
+          ? `Boletines complementarios ejecutados con ${advertencias.length} advertencia(s) de calidad`
+          : 'Boletines complementarios ejecutados correctamente',
       total: resultados.length,
       correctos: resultados.length - fallidos.length,
       fallidos: fallidos.length,
+      advertencias: advertencias.length,
       fega: incluirFega ? { incluido: true, enviar: enviarFega, ejercicio: ejercicioFega } : { incluido: false },
       cotejoListados,
       resultados,
@@ -617,6 +643,13 @@ module.exports = function tareasRoutes(app, supabase) {
         try {
           const result = await hit(path);
           const finishedAt = new Date();
+          const quality = evaluarRespuestaScraper({
+            responseOk: true,
+            httpStatus: result.status,
+            body: result.body,
+            fuente,
+            endpoint: path,
+          });
 
           await guardarScraperRun(supabase, {
             fuente,
@@ -625,7 +658,7 @@ module.exports = function tareasRoutes(app, supabase) {
             started_at: startedAt.toISOString(),
             finished_at: finishedAt.toISOString(),
             duration_ms: finishedAt.getTime() - startedAt.getTime(),
-            status: statusRun(true, result.body),
+            status: quality.severity,
             http_status: result.status,
             nuevas: numeroBody(result.body, ['nuevas']),
             duplicadas: numeroBody(result.body, ['duplicadas']),
@@ -633,10 +666,10 @@ module.exports = function tareasRoutes(app, supabase) {
             relevantes: numeroBody(result.body, ['relevantes', 'documentos_insertables', 'totales', 'coincidencias']) || null,
             mensaje: result.body?.mensaje || null,
             error_msg: null,
-            response_json: result.body,
+            response_json: { ...(result.body && typeof result.body === 'object' ? result.body : { raw: result.body }), quality },
           });
 
-          return { path, fuente, ok: true, body: result.body };
+          return { path, fuente, ok: quality.severity !== 'error', body: result.body, quality };
         } catch (err) {
           const finishedAt = new Date();
 

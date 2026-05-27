@@ -80,7 +80,7 @@ module.exports = function bocantRoutes(app, supabase) {
           url: doc.url,
           fecha: doc.fecha,
           region: 'Cantabria',
-          fuente: 'BOC-CANT',
+          fuente: 'BOCANT',
           contenido: doc.texto,
         }]);
 

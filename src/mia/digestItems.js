@@ -19,7 +19,14 @@ function tagsAlerta(alerta = {}) {
     subsectores: Array.isArray(alerta.subsectores) ? alerta.subsectores : [],
     tipos_alerta: Array.isArray(alerta.tipos_alerta) ? alerta.tipos_alerta : [],
     fuente: alerta.fuente || null,
+    decision_digest: alerta.decision_digest || null,
   };
+}
+
+function motivoSeleccion(alerta = {}, origen = 'desconocido') {
+  const motivo = String(alerta.motivo_seleccion_mia || '').trim();
+  if (motivo) return `${origen}:${motivo}`.slice(0, 240);
+  return origen;
 }
 
 function construirDigestItems({
@@ -38,7 +45,7 @@ function construirDigestItems({
       item_numero: index + 1,
       alerta_id: alerta.id,
       score: Number.isFinite(Number(alerta.similitud)) ? Number(alerta.similitud) : null,
-      motivo_seleccion: origen,
+      motivo_seleccion: motivoSeleccion(alerta, origen),
       resumen_usado: resumenUsado(alerta),
       tags_json: tagsAlerta(alerta),
     }, organizationId))

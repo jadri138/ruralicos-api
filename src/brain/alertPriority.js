@@ -20,9 +20,16 @@ function textoAlerta(alerta = {}) {
   ].filter(Boolean).join(' '));
 }
 
+function prioridadFichaIA(alerta = {}) {
+  const raw = String([alerta.resumen_final, alerta.resumen].filter(Boolean).join('\n'));
+  const match = raw.match(/^PRIORIDAD\s*:\s*(alta|media|baja)/im);
+  return match ? norm(match[1]) : null;
+}
+
 function clasificarPrioridadAlerta(alerta = {}) {
   const texto = textoAlerta(alerta);
   const tipos = Array.isArray(alerta.tipos_alerta) ? alerta.tipos_alerta.map(norm) : [];
+  const prioridadFicha = prioridadFichaIA(alerta);
 
   let score = 0;
   const motivos = [];
@@ -60,13 +67,22 @@ function clasificarPrioridadAlerta(alerta = {}) {
     ['nombramiento', /\b(nombramiento|cese|designacion|delegacion de competencias)\b/],
     ['correccion', /\b(correccion de errores|extracto|anuncio de formalizacion)\b/],
     ['licitacion_menor', /\b(licitacion|contrato|adjudicacion)\b/],
+    ['expediente_individual_local', /\b(concesion de aguas?|concesion para aprovechamiento|aprovechamiento de aguas|licencia ambiental|actividad clasificada|autorizacion de vertido|extincion de derecho|comisaria de aguas)\b/],
   ];
 
   for (const [motivo, regex] of reglasBajas) {
     if (regex.test(texto)) {
-      score -= 1;
+      score -= motivo === 'expediente_individual_local' ? 4 : 1;
       motivos.push(motivo);
     }
+  }
+
+  if (prioridadFicha === 'alta') {
+    score += 1;
+    motivos.push('ficha:alta');
+  } else if (prioridadFicha === 'baja') {
+    score -= 2;
+    motivos.push('ficha:baja');
   }
 
   if (score >= 3) return { prioridad: URGENTE, score, motivos };

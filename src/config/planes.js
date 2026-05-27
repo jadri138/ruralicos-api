@@ -35,6 +35,16 @@ const FUENTES_AUTONOMICAS = [
   'DOGV',
 ];
 
+const ALIAS_FUENTES = {
+  BOC: 'BOCAN',
+  'BOC-CANT': 'BOCANT',
+};
+
+function normalizarFuenteBoletin(fuente) {
+  const valor = String(fuente || '').trim().toUpperCase();
+  return ALIAS_FUENTES[valor] || valor;
+}
+
 const PLANES = {
 
   free: {
@@ -124,7 +134,7 @@ function getLimite(subscription, campo) {
 function fuentePermitida(subscription, fuente) {
   const plan = getPlan(subscription);
   if (plan.fuentes_permitidas === null) return true;  // sin restricción
-  return plan.fuentes_permitidas.includes(fuente?.toUpperCase());
+  return plan.fuentes_permitidas.includes(normalizarFuenteBoletin(fuente));
 }
 
 /**
@@ -185,4 +195,5 @@ module.exports = {
   fuentePermitida,
   validarPreferencias,
   truncarPreferencias,
+  normalizarFuenteBoletin,
 };

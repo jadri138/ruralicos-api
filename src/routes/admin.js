@@ -31,6 +31,12 @@ const {
   registrarAdminAuditLog,
   getAdminActor,
 } = require('../admin/auditLog');
+const { notificarCambioPlan } = require('../services/planChangeNotifier');
+const {
+  construirDatasetRevisionMIA,
+  construirReviewRowMIA,
+  esTablaRevisionNoDisponible,
+} = require('../mia/alertReview');
 
 const PLANES_VALIDOS = ['free', 'corral', 'agricultor', 'cooperativa'];
 const ORGANIZATION_STATUS_VALIDOS = ['active', 'paused', 'disabled'];
@@ -185,6 +191,23 @@ async function countQuery(query) {
   const { count, error } = await query;
   if (error) throw error;
   return count || 0;
+}
+
+function idsNumericosUnicos(rows = [], field) {
+  return [...new Set((rows || [])
+    .map((row) => Number(row?.[field]))
+    .filter((id) => Number.isSafeInteger(id) && id > 0))];
+}
+
+async function selectRowsByIds(supabase, table, select, ids, field = 'id') {
+  const cleanIds = [...new Set((ids || [])
+    .map((id) => Number(id))
+    .filter((id) => Number.isSafeInteger(id) && id > 0))];
+  if (cleanIds.length === 0) return { data: [], error: null };
+  return supabase
+    .from(table)
+    .select(select)
+    .in(field, cleanIds);
 }
 
 // routes/admin.js
@@ -620,7 +643,7 @@ module.exports = (app, supabase) => {
       }
 
       if (req.body.subscription !== undefined) {
-        const subscription = String(req.body.subscription || '').trim();
+        const subscription = String(req.body.subscription || '').trim().toLowerCase();
         if (!PLANES_VALIDOS.includes(subscription)) {
           return res.status(400).json({ error: `Plan invalido. Opciones: ${PLANES_VALIDOS.join(', ')}` });
         }
@@ -651,6 +674,22 @@ module.exports = (app, supabase) => {
         return res.status(400).json({ error: 'No hay campos para actualizar' });
       }
 
+      let userAntesPlan = null;
+      if (Object.prototype.hasOwnProperty.call(updates, 'subscription')) {
+        const { data: previousUser, error: previousError } = await supabase
+          .from('users')
+          .select('id, phone, name, first_name, legal_name, email, subscription')
+          .eq('id', id)
+          .single();
+
+        if (previousError || !previousUser) {
+          if (previousError) console.error('Error leyendo usuario antes de cambiar plan admin:', previousError.message);
+          return res.status(404).json({ error: 'Usuario no encontrado' });
+        }
+
+        userAntesPlan = previousUser;
+      }
+
       const { data, error } = await supabase
         .from('users')
         .update(updates)
@@ -663,11 +702,23 @@ module.exports = (app, supabase) => {
         return res.status(500).json({ error: 'Error actualizando usuario' });
       }
 
+      const planChangeNotification = userAntesPlan
+        ? await notificarCambioPlan({
+            user: data,
+            planAnterior: userAntesPlan.subscription,
+            planNuevo: data.subscription,
+          })
+        : null;
+
       await auditarAdmin(supabase, req, 'user.update', 'user', data.id, data.organization_id || updates.organization_id || null, {
         fields: Object.keys(updates),
       });
 
-      return res.json({ success: true, user: data });
+      return res.json({
+        success: true,
+        user: data,
+        ...(planChangeNotification ? { plan_change_notification: planChangeNotification } : {}),
+      });
     } catch (err) {
       console.error('Error en PATCH /admin/users/:id:', err);
       return res.status(500).json({ error: 'Error interno' });
@@ -1317,6 +1368,229 @@ app.post('/admin/tareas/scrapers-diario', requireAdmin, async (req, res) => {
     } catch (err) {
       console.error('Error en /admin/mia/activity:', err);
       return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/admin/mia/alert-review', requireAdmin, async (req, res) => {
+    try {
+      const fecha = /^\d{4}-\d{2}-\d{2}$/.test(req.query.fecha || '')
+        ? req.query.fecha
+        : getFechaMadridISO();
+      const limit = Math.max(1, Math.min(300, Number(req.query.limit || 100)));
+      const userId = req.query.user_id ? Number(req.query.user_id) : null;
+      const onlyUnreviewed = String(req.query.only_unreviewed || '').toLowerCase() === 'true';
+      const verdict = req.query.verdict ? String(req.query.verdict).trim() : null;
+
+      let digestItemsQuery = supabase
+        .from('digest_items')
+        .select('digest_id, user_id, fecha, item_numero, alerta_id, score, motivo_seleccion, resumen_usado, tags_json, organization_id')
+        .eq('fecha', fecha)
+        .order('digest_id', { ascending: false })
+        .order('item_numero', { ascending: true })
+        .limit(limit);
+
+      if (Number.isSafeInteger(userId) && userId > 0) digestItemsQuery = digestItemsQuery.eq('user_id', userId);
+      let digestItemsResult = await digestItemsQuery;
+
+      if (digestItemsResult.error && ['42703', 'PGRST204'].includes(digestItemsResult.error.code)) {
+        let fallbackDigestItemsQuery = supabase
+          .from('digest_items')
+          .select('digest_id, user_id, fecha, item_numero, alerta_id, score, motivo_seleccion, resumen_usado, tags_json')
+          .eq('fecha', fecha)
+          .order('digest_id', { ascending: false })
+          .order('item_numero', { ascending: true })
+          .limit(limit);
+        if (Number.isSafeInteger(userId) && userId > 0) fallbackDigestItemsQuery = fallbackDigestItemsQuery.eq('user_id', userId);
+        digestItemsResult = await fallbackDigestItemsQuery;
+      }
+
+      if (digestItemsResult.error) {
+        if (isMissingTableError(digestItemsResult.error)) {
+          return res.json({
+            ok: true,
+            available: false,
+            reason: 'digest_items_no_disponible',
+            fecha,
+            items: [],
+            summary: {},
+          });
+        }
+        throw digestItemsResult.error;
+      }
+
+      const digestItems = digestItemsResult.data || [];
+
+      const alertaIds = idsNumericosUnicos(digestItems, 'alerta_id');
+      const userIds = idsNumericosUnicos(digestItems, 'user_id');
+      const digestIds = idsNumericosUnicos(digestItems, 'digest_id');
+
+      const [
+        alertasResult,
+        usersResult,
+        feedbacksResult,
+        reviewsResult,
+      ] = await Promise.all([
+        selectRowsByIds(
+          supabase,
+          'alertas',
+          'id, titulo, url, fecha, fuente, region, resumen, resumen_final, contenido, provincias, sectores, subsectores, tipos_alerta, estado_ia, duplicado_de, embedding_generated_at, created_at',
+          alertaIds
+        ),
+        selectRowsByIds(
+          supabase,
+          'users',
+          'id, name, first_name, legal_name, phone, subscription, preferences, preferencias_extra, organization_id',
+          userIds
+        ),
+        digestIds.length
+          ? supabase
+            .from('alerta_feedback')
+            .select('id, user_id, digest_id, alerta_id, item_numero, valor, raw_text, created_at')
+            .in('digest_id', digestIds)
+          : { data: [], error: null },
+        digestIds.length
+          ? supabase
+            .from('mia_alert_reviews')
+            .select('id, digest_item_id, digest_id, user_id, alerta_id, item_numero, organization_id, reviewer_admin_user_id, reviewer_username, verdict, expected_action, reason_codes, notes, expert_version, expert_score, expert_verdict, decision_json, correction_json, reviewed_at, created_at, updated_at')
+            .in('digest_id', digestIds)
+            .order('reviewed_at', { ascending: false })
+          : { data: [], error: null },
+      ]);
+
+      for (const result of [alertasResult, usersResult, feedbacksResult]) {
+        if (result.error) throw result.error;
+      }
+
+      let reviewsAvailable = true;
+      let reviews = reviewsResult.data || [];
+      if (reviewsResult.error) {
+        if (!esTablaRevisionNoDisponible(reviewsResult.error)) throw reviewsResult.error;
+        reviewsAvailable = false;
+        reviews = [];
+      }
+
+      const dataset = construirDatasetRevisionMIA({
+        digestItems,
+        alertas: alertasResult.data || [],
+        users: usersResult.data || [],
+        feedbacks: feedbacksResult.data || [],
+        reviews,
+        onlyUnreviewed,
+        verdict,
+      });
+
+      return res.json({
+        ok: true,
+        available: true,
+        reviews_available: reviewsAvailable,
+        fecha,
+        limit,
+        only_unreviewed: onlyUnreviewed,
+        ...dataset,
+      });
+    } catch (err) {
+      console.error('Error en /admin/mia/alert-review:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/admin/mia/alert-review', requireAdmin, async (req, res) => {
+    try {
+      const digestId = Number(req.body?.digest_id);
+      const userId = Number(req.body?.user_id);
+      const alertaId = Number(req.body?.alerta_id);
+
+      if (!Number.isSafeInteger(digestId) || digestId <= 0 ||
+          !Number.isSafeInteger(userId) || userId <= 0 ||
+          !Number.isSafeInteger(alertaId) || alertaId <= 0) {
+        return res.status(400).json({ error: 'digest_id, user_id y alerta_id son obligatorios' });
+      }
+
+      const [
+        userResult,
+        alertaResult,
+        digestItemResult,
+      ] = await Promise.all([
+        supabase
+          .from('users')
+          .select('id, name, first_name, legal_name, phone, subscription, preferences, preferencias_extra, organization_id')
+          .eq('id', userId)
+          .maybeSingle(),
+        supabase
+          .from('alertas')
+          .select('id, titulo, url, fecha, fuente, region, resumen, resumen_final, contenido, provincias, sectores, subsectores, tipos_alerta, estado_ia, duplicado_de, embedding_generated_at, created_at')
+          .eq('id', alertaId)
+          .maybeSingle(),
+        supabase
+          .from('digest_items')
+          .select('digest_id, user_id, fecha, item_numero, alerta_id, score, motivo_seleccion, resumen_usado, tags_json, organization_id')
+          .eq('digest_id', digestId)
+          .eq('user_id', userId)
+          .eq('alerta_id', alertaId)
+          .maybeSingle(),
+      ]);
+
+      if (userResult.error) throw userResult.error;
+      if (alertaResult.error) throw alertaResult.error;
+      if (!userResult.data) return res.status(404).json({ error: 'Usuario no encontrado' });
+      if (!alertaResult.data) return res.status(404).json({ error: 'Alerta no encontrada' });
+
+      const digestItem = digestItemResult.error ? null : digestItemResult.data;
+      const organizationId = normalizarOrganizationId(
+        req.body?.organization_id ||
+        digestItem?.organization_id ||
+        userResult.data.organization_id
+      );
+      const decisionJson = req.body?.decision_json ||
+        req.body?.decision ||
+        digestItem?.tags_json?.decision_digest ||
+        {};
+
+      const row = construirReviewRowMIA({
+        body: {
+          ...req.body,
+          item_numero: req.body?.item_numero || digestItem?.item_numero,
+          organization_id: organizationId,
+          decision_json: decisionJson,
+        },
+        actor: getAdminActor(req),
+        alerta: alertaResult.data,
+        user: userResult.data,
+        organizationId,
+      });
+
+      const { data, error } = await supabase
+        .from('mia_alert_reviews')
+        .upsert(row, { onConflict: 'digest_id,user_id,alerta_id' })
+        .select('*')
+        .single();
+
+      if (error) {
+        if (esTablaRevisionNoDisponible(error)) {
+          return res.status(503).json({
+            ok: false,
+            available: false,
+            reason: 'mia_alert_reviews_no_disponible',
+            message: 'Falta crear la tabla mia_alert_reviews en Supabase.',
+          });
+        }
+        throw error;
+      }
+
+      await auditarAdmin(supabase, req, 'mia_alert_review.upsert', 'mia_alert_review', data.id || `${digestId}:${userId}:${alertaId}`, organizationId, {
+        digest_id: digestId,
+        user_id: userId,
+        alerta_id: alertaId,
+        verdict: row.verdict,
+        expected_action: row.expected_action,
+        reason_codes: row.reason_codes,
+      });
+
+      return res.json({ ok: true, review: data });
+    } catch (err) {
+      console.error('Error en POST /admin/mia/alert-review:', err);
+      const isValidation = /obligatorio|invalido/i.test(err.message || '');
+      return res.status(isValidation ? 400 : 500).json({ error: err.message });
     }
   });
 

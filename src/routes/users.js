@@ -8,6 +8,7 @@ const { requireAuth, requireAdmin } = require('../../authMiddleware');
 const { getPlan, validarPreferencias, truncarPreferencias } = require('../config/planes');
 const { extraerPreferenciasBody, prepararPreferenciasExtra } = require('../utils/preferenciasRequest');
 const { actualizarPerfilUsuarioMIASafe } = require('../brain/miaProfile');
+const { notificarCambioPlan } = require('../services/planChangeNotifier');
 
 module.exports = function usersRoutes(app, supabase) {
   const accountLimiter = rateLimit({
@@ -138,6 +139,61 @@ module.exports = function usersRoutes(app, supabase) {
     }
 
     return requireAdmin(req, res, next);
+  }
+
+  async function cambiarPlanUsuarioPorTelefono(phoneRaw, planRaw) {
+    const phone = normalizePhone(phoneRaw);
+    const plan = String(planRaw || '').trim().toLowerCase();
+    const PLANES_VALIDOS = ['free', 'corral', 'agricultor', 'cooperativa'];
+
+    if (!phone) {
+      return { ok: false, status: 400, error: 'Falta el numero de telefono' };
+    }
+
+    if (!PLANES_VALIDOS.includes(plan)) {
+      return {
+        ok: false,
+        status: 400,
+        error: `Plan invalido. Opciones: ${PLANES_VALIDOS.join(', ')}`,
+      };
+    }
+
+    const { data: userActual, error: userError } = await supabase
+      .from('users')
+      .select('id, phone, name, first_name, legal_name, email, subscription')
+      .eq('phone', phone)
+      .single();
+
+    if (userError || !userActual) {
+      if (userError) console.error('Error leyendo usuario antes de cambiar plan:', userError.message);
+      return { ok: false, status: 404, error: 'Usuario no encontrado' };
+    }
+
+    const { data, error } = await supabase
+      .from('users')
+      .update({ subscription: plan })
+      .eq('id', userActual.id)
+      .select('id, phone, name, first_name, legal_name, email, subscription')
+      .single();
+
+    if (error || !data) {
+      if (error) console.error('Error cambiando plan:', error.message);
+      return { ok: false, status: 500, error: 'Error cambiando plan' };
+    }
+
+    const notification = await notificarCambioPlan({
+      user: data,
+      planAnterior: userActual.subscription,
+      planNuevo: data.subscription,
+    });
+
+    return {
+      ok: true,
+      phone,
+      user: data,
+      notification,
+      previous_subscription: userActual.subscription,
+    };
   }
 
   function generarCodigoVerificacion() {
@@ -721,55 +777,34 @@ module.exports = function usersRoutes(app, supabase) {
   // Body: { phone, plan } donde plan es uno de: corral, agricultor, cooperativa, free
   // --------------------------------------------------
   app.post('/users/cambiar-plan', requireAdminOrCron, async (req, res) => {
-    let { phone, plan } = req.body;
+    const result = await cambiarPlanUsuarioPorTelefono(req.body?.phone, req.body?.plan);
 
-    if (!phone) return res.status(400).json({ error: 'Falta el número de teléfono' });
-
-    const PLANES_VALIDOS = ['free', 'corral', 'agricultor', 'cooperativa'];
-    if (!plan || !PLANES_VALIDOS.includes(plan)) {
-      return res.status(400).json({
-        error: `Plan inválido. Opciones: ${PLANES_VALIDOS.join(', ')}`,
-      });
+    if (!result.ok) {
+      return res.status(result.status).json({ error: result.error });
     }
 
-    phone = String(phone).trim();
-    const soloDigitos = phone.replace(/\D/g, '');
+    console.log(
+      `[admin] Plan de ${result.phone} cambiado de '${result.previous_subscription}' a '${result.user.subscription}'`
+    );
+    return res.json({
+      success: true,
+      user: result.user,
+      plan_change_notification: result.notification,
+    });
 
-    const { data, error } = await supabase
-      .from('users')
-      .update({ subscription: plan })
-      .eq('phone', soloDigitos)
-      .select('id, phone, subscription')
-      .single();
-
-    if (error || !data) {
-      console.error('Error cambiando plan:', error);
-      return res.status(404).json({ error: 'Usuario no encontrado' });
-    }
-
-    console.log(`[admin] Plan de ${soloDigitos} cambiado a '${plan}'`);
-    res.json({ success: true, user: data });
   });
 
   // Legacy — se mantienen por compatibilidad con integraciones existentes
   app.post('/users/upgrade-to-pro', requireAdminOrCron, async (req, res) => {
-    let { phone } = req.body;
-    if (!phone) return res.status(400).json({ error: 'Falta el número de teléfono' });
-    phone = String(phone).trim().replace(/\D/g, '');
-    const { data, error } = await supabase
-      .from('users').update({ subscription: 'cooperativa' }).eq('phone', phone).select('id, phone, subscription').single();
-    if (error || !data) return res.status(404).json({ error: 'Usuario no encontrado' });
-    res.json({ success: true, user: data });
+    const result = await cambiarPlanUsuarioPorTelefono(req.body?.phone, 'cooperativa');
+    if (!result.ok) return res.status(result.status).json({ error: result.error });
+    return res.json({ success: true, user: result.user, plan_change_notification: result.notification });
   });
 
   app.post('/users/downgrade-to-free', requireAdminOrCron, async (req, res) => {
-    let { phone } = req.body;
-    if (!phone) return res.status(400).json({ error: 'Falta el número de teléfono' });
-    phone = String(phone).trim().replace(/\D/g, '');
-    const { data, error } = await supabase
-      .from('users').update({ subscription: 'corral' }).eq('phone', phone).select('id, phone, subscription').single();
-    if (error || !data) return res.status(404).json({ error: 'Usuario no encontrado' });
-    res.json({ success: true, user: data });
+    const result = await cambiarPlanUsuarioPorTelefono(req.body?.phone, 'corral');
+    if (!result.ok) return res.status(result.status).json({ error: result.error });
+    return res.json({ success: true, user: result.user, plan_change_notification: result.notification });
   });
 
   // ELIMINACION DE USUARIO
@@ -1160,7 +1195,7 @@ module.exports = function usersRoutes(app, supabase) {
 
       const { data: userActual, error: userError } = await supabase
         .from('users')
-        .select('subscription, preferences')
+        .select('subscription, preferences, phone, name, first_name, legal_name, email')
         .eq('id', userId)
         .single();
 
@@ -1185,7 +1220,7 @@ module.exports = function usersRoutes(app, supabase) {
           ...(planConfig.campo_libre ? {} : { preferencias_extra: null }),
         })
         .eq('id', userId)
-        .select('id, phone, email, subscription, preferences, preferencias_extra')
+        .select('id, phone, name, first_name, legal_name, email, subscription, preferences, preferencias_extra')
         .single();
 
       if (error) {
@@ -1193,9 +1228,16 @@ module.exports = function usersRoutes(app, supabase) {
         return res.status(500).json({ error: 'No se pudo cambiar el plan' });
       }
 
+      const planChangeNotification = await notificarCambioPlan({
+        user: data,
+        planAnterior: userActual.subscription,
+        planNuevo: data.subscription,
+      });
+
       return res.json({
         ok: true,
         user: data,
+        plan_change_notification: planChangeNotification,
         preferences: data.preferences || {},
         preferencias_extra: data.preferencias_extra || null,
         preferences_ajustadas: seAjustaronPreferencias,

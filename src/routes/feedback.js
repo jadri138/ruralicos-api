@@ -14,7 +14,7 @@ const {
 const { enviarDigestPro } = require('../whatsapp');
 const { extraerUltraMsg, esEventoMensajeUltraMsg } = require('../utils/ultramsgParser');
 const { registrarInboundMIA, actualizarInboundMIA } = require('../mia/inbound');
-const { decidirMensajeMIA } = require('../mia/decisionCore');
+const { decidirMensajeMIA, esRespuestaOrigenCaptacionMIA } = require('../mia/decisionCore');
 const { cargarDigestItemsMIA } = require('../mia/digestItems');
 const { registrarMemoriaEstructuradaMIA } = require('../mia/structuredMemory');
 const {
@@ -848,6 +848,24 @@ module.exports = function feedbackRoutes(app, supabase) {
           message_id: inboundMIA.identity?.external_message_id || null,
           duplicate_count: inboundMIA.duplicate_count || null,
         };
+        await guardarWebhookEvent(req, result, null);
+        return res.json(result);
+      }
+
+      if (esRespuestaOrigenCaptacionMIA(texto)) {
+        const result = {
+          ok: true,
+          ignored: true,
+          reason: 'respuesta_origen_captacion',
+          phone: telefono,
+          mia_inbound_id: inboundMIA?.id || null,
+          message_id: inboundMIA?.identity?.external_message_id || null,
+        };
+        await actualizarInboundMIA(supabase, inboundMIA?.id, {
+          status: 'ignored',
+          ignored_reason: 'respuesta_origen_captacion',
+          result_json: result,
+        });
         await guardarWebhookEvent(req, result, null);
         return res.json(result);
       }

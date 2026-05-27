@@ -39,17 +39,32 @@ function decodeLatin1(buffer) {
 }
 
 async function getHtml(url, options = {}) {
-  const { data } = await axios.get(url, {
-    responseType: 'arraybuffer',
-    timeout: 30000,
-    httpsAgent: options.insecure ? httpsInseguro : undefined,
-    headers: {
-      Accept: 'text/html,application/xhtml+xml',
-      'User-Agent': 'Mozilla/5.0 (RuralicosBot/2.0)',
-      Referer: options.referer,
-    },
-  });
-  return options.latin1 ? decodeLatin1(data) : Buffer.from(data).toString('utf8');
+  const timeout = Number(options.timeout || process.env.BOP_ARAGON_HTML_TIMEOUT_MS || 30000);
+  const attempts = Math.max(1, Number(options.attempts || 1));
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      const { data } = await axios.get(url, {
+        responseType: 'arraybuffer',
+        timeout,
+        httpsAgent: options.insecure ? httpsInseguro : undefined,
+        headers: {
+          Accept: 'text/html,application/xhtml+xml',
+          'User-Agent': 'Mozilla/5.0 (RuralicosBot/2.0)',
+          Referer: options.referer,
+        },
+      });
+      return options.latin1 ? decodeLatin1(data) : Buffer.from(data).toString('utf8');
+    } catch (err) {
+      lastError = err;
+      if (attempt < attempts) {
+        await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+      }
+    }
+  }
+
+  throw lastError;
 }
 
 async function getPdfText(url, options = {}) {
@@ -132,7 +147,12 @@ function extraerBopzSumario(html) {
 }
 
 async function obtenerDocumentosBopzConTexto(fechaISO) {
-  const html = await getHtml(BOPZ_PORTADA, { insecure: true, latin1: true });
+  const html = await getHtml(BOPZ_PORTADA, {
+    insecure: true,
+    latin1: true,
+    timeout: Number(process.env.BOPZ_HTML_TIMEOUT_MS || 45000),
+    attempts: Number(process.env.BOPZ_HTML_ATTEMPTS || 2),
+  });
   const candidatos = extraerBopzSumario(html);
 
   if (fechaISO && candidatos[0]?.fecha && candidatos[0].fecha !== fechaISO) return [];

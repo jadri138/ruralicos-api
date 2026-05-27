@@ -12,6 +12,8 @@ const CRITICAL_ALERT_FLAGS = new Set([
   'proceso_personal_publico',
   'pesca_maritimo_no_agrario',
   'administracion_general_no_agraria',
+  'notificacion_individual',
+  'personal_investigador_beca',
   'resumen_boilerplate_portal',
 ]);
 
@@ -151,6 +153,12 @@ function detectarExpedienteIndividual(alerta = {}) {
     'termino municipal de',
     'comisaria de aguas',
     'autorizacion administrativa previa',
+    'solicitud de licencia ambiental',
+    'licencia ambiental de actividad clasificada',
+    'actividad clasificada ganadera',
+    'autorizacion ambiental concedida',
+    'procedimiento sancionador',
+    'expediente de aguas',
   ]);
 
   const broad = contieneAlguno(text, [
@@ -247,6 +255,8 @@ function detectarAdministracionGeneralNoAgraria(alerta = {}) {
   if (!text) return false;
   const administrativo = contieneAlguno(text, [
     'beca universitaria',
+    'beca de formacion de personal investigador',
+    'comision de valoracion de la beca',
     'universidad',
     'notario',
     'registrador',
@@ -278,6 +288,64 @@ function detectarAdministracionGeneralNoAgraria(alerta = {}) {
   ]);
 }
 
+function detectarNotificacionIndividual(alerta = {}) {
+  const text = normalizarTextoCalidad([
+    alerta.titulo,
+    alerta.resumen_final,
+    alerta.resumen_borrador,
+    alerta.resumen,
+    alerta.contenido,
+  ].filter(Boolean).join('\n'));
+
+  if (!text) return false;
+
+  const marcasNotificacion = contieneAlguno(text, [
+    'notificacion de ',
+    'notifica al interesado',
+    'notifica a la persona interesada',
+    'intentada sin efecto la notificacion',
+    'intentada, sin efecto, la notificacion',
+    'no ha sido posible la notificacion',
+    'podran comparecer',
+    'para cuyo conocimiento integro podra comparecer',
+    'procedimiento administrativo sancionador',
+    'tramite de audiencia relativo a procedimiento',
+    'resolucion desfavorable',
+    'inactivacion de explotacion',
+  ]);
+
+  if (!marcasNotificacion) return false;
+
+  const convocatoriaGeneral = contieneAlguno(text, [
+    'convocatoria de ayudas',
+    'extracto de la resolucion',
+    'bases reguladoras',
+    'subvenciones',
+    'ayudas para',
+    'se aprueba la convocatoria',
+  ]);
+
+  return !convocatoriaGeneral;
+}
+
+function detectarBecaInvestigacionPersonal(alerta = {}) {
+  const text = normalizarTextoCalidad([
+    alerta.titulo,
+    alerta.resumen_final,
+    alerta.resumen_borrador,
+    alerta.resumen,
+    alerta.contenido,
+  ].filter(Boolean).join('\n'));
+
+  if (!text) return false;
+  return contieneAlguno(text, [
+    'beca de formacion de personal investigador',
+    'comision de valoracion de la beca',
+    'entrevista personal de los aspirantes',
+    'personal investigador en materia de',
+  ]);
+}
+
 function detectarBoilerplatePortal(texto) {
   const text = normalizarTextoCalidad(texto);
   if (!text) return false;
@@ -288,6 +356,21 @@ function detectarBoilerplatePortal(texto) {
     'autenticidad e integridad',
     'portal juridic',
     'acciones guardar',
+    'inicio sede electronica',
+    'web institucional',
+    'bop del dia',
+    'busquedas buscar',
+    'boletines historicos',
+    'consultar una disposicion',
+    'regresar al sumario',
+    'disposicion anterior',
+    'disposicion siguiente',
+    'acceder al pdf',
+    'saltar al contenido',
+    'busqueda avanzada',
+    'verificacion de documentos',
+    'recibir avisos de publicacion',
+    'buscador bor',
   ];
   return marcas.filter((marca) => text.includes(marca)).length >= 2;
 }
@@ -438,6 +521,16 @@ function evaluarCalidadAlerta(alerta = {}, { now = new Date(), staleHours = 24 }
   if (detectarAdministracionGeneralNoAgraria(alerta)) {
     penalty += restar(issues, 'administracion_general_no_agraria', 45, 'La alerta es administracion general sin impacto agrario directo.');
     recommendations.push('Excluirla salvo que mencione explotaciones, regadio, PAC o actividad agraria concreta.');
+  }
+
+  if (detectarBecaInvestigacionPersonal(alerta)) {
+    penalty += restar(issues, 'personal_investigador_beca', 45, 'La alerta trata de becas o seleccion de personal investigador, no de una obligacion o ayuda para explotaciones.');
+    recommendations.push('Excluirla del digest agrario salvo producto especifico para investigacion.');
+  }
+
+  if (detectarNotificacionIndividual(alerta)) {
+    penalty += restar(issues, 'notificacion_individual', 50, 'La alerta parece una notificacion edictal o expediente individual para un interesado concreto.');
+    recommendations.push('Excluirla del digest general; solo mostrarla si se coteja contra el titular/expediente del usuario.');
   }
 
   if (detectarExpedienteIndividual(alerta)) {

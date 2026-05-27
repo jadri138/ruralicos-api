@@ -144,5 +144,119 @@ test('BOP provincial sin provincias solo pasa para su provincia', () => {
   assert.strictEqual(result.motivo, 'provincia_no_coincide');
 });
 
+test('alias BOC de Canarias deriva provincias correctas', () => {
+  const alerta = {
+    fuente: 'BOC',
+    provincias: [],
+    sectores: ['ganaderia'],
+    subsectores: ['ovino'],
+    tipos_alerta: ['normativa_general'],
+  };
+
+  const result = diagnosticarAlertaUsuario(alerta, userHuesca);
+  assert.strictEqual(result.ok, false);
+  assert.strictEqual(result.motivo, 'provincia_no_coincide');
+  assert(result.detalle.alerta.includes('las palmas'));
+});
+
+test('alias BOC-CANT permite Cantabria como fuente autonomica normalizada', () => {
+  const userCantabria = {
+    subscription: 'agricultor',
+    preferences: {
+      provincias: ['Cantabria'],
+      sectores: ['ganaderia'],
+      subsectores: ['ovino'],
+      tipos_alerta: { normativa_general: true },
+    },
+  };
+  const alerta = {
+    fuente: 'BOC-CANT',
+    provincias: [],
+    sectores: ['ganaderia'],
+    subsectores: ['ovino'],
+    tipos_alerta: ['normativa_general'],
+  };
+
+  const result = diagnosticarAlertaUsuario(alerta, userCantabria);
+  assert.strictEqual(result.ok, true);
+});
+
+const userJose = {
+  subscription: 'cooperativa',
+  preferences: {
+    provincias: ['Albacete', 'Ciudad Real', 'Cuenca', 'Teruel', 'Valencia'],
+    sectores: ['ganaderia', 'agricultura', 'mixto'],
+    subsectores: ['agua', 'medio_ambiente', 'vacuno', 'ovino'],
+    tipos_alerta: {
+      medio_ambiente: true,
+      normativa_general: true,
+      ayudas_subvenciones: true,
+      agua_infraestructuras: true,
+    },
+  },
+};
+
+test('BOE local con provincia en titulo no se trata como nacional', () => {
+  const alerta = {
+    fuente: 'BOE',
+    titulo: 'Concesion de agua para riego en Corullon (Leon)',
+    provincias: [],
+    sectores: ['mixto'],
+    subsectores: ['agua'],
+    tipos_alerta: ['agua_infraestructuras'],
+  };
+
+  const result = diagnosticarAlertaUsuario(alerta, userJose);
+  assert.strictEqual(result.ok, false);
+  assert.strictEqual(result.motivo, 'provincia_no_coincide');
+  assert(result.detalle.alerta.includes('leon'));
+});
+
+test('DOGV local de Castellon no pasa a usuario que solo tiene Valencia', () => {
+  const alerta = {
+    fuente: 'DOGV',
+    titulo: 'Concesion de aguas subterraneas en Useras/Useres (les)',
+    provincias: [],
+    sectores: ['mixto'],
+    subsectores: ['agua'],
+    tipos_alerta: ['agua_infraestructuras'],
+  };
+
+  const result = diagnosticarAlertaUsuario(alerta, userJose);
+  assert.strictEqual(result.ok, false);
+  assert.strictEqual(result.motivo, 'provincia_no_coincide');
+  assert(result.detalle.alerta.includes('castellon'));
+});
+
+test('provincia fuerte en titulo corrige provincia explicita contradictoria', () => {
+  const alerta = {
+    fuente: 'DOGV',
+    titulo: 'Concesion de aguas subterraneas en Useras/Useres (les)',
+    provincias: ['Valencia'],
+    sectores: ['mixto'],
+    subsectores: ['agua'],
+    tipos_alerta: ['agua_infraestructuras'],
+  };
+
+  const result = diagnosticarAlertaUsuario(alerta, userJose);
+  assert.strictEqual(result.ok, false);
+  assert.strictEqual(result.motivo, 'provincia_no_coincide');
+  assert(result.detalle.alerta.includes('castellon'));
+});
+
+test('alerta local en provincia declarada sigue pasando', () => {
+  const alerta = {
+    fuente: 'DOCM',
+    titulo: 'Estudio de impacto ambiental en Albacete',
+    provincias: [],
+    sectores: ['agricultura'],
+    subsectores: ['agua', 'medio_ambiente'],
+    tipos_alerta: ['medio_ambiente', 'agua_infraestructuras'],
+  };
+
+  const result = diagnosticarAlertaUsuario(alerta, userJose);
+  assert.strictEqual(result.ok, true);
+});
+
 console.log(`\nResultados alertaMatcher: ${passed} aprobados, ${failed} fallidos`);
 if (failed > 0) process.exit(1);

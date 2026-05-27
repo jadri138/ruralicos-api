@@ -17,7 +17,23 @@
       "Bash(ls \"c:\\\\Users\\\\jadri\\\\Desktop\\\\Jaime\\\\RURALICOS\\\\COPIA SEGURIDAD\\\\RURALICOS\\\\API\\\\ruralicos-web\\\\components\")",
       "Read(//c/Users/jadri/Desktop/Jaime/RURALICOS/COPIA SEGURIDAD/RURALICOS/API/ruralicos-web/components/**)",
       "Bash(python3 -c ' *)",
-      "Bash(node -e ' *)"
+      "Bash(node -e ' *)",
+      "Skill(update-config)",
+      "Skill(update-config:*)",
+      "mcp__claude_ai_Supabase__list_projects",
+      "mcp__claude_ai_Supabase__list_tables",
+      "mcp__claude_ai_Supabase__execute_sql",
+      "Bash(New-Item -ItemType Directory -Force \"c:\\\\Users\\\\jadri\\\\Desktop\\\\Jaime\\\\RURALICOS\\\\COPIA SEGURIDAD\\\\RURALICOS\\\\Ruralicos WEB\\\\actualidad-rural\")",
+      "Bash(Out-Null)",
+      "Bash(New-Item -ItemType Directory -Force \"c:\\\\Users\\\\jadri\\\\Desktop\\\\Jaime\\\\RURALICOS\\\\COPIA SEGURIDAD\\\\RURALICOS\\\\Ruralicos WEB\\\\actualidad-rural\\\\ayudas-jovenes-agricultores-ganaderos-asturias-2026\")",
+      "Bash(New-Item -ItemType Directory -Force \"c:\\\\Users\\\\jadri\\\\Desktop\\\\Jaime\\\\RURALICOS\\\\COPIA SEGURIDAD\\\\RURALICOS\\\\Ruralicos WEB\\\\actualidad-rural\\\\ayudas-tuberculosis-bovina-la-rioja-2026\")",
+      "Bash(New-Item -ItemType Directory -Force \"c:\\\\Users\\\\jadri\\\\Desktop\\\\Jaime\\\\RURALICOS\\\\COPIA SEGURIDAD\\\\RURALICOS\\\\Ruralicos WEB\\\\actualidad-rural\\\\ayuda-cosecha-verde-uva-vinificacion-cataluna-2026\")",
+      "Bash(New-Item -ItemType Directory -Force \"c:\\\\Users\\\\jadri\\\\Desktop\\\\Jaime\\\\RURALICOS\\\\COPIA SEGURIDAD\\\\RURALICOS\\\\Ruralicos WEB\\\\actualidad-rural\\\\subvenciones-infraestructuras-agrarias-municipales-la-rioja-2026\")",
+      "Bash(New-Item -ItemType Directory -Force \"c:\\\\Users\\\\jadri\\\\Desktop\\\\Jaime\\\\RURALICOS\\\\COPIA SEGURIDAD\\\\RURALICOS\\\\Ruralicos WEB\\\\actualidad-rural\\\\ayudas-empleo-agricultura-ecologica-vitoria-gasteiz-2026\")",
+      "PowerShell(New-Item -ItemType Directory -Path \"c:\\\\Users\\\\jadri\\\\Desktop\\\\Jaime\\\\RURALICOS\\\\COPIA SEGURIDAD\\\\RURALICOS\\\\Ruralicos WEB\\\\alertas-dogv\" -Force)",
+      "PowerShell(New-Item -ItemType Directory -Path \"c:\\\\Users\\\\jadri\\\\Desktop\\\\Jaime\\\\RURALICOS\\\\COPIA SEGURIDAD\\\\RURALICOS\\\\Ruralicos WEB\\\\actualidad-rural\\\\vacunacion-lengua-azul-ovino-navarra-2026\" -Force)",
+      "PowerShell(New-Item -ItemType Directory -Path \"c:\\\\Users\\\\jadri\\\\Desktop\\\\Jaime\\\\RURALICOS\\\\COPIA SEGURIDAD\\\\RURALICOS\\\\Ruralicos WEB\\\\actualidad-rural\\\\ayudas-vallado-virtual-bovino-extensivo-navarra-2026\" -Force)",
+      "PowerShell(New-Item -ItemType Directory -Path \"c:\\\\Users\\\\jadri\\\\Desktop\\\\Jaime\\\\RURALICOS\\\\COPIA SEGURIDAD\\\\RURALICOS\\\\Ruralicos WEB\\\\actualidad-rural\\\\ayudas-certificacion-produccion-ecologica-valencia-2026\" -Force)"
     ]
   }
 }

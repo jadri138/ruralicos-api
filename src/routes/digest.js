@@ -21,7 +21,8 @@ const { checkCronToken }           = require('../utils/checkCronToken');
 const { llamarIA }                 = require('../utils/llamarIA');
 const { enviarDigestPro }          = require('../whatsapp');
 const { getPlan }                  = require('../config/planes');
-const { alertaCoincideConUsuario, diagnosticarAlertaUsuario } = require('../utils/alertaMatcher');
+const { alertaCoincideConUsuario } = require('../utils/alertaMatcher');
+const { decidirAlertaParaDigest, filtrarAlertasParaDigest } = require('../utils/alertSelectionGate');
 const { getFechaMadridISO }        = require('../utils/fechaMadrid');
 const { leerPerfilIntereses, ordenarAlertasPorPerfil, clasificarPrioridadAlerta, pesoPrioridad } = require('../brain');
 const { similitudCoseno }          = require('../utils/embeddings');
@@ -622,11 +623,31 @@ function ordenarPorPerfilVectorial(alertas, perfilEmbeddingRaw) {
   });
 }
 
+function completarCandidatoMIA(candidato = {}, alertasBasePorId = new Map()) {
+  const base = alertasBasePorId.get(String(candidato.id));
+  if (!base) return candidato;
+
+  return {
+    ...base,
+    ...candidato,
+    provincias: Array.isArray(candidato.provincias) ? candidato.provincias : base.provincias,
+    sectores: Array.isArray(candidato.sectores) ? candidato.sectores : base.sectores,
+    subsectores: Array.isArray(candidato.subsectores) ? candidato.subsectores : base.subsectores,
+    tipos_alerta: Array.isArray(candidato.tipos_alerta) ? candidato.tipos_alerta : base.tipos_alerta,
+    resumen: candidato.resumen || base.resumen,
+    resumen_final: candidato.resumen_final || base.resumen_final,
+    contenido: candidato.contenido || base.contenido,
+    estado_ia: candidato.estado_ia || base.estado_ia,
+    embedding_generated_at: candidato.embedding_generated_at || base.embedding_generated_at,
+  };
+}
+
 async function seleccionarAlertasConMIA(supabase, {
   user,
   fecha,
   alertasFallback,
   organizationId = null,
+  decisionFn = null,
 }) {
   const perfilEmbedding = parseVector(user.perfil_embedding);
   if (!Array.isArray(perfilEmbedding) || perfilEmbedding.length === 0) return null;
@@ -647,11 +668,20 @@ async function seleccionarAlertasConMIA(supabase, {
     return fallbackOrdenado ? { alertas: fallbackOrdenado.slice(0, 7), exploracion: null, origen: 'fallback_memoria' } : null;
   }
 
-  const candidatosFiltrados = aplicarExclusionesPreferenciasExtra(
-    filtrarAlertasPorOrganization(candidatosRpc || [], organizationId)
-      .filter((alerta) => alertaCoincideConUsuario(alerta, user)),
-    user.preferencias_extra
-  );
+  const alertasBasePorId = new Map((alertasFallback || []).map((alerta) => [String(alerta.id), alerta]));
+  const candidatosVisibles = filtrarAlertasPorOrganization(candidatosRpc || [], organizationId)
+    .map((alerta) => completarCandidatoMIA(alerta, alertasBasePorId));
+  const candidatosFiltrados = typeof decisionFn === 'function'
+    ? candidatosVisibles
+        .map((alerta) => {
+          const decision = decisionFn(alerta);
+          return decision.incluir ? { ...alerta, decision_digest: decision } : null;
+        })
+        .filter(Boolean)
+    : aplicarExclusionesPreferenciasExtra(
+        candidatosVisibles.filter((alerta) => alertaCoincideConUsuario(alerta, user)),
+        user.preferencias_extra
+      );
 
   if (candidatosFiltrados.length === 0) {
     const fallbackOrdenado = ordenarPorPerfilVectorial(alertasFallback, user.perfil_embedding);
@@ -932,32 +962,20 @@ module.exports = function digestRoutes(app, supabase) {
       const alertas = filtrarAlertasPorOrganization(alertasRaw || [], organizationId);
 
       const detalle = (alertas || []).map((alerta) => {
-        const base = diagnosticarAlertaUsuario(alerta, user);
-        const calidad = evaluarCalidadAlerta(alerta);
-        const exclusionCalidad = DIGEST_QUALITY_GATE && (
-          calidad.critical ||
-          calidad.score < 65 ||
-          calidad.flags.includes('ia_no_lista') ||
-          calidad.flags.includes('ia_atascada')
-        );
-        const exclusion = base.ok
-          ? alertaExcluidaPorPreferenciasExtra(alerta, user.preferencias_extra)
-          : null;
-
-        const incluida = base.ok && !exclusion && !exclusionCalidad;
+        const decision = decidirAlertaParaDigest(alerta, user, {
+          qualityGate: DIGEST_QUALITY_GATE,
+          exclusionPreferencias: (item) => alertaExcluidaPorPreferenciasExtra(item, user.preferencias_extra),
+        });
 
         return {
           id: alerta.id,
           titulo: alerta.titulo,
           fuente: alerta.fuente || 'BOE',
-          incluida,
-          motivo: incluida ? 'incluida' : (exclusionCalidad ? 'calidad_insuficiente' : (exclusion?.motivo || base.motivo)),
-          detalle: exclusion || base.detalle || null,
-          calidad: {
-            score: calidad.score,
-            grade: calidad.grade,
-            flags: calidad.flags,
-          },
+          incluida: decision.incluir,
+          motivo: decision.motivo,
+          riesgo: decision.riesgo,
+          detalle: decision.detalle,
+          calidad: decision.diagnostico.calidad,
         };
       });
 
@@ -1138,11 +1156,15 @@ module.exports = function digestRoutes(app, supabase) {
 
         // Filtrar alertas relevantes para este usuario
         const alertasVisibles = filtrarAlertasPorOrganization(alertas, organizationId);
-        const alertasBase = alertasParaUsuario(alertasVisibles, userConOrganization);
-        const alertasUsuario = aplicarExclusionesPreferenciasExtra(
-          alertasBase,
-          user.preferencias_extra
-        );
+        const decisionFn = (alerta) => decidirAlertaParaDigest(alerta, userConOrganization, {
+          qualityGate: DIGEST_QUALITY_GATE,
+          exclusionPreferencias: (item) => alertaExcluidaPorPreferenciasExtra(item, user.preferencias_extra),
+        });
+        const seleccionBase = filtrarAlertasParaDigest(alertasVisibles, userConOrganization, {
+          qualityGate: DIGEST_QUALITY_GATE,
+          exclusionPreferencias: (item) => alertaExcluidaPorPreferenciasExtra(item, user.preferencias_extra),
+        });
+        const alertasUsuario = seleccionBase.alertas;
         const aprendizaje = await obtenerAprendizajeUsuario(supabase, user.id);
         const perfilOperativoMIA = await cargarPerfilOperativoMIA(supabase, user.id, { user: userConOrganization });
         const userConPerfilMIA = aplicarPerfilOperativoAUsuario(userConOrganization, perfilOperativoMIA);
@@ -1152,6 +1174,7 @@ module.exports = function digestRoutes(app, supabase) {
           fecha: hoy,
           alertasFallback: alertasConPerfilMIA,
           organizationId,
+          decisionFn,
         });
         const usandoMIA = Boolean(seleccionMIA?.alertas?.length);
         const alertasOrdenadas = usandoMIA

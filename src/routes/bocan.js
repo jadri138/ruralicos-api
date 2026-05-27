@@ -79,7 +79,7 @@ module.exports = function bocanRoutes(app, supabase) {
           url: doc.url,
           fecha: doc.fecha,
           region: 'Canarias',
-          fuente: 'BOC',
+          fuente: 'BOCAN',
           contenido: doc.texto,
         }]);
 

@@ -128,6 +128,35 @@ const generalAdminAlert = evaluarCalidadAlerta({
 
 assert(generalAdminAlert.flags.includes('administracion_general_no_agraria'), 'Detecta administracion general no agraria');
 
+const notificationAlert = evaluarCalidadAlerta({
+  ...goodAlert,
+  id: 9,
+  titulo: 'Notificaciones. Notificacion de 15/05/2026',
+  resumen_final: 'El boletin publica una notificacion al interesado tras no haberse podido practicar la notificacion personal.',
+  contenido: 'Intentada sin efecto la notificacion personal, por el presente anuncio se notifica al interesado un acto administrativo para cuyo conocimiento integro podra comparecer.',
+}, { now });
+
+assert(notificationAlert.flags.includes('notificacion_individual'), 'Detecta notificaciones edictales individuales');
+assert(notificationAlert.critical === true, 'Bloquea notificaciones individuales en digest');
+
+const researchGrantAlert = evaluarCalidadAlerta({
+  ...goodAlert,
+  id: 10,
+  titulo: 'Aviso de la Comision de Valoracion de la beca de formacion de personal investigador en materia de vinedo',
+  resumen_final: 'La comision de valoracion convoca entrevista personal de aspirantes a una beca de formacion de personal investigador.',
+  contenido: 'Beca de formacion de personal investigador. Entrevista personal de los aspirantes.',
+}, { now });
+
+assert(researchGrantAlert.flags.includes('personal_investigador_beca'), 'Detecta becas de personal investigador como ruido no agrario operativo');
+
+const genericPortalBoilerplate = evaluarCalidadAlerta({
+  ...goodAlert,
+  id: 11,
+  resumen_final: 'FICHA_IA\nHECHO: INICIOSEDE ELECTRONICAWEB INSTITUCIONAL BOLETIN OFICIAL DE LA PROVINCIA BOP DEL DIA BUSQUEDAS BUSCAR BOLETINES HISTORICOS\nDETALLE: revisar si aplica a la explotacion.',
+}, { now });
+
+assert(genericPortalBoilerplate.flags.includes('resumen_boilerplate_portal'), 'Detecta boilerplate generico de sedes y boletines provinciales');
+
 const alertSummary = resumirCalidadAlertas([goodAlert, rawBadAlert], { now });
 assert(alertSummary.metrics.total_alertas === 2, 'Resume total de alertas');
 assert(alertSummary.metrics.ready_for_mia === 1, 'Cuenta alertas listas para MIA');
