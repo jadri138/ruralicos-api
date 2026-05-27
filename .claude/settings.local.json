@@ -33,7 +33,10 @@
       "PowerShell(New-Item -ItemType Directory -Path \"c:\\\\Users\\\\jadri\\\\Desktop\\\\Jaime\\\\RURALICOS\\\\COPIA SEGURIDAD\\\\RURALICOS\\\\Ruralicos WEB\\\\alertas-dogv\" -Force)",
       "PowerShell(New-Item -ItemType Directory -Path \"c:\\\\Users\\\\jadri\\\\Desktop\\\\Jaime\\\\RURALICOS\\\\COPIA SEGURIDAD\\\\RURALICOS\\\\Ruralicos WEB\\\\actualidad-rural\\\\vacunacion-lengua-azul-ovino-navarra-2026\" -Force)",
       "PowerShell(New-Item -ItemType Directory -Path \"c:\\\\Users\\\\jadri\\\\Desktop\\\\Jaime\\\\RURALICOS\\\\COPIA SEGURIDAD\\\\RURALICOS\\\\Ruralicos WEB\\\\actualidad-rural\\\\ayudas-vallado-virtual-bovino-extensivo-navarra-2026\" -Force)",
-      "PowerShell(New-Item -ItemType Directory -Path \"c:\\\\Users\\\\jadri\\\\Desktop\\\\Jaime\\\\RURALICOS\\\\COPIA SEGURIDAD\\\\RURALICOS\\\\Ruralicos WEB\\\\actualidad-rural\\\\ayudas-certificacion-produccion-ecologica-valencia-2026\" -Force)"
+      "PowerShell(New-Item -ItemType Directory -Path \"c:\\\\Users\\\\jadri\\\\Desktop\\\\Jaime\\\\RURALICOS\\\\COPIA SEGURIDAD\\\\RURALICOS\\\\Ruralicos WEB\\\\actualidad-rural\\\\ayudas-certificacion-produccion-ecologica-valencia-2026\" -Force)",
+      "PowerShell(New-Item -ItemType Directory -Path \"c:\\\\Users\\\\jadri\\\\Desktop\\\\Jaime\\\\RURALICOS\\\\COPIA SEGURIDAD\\\\RURALICOS\\\\Ruralicos WEB\\\\actualidad-rural\\\\ayudas-maquinaria-agricultura-precision-galicia-2026\" -Force)",
+      "PowerShell(New-Item -ItemType Directory -Path \"c:\\\\Users\\\\jadri\\\\Desktop\\\\Jaime\\\\RURALICOS\\\\COPIA SEGURIDAD\\\\RURALICOS\\\\Ruralicos WEB\\\\actualidad-rural\\\\ayudas-apicultura-ecologica-asturias-2026\" -Force)",
+      "PowerShell(New-Item -ItemType Directory -Path \"c:\\\\Users\\\\jadri\\\\Desktop\\\\Jaime\\\\RURALICOS\\\\COPIA SEGURIDAD\\\\RURALICOS\\\\Ruralicos WEB\\\\actualidad-rural\\\\ayudas-producto-local-comercializacion-directa-balears-2026\" -Force)"
     ]
   }
 }
