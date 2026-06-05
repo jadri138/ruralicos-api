@@ -86,6 +86,7 @@ function construirMemoriaLegacyRows({
   );
   const memoryRows = [];
   const orgId = organizationId || user?.organization_id || digest?.organization_id || null;
+  const shouldStoreExplicitMemory = decision.policy?.should_store_memory !== false;
 
   for (const feedback of decision.feedback_actions || []) {
     if (Number(feedback.valor) === 0) continue;
@@ -102,18 +103,20 @@ function construirMemoriaLegacyRows({
     }, orgId));
   }
 
-  for (const memoria of decision.memory_actions || []) {
-    memoryRows.push(conOrganizationId({
-      user_id: user.id,
-      tipo: memoria.tipo,
-      contenido: memoria.contenido,
-      alerta_id: null,
-      digest_id: digest?.id || null,
-      peso_inicial: memoria.peso_inicial || 0.5,
-    }, orgId));
+  if (shouldStoreExplicitMemory) {
+    for (const memoria of decision.memory_actions || []) {
+      memoryRows.push(conOrganizationId({
+        user_id: user.id,
+        tipo: memoria.tipo,
+        contenido: memoria.contenido,
+        alerta_id: null,
+        digest_id: digest?.id || null,
+        peso_inicial: memoria.peso_inicial || 0.5,
+      }, orgId));
+    }
   }
 
-  if (memoryRows.length === 0 && decision.intent === 'pregunta_usuario') {
+  if (shouldStoreExplicitMemory && memoryRows.length === 0 && decision.intent === 'pregunta_usuario') {
     const contenido = String(texto || '').trim().slice(0, 1200);
     if (contenido) {
       memoryRows.push(conOrganizationId({

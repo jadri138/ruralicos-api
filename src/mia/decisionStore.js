@@ -25,15 +25,17 @@ function construirAccionesDesdeDecision({
     }, organizationId));
   }
 
-  for (const memoria of decision.memory_actions || []) {
-    acciones.push(conOrganizationId({
-      user_id: userId,
-      digest_id: digestId,
-      inbound_id: inboundId,
-      action_type: 'memory',
-      status: 'planned',
-      action_json: memoria,
-    }, organizationId));
+  if (decision.policy?.should_store_memory !== false) {
+    for (const memoria of decision.memory_actions || []) {
+      acciones.push(conOrganizationId({
+        user_id: userId,
+        digest_id: digestId,
+        inbound_id: inboundId,
+        action_type: 'memory',
+        status: 'planned',
+        action_json: memoria,
+      }, organizationId));
+    }
   }
 
   if (decision.reply_action) {

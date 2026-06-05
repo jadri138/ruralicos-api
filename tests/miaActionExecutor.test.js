@@ -143,6 +143,23 @@ assert(
   'Una preferencia futura no crea feedback de alerta'
 );
 
+const decisionFueraDominio = {
+  intent: 'mensaje_libre',
+  feedback_actions: [],
+  memory_actions: [{ tipo: 'mensaje_libre', contenido: 'Quiere un chiste', peso_inicial: 0.5 }],
+  risk_flags: ['policy_silence_out_of_scope'],
+  policy: {
+    should_store_memory: false,
+    requires_agent: false,
+    should_reply: false,
+  },
+};
+
+assert(
+  construirMemoriaLegacyRows({ user, digest, alertasOrdenadas, texto: 'cuentame un chiste', decision: decisionFueraDominio }).length === 0,
+  'No guarda memoria cuando policy silencia fuera de dominio'
+);
+
 const decisionPregunta = {
   intent: 'pregunta_usuario',
   confidence: 0.84,

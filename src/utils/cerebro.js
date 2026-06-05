@@ -268,7 +268,9 @@ Reglas:
 - Si el usuario pide recibir avisos, alertas o informacion sobre temas futuros ("quiero recibir avisos sobre PAC", "me gustaria que me avisarais de tractores"), NO lo conviertas en feedback del digest salvo que mencione claramente un item o una alerta del digest. Guardalo solo como memoria/interes_detectado.
 - memoria solo si hay informacion util para el futuro.
 - Tipos memoria permitidos: interes_detectado, desinteres_detectado, dato_explotacion, pregunta_usuario, mensaje_libre, evento_estacional, respuesta_exploracion.
-- Responde por WhatsApp solo si pregunta, se queja, esta confuso o hay una oportunidad natural. Si solo da feedback simple, requiere_respuesta false.
+- Responde por WhatsApp solo si el mensaje trata claramente de Ruralicos, alertas, ayudas, boletines, PAC, actividad agraria/ganadera o soporte del servicio.
+- Si el mensaje es charla social, una pregunta general no relacionada, una broma, un saludo ampliado o cualquier tema fuera de Ruralicos/campo/alertas, usa intencion "otro", requiere_respuesta false y respuesta "".
+- Si solo da feedback simple, requiere_respuesta false.
 - Si respondes, hazlo sobrio y directo. No uses nombre y apellidos, ni saludos largos, ni despedidas creativas, ni frases tipo "que tengas buen dia en tu granja/campo/con tus animales".
 `.trim();
 

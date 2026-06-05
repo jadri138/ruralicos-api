@@ -69,6 +69,16 @@ function parecePregunta(texto) {
     /\b(cuando|donde|como|que|cual|cuanto|por que|sabeis|puedes|podrias|me puedes|hay|existe|sale|pagan|pago|plazo|resolucion)\b/.test(value);
 }
 
+function pareceServicioRuralicos(texto) {
+  const value = normalizar(texto);
+  return /\b(ruralicos|alertas?|avisos?|whatsapp|mensaje|mensajes|telefono|plan|suscripcion|baja|alta|pago|factura|cobro|cuenta|usuario|agente|humano|soporte|servicio|no funciona|no me llega|no llegan|dejar de recibir|quien sois|que sois)\b/.test(value);
+}
+
+function pareceDominioRural(texto) {
+  const value = normalizar(texto);
+  return /\b(agricultura|agricola|agricultor|agricultores|agrario|agraria|ganaderia|ganadero|ganadera|explotacion|campo|finca|cultivo|cultivos|olivar|olivo|vinedo|vina|cereal|regadio|riego|agua|pozo|pozos|comunidad de regantes|pac|fega|sigpac|feaga|feader|eco regimen|ecoregimen|ayuda|ayudas|subvencion|subvenciones|convocatoria|plazo|resolucion|boe|boletin|bocyl|boa|boja|dogv|dogc|doe|docm|bopa|bopv|borm|bon|tractor|tractores|maquinaria|apero|aperos|vacuno|ovino|porcino|caprino|sanidad animal|bienestar animal|purines|fitosanitario|sequia|dana|helada|pedrisco)\b/.test(value);
+}
+
 function parecePreferenciaFutura(texto) {
   const value = normalizar(texto);
   return /\b(quiero|me gustaria|avisadme|avisame|mandadme|enviadme|recibir|alertas?|avisos?)\b/.test(value) ||
@@ -95,6 +105,49 @@ function esFeedbackNegativoSinDetalle(decision = {}, texto = '') {
   if (/^(ninguna|ninguno|nada|no)$/.test(value)) return true;
   if (value.split(/\s+/).filter(Boolean).length <= 4) return true;
   return !/\b(zona|pueblo|municipio|tema|agua|riego|ayuda|subvencion|pac|vacuno|ovino|porcino|poco concreto|no aplica|no aplicaba)\b/.test(value);
+}
+
+function tieneMemoriaOperativa(decision = {}) {
+  return (decision.memory_actions || []).some((memoria) =>
+    ['interes_detectado', 'desinteres_detectado', 'dato_explotacion', 'evento_estacional', 'respuesta_exploracion'].includes(memoria.tipo)
+  );
+}
+
+function tieneContextoOperativoMIA({
+  texto = '',
+  decision = {},
+  digest = null,
+  alertasDelDigest = [],
+} = {}) {
+  const feedbackShort = esFeedbackCorto(texto);
+  const hasFeedback = (decision.feedback_actions || []).length > 0;
+
+  if (pareceServicioRuralicos(texto)) return true;
+  if (pareceDominioRural(texto)) return true;
+  if (parecePreferenciaFutura(texto)) return true;
+  if (tieneMemoriaOperativa(decision)) return true;
+  if (decision.intent === 'feedback_digest' || hasFeedback) return true;
+  if (feedbackShort && digest && (alertasDelDigest || []).length > 0) return true;
+
+  return false;
+}
+
+function aplicarSilencioFueraDeDominio(next, riskFlags, decision, reason = 'out_of_scope_message') {
+  const policy = construirPolicy({
+    outcome: 'silence',
+    reasons: [reason],
+    requiresAgent: false,
+    shouldReply: false,
+    shouldStoreMemory: false,
+    shouldFeedback: false,
+    confidence: decision.confidence,
+  });
+
+  return aplicarPolicy(sinReply(next), policy, {
+    riskFlags: unique([...removeFlags(riskFlags, ['digest_missing', 'digest_without_items', 'knowledge_no_match', 'low_confidence']), 'policy_silence_out_of_scope']),
+    replyAction: null,
+    autoAnswered: true,
+  });
 }
 
 function preguntaDemasiadoVaga(texto, perfilOperativo = {}) {
@@ -210,6 +263,8 @@ function evaluarPoliticaDecisionMIA({
   const questionish = parecePregunta(texto);
   const preferenceish = parecePreferenciaFutura(texto);
   const feedbackShort = esFeedbackCorto(texto);
+  const feedbackContextAvailable = Boolean(digest && (alertasDelDigest || []).length > 0);
+  const contextoOperativo = tieneContextoOperativoMIA({ texto, decision, digest, alertasDelDigest });
 
   const digestContextRequired = intent === 'feedback_digest' || hasFeedback || feedbackShort;
   if (!digestContextRequired) {
@@ -232,6 +287,10 @@ function evaluarPoliticaDecisionMIA({
   }
 
   if (intent === 'queja_servicio') {
+    if (!contextoOperativo) {
+      return aplicarSilencioFueraDeDominio(next, riskFlags, decision, 'off_topic_complaint');
+    }
+
     next = hasReply ? asegurarAvisoRevision(next, textos.serviceComplaint) : conReply(next, textos.serviceComplaint);
     const policy = construirPolicy({
       outcome: 'handoff_agent',
@@ -307,6 +366,10 @@ function evaluarPoliticaDecisionMIA({
   }
 
   if (intent === 'pregunta_usuario') {
+    if (!contextoOperativo) {
+      return aplicarSilencioFueraDeDominio(next, riskFlags, decision, 'off_topic_question');
+    }
+
     const autoPermission = evaluarPermisoAutoRespuestaMIA({ decision, texto, perfilOperativo });
     if (autoPermission.allowed) {
       const policy = construirPolicy({
@@ -368,6 +431,14 @@ function evaluarPoliticaDecisionMIA({
 
   if (intent === 'unknown') {
     if (questionish || feedbackShort) {
+      if (questionish && !contextoOperativo && !feedbackShort) {
+        return aplicarSilencioFueraDeDominio(next, riskFlags, decision, 'off_topic_unknown_question');
+      }
+
+      if (feedbackShort && !feedbackContextAvailable) {
+        return aplicarSilencioFueraDeDominio(next, riskFlags, decision, 'short_feedback_without_digest_context');
+      }
+
       next = conReply(next, feedbackShort ? textos.feedbackClarification : textos.clarification);
       const policy = construirPolicy({
         outcome: 'ask_clarification',
@@ -404,16 +475,19 @@ function evaluarPoliticaDecisionMIA({
 
   if (intent === 'mensaje_libre') {
     const policy = construirPolicy({
-      outcome: hasReply ? 'reply_social' : 'silence',
-      reasons: ['free_message'],
+      outcome: 'silence',
+      reasons: [contextoOperativo ? 'free_message_silenced' : 'out_of_scope_free_message'],
       requiresAgent: false,
-      shouldReply: hasReply,
-      shouldStoreMemory: hasMemory,
+      shouldReply: false,
+      shouldStoreMemory: hasMemory && contextoOperativo,
       confidence: decision.confidence,
     });
-    return aplicarPolicy(hasReply ? next : sinReply(next), policy, {
-      riskFlags: removeFlags(riskFlags, ['digest_missing', 'digest_without_items']),
-      replyAction: hasReply ? next.reply_action : null,
+    return aplicarPolicy(sinReply(next), policy, {
+      riskFlags: unique([
+        ...removeFlags(riskFlags, ['digest_missing', 'digest_without_items']),
+        contextoOperativo ? 'policy_silence_free_message' : 'policy_silence_out_of_scope',
+      ]),
+      replyAction: null,
       autoAnswered: true,
     });
   }

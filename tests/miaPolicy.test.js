@@ -217,5 +217,81 @@ assert(queja.policy.outcome === 'handoff_agent', 'Escala quejas de servicio');
 assert(queja.policy.priority === 'alta', 'Queja entra con prioridad alta');
 assert(queja.reply_action.texto.includes('agente de Ruralicos'), 'Confirma derivacion profesional');
 
+const libreFueraDominio = evaluarPoliticaDecisionMIA({
+  texto: 'jajaja que bueno, cuentame un chiste',
+  decision: {
+    intent: 'mensaje_libre',
+    confidence: 0.88,
+    risk_flags: [],
+    feedback_actions: [],
+    memory_actions: [{ tipo: 'mensaje_libre', contenido: 'Pide un chiste', peso_inicial: 0.5 }],
+    reply_action: { canal: 'whatsapp', texto: 'Claro, aqui va uno.' },
+    summary: 'Charla fuera de dominio',
+  },
+});
+
+assert(libreFueraDominio.policy.outcome === 'silence', 'Silencia charla libre fuera de dominio');
+assert(libreFueraDominio.reply_action === null, 'Elimina reply en charla fuera de dominio');
+assert(libreFueraDominio.policy.should_store_memory === false, 'No guarda memoria de charla fuera de dominio');
+assert(necesitaCasoAgenteMIA(libreFueraDominio) === false, 'No abre caso por charla fuera de dominio');
+assert(
+  !construirAccionesDesdeDecision({ decision: libreFueraDominio, userId: 1 }).some((a) => a.action_type === 'reply' || a.action_type === 'memory' || a.action_type === 'handoff_agent'),
+  'Decision store no planifica reply/memoria/handoff fuera de dominio'
+);
+
+const preguntaFueraDominio = evaluarPoliticaDecisionMIA({
+  texto: 'Que tiempo hace manana en Madrid?',
+  decision: {
+    intent: 'pregunta_usuario',
+    confidence: 0.82,
+    risk_flags: ['knowledge_no_match'],
+    feedback_actions: [],
+    memory_actions: [{ tipo: 'pregunta_usuario', contenido: 'Pregunta por el tiempo', peso_inicial: 0.7 }],
+    reply_action: { canal: 'whatsapp', texto: 'No tengo datos del tiempo.' },
+    knowledge_context: { answered: false, needs_agent: false, matches: [] },
+    summary: 'Pregunta fuera de dominio',
+  },
+});
+
+assert(preguntaFueraDominio.policy.outcome === 'silence', 'Silencia preguntas fuera de Ruralicos');
+assert(preguntaFueraDominio.reply_action === null, 'No pide aclaracion en preguntas fuera de dominio');
+assert(!preguntaFueraDominio.risk_flags.includes('knowledge_no_match'), 'No escala knowledge_no_match fuera de dominio');
+assert(necesitaCasoAgenteMIA(preguntaFueraDominio) === false, 'No abre caso agente por pregunta fuera de dominio');
+
+const feedbackSinContexto = evaluarPoliticaDecisionMIA({
+  texto: '1',
+  digest: null,
+  alertasDelDigest: [],
+  decision: {
+    intent: 'unknown',
+    confidence: 0.5,
+    risk_flags: ['digest_missing'],
+    feedback_actions: [],
+    memory_actions: [],
+    reply_action: null,
+    summary: 'Numero sin digest activo',
+  },
+});
+
+assert(feedbackSinContexto.policy.outcome === 'silence', 'Silencia feedback corto sin digest activo');
+assert(feedbackSinContexto.reply_action === null, 'No pide numero si no hay digest activo');
+
+const preguntaDominio = evaluarPoliticaDecisionMIA({
+  texto: 'Hay ayudas para olivar?',
+  decision: {
+    intent: 'pregunta_usuario',
+    confidence: 0.7,
+    risk_flags: ['knowledge_no_match'],
+    feedback_actions: [],
+    memory_actions: [],
+    reply_action: null,
+    knowledge_context: { answered: false, needs_agent: true, matches: [] },
+    summary: 'Pregunta agraria sin evidencia',
+  },
+});
+
+assert(preguntaDominio.policy.requires_agent === true, 'Mantiene handoff para preguntas agrarias reales');
+assert(preguntaDominio.reply_action.texto.includes('respuesta clara'), 'Sigue contestando cuando el tema es Ruralicos/agro');
+
 console.log(`\nResultados: ${passed} aprobados, ${failed} fallidos`);
 process.exit(failed > 0 ? 1 : 0);
