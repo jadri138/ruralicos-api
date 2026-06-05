@@ -3,6 +3,7 @@ const {
   parsearVotosDigest,
   parsearVotosNaturalesPorAlertas,
   analizarFeedbackCompleto,
+  esComentarioTramiteOEspera,
 } = require('../brain/feedbackParser');
 
 function confianzaAPeso(confianza) {
@@ -109,6 +110,22 @@ function tieneReferenciaDirectaADigest(mensajeUsuario) {
 function reforzarInterpretacionConReglasLocales(interpretacion, mensajeUsuario, alertasDelDigest = []) {
   const totalItems = Array.isArray(alertasDelDigest) ? alertasDelDigest.length : 0;
   if (totalItems <= 0) return interpretacion;
+
+  if (esComentarioTramiteOEspera(mensajeUsuario)) {
+    const texto = normalizarTextoCerebro(mensajeUsuario);
+    const parecePregunta = /\?|¿|\b(cuando|sabes|puedes|podrias|podriais|me puedes|me podeis|que hago|donde|como|plazo|resolver)\b/.test(texto);
+    return normalizarInterpretacion({
+      ...interpretacion,
+      feedbacks: [],
+      memoria: parecePregunta
+        ? [{ tipo: 'pregunta_usuario', contenido: String(mensajeUsuario || '').trim().slice(0, 500), peso_inicial: 0.6 }]
+        : [],
+      requiere_respuesta: false,
+      respuesta: '',
+      intencion: parecePregunta ? 'pregunta' : 'otro',
+      resumen_para_log: `${interpretacion.resumen_para_log || ''} Comentario de tramite/espera: no se vota el digest.`.trim(),
+    });
+  }
 
   const feedbacks = [...(interpretacion.feedbacks || [])];
   const memoria = [...(interpretacion.memoria || [])];

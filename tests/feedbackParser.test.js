@@ -1,5 +1,6 @@
 const {
   parsearVotosDigest,
+  esComentarioTramiteOEspera,
   extraerMencionesPosNeg,
   parsearVotosNaturalesPorAlertas,
 } = require('../src/brain/feedbackParser');
@@ -110,6 +111,19 @@ assert(
   'Convierte tema positivo y desinteres suave por agua en votos sobre alertas'
 );
 
+const comentarioTramite = 'a esa yo la solicite en cuanto salio y no se nada aun';
+const naturalTramite = parsearVotosNaturalesPorAlertas(comentarioTramite, [
+  { titulo: 'Concesion de aguas publicas', subsectores: ['agua'], tipos_alerta: ['agua_infraestructuras'] },
+]);
+assert(esComentarioTramiteOEspera(comentarioTramite), 'Detecta comentario de tramite o espera');
+assert(parsearVotosDigest('aun no e recibido respuesta de ningun tipo', 2).length === 0, 'No interpreta espera de respuesta como ninguna alerta');
+assert(
+  naturalTramite.votos.length === 0 &&
+    naturalTramite.menciones.positivas.length === 0 &&
+    naturalTramite.menciones.negativas.length === 0,
+  'No convierte comentario de tramite en voto natural sobre alertas'
+);
+
 const menciones6 = extraerMencionesPosNeg('Me gustaria recibir avisos sobre la PAC y ayudas para tractores');
 assert(
   menciones6.positivas.includes('pac') &&
@@ -133,6 +147,26 @@ assert(
     futura1.memoria.some((m) => m.tipo === 'interes_detectado' && /pac/i.test(m.contenido)) &&
     futura1.intencion !== 'feedback',
   'Una preferencia futura no vota negativamente el digest activo'
+);
+
+const tramite1 = cerebroTesting.reforzarInterpretacionConReglasLocales(
+  {
+    feedbacks: [{ item_numero: 1, valor: -1, confianza: 'media', razon: 'La IA lo interpreto como rechazo del item' }],
+    memoria: [{ tipo: 'desinteres_detectado', contenido: 'No le interesa agua', peso_inicial: 0.8 }],
+    requiere_respuesta: true,
+    respuesta: 'Hemos registrado tu interés.',
+    intencion: 'feedback',
+    resumen_para_log: 'Feedback negativo item 1',
+  },
+  'aun no e recibido respuesta de ningun tipo',
+  [{ titulo: 'Concesion de aguas publicas', subsectores: ['agua'], tipos_alerta: ['agua_infraestructuras'] }]
+);
+assert(
+  tramite1.feedbacks.length === 0 &&
+    tramite1.memoria.length === 0 &&
+    tramite1.requiere_respuesta === false &&
+    tramite1.intencion === 'otro',
+  'Refuerzo local anula feedback erroneo de espera de respuesta'
 );
 
 console.log(`\nResultados: ${passed} aprobados, ${failed} fallidos`);

@@ -44,6 +44,22 @@ function normalizarTexto(texto) {
     .toLowerCase();
 }
 
+function esComentarioTramiteOEspera(textoUsuario) {
+  const texto = normalizarTexto(textoUsuario).replace(/\s+/g, ' ').trim();
+  if (!texto) return false;
+
+  const hablaDeSolicitud =
+    /\b(solici(?:te|té|t[eé]|tado|tada|tar|taria|taría)|solocit\w*|pedi|pedí|pedido|presente|presenté|presentado|eche|eché|tramit[eé]|tramite|expediente)\b/.test(texto);
+  const hablaDeEspera =
+    /\b(no se nada|no sé nada|no e recibido|no he recibido|no recibi|no recibí|sin respuesta|ninguna respuesta|respuesta de ningun tipo|respuesta de ningún tipo|nadie (me )?(contesta|contesto|contestó)|no (me )?(contestan|contestaron|han contestado)|aun no|aún no|todavia no|todavía no)\b/.test(texto);
+
+  if (hablaDeSolicitud && hablaDeEspera) return true;
+
+  return /\b(no se nada|no sé nada)\b[^.!?]{0,80}\b(aun|aún|todavia|todavía)\b/.test(texto) ||
+    /\b(aun|aún|todavia|todavía)\b[^.!?]{0,80}\bno (?:e|he)?\s*recibido\b[^.!?]{0,80}\brespuesta\b/.test(texto) ||
+    /\bno (?:e|he)?\s*recibido\b[^.!?]{0,80}\brespuesta\b/.test(texto);
+}
+
 function temaCanonico(tema) {
   const normalizado = normalizarTexto(tema).trim();
   const found = TEMAS_AGRARIOS.find((item) => item.aliases.includes(normalizado));
@@ -131,6 +147,8 @@ function extraerTelefonoEntrante(body = {}) {
 }
 
 function parsearVotosDigest(texto, totalItems = null) {
+  if (esComentarioTramiteOEspera(texto)) return [];
+
   const normalizado = normalizarTexto(texto)
     .replace(/[\u{1F44D}\u{2705}\u{2B50}\u{1F31F}\u{1F49A}]/gu, '+')
     .replace(/[\u{1F44E}\u{274C}\u{1F6D1}]/gu, '-');
@@ -218,6 +236,10 @@ function parsearVotosDigest(texto, totalItems = null) {
 }
 
 function extraerMencionesPosNeg(textoUsuario) {
+  if (esComentarioTramiteOEspera(textoUsuario)) {
+    return { positivas: [], negativas: [] };
+  }
+
   const texto = normalizarTexto(textoUsuario);
   const temas = [...TEMAS_AGRARIOS.map((item) => item.canonico), ...PROVINCIAS];
   const positivas = [];
@@ -317,6 +339,10 @@ async function entenderIntencionUsuario(textoUsuario, alertaContexto = null) {
   }
 
   const texto = textoUsuario.trim();
+  if (esComentarioTramiteOEspera(texto)) {
+    return { sentimiento: 'neutral', temas: [], confianza: 0, rapido: true, ignored_reason: 'tramite_o_espera' };
+  }
+
   const menciones = extraerMencionesPosNeg(texto);
 
   if (menciones.positivas.length > 0 || menciones.negativas.length > 0) {
@@ -433,6 +459,7 @@ module.exports = {
   extraerTextoEntrante,
   extraerTelefonoEntrante,
   parsearVotosDigest,
+  esComentarioTramiteOEspera,
   extraerMencionesPosNeg,
   parsearVotosNaturalesPorAlertas,
   entenderIntencionUsuario,
