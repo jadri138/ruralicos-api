@@ -37,7 +37,8 @@
       "PowerShell(New-Item -ItemType Directory -Path \"c:\\\\Users\\\\jadri\\\\Desktop\\\\Jaime\\\\RURALICOS\\\\COPIA SEGURIDAD\\\\RURALICOS\\\\Ruralicos WEB\\\\actualidad-rural\\\\ayudas-maquinaria-agricultura-precision-galicia-2026\" -Force)",
       "PowerShell(New-Item -ItemType Directory -Path \"c:\\\\Users\\\\jadri\\\\Desktop\\\\Jaime\\\\RURALICOS\\\\COPIA SEGURIDAD\\\\RURALICOS\\\\Ruralicos WEB\\\\actualidad-rural\\\\ayudas-apicultura-ecologica-asturias-2026\" -Force)",
       "PowerShell(New-Item -ItemType Directory -Path \"c:\\\\Users\\\\jadri\\\\Desktop\\\\Jaime\\\\RURALICOS\\\\COPIA SEGURIDAD\\\\RURALICOS\\\\Ruralicos WEB\\\\actualidad-rural\\\\ayudas-producto-local-comercializacion-directa-balears-2026\" -Force)",
-      "Bash(dir /B /S *aragon*)"
+      "Bash(dir /B /S *aragon*)",
+      "PowerShell($basePath = \"c:\\\\Users\\\\jadri\\\\Desktop\\\\Jaime\\\\RURALICOS\\\\COPIA SEGURIDAD\\\\RURALICOS\\\\Ruralicos WEB\"; Get-ChildItem -Path $basePath -Recurse -Force | Select-Object -ExpandProperty FullName | ForEach-Object { $_.Replace\\($basePath, \"\"\\) })"
     ]
   }
 }

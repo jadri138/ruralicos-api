@@ -55,7 +55,8 @@ const outcomes = report.scenarios.reduce((acc, scenario) => {
   return acc;
 }, {});
 
-assert(outcomes.record_feedback >= 2, 'Cubre feedback de digest');
+const feedbackDigestOutcomes = (outcomes.record_feedback || 0) + (outcomes.record_feedback_with_reply || 0);
+assert(feedbackDigestOutcomes >= 2, 'Cubre feedback de digest');
 assert(outcomes.ack_preference >= 1, 'Cubre actualizacion de preferencias');
 assert(outcomes.auto_answer >= 1, 'Cubre respuesta automatica grounded');
 assert(outcomes.partial_answer_handoff >= 1 || outcomes.handoff_agent >= 1, 'Cubre escalado a agente');

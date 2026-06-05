@@ -76,7 +76,7 @@ test('excluye por calidad insuficiente aunque coincida por preferencias', () => 
   }, userJose);
 
   assert.strictEqual(decision.incluir, false);
-  assert.strictEqual(decision.motivo, 'calidad_insuficiente');
+  assert.strictEqual(decision.motivo, 'calidad_critica');
 });
 
 test('filtra y anota decision para trazabilidad en digest_items', () => {
@@ -103,7 +103,9 @@ test('bloquea expediente individual aunque coincida por provincia si no hay muni
     sectores: ['agricultura'],
     subsectores: ['agua'],
     tipos_alerta: ['agua_infraestructuras'],
-  }, userJose);
+  }, userJose, {
+    allowIndividualWithoutMunicipio: false,
+  });
 
   assert.strictEqual(decision.incluir, false);
   assert.strictEqual(decision.motivo, 'expediente_individual_sin_municipio');
@@ -127,7 +129,7 @@ test('permite expediente individual provincial cuando el digest activa coinciden
 
   assert.strictEqual(decision.incluir, true);
   assert.strictEqual(decision.motivo, 'incluida');
-  assert(decision.diagnostico.experto.reasons.some((reason) => reason.code === 'expediente_individual_match_provincial'));
+  assert(decision.diagnostico.ranking.reasons.some((reason) => reason.code === 'expediente_provincial_fuerte'));
 });
 
 test('permite expediente individual si el usuario tiene municipio explicito', () => {

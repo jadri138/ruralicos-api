@@ -13,13 +13,31 @@ function resumenUsado(alerta = {}) {
 }
 
 function tagsAlerta(alerta = {}) {
+  const decision = alerta.decision_digest || null;
+  const similitud = normalizarNumero(alerta.similitud);
+  const selectionScore = scoreSeleccion(alerta);
+
   return {
     provincias: Array.isArray(alerta.provincias) ? alerta.provincias : [],
     sectores: Array.isArray(alerta.sectores) ? alerta.sectores : [],
     subsectores: Array.isArray(alerta.subsectores) ? alerta.subsectores : [],
     tipos_alerta: Array.isArray(alerta.tipos_alerta) ? alerta.tipos_alerta : [],
     fuente: alerta.fuente || null,
-    decision_digest: alerta.decision_digest || null,
+    decision_digest: decision,
+    selection: decision ? {
+      action: decision.action || (decision.incluir ? 'include' : 'exclude'),
+      incluir: Boolean(decision.incluir),
+      motivo: decision.motivo || null,
+      riesgo: decision.riesgo || null,
+      score: selectionScore,
+      score_source: Number.isFinite(Number(decision.score)) ? 'selection_engine' : 'similarity',
+    } : null,
+    similitud,
+    calidad_mia: alerta.calidad_mia || null,
+    mia_profile_score: normalizarNumero(alerta.mia_profile_score),
+    mia_profile_reasons: Array.isArray(alerta.mia_profile_reasons) ? alerta.mia_profile_reasons : [],
+    mia_profile_excluded: Boolean(alerta.mia_profile_excluded),
+    motivo_seleccion_mia: alerta.motivo_seleccion_mia || null,
   };
 }
 
@@ -27,6 +45,42 @@ function motivoSeleccion(alerta = {}, origen = 'desconocido') {
   const motivo = String(alerta.motivo_seleccion_mia || '').trim();
   if (motivo) return `${origen}:${motivo}`.slice(0, 240);
   return origen;
+}
+
+function normalizarNumero(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function decisionDigest(alerta = {}) {
+  return alerta.decision_digest && typeof alerta.decision_digest === 'object'
+    ? alerta.decision_digest
+    : null;
+}
+
+function scoreDecision(alerta = {}) {
+  return normalizarNumero(decisionDigest(alerta)?.score);
+}
+
+function scoreSeleccion(alerta = {}) {
+  const decisionScore = scoreDecision(alerta);
+  if (decisionScore !== null) return decisionScore;
+  return normalizarNumero(alerta.similitud);
+}
+
+function limpiarRowsLegacy(rows = []) {
+  return rows.map((row) => {
+    const {
+      selection_score,
+      selection_action,
+      selection_reason,
+      selection_risk,
+      similarity_score,
+      selection_decision,
+      ...legacy
+    } = row;
+    return legacy;
+  });
 }
 
 function construirDigestItems({
@@ -44,10 +98,16 @@ function construirDigestItems({
       fecha,
       item_numero: index + 1,
       alerta_id: alerta.id,
-      score: Number.isFinite(Number(alerta.similitud)) ? Number(alerta.similitud) : null,
+      score: scoreSeleccion(alerta),
       motivo_seleccion: motivoSeleccion(alerta, origen),
       resumen_usado: resumenUsado(alerta),
       tags_json: tagsAlerta(alerta),
+      selection_score: scoreDecision(alerta),
+      selection_action: decisionDigest(alerta)?.action || (decisionDigest(alerta)?.incluir ? 'include' : null),
+      selection_reason: decisionDigest(alerta)?.motivo || null,
+      selection_risk: decisionDigest(alerta)?.riesgo || null,
+      similarity_score: normalizarNumero(alerta.similitud),
+      selection_decision: decisionDigest(alerta) || {},
     }, organizationId))
     .filter((row) => row.digest_id && row.user_id && row.alerta_id && row.item_numero > 0);
 }
@@ -64,6 +124,39 @@ async function registrarDigestItemsMIA(supabase, options = {}) {
     if (error) throw error;
     return { ok: true, available: true, inserted: rows.length };
   } catch (error) {
+    if (error?.code === '42703') {
+      try {
+        const { error: legacyError } = await supabase
+          .from('digest_items')
+          .upsert(limpiarRowsLegacy(rows), { onConflict: 'digest_id,item_numero' });
+
+        if (legacyError) throw legacyError;
+        return {
+          ok: true,
+          available: true,
+          inserted: rows.length,
+          warning: 'digest_items_audit_columns_missing',
+        };
+      } catch (legacyError) {
+        if (esTablaNoDisponible(legacyError)) {
+          return {
+            ok: true,
+            available: false,
+            inserted: 0,
+            reason: 'digest_items_no_disponible',
+          };
+        }
+
+        console.warn('[mia:digest_items] No se pudieron registrar digest_items legacy:', legacyError.message);
+        return {
+          ok: false,
+          available: false,
+          inserted: 0,
+          error: legacyError.message,
+        };
+      }
+    }
+
     if (esTablaNoDisponible(error)) {
       return {
         ok: true,
@@ -89,13 +182,30 @@ async function cargarDigestItemsMIA(supabase, digestId) {
   try {
     const { data, error } = await supabase
       .from('digest_items')
-      .select('item_numero, alerta_id, score, motivo_seleccion, resumen_usado, tags_json')
+      .select('item_numero, alerta_id, score, motivo_seleccion, resumen_usado, tags_json, selection_score, selection_action, selection_reason, selection_risk, similarity_score, selection_decision')
       .eq('digest_id', digestId)
       .order('item_numero', { ascending: true });
 
     if (error) throw error;
     return data || [];
   } catch (error) {
+    if (error?.code === '42703') {
+      try {
+        const { data, error: legacyError } = await supabase
+          .from('digest_items')
+          .select('item_numero, alerta_id, score, motivo_seleccion, resumen_usado, tags_json')
+          .eq('digest_id', digestId)
+          .order('item_numero', { ascending: true });
+
+        if (legacyError) throw legacyError;
+        return data || [];
+      } catch (legacyError) {
+        if (esTablaNoDisponible(legacyError)) return null;
+        console.warn('[mia:digest_items] No se pudieron cargar digest_items legacy:', legacyError.message);
+        return null;
+      }
+    }
+
     if (esTablaNoDisponible(error)) return null;
     console.warn('[mia:digest_items] No se pudieron cargar digest_items:', error.message);
     return null;

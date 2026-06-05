@@ -40,7 +40,7 @@ const REGLAS_FEATURES = [
   ['entidad:ayuntamiento', /\b(ayuntamiento|municipio|termino municipal)\b/],
   ['tramite:individual', /\b(expediente|solicitud de concesion|concesion de aguas?|aprovechamiento de aguas?|solicitud de autorizacion|autorizacion de vertido|autorizacion ambiental|autorizacion administrativa previa|termino municipal|adjudicacion directa|notificacion individual)\b/],
   ['tramite:nombramiento', /\b(nombramiento|cese|designacion|vocal|cargo)\b/],
-  ['tramite:licitacion', /\b(licitacion|contrato|adjudicacion|formalizacion)\b/],
+  ['tramite:licitacion', /\b(licitacion|contrato|contratos|adjudicacion de contrato|formalizacion de contrato|formalizacion de contratos|anuncio de formalizacion)\b/],
 ];
 
 function extraerFeaturesAlerta(alerta = {}) {

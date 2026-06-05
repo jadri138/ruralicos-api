@@ -22,7 +22,11 @@ const { llamarIA }                 = require('../utils/llamarIA');
 const { enviarDigestPro }          = require('../whatsapp');
 const { getPlan }                  = require('../config/planes');
 const { alertaCoincideConUsuario } = require('../utils/alertaMatcher');
-const { decidirAlertaParaDigest, filtrarAlertasParaDigest } = require('../utils/alertSelectionGate');
+const {
+  decidirAlertaParaDigest,
+  filtrarAlertasParaDigest,
+  seleccionarAlertasParaDigest,
+} = require('../utils/alertSelectionGate');
 const { getFechaMadridISO }        = require('../utils/fechaMadrid');
 const { leerPerfilIntereses, ordenarAlertasPorPerfil, clasificarPrioridadAlerta, pesoPrioridad } = require('../brain');
 const { similitudCoseno }          = require('../utils/embeddings');
@@ -1230,22 +1234,34 @@ module.exports = function digestRoutes(app, supabase) {
         const alertasOrdenadas = usandoMIA
           ? ordenarAlertasConPerfilOperativoMIA(seleccionMIA.alertas, perfilOperativoMIA, { excludeHard: false })
           : ordenarPorAprendizaje(alertasConPerfilMIA, aprendizaje);
+        const seleccionFinal = seleccionarAlertasParaDigest(alertasOrdenadas, userConPerfilMIA, {
+          qualityGate: DIGEST_QUALITY_GATE,
+          allowReview: DIGEST_INCLUDE_REVIEW,
+          minReviewQualityScore: DIGEST_REVIEW_MIN_QUALITY_SCORE,
+          allowIndividualWithoutMunicipio: DIGEST_INCLUDE_INDIVIDUAL_PROVINCIAL,
+          minItems: DIGEST_VECTOR_BACKFILL_MIN,
+          targetItems: Math.min(5, DIGEST_MAX_ALERTAS_USUARIO),
+          maxItems: DIGEST_MAX_ALERTAS_USUARIO,
+          origen: usandoMIA ? seleccionMIA.origen : 'perfil_tags_prioridad',
+          exclusionPreferencias: (item) => alertaExcluidaPorPreferenciasExtra(item, user.preferencias_extra),
+        });
+        const alertasFinales = seleccionFinal.alertas;
 
         // Sin alertas relevantes → silencio
-        if (alertasOrdenadas.length === 0) {
+        if (alertasFinales.length === 0) {
           sinAlertas++;
           console.log(`[digest] User ${user.id} (${plan.nombre}) → 0 alertas relevantes → sin digest`);
           continue;
         }
 
-        console.log(`[digest] User ${user.id} (${plan.nombre}) → ${alertasUsuario.length} alertas → generando...`);
+        console.log(`[digest] User ${user.id} (${plan.nombre}) → ${alertasFinales.length}/${alertasUsuario.length} alertas → generando...`);
 
         try {
           let mensajeRaw;
           try {
             mensajeRaw = await generarMensajeDigest({
               user: userConPerfilMIA,
-              alertas: alertasOrdenadas,
+              alertas: alertasFinales,
               fecha:   hoy,
               plan,
               aprendizaje,
@@ -1256,7 +1272,7 @@ module.exports = function digestRoutes(app, supabase) {
             console.warn(`[digest] Fallback local user ${user.id}:`, errGenerar.message);
             mensajeRaw = generarMensajeDigestFallback({
               user: userConPerfilMIA,
-              alertas: alertasOrdenadas,
+              alertas: alertasFinales,
               fecha: hoy,
               organizationContext,
             });
@@ -1272,10 +1288,10 @@ module.exports = function digestRoutes(app, supabase) {
 
           let mensaje = anadirInstruccionFeedback(
             aplicarTextoObligatorio(mensajeRaw, user.preferencias_extra),
-            alertasOrdenadas
+            alertasFinales
           );
 
-          const alertaIdsDigest = alertasOrdenadas.map((a) => a.id);
+          const alertaIdsDigest = alertasFinales.map((a) => a.id);
           let digestInsertado = null;
           let writeError = null;
           const regenerandoDigestExistente = Boolean(digestExistente && force && !digestExistente.enviado);
@@ -1336,7 +1352,7 @@ module.exports = function digestRoutes(app, supabase) {
               digestId: digestInsertado.id,
               userId: user.id,
               fecha: hoy,
-              alertas: alertasOrdenadas,
+              alertas: alertasFinales,
               origen: usandoMIA ? seleccionMIA.origen : 'perfil_tags_prioridad',
               organizationId,
             });
@@ -1354,7 +1370,7 @@ module.exports = function digestRoutes(app, supabase) {
               mensaje: mensaje.trim(),
               userId: user.id,
               digestId: digestInsertado.id,
-              alertas: alertasOrdenadas,
+              alertas: alertasFinales,
               organizationId,
             });
 

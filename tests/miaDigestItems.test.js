@@ -31,8 +31,10 @@ const rows = construirDigestItems({
       sectores: ['Agricultura'],
       tipos_alerta: ['ayudas_subvenciones'],
       fuente: 'BOA',
-      decision_digest: { incluir: true, motivo: 'incluida', riesgo: 'bajo' },
+      decision_digest: { incluir: true, action: 'include', motivo: 'incluida', riesgo: 'bajo', score: 91 },
       motivo_seleccion_mia: 'incluida:incluida:riesgo_bajo',
+      mia_profile_score: 2.5,
+      mia_profile_reasons: ['interest:ayudas_maquinaria:2.50'],
     },
   ],
 });
@@ -40,12 +42,36 @@ const rows = construirDigestItems({
 assert(rows.length === 1, 'Construye una fila por alerta del digest');
 assert(rows[0].item_numero === 1, 'Numera items desde 1');
 assert(rows[0].alerta_id === 8064, 'Conserva alerta_id');
-assert(rows[0].score === 0.82, 'Guarda score de similitud cuando existe');
+assert(rows[0].score === 91, 'Guarda score final del motor cuando existe');
+assert(rows[0].selection_score === 91, 'Guarda score de seleccion en columna dedicada');
+assert(rows[0].selection_action === 'include', 'Guarda accion de seleccion');
+assert(rows[0].selection_reason === 'incluida', 'Guarda motivo de seleccion');
+assert(rows[0].selection_risk === 'bajo', 'Guarda riesgo de seleccion');
+assert(rows[0].similarity_score === 0.82, 'Guarda similitud en columna dedicada');
+assert(rows[0].selection_decision.score === 91, 'Guarda decision completa en columna dedicada');
 assert(rows[0].motivo_seleccion === 'pgvector_rpc:incluida:incluida:riesgo_bajo', 'Guarda origen y motivo de seleccion auditado si existe');
 assert(rows[0].organization_id === 12, 'Propaga organization_id al item del digest');
 assert(rows[0].tags_json.fuente === 'BOA', 'Guarda tags de trazabilidad');
 assert(rows[0].tags_json.decision_digest.riesgo === 'bajo', 'Guarda decision de inclusion en tags_json');
+assert(rows[0].tags_json.selection.score === 91, 'Guarda auditoria normalizada de seleccion');
+assert(rows[0].tags_json.selection.score_source === 'selection_engine', 'Marca origen del score del motor');
+assert(rows[0].tags_json.similitud === 0.82, 'Conserva similitud vectorial separada del score');
+assert(rows[0].tags_json.mia_profile_score === 2.5, 'Guarda score de perfil MIA');
+assert(rows[0].tags_json.mia_profile_reasons[0] === 'interest:ayudas_maquinaria:2.50', 'Guarda razones de perfil MIA');
 assert(/tractores/i.test(rows[0].resumen_usado), 'Guarda resumen usado para MIA');
+
+const fallbackRows = construirDigestItems({
+  digestId: 11,
+  userId: 141,
+  fecha: '2026-05-22',
+  alertas: [{ id: 9001, titulo: 'Alerta sin decision explicita', similitud: 0.44 }],
+});
+
+assert(fallbackRows[0].score === 0.44, 'Usa similitud como fallback si no hay score de motor');
+assert(fallbackRows[0].selection_score === null, 'No inventa score de seleccion sin decision_digest');
+assert(fallbackRows[0].similarity_score === 0.44, 'Mantiene similitud cuando actua como fallback');
+assert(Object.keys(fallbackRows[0].selection_decision).length === 0, 'Guarda decision vacia si no existe decision_digest');
+assert(fallbackRows[0].tags_json.selection === null, 'No inventa decision si falta decision_digest');
 
 console.log(`\nResultados: ${passed} aprobados, ${failed} fallidos`);
 process.exit(failed > 0 ? 1 : 0);
