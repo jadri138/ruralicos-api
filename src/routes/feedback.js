@@ -1,6 +1,6 @@
 const { checkCronToken } = require('../utils/checkCronToken');
 const crypto = require('crypto');
-const { getFechaMadridISO } = require('../utils/fechaMadrid');
+const { getFechaMadridISO, getRangoDiaMadridUTC } = require('../utils/fechaMadrid');
 const { normalizePhone } = require('../utils/phoneNormalizer');
 const {
   aplicarFeedbackAlPerfil,
@@ -97,6 +97,32 @@ function comprobarWebhookToken(req) {
     reason: 'webhook_token_invalido',
     error: 'Webhook token invalido',
   };
+}
+
+function extraerFechaConversacionMIA(valor) {
+  const match = String(valor || '').match(/\d{4}-\d{2}-\d{2}/);
+  return match ? match[0] : '';
+}
+
+function fechaMadridConversacionMIA(conversacion = {}) {
+  const fechaContexto = extraerFechaConversacionMIA(conversacion.contexto_json?.fecha);
+  if (fechaContexto) return fechaContexto;
+
+  const abiertaAt = conversacion.abierta_at || conversacion.created_at || null;
+  if (!abiertaAt) return '';
+
+  const fecha = new Date(abiertaAt);
+  if (Number.isNaN(fecha.getTime())) return '';
+  return getFechaMadridISO(fecha);
+}
+
+function esConversacionMIADelDia(conversacion = {}, fechaHoy = getFechaMadridISO()) {
+  return fechaMadridConversacionMIA(conversacion) === fechaHoy;
+}
+
+function getExpiracionFinDiaMadridISO(fecha = getFechaMadridISO()) {
+  const fechaISO = extraerFechaConversacionMIA(fecha) || getFechaMadridISO();
+  return getRangoDiaMadridUTC(fechaISO).fin;
 }
 
 function getClickBaseUrl() {
@@ -201,7 +227,7 @@ async function abrirConversacionFeedbackPrueba(supabase, {
         origen: 'digest_prueba',
       },
       digest_id: digestId,
-      expira_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      expira_at: getExpiracionFinDiaMadridISO(fecha),
     }, organizationId));
 
   if (error) {
@@ -241,23 +267,42 @@ async function sumarTagPerfil(supabase, userId, tema, delta, organizationId = nu
   return true;
 }
 
-async function buscarConversacionActiva(supabase, userId) {
+async function buscarConversacionActiva(supabase, userId, options = {}) {
+  const fechaHoy = options.fechaHoy || getFechaMadridISO();
   const { data, error } = await supabase
     .from('user_conversations')
-    .select('id, user_id, estado, tipo, contexto_json, digest_id, abierta_at, expira_at')
+    .select('id, user_id, estado, tipo, contexto_json, digest_id, abierta_at, created_at, expira_at')
     .eq('user_id', userId)
     .eq('estado', 'activa')
     .gt('expira_at', new Date().toISOString())
     .order('abierta_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .limit(10);
 
   if (error) throw error;
-  return data || null;
+  const conversaciones = Array.isArray(data) ? data : [];
+  const obsoletas = conversaciones.filter((item) => !esConversacionMIADelDia(item, fechaHoy));
+  const idsObsoletas = obsoletas.map((item) => item.id).filter(Boolean);
+
+  if (idsObsoletas.length > 0) {
+    const { error: cerrarError } = await supabase
+      .from('user_conversations')
+      .update({
+        estado: 'expirada',
+        cerrada_at: new Date().toISOString(),
+      })
+      .in('id', idsObsoletas);
+
+    if (cerrarError) {
+      console.warn('[mia:conversation] No se pudieron expirar conversaciones de dias anteriores:', cerrarError.message);
+    }
+  }
+
+  return conversaciones.find((item) => esConversacionMIADelDia(item, fechaHoy)) || null;
 }
 
-async function cargarDigestYAlertas(supabase, userId, conversacionActiva, organizationId = null) {
+async function cargarDigestYAlertas(supabase, userId, conversacionActiva, organizationId = null, options = {}) {
   let digest = null;
+  const fechaHoy = options.fechaHoy || getFechaMadridISO();
 
   const digestId = conversacionActiva?.contexto_json?.digest_id || conversacionActiva?.digest_id;
   if (digestId) {
@@ -272,13 +317,12 @@ async function cargarDigestYAlertas(supabase, userId, conversacionActiva, organi
   }
 
   if (!digest) {
-    const desde = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
     const { data, error } = await supabase
       .from('digests')
       .select('id, user_id, fecha, alerta_ids, organization_id, enviado_at, created_at')
       .eq('user_id', userId)
+      .eq('fecha', fechaHoy)
       .eq('enviado', true)
-      .or(`enviado_at.gte.${desde},created_at.gte.${desde}`)
       .order('enviado_at', { ascending: false, nullsFirst: false })
       .order('created_at', { ascending: false })
       .limit(1)
@@ -352,7 +396,7 @@ async function buscarUsuarioPorTelefonoEntrante(supabase, telefono, select) {
     .find(Boolean) || users[0];
 }
 
-module.exports = function feedbackRoutes(app, supabase) {
+function feedbackRoutes(app, supabase) {
   async function guardarWebhookEvent(req, result = null, error = null) {
     return guardarWebhookEventSeguro(supabase, req, result, error);
   }
@@ -1200,4 +1244,13 @@ module.exports = function feedbackRoutes(app, supabase) {
       return res.status(500).json({ error: err.message });
     }
   });
+}
+
+module.exports = feedbackRoutes;
+module.exports.__testing = {
+  buscarConversacionActiva,
+  cargarDigestYAlertas,
+  esConversacionMIADelDia,
+  fechaMadridConversacionMIA,
+  getExpiracionFinDiaMadridISO,
 };

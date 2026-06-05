@@ -27,7 +27,7 @@ const {
   filtrarAlertasParaDigest,
   seleccionarAlertasParaDigest,
 } = require('../utils/alertSelectionGate');
-const { getFechaMadridISO }        = require('../utils/fechaMadrid');
+const { getFechaMadridISO, getRangoDiaMadridUTC } = require('../utils/fechaMadrid');
 const { leerPerfilIntereses, ordenarAlertasPorPerfil, clasificarPrioridadAlerta, pesoPrioridad } = require('../brain');
 const { similitudCoseno }          = require('../utils/embeddings');
 const { registrarDigestItemsMIA }  = require('../mia/digestItems');
@@ -796,7 +796,7 @@ async function abrirConversacionFeedbackDigest(supabase, {
         fecha,
       },
       digest_id: digestId,
-      expira_at: new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString(),
+      expira_at: getRangoDiaMadridUTC(fecha || getFechaMadridISO(now)).fin,
     }, organizationId));
 
   if (insertarError) throw insertarError;
