@@ -71,7 +71,7 @@ function parecePregunta(texto) {
 
 function pareceServicioRuralicos(texto) {
   const value = normalizar(texto);
-  return /\b(ruralicos|alertas?|avisos?|whatsapp|mensaje|mensajes|telefono|plan|suscripcion|baja|alta|pago|factura|cobro|cuenta|usuario|agente|humano|soporte|servicio|no funciona|no me llega|no llegan|dejar de recibir|quien sois|que sois)\b/.test(value);
+  return /\b(ruralicos|alertas?|avisos?|whatsapp|mensaje|mensajes|telefono|plan|suscripcion|baja|alta|pago|factura|cobro|cuenta|usuario|agente|humano|soporte|servicio|no funciona|no me llega|no llegan|no recibo|no he recibido|no han mandado|no habeis mandado|no me habeis mandado|llega tarde|llegan tarde|siempre llega tarde|dejar de recibir|quien sois|que sois)\b/.test(value);
 }
 
 function pareceDominioRural(texto) {
