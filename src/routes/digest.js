@@ -45,6 +45,15 @@ const {
 const PREPARAR_DIGEST_BATCH_SIZE = Number(process.env.PREPARAR_DIGEST_BATCH_SIZE || 5);
 const DIGEST_LOCAL_FALLBACK = (process.env.DIGEST_LOCAL_FALLBACK || 'true').toLowerCase() !== 'false';
 const DIGEST_QUALITY_GATE = (process.env.DIGEST_QUALITY_GATE || 'true').toLowerCase() !== 'false';
+const DIGEST_INCLUDE_REVIEW = (process.env.DIGEST_INCLUDE_REVIEW || 'true').toLowerCase() !== 'false';
+const DIGEST_INCLUDE_INDIVIDUAL_PROVINCIAL =
+  (process.env.DIGEST_INCLUDE_INDIVIDUAL_PROVINCIAL || 'true').toLowerCase() !== 'false';
+const DIGEST_REVIEW_MIN_QUALITY_SCORE = Number(process.env.DIGEST_REVIEW_MIN_QUALITY_SCORE || 78);
+const DIGEST_MAX_ALERTAS_USUARIO = Math.max(1, Math.min(10, Number(process.env.DIGEST_MAX_ALERTAS_USUARIO || 7)));
+const DIGEST_VECTOR_BACKFILL_MIN = Math.max(
+  1,
+  Math.min(DIGEST_MAX_ALERTAS_USUARIO, Number(process.env.DIGEST_VECTOR_BACKFILL_MIN || 3))
+);
 
 // ─────────────────────────────────────────────
 // Helper: normaliza strings para comparar
@@ -623,6 +632,30 @@ function ordenarPorPerfilVectorial(alertas, perfilEmbeddingRaw) {
   });
 }
 
+function obtenerIdAlerta(alerta = {}) {
+  const id = Number(alerta.id);
+  return Number.isFinite(id) ? id : null;
+}
+
+function completarSeleccionConFallback(seleccionadas = [], alertasFallback = [], usados = new Set()) {
+  const objetivo = Math.min(
+    DIGEST_MAX_ALERTAS_USUARIO,
+    Math.max(DIGEST_VECTOR_BACKFILL_MIN, seleccionadas.length)
+  );
+  let anadidas = 0;
+
+  for (const alerta of alertasFallback || []) {
+    if (seleccionadas.length >= objetivo) break;
+    const alertaId = obtenerIdAlerta(alerta);
+    if (!alertaId || usados.has(alertaId)) continue;
+    seleccionadas.push(alerta);
+    usados.add(alertaId);
+    anadidas++;
+  }
+
+  return anadidas;
+}
+
 function completarCandidatoMIA(candidato = {}, alertasBasePorId = new Map()) {
   const base = alertasBasePorId.get(String(candidato.id));
   if (!base) return candidato;
@@ -665,7 +698,7 @@ async function seleccionarAlertasConMIA(supabase, {
   if (error) {
     console.warn(`[digest:mia] RPC buscar_alertas_similares fallo para user ${user.id}:`, error.message);
     const fallbackOrdenado = ordenarPorPerfilVectorial(alertasFallback, user.perfil_embedding);
-    return fallbackOrdenado ? { alertas: fallbackOrdenado.slice(0, 7), exploracion: null, origen: 'fallback_memoria' } : null;
+    return fallbackOrdenado ? { alertas: fallbackOrdenado.slice(0, DIGEST_MAX_ALERTAS_USUARIO), exploracion: null, origen: 'fallback_memoria' } : null;
   }
 
   const alertasBasePorId = new Map((alertasFallback || []).map((alerta) => [String(alerta.id), alerta]));
@@ -685,7 +718,7 @@ async function seleccionarAlertasConMIA(supabase, {
 
   if (candidatosFiltrados.length === 0) {
     const fallbackOrdenado = ordenarPorPerfilVectorial(alertasFallback, user.perfil_embedding);
-    return fallbackOrdenado ? { alertas: fallbackOrdenado.slice(0, 7), exploracion: null, origen: 'fallback_memoria' } : null;
+    return fallbackOrdenado ? { alertas: fallbackOrdenado.slice(0, DIGEST_MAX_ALERTAS_USUARIO), exploracion: null, origen: 'fallback_memoria' } : null;
   }
 
   const zonaConfort = candidatosFiltrados.filter((a) => Number(a.similitud) >= 0.65);
@@ -693,28 +726,36 @@ async function seleccionarAlertasConMIA(supabase, {
   const usados = new Set();
   const seleccionadas = [];
 
-  for (const alerta of zonaConfort.slice(0, 5)) {
+  for (const alerta of zonaConfort.slice(0, Math.min(5, DIGEST_MAX_ALERTAS_USUARIO))) {
     seleccionadas.push(alerta);
-    usados.add(Number(alerta.id));
+    const alertaId = obtenerIdAlerta(alerta);
+    if (alertaId) usados.add(alertaId);
   }
 
-  const exploracion = zonaExpansion.find((a) => !usados.has(Number(a.id))) || null;
-  if (exploracion) {
+  const exploracion = zonaExpansion.find((alerta) => {
+    const alertaId = obtenerIdAlerta(alerta);
+    return alertaId && !usados.has(alertaId);
+  }) || null;
+  if (exploracion && seleccionadas.length < DIGEST_MAX_ALERTAS_USUARIO) {
     seleccionadas.push(exploracion);
-    usados.add(Number(exploracion.id));
+    const alertaId = obtenerIdAlerta(exploracion);
+    if (alertaId) usados.add(alertaId);
   }
 
   for (const alerta of candidatosFiltrados) {
-    if (seleccionadas.length >= 7) break;
-    if (usados.has(Number(alerta.id))) continue;
+    if (seleccionadas.length >= DIGEST_MAX_ALERTAS_USUARIO) break;
+    const alertaId = obtenerIdAlerta(alerta);
+    if (!alertaId || usados.has(alertaId)) continue;
     seleccionadas.push(alerta);
-    usados.add(Number(alerta.id));
+    usados.add(alertaId);
   }
+
+  const backfill = completarSeleccionConFallback(seleccionadas, alertasFallback, usados);
 
   return {
     alertas: seleccionadas,
     exploracion,
-    origen: 'pgvector_rpc',
+    origen: backfill > 0 ? 'pgvector_rpc_backfill' : 'pgvector_rpc',
   };
 }
 
@@ -964,6 +1005,9 @@ module.exports = function digestRoutes(app, supabase) {
       const detalle = (alertas || []).map((alerta) => {
         const decision = decidirAlertaParaDigest(alerta, user, {
           qualityGate: DIGEST_QUALITY_GATE,
+          allowReview: DIGEST_INCLUDE_REVIEW,
+          minReviewQualityScore: DIGEST_REVIEW_MIN_QUALITY_SCORE,
+          allowIndividualWithoutMunicipio: DIGEST_INCLUDE_INDIVIDUAL_PROVINCIAL,
           exclusionPreferencias: (item) => alertaExcluidaPorPreferenciasExtra(item, user.preferencias_extra),
         });
 
@@ -1158,10 +1202,16 @@ module.exports = function digestRoutes(app, supabase) {
         const alertasVisibles = filtrarAlertasPorOrganization(alertas, organizationId);
         const decisionFn = (alerta) => decidirAlertaParaDigest(alerta, userConOrganization, {
           qualityGate: DIGEST_QUALITY_GATE,
+          allowReview: DIGEST_INCLUDE_REVIEW,
+          minReviewQualityScore: DIGEST_REVIEW_MIN_QUALITY_SCORE,
+          allowIndividualWithoutMunicipio: DIGEST_INCLUDE_INDIVIDUAL_PROVINCIAL,
           exclusionPreferencias: (item) => alertaExcluidaPorPreferenciasExtra(item, user.preferencias_extra),
         });
         const seleccionBase = filtrarAlertasParaDigest(alertasVisibles, userConOrganization, {
           qualityGate: DIGEST_QUALITY_GATE,
+          allowReview: DIGEST_INCLUDE_REVIEW,
+          minReviewQualityScore: DIGEST_REVIEW_MIN_QUALITY_SCORE,
+          allowIndividualWithoutMunicipio: DIGEST_INCLUDE_INDIVIDUAL_PROVINCIAL,
           exclusionPreferencias: (item) => alertaExcluidaPorPreferenciasExtra(item, user.preferencias_extra),
         });
         const alertasUsuario = seleccionBase.alertas;

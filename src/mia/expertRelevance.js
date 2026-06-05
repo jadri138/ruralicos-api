@@ -120,6 +120,7 @@ function evaluarRelevanciaExperta(alerta = {}, user = {}, options = {}) {
     qualityGate = true,
     minQualityScore = 65,
     minExpertScore = 68,
+    allowIndividualWithoutMunicipio = false,
   } = options;
 
   const base = diagnosticarAlertaUsuario(alerta, user);
@@ -177,8 +178,26 @@ function evaluarRelevanciaExperta(alerta = {}, user = {}, options = {}) {
   if (signals.es_agua && !signals.es_individual) sumar(state, 5, 'agua_general', 'Agua/riego con posible impacto amplio.');
 
   if (signals.es_individual) {
+    const interesProvincialFuerte = allowIndividualWithoutMunicipio &&
+      !signals.es_licitacion &&
+      !signals.es_nombramiento &&
+      !signals.generico &&
+      (
+        signals.es_agua ||
+        signals.es_medio_ambiente ||
+        signals.tiene_alegaciones ||
+        signals.tiene_solicitud ||
+        signals.tiene_plazo
+      ) &&
+      (
+        (tiposUser.length && tiposAlerta.length && intersecta(tiposUser, tiposAlerta)) ||
+        (subsectoresUser.length && subsectoresAlerta.length && intersecta(subsectoresUser, subsectoresAlerta))
+      );
+
     if (tieneMunicipioDeclarado(alerta, user)) {
       sumar(state, 8, 'expediente_local_explicito', 'Expediente individual en municipio declarado por el usuario.');
+    } else if (interesProvincialFuerte) {
+      sumar(state, -6, 'expediente_individual_match_provincial', 'Expediente individual sin municipio declarado, pero con coincidencia fuerte por provincia, tipo y subsector.');
     } else {
       bloquear(state, 'expediente_individual_sin_municipio', 'Expediente individual sin municipio declarado por el usuario.', 55);
     }

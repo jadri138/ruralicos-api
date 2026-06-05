@@ -2,6 +2,7 @@ const assert = require('assert');
 const {
   decidirAlertaParaDigest,
   filtrarAlertasParaDigest,
+  puedeIncluirRevisionSegura,
 } = require('../src/utils/alertSelectionGate');
 
 let passed = 0;
@@ -108,6 +109,27 @@ test('bloquea expediente individual aunque coincida por provincia si no hay muni
   assert.strictEqual(decision.motivo, 'expediente_individual_sin_municipio');
 });
 
+test('permite expediente individual provincial cuando el digest activa coincidencia fuerte', () => {
+  const decision = decidirAlertaParaDigest({
+    ...alertaBuena,
+    id: 7,
+    fuente: 'BOE',
+    titulo: 'Anuncio de informacion publica de concesion de aguas para riego en Villarquemado (Teruel)',
+    resumen_final: 'Solicitud de concesion de aguas para aprovechamiento concreto en termino municipal de Villarquemado. Plazo de alegaciones abierto.',
+    contenido: 'Comisaria de aguas. Informacion publica de una solicitud de concesion en termino municipal de Villarquemado para riego agricola.',
+    provincias: ['Teruel'],
+    sectores: ['agricultura'],
+    subsectores: ['agua'],
+    tipos_alerta: ['agua_infraestructuras'],
+  }, userJose, {
+    allowIndividualWithoutMunicipio: true,
+  });
+
+  assert.strictEqual(decision.incluir, true);
+  assert.strictEqual(decision.motivo, 'incluida');
+  assert(decision.diagnostico.experto.reasons.some((reason) => reason.code === 'expediente_individual_match_provincial'));
+});
+
 test('permite expediente individual si el usuario tiene municipio explicito', () => {
   const decision = decidirAlertaParaDigest({
     ...alertaBuena,
@@ -129,6 +151,39 @@ test('permite expediente individual si el usuario tiene municipio explicito', ()
   });
 
   assert.strictEqual(decision.incluir, true);
+});
+
+test('permite revision segura solo con calidad alta y sin senales de bajo valor', () => {
+  const revisionAgua = {
+    veredicto: 'revisar',
+    blocks: [],
+    features: ['concepto:agua_riego'],
+    signals: {
+      es_agua: true,
+      es_individual: false,
+      es_licitacion: false,
+      generico: false,
+    },
+  };
+
+  assert.strictEqual(
+    puedeIncluirRevisionSegura(revisionAgua, { score: 82, critical: false }, { allowReview: true }),
+    true
+  );
+  assert.strictEqual(
+    puedeIncluirRevisionSegura({
+      ...revisionAgua,
+      features: ['tramite:licitacion', 'concepto:agua_riego'],
+    }, { score: 92, critical: false }, { allowReview: true }),
+    false
+  );
+  assert.strictEqual(
+    puedeIncluirRevisionSegura({
+      ...revisionAgua,
+      signals: { ...revisionAgua.signals, es_individual: true },
+    }, { score: 92, critical: false }, { allowReview: true }),
+    false
+  );
 });
 
 console.log(`\nResultados alertSelectionGate: ${passed} aprobados, ${failed} fallidos`);

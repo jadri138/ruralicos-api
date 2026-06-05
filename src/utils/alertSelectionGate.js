@@ -67,7 +67,36 @@ function tieneInteresLocalExplicito(alerta = {}, user = {}) {
   return municipios.some((municipio) => texto.includes(municipio));
 }
 
-function bloqueoCalidadDigest({ calidad, alerta, user, qualityGate, minQualityScore }) {
+function listaNormalizada(value) {
+  return Array.isArray(value) ? value.map(normalizarTextoLocal).filter(Boolean) : [];
+}
+
+function tiposActivosUsuarioDigest(user = {}) {
+  return Object.entries(user.preferences?.tipos_alerta || {})
+    .filter(([, active]) => active === true)
+    .map(([tipo]) => normalizarTextoLocal(tipo));
+}
+
+function tieneInteresProvincialFuerteDigest(alerta = {}, user = {}) {
+  const texto = textoAlerta(alerta);
+  const bajoValor = /\b(licitacion|contrato|adjudicacion|formalizacion|nombramiento|cese|notificacion al interesado|procedimiento administrativo sancionador)\b/.test(texto);
+  if (bajoValor) return false;
+
+  const accionable = /\b(solicitud|plazo|alegaciones|informacion publica|concesion de aguas|riego|regadio|comunidad de regantes|subsanacion|requerimiento)\b/.test(texto);
+  if (!accionable) return false;
+
+  const tiposUser = tiposActivosUsuarioDigest(user);
+  const tiposAlerta = listaNormalizada(alerta.tipos_alerta);
+  const subsectoresUser = listaNormalizada(user.preferences?.subsectores);
+  const subsectoresAlerta = listaNormalizada(alerta.subsectores);
+
+  return (
+    (tiposUser.length > 0 && tiposAlerta.length > 0 && tiposUser.some((tipo) => tiposAlerta.includes(tipo))) ||
+    (subsectoresUser.length > 0 && subsectoresAlerta.length > 0 && subsectoresUser.some((subsector) => subsectoresAlerta.includes(subsector)))
+  );
+}
+
+function bloqueoCalidadDigest({ calidad, alerta, user, qualityGate, minQualityScore, allowIndividualWithoutMunicipio = false }) {
   if (!qualityGate) return null;
 
   const flags = Array.isArray(calidad?.flags) ? calidad.flags : [];
@@ -75,11 +104,41 @@ function bloqueoCalidadDigest({ calidad, alerta, user, qualityGate, minQualitySc
   if (Number(calidad?.score || 0) < minQualityScore) return 'calidad_insuficiente';
   if (flags.includes('ia_no_lista') || flags.includes('ia_atascada')) return 'calidad_insuficiente';
 
-  if (flags.includes('expediente_individual') && !tieneInteresLocalExplicito(alerta, user)) {
+  if (
+    flags.includes('expediente_individual') &&
+    !tieneInteresLocalExplicito(alerta, user) &&
+    !(allowIndividualWithoutMunicipio && tieneInteresProvincialFuerteDigest(alerta, user))
+  ) {
     return 'expediente_individual_sin_municipio';
   }
 
   return null;
+}
+
+function puedeIncluirRevisionSegura(experto = {}, calidad = {}, { allowReview = false, minReviewQualityScore = 78 } = {}) {
+  if (!allowReview) return false;
+  if (experto.veredicto !== 'revisar') return false;
+  if (Array.isArray(experto.blocks) && experto.blocks.length > 0) return false;
+  if (calidad?.critical) return false;
+  if (Number(calidad?.score || 0) < minReviewQualityScore) return false;
+
+  const features = Array.isArray(experto.features) ? experto.features : [];
+  const signals = experto.signals || {};
+  const bajoValor = features.includes('tramite:licitacion') ||
+    features.includes('tramite:nombramiento') ||
+    signals.es_individual ||
+    signals.generico;
+
+  if (bajoValor) return false;
+
+  return Boolean(
+    signals.tiene_solicitud ||
+    signals.tiene_plazo ||
+    signals.es_pac ||
+    signals.es_agua ||
+    signals.es_sanidad_animal ||
+    signals.es_medio_ambiente
+  );
 }
 
 function decidirAlertaParaDigest(alerta, user, options = {}) {
@@ -87,6 +146,9 @@ function decidirAlertaParaDigest(alerta, user, options = {}) {
     qualityGate = true,
     minQualityScore = 65,
     minExpertScore = 68,
+    allowReview = false,
+    minReviewQualityScore = 78,
+    allowIndividualWithoutMunicipio = false,
     exclusionPreferencias = null,
   } = options;
 
@@ -96,16 +158,20 @@ function decidirAlertaParaDigest(alerta, user, options = {}) {
     qualityGate,
     minQualityScore,
     minExpertScore,
+    allowIndividualWithoutMunicipio,
   });
   const bloqueoCalidad = base.ok
-    ? bloqueoCalidadDigest({ calidad, alerta, user, qualityGate, minQualityScore })
+    ? bloqueoCalidadDigest({ calidad, alerta, user, qualityGate, minQualityScore, allowIndividualWithoutMunicipio })
     : null;
+  const incluirRevisionSegura = base.ok && !bloqueoCalidad
+    ? puedeIncluirRevisionSegura(experto, calidad, { allowReview, minReviewQualityScore })
+    : false;
   const bloqueoExperto = base.ok && !bloqueoCalidad
     ? (
       experto.blocks?.[0]?.code ||
       (experto.veredicto === 'bloquear'
         ? 'relevancia_experta_baja'
-        : experto.veredicto === 'revisar'
+        : experto.veredicto === 'revisar' && !incluirRevisionSegura
           ? 'relevancia_experta_para_revisar'
           : null)
     )
@@ -113,9 +179,15 @@ function decidirAlertaParaDigest(alerta, user, options = {}) {
   const exclusion = base.ok && typeof exclusionPreferencias === 'function'
     ? exclusionPreferencias(alerta)
     : null;
-  const incluir = Boolean(base.ok && !exclusion && !bloqueoCalidad && !bloqueoExperto && experto.veredicto === 'incluir');
+  const incluir = Boolean(
+    base.ok &&
+    !exclusion &&
+    !bloqueoCalidad &&
+    !bloqueoExperto &&
+    (experto.veredicto === 'incluir' || incluirRevisionSegura)
+  );
   const motivo = incluir
-    ? 'incluida'
+    ? (incluirRevisionSegura ? 'incluida_revision' : 'incluida')
     : (bloqueoCalidad || bloqueoExperto || exclusion?.motivo || base.motivo || 'no_incluir');
 
   return {
@@ -183,4 +255,5 @@ module.exports = {
   decidirAlertaParaDigest,
   filtrarAlertasParaDigest,
   anotarDecisionAlerta,
+  puedeIncluirRevisionSegura,
 };

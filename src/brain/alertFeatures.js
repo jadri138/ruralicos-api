@@ -38,7 +38,7 @@ const REGLAS_FEATURES = [
   ['entidad:cooperativa', /\b(cooperativa|sat|sociedad agraria de transformacion)\b/],
   ['entidad:comunidad_regantes', /\b(comunidad de regantes|junta central de usuarios|confederacion hidrografica)\b/],
   ['entidad:ayuntamiento', /\b(ayuntamiento|municipio|termino municipal)\b/],
-  ['tramite:individual', /\b(titular|expediente|concesion|autorizacion|adjudicacion directa)\b/],
+  ['tramite:individual', /\b(expediente|solicitud de concesion|concesion de aguas?|aprovechamiento de aguas?|solicitud de autorizacion|autorizacion de vertido|autorizacion ambiental|autorizacion administrativa previa|termino municipal|adjudicacion directa|notificacion individual)\b/],
   ['tramite:nombramiento', /\b(nombramiento|cese|designacion|vocal|cargo)\b/],
   ['tramite:licitacion', /\b(licitacion|contrato|adjudicacion|formalizacion)\b/],
 ];

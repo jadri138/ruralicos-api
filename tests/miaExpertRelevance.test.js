@@ -1,5 +1,6 @@
 const assert = require('assert');
 const { evaluarRelevanciaExperta } = require('../src/mia/expertRelevance');
+const { extraerFeaturesAlerta } = require('../src/brain/alertFeatures');
 
 let passed = 0;
 let failed = 0;
@@ -69,6 +70,23 @@ test('bloquea expediente individual sin municipio declarado aunque coincida prov
 
   assert.strictEqual(result.veredicto, 'bloquear');
   assert(result.blocks.some((block) => block.code === 'expediente_individual_sin_municipio'));
+});
+
+test('no trata una relacion de titulares como expediente individual por defecto', () => {
+  const alertaTitulares = {
+    ...baseAlert,
+    id: 21,
+    titulo: 'Relacion de titulares con requerimiento de subsanacion de ayudas PAC en Cadiz',
+    resumen_final: 'FICHA_IA\nTIPO: ayudas_subvenciones\nPRIORIDAD: media\nRESUMEN_DIGEST: Se publica una relacion de titulares con requerimiento de subsanacion de ayudas PAC en Cadiz, con plazo para aportar documentacion.\nHECHO: requerimiento de subsanacion de ayudas PAC\nPLAZO: 10 dias habiles\nACCION: aportar documentacion',
+    contenido: 'Relacion de titulares de solicitudes de ayudas PAC con requerimiento de subsanacion y plazo para aportar documentacion.',
+    tipos_alerta: ['ayudas_subvenciones'],
+  };
+
+  const features = extraerFeaturesAlerta(alertaTitulares);
+  const result = evaluarRelevanciaExperta(alertaTitulares, user);
+  assert(!features.includes('tramite:individual'));
+  assert(!result.blocks.some((block) => block.code === 'expediente_individual_sin_municipio'));
+  assert.strictEqual(result.veredicto, 'incluir');
 });
 
 test('permite expediente individual si coincide municipio declarado', () => {
