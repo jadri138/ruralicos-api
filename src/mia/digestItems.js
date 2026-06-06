@@ -43,7 +43,10 @@ function tagsAlerta(alerta = {}) {
 
 function motivoSeleccion(alerta = {}, origen = 'desconocido') {
   const motivo = String(alerta.motivo_seleccion_mia || '').trim();
-  if (motivo) return `${origen}:${motivo}`.slice(0, 240);
+  if (motivo) {
+    if (motivo === origen || motivo.startsWith(`${origen}:`)) return motivo.slice(0, 240);
+    return `${origen}:${motivo}`.slice(0, 240);
+  }
   return origen;
 }
 

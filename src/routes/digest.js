@@ -22,6 +22,7 @@ const { llamarIA }                 = require('../utils/llamarIA');
 const { enviarDigestPro }          = require('../whatsapp');
 const { getPlan }                  = require('../config/planes');
 const { alertaCoincideConUsuario } = require('../utils/alertaMatcher');
+const { fusionarAlertasUnicas }     = require('../utils/alertCandidateMerge');
 const {
   decidirAlertaParaDigest,
   filtrarAlertasParaDigest,
@@ -1231,9 +1232,12 @@ module.exports = function digestRoutes(app, supabase) {
           decisionFn,
         });
         const usandoMIA = Boolean(seleccionMIA?.alertas?.length);
+        const candidatasFinales = usandoMIA
+          ? fusionarAlertasUnicas(seleccionMIA.alertas, alertasConPerfilMIA)
+          : alertasConPerfilMIA;
         const alertasOrdenadas = usandoMIA
-          ? ordenarAlertasConPerfilOperativoMIA(seleccionMIA.alertas, perfilOperativoMIA, { excludeHard: false })
-          : ordenarPorAprendizaje(alertasConPerfilMIA, aprendizaje);
+          ? ordenarAlertasConPerfilOperativoMIA(candidatasFinales, perfilOperativoMIA, { excludeHard: false })
+          : ordenarPorAprendizaje(candidatasFinales, aprendizaje);
         const seleccionFinal = seleccionarAlertasParaDigest(alertasOrdenadas, userConPerfilMIA, {
           qualityGate: DIGEST_QUALITY_GATE,
           allowReview: DIGEST_INCLUDE_REVIEW,

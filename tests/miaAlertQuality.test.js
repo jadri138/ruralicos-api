@@ -157,6 +157,16 @@ const genericPortalBoilerplate = evaluarCalidadAlerta({
 
 assert(genericPortalBoilerplate.flags.includes('resumen_boilerplate_portal'), 'Detecta boilerplate generico de sedes y boletines provinciales');
 
+const failedDispositionPortal = evaluarCalidadAlerta({
+  ...goodAlert,
+  id: 12,
+  fuente: 'BOPA',
+  resumen_final: 'FICHA_IA\nHECHO: Consultar una disposicion No se ha podido obener la disposicion solicitada. Intentelo mas tarde o vuelva a realizar la busqueda\nRESUMEN_DIGEST: El boletin publica: Consultar una disposicion No se ha podido obener la disposicion solicitada.',
+  contenido: 'Consultar una disposicion No se ha podido obener la disposicion solicitada. Intentelo mas tarde o vuelva a realizar la busqueda',
+}, { now });
+assert(failedDispositionPortal.flags.includes('resumen_boilerplate_portal'), 'Detecta disposicion no obtenida como contenido no apto');
+assert(failedDispositionPortal.critical === true, 'Bloquea disposicion no obtenida para digest');
+
 const alertSummary = resumirCalidadAlertas([goodAlert, rawBadAlert], { now });
 assert(alertSummary.metrics.total_alertas === 2, 'Resume total de alertas');
 assert(alertSummary.metrics.ready_for_mia === 1, 'Cuenta alertas listas para MIA');

@@ -349,6 +349,13 @@ function detectarBecaInvestigacionPersonal(alerta = {}) {
 function detectarBoilerplatePortal(texto) {
   const text = normalizarTextoCalidad(texto);
   if (!text) return false;
+  const erroresDocumento = [
+    'no se ha podido obener la disposicion solicitada',
+    'no se ha podido obtener la disposicion solicitada',
+    'no se ha podido obtener el documento solicitado',
+    'intentelo mas tarde o vuelva a realizar la busqueda',
+  ];
+  if (erroresDocumento.some((marca) => text.includes(marca))) return true;
   const marcas = [
     'cargando',
     'datos del documento',
