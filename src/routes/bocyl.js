@@ -9,6 +9,7 @@
 
 const { checkCronToken }                          = require('../utils/checkCronToken');
 const { getFechaHoyYYYYMMDD, obtenerDocumentosBocylPorFecha } = require('../boletines/BOCYL/bocylScraper');
+const { insertarAlertasBoletin } = require('./boletines/shared/insertarAlertasBoletin');
 
 // ─────────────────────────────────────────────
 // Filtro de relevancia rural
@@ -45,9 +46,6 @@ module.exports = function bocylRoutes(app, supabase) {
   app.get('/scrape-bocyl-oficial', async (req, res) => {
     if (!checkCronToken(req, res)) return;
 
-    let nuevas        = 0;
-    let duplicadas    = 0;
-    let errores       = 0;
     let saltadasFiltro = 0;
 
     try {
@@ -63,6 +61,7 @@ module.exports = function bocylRoutes(app, supabase) {
         });
       }
 
+      const docsInsertables = [];
       for (const doc of docs) {
         // Filtro rural: texto + título + sección + organismo
         const bolsa = [doc.texto.slice(0, 3500), doc.titulo, doc.seccion, doc.organismo].join(' ');
@@ -71,31 +70,14 @@ module.exports = function bocylRoutes(app, supabase) {
           continue;
         }
 
-        // Duplicado por URL
-        const { data: existe, error: errDup } = await supabase
-          .from('alertas').select('id').eq('url', doc.url).limit(1);
-        if (errDup) { errores++; continue; }
-        if (existe && existe.length > 0) { duplicadas++; continue; }
-
-        // Insertar
-        const { error: errInsert } = await supabase.from('alertas').insert([{
-          titulo:    doc.titulo,
-          resumen:   'Procesando con IA...',
-          estado_ia: 'pendiente_clasificar',
-          url:       doc.url,
-          fecha:     doc.fecha,
-          region:    'Castilla y León',
-          fuente:    'BOCYL',
-          contenido: doc.texto,
-        }]);
-
-        if (errInsert) {
-          console.error('[BOCYL] Error insertando:', doc.url, errInsert.message);
-          errores++;
-          continue;
-        }
-        nuevas++;
+        docsInsertables.push(doc);
       }
+
+      const { nuevas, duplicadas, errores } = await insertarAlertasBoletin(supabase, docsInsertables, {
+        fuente: 'BOCYL',
+        region: 'Castilla y León',
+        contenido: (doc) => doc.texto,
+      });
 
       return res.json({
         success: true,

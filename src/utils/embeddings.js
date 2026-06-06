@@ -174,6 +174,7 @@ function generarEmbeddingMock(texto) {
   const palabrasHash = Object.fromEntries(
     palabras.map(p => [p, hashPalabra(p)])
   );
+  const indicesPorPalabra = palabras.map((palabra) => new Set(obtenerIndicesAfectados(palabrasHash[palabra], 1536)));
 
   // Generar 1536 números usando la seed + palabras
   const embedding = [];
@@ -184,11 +185,8 @@ function generarEmbeddingMock(texto) {
     // Esto hace que textos con palabras comunes sean más similares
     let contribucion = (seed / 233280) - 0.5;
     
-    for (const palabra of palabras) {
-      const hash = palabrasHash[palabra];
-      const indicesAfectados = obtenerIndicesAfectados(hash, 1536);
-      
-      if (indicesAfectados.includes(i)) {
+    for (const indicesAfectados of indicesPorPalabra) {
+      if (indicesAfectados.has(i)) {
         // Esta palabra contribuye a este índice del embedding
         contribucion += 0.3; // Peso positivo
       }

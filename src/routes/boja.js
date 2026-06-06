@@ -9,6 +9,7 @@
 
 const { checkCronToken } = require('../utils/checkCronToken');
 const { getFechaHoyYYYYMMDD, obtenerDocumentosBojaPorFecha } = require('../boletines/BOJA/bojaScraper');
+const { insertarAlertasBoletin } = require('./boletines/shared/insertarAlertasBoletin');
 
 // ─────────────────────────────────────────────
 // Filtro de relevancia rural
@@ -47,9 +48,6 @@ module.exports = function bojaRoutes(app, supabase) {
   app.get('/scrape-boja-oficial', async (req, res) => {
     if (!checkCronToken(req, res)) return;
 
-    let nuevas         = 0;
-    let duplicadas     = 0;
-    let errores        = 0;
     let saltadasFiltro = 0;
 
     try {
@@ -65,6 +63,7 @@ module.exports = function bojaRoutes(app, supabase) {
         });
       }
 
+      const docsInsertables = [];
       for (const doc of docs) {
         // Filtro rural: texto + título + sección + organismo
         const bolsa = [doc.texto.slice(0, 3500), doc.titulo, doc.seccion, doc.organismo].join(' ');
@@ -73,31 +72,14 @@ module.exports = function bojaRoutes(app, supabase) {
           continue;
         }
 
-        // Duplicado por URL canónica
-        const { data: existe, error: errDup } = await supabase
-          .from('alertas').select('id').eq('url', doc.url).limit(1);
-        if (errDup) { errores++; continue; }
-        if (existe && existe.length > 0) { duplicadas++; continue; }
-
-        // Insertar
-        const { error: errInsert } = await supabase.from('alertas').insert([{
-          titulo:    doc.titulo,
-          resumen:   'Procesando con IA...',
-          estado_ia: 'pendiente_clasificar',
-          url:       doc.url,
-          fecha:     doc.fecha,
-          region:    'Andalucía',
-          fuente:    'BOJA',
-          contenido: doc.texto,
-        }]);
-
-        if (errInsert) {
-          console.error('[BOJA] Error insertando:', doc.url, errInsert.message);
-          errores++;
-          continue;
-        }
-        nuevas++;
+        docsInsertables.push(doc);
       }
+
+      const { nuevas, duplicadas, errores } = await insertarAlertasBoletin(supabase, docsInsertables, {
+        fuente: 'BOJA',
+        region: 'Andalucía',
+        contenido: (doc) => doc.texto,
+      });
 
       return res.json({
         success: true,

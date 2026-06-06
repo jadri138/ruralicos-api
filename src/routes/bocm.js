@@ -5,6 +5,7 @@
 
 const { checkCronToken } = require('../utils/checkCronToken');
 const { obtenerDocumentosBocmConTexto, getFechaHoyISO } = require('../boletines/BOCM/bocmScraper');
+const { insertarAlertasBoletin } = require('./boletines/shared/insertarAlertasBoletin');
 
 function normalizar(s) {
   return (s || '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
@@ -49,10 +50,6 @@ module.exports = function bocmRoutes(app, supabase) {
   async function scrapeBocm(req, res) {
     if (!checkCronToken(req, res)) return;
 
-    let nuevas = 0;
-    let duplicadas = 0;
-    let errores = 0;
-
     try {
       const fecha = req.query.fecha ? String(req.query.fecha).slice(0, 10) : null;
       const docs = await obtenerDocumentosBocmConTexto(fecha, esRuralRelevante);
@@ -68,32 +65,11 @@ module.exports = function bocmRoutes(app, supabase) {
         });
       }
 
-      for (const doc of docs) {
-        if (!doc.url) { errores++; continue; }
-
-        const { data: existe, error: errDup } = await supabase
-          .from('alertas').select('id').eq('url', doc.url).limit(1);
-        if (errDup) { errores++; continue; }
-        if (existe && existe.length > 0) { duplicadas++; continue; }
-
-        const { error: errInsert } = await supabase.from('alertas').insert([{
-          titulo: doc.titulo,
-          resumen: 'Procesando con IA...',
-          estado_ia: 'pendiente_clasificar',
-          url: doc.url,
-          fecha: doc.fecha,
-          region: 'Comunidad de Madrid',
-          fuente: 'BOCM',
-          contenido: doc.texto,
-        }]);
-
-        if (errInsert) {
-          console.error('[BOCM] Error insertando:', doc.url, errInsert.message);
-          errores++;
-          continue;
-        }
-        nuevas++;
-      }
+      const { nuevas, duplicadas, errores } = await insertarAlertasBoletin(supabase, docs, {
+        fuente: 'BOCM',
+        region: 'Comunidad de Madrid',
+        contenido: (doc) => doc.texto,
+      });
 
       return res.json({
         success: true,

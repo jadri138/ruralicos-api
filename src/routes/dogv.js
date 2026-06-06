@@ -5,6 +5,7 @@
 
 const { checkCronToken } = require('../utils/checkCronToken');
 const { obtenerDocumentosDogvConTexto, getFechaHoyISO } = require('../boletines/DOGV/dogvScraper');
+const { insertarAlertasBoletin } = require('./boletines/shared/insertarAlertasBoletin');
 
 // ─────────────────────────────────────────────
 // Filtro de relevancia rural
@@ -50,10 +51,6 @@ module.exports = function dogvRoutes(app, supabase) {
   app.get('/scrape-dogv', async (req, res) => {
     if (!checkCronToken(req, res)) return;
 
-    let nuevas     = 0;
-    let duplicadas = 0;
-    let errores    = 0;
-
     try {
       const fechaHoy = getFechaHoyISO();
       const docs     = await obtenerDocumentosDogvConTexto(fechaHoy, esRuralRelevante);
@@ -67,32 +64,11 @@ module.exports = function dogvRoutes(app, supabase) {
         });
       }
 
-      for (const doc of docs) {
-        if (!doc.url) { errores++; continue; }
-
-        const { data: existe, error: errDup } = await supabase
-          .from('alertas').select('id').eq('url', doc.url).limit(1);
-        if (errDup) { errores++; continue; }
-        if (existe && existe.length > 0) { duplicadas++; continue; }
-
-        const { error: errInsert } = await supabase.from('alertas').insert([{
-          titulo:    doc.titulo,
-          resumen:   'Procesando con IA...',
-          estado_ia: 'pendiente_clasificar',
-          url:       doc.url,
-          fecha:     doc.fecha,
-          region:    'Comunitat Valenciana',
-          fuente:    'DOGV',
-          contenido: doc.texto,
-        }]);
-
-        if (errInsert) {
-          console.error('[DOGV] Error insertando:', doc.url, errInsert.message);
-          errores++;
-          continue;
-        }
-        nuevas++;
-      }
+      const { nuevas, duplicadas, errores } = await insertarAlertasBoletin(supabase, docs, {
+        fuente: 'DOGV',
+        region: 'Comunitat Valenciana',
+        contenido: (doc) => doc.texto,
+      });
 
       return res.json({
         success: true,

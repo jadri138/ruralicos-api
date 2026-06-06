@@ -1,5 +1,6 @@
 const { checkCronToken } = require('../utils/checkCronToken');
 const { getFechaHoyYYYYMMDD, obtenerDocumentosDocmPorFecha } = require('../boletines/DOCM/docmScraper');
+const { insertarAlertasBoletin } = require('./boletines/shared/insertarAlertasBoletin');
 
 function normalizar(s) {
   return (s || '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
@@ -27,9 +28,6 @@ module.exports = function docmRoutes(app, supabase) {
   app.get('/scrape-docm-oficial', async (req, res) => {
     if (!checkCronToken(req, res)) return;
 
-    let nuevas = 0;
-    let duplicadas = 0;
-    let errores = 0;
     let saltadasFiltro = 0;
 
     try {
@@ -49,6 +47,7 @@ module.exports = function docmRoutes(app, supabase) {
         });
       }
 
+      const docsInsertables = [];
       for (const doc of docs) {
         const bolsa = [doc.texto.slice(0, 3500), doc.titulo, doc.seccion].join(' ');
         if (!esRuralRelevante(bolsa)) {
@@ -56,29 +55,14 @@ module.exports = function docmRoutes(app, supabase) {
           continue;
         }
 
-        const { data: existe, error: errDup } = await supabase
-          .from('alertas').select('id').eq('url', doc.url).limit(1);
-        if (errDup) { errores++; continue; }
-        if (existe && existe.length > 0) { duplicadas++; continue; }
-
-        const { error: errInsert } = await supabase.from('alertas').insert([{
-          titulo: doc.titulo,
-          resumen: 'Procesando con IA...',
-          estado_ia: 'pendiente_clasificar',
-          url: doc.url,
-          fecha: doc.fecha,
-          region: 'Castilla-La Mancha',
-          fuente: 'DOCM',
-          contenido: doc.texto,
-        }]);
-
-        if (errInsert) {
-          console.error('[DOCM] Error insertando:', doc.url, errInsert.message);
-          errores++;
-          continue;
-        }
-        nuevas++;
+        docsInsertables.push(doc);
       }
+
+      const { nuevas, duplicadas, errores } = await insertarAlertasBoletin(supabase, docsInsertables, {
+        fuente: 'DOCM',
+        region: 'Castilla-La Mancha',
+        contenido: (doc) => doc.texto,
+      });
 
       return res.json({
         success: true,

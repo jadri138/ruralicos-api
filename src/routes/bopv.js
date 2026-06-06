@@ -5,6 +5,7 @@
 
 const { checkCronToken } = require('../utils/checkCronToken');
 const { obtenerDocumentosBopvConTexto, getFechaHoyISO } = require('../boletines/BOPV/bopvScraper');
+const { insertarAlertasBoletin } = require('./boletines/shared/insertarAlertasBoletin');
 
 function normalizar(s) {
   return (s || '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
@@ -44,10 +45,6 @@ module.exports = function bopvRoutes(app, supabase) {
   async function scrapeBopv(req, res) {
     if (!checkCronToken(req, res)) return;
 
-    let nuevas = 0;
-    let duplicadas = 0;
-    let errores = 0;
-
     try {
       const fecha = req.query.fecha ? String(req.query.fecha).slice(0, 10) : null;
       const docs = await obtenerDocumentosBopvConTexto(fecha, esRuralRelevante);
@@ -63,32 +60,11 @@ module.exports = function bopvRoutes(app, supabase) {
         });
       }
 
-      for (const doc of docs) {
-        if (!doc.url) { errores++; continue; }
-
-        const { data: existe, error: errDup } = await supabase
-          .from('alertas').select('id').eq('url', doc.url).limit(1);
-        if (errDup) { errores++; continue; }
-        if (existe && existe.length > 0) { duplicadas++; continue; }
-
-        const { error: errInsert } = await supabase.from('alertas').insert([{
-          titulo: doc.titulo,
-          resumen: 'Procesando con IA...',
-          estado_ia: 'pendiente_clasificar',
-          url: doc.url,
-          fecha: doc.fecha,
-          region: 'Pais Vasco',
-          fuente: 'BOPV',
-          contenido: doc.texto,
-        }]);
-
-        if (errInsert) {
-          console.error('[BOPV] Error insertando:', doc.url, errInsert.message);
-          errores++;
-          continue;
-        }
-        nuevas++;
-      }
+      const { nuevas, duplicadas, errores } = await insertarAlertasBoletin(supabase, docs, {
+        fuente: 'BOPV',
+        region: 'Pais Vasco',
+        contenido: (doc) => doc.texto,
+      });
 
       return res.json({
         success: true,

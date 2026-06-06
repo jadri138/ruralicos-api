@@ -5,6 +5,7 @@
 
 const { checkCronToken } = require('../utils/checkCronToken');
 const { obtenerDocumentosDogConTexto, getFechaHoyISO } = require('../boletines/DOG/dogScraper');
+const { insertarAlertasBoletin } = require('./boletines/shared/insertarAlertasBoletin');
 
 // ─────────────────────────────────────────────
 // Filtro de relevancia rural
@@ -52,10 +53,6 @@ module.exports = function dogRoutes(app, supabase) {
   app.get('/scrape-dog', async (req, res) => {
     if (!checkCronToken(req, res)) return;
 
-    let nuevas     = 0;
-    let duplicadas = 0;
-    let errores    = 0;
-
     try {
       const fechaHoy = getFechaHoyISO();
       const docs     = await obtenerDocumentosDogConTexto(fechaHoy, esRuralRelevante);
@@ -69,32 +66,11 @@ module.exports = function dogRoutes(app, supabase) {
         });
       }
 
-      for (const doc of docs) {
-        if (!doc.url) { errores++; continue; }
-
-        const { data: existe, error: errDup } = await supabase
-          .from('alertas').select('id').eq('url', doc.url).limit(1);
-        if (errDup) { errores++; continue; }
-        if (existe && existe.length > 0) { duplicadas++; continue; }
-
-        const { error: errInsert } = await supabase.from('alertas').insert([{
-          titulo:    doc.titulo,
-          resumen:   'Procesando con IA...',
-          estado_ia: 'pendiente_clasificar',
-          url:       doc.url,
-          fecha:     doc.fecha,
-          region:    'Galicia',
-          fuente:    'DOG',
-          contenido: doc.texto,
-        }]);
-
-        if (errInsert) {
-          console.error('[DOG] Error insertando:', doc.url, errInsert.message);
-          errores++;
-          continue;
-        }
-        nuevas++;
-      }
+      const { nuevas, duplicadas, errores } = await insertarAlertasBoletin(supabase, docs, {
+        fuente: 'DOG',
+        region: 'Galicia',
+        contenido: (doc) => doc.texto,
+      });
 
       return res.json({
         success: true,

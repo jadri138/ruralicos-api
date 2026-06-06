@@ -6,6 +6,7 @@ const {
   procesarBoaPorMlkob,
 } = require('../boletines/boa/boaPdf');
 const { getFechaMadridISO, getFechaMadridYYYYMMDD } = require('../utils/fechaMadrid');
+const { insertarAlertasBoletin } = require('./boletines/shared/insertarAlertasBoletin');
 
 // Convierte AAAAMMDD → AAAA-MM-DD
 function formatearFecha(fecha) {
@@ -86,9 +87,6 @@ module.exports = function boaRoutes(app, supabase) {
     if (!checkCronToken(req, res)) return;
 
     let documentos = 0;
-    let nuevas = 0;
-    let duplicadas = 0;
-    let errores = 0;
     let saltadasNoPdf = 0;
     let saltadasFiltro = 0;
 
@@ -115,6 +113,7 @@ module.exports = function boaRoutes(app, supabase) {
         });
       }
 
+      const docsInsertables = [];
       for (const mlkob of mlkobs) {
         const resultado = await procesarBoaPorMlkob(mlkob);
 
@@ -141,46 +140,20 @@ module.exports = function boaRoutes(app, supabase) {
 
         const urlOficial = `https://www.boa.aragon.es/cgi-bin/EBOA/BRSCGI?CMD=VEROBJ&MLKOB=${mlkob}`;
 
-        // Duplicado: 1 alerta por MLKOB (url única)
-        const { data: existe, error: errDup } = await supabase
-          .from('alertas')
-          .select('id')
-          .eq('url', urlOficial)
-          .limit(1);
-
-        if (errDup) {
-          errores++;
-          continue;
-        }
-
-        if (existe && existe.length > 0) {
-          duplicadas++;
-          continue;
-        }
-
         const titulo = generarTituloBoa(texto, fechaSQL);
-
-        const { error: errInsert } = await supabase.from('alertas').insert([
-          {
-            titulo,
-            resumen: 'Procesando con IA...',
-            estado_ia: 'pendiente_clasificar',
-            url: urlOficial,
-            fecha: fechaSQL,
-            region: 'Aragón',
-            fuente: 'BOA',
-            // Guardas todo el texto para que la IA lo interprete
-            contenido: texto,
-          },
-        ]);
-
-        if (errInsert) {
-          errores++;
-          continue;
-        }
-
-        nuevas++;
+        docsInsertables.push({
+          titulo,
+          url: urlOficial,
+          fecha: fechaSQL,
+          texto,
+        });
       }
+
+      const { nuevas, duplicadas, errores } = await insertarAlertasBoletin(supabase, docsInsertables, {
+        fuente: 'BOA',
+        region: 'Aragón',
+        contenido: (doc) => doc.texto,
+      });
 
       return res.json({
         success: true,

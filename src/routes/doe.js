@@ -7,6 +7,7 @@ const {
   extraerFechaBoletin,
 } = require('../boletines/DOE/doeScraper');
 const { getFechaMadridISO, getFechaMadridYYYYMMDD } = require('../utils/fechaMadrid');
+const { insertarAlertasBoletin } = require('./boletines/shared/insertarAlertasBoletin');
 
 function formatearFecha(fecha) {
   if (!fecha || fecha.length !== 8) return null;
@@ -55,9 +56,6 @@ module.exports = function doeRoutes(app, supabase) {
     if (!checkCronToken(req, res)) return;
 
     let documentos = 0;
-    let nuevas = 0;
-    let duplicadas = 0;
-    let errores = 0;
     let saltadasNoPdf = 0;
     let saltadasFiltro = 0;
 
@@ -82,6 +80,7 @@ module.exports = function doeRoutes(app, supabase) {
         });
       }
 
+      const docsInsertables = [];
       for (const url of urls) {
         const texto = await procesarDoePdf(url);
         if (!texto) {
@@ -100,41 +99,20 @@ module.exports = function doeRoutes(app, supabase) {
         const fechaSQL =
           formatearFecha(fechaDoc) || fechaParam || getFechaMadridISO();
 
-        const { data: existe, error: errDup } = await supabase
-          .from('alertas')
-          .select('id')
-          .eq('url', url)
-          .limit(1);
-
-        if (errDup) {
-          errores++;
-          continue;
-        }
-        if (existe && existe.length > 0) {
-          duplicadas++;
-          continue;
-        }
-
         const titulo = generarTituloDoe(texto, fechaSQL);
-        const { error: errInsert } = await supabase.from('alertas').insert([
-          {
-            titulo,
-            resumen: 'Procesando con IA...',
-            estado_ia: 'pendiente_clasificar',
-            url,
-            fecha: fechaSQL,
-            region: 'Extremadura',
-            fuente: 'DOE',
-            contenido: texto,
-          },
-        ]);
-
-        if (errInsert) {
-          errores++;
-          continue;
-        }
-        nuevas++;
+        docsInsertables.push({
+          titulo,
+          url,
+          fecha: fechaSQL,
+          texto,
+        });
       }
+
+      const { nuevas, duplicadas, errores } = await insertarAlertasBoletin(supabase, docsInsertables, {
+        fuente: 'DOE',
+        region: 'Extremadura',
+        contenido: (doc) => doc.texto,
+      });
 
       return res.json({
         success: true,
