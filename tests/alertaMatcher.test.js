@@ -79,6 +79,20 @@ test('marcador nacional en provincias pasa aunque haya provincia de usuario conc
   assert.strictEqual(result.ok, true);
 });
 
+test('marcador todas no se pisa por provincia mencionada en el titulo', () => {
+  const alerta = {
+    fuente: 'BOE',
+    titulo: 'Ayudas para explotaciones agrarias en Asturias',
+    provincias: ['todas'],
+    sectores: ['ganaderia'],
+    subsectores: ['ovino'],
+    tipos_alerta: ['ayudas_subvenciones'],
+  };
+
+  const result = diagnosticarAlertaUsuario(alerta, userValladolid);
+  assert.strictEqual(result.ok, true);
+});
+
 test('boletin autonomico con provincia distinta no pasa filtro duro', () => {
   const alerta = {
     fuente: 'BOJA',
@@ -255,6 +269,53 @@ test('alerta local en provincia declarada sigue pasando', () => {
   };
 
   const result = diagnosticarAlertaUsuario(alerta, userJose);
+  assert.strictEqual(result.ok, true);
+});
+
+test('subsector singular del usuario coincide con plural de la alerta', () => {
+  const alerta = {
+    fuente: 'BOE',
+    provincias: ['Teruel'],
+    sectores: ['agricultura'],
+    subsectores: ['frutales'],
+    tipos_alerta: ['ayudas_subvenciones'],
+    titulo: 'Ayudas para explotaciones de frutales en Teruel',
+  };
+  const userFrutal = {
+    subscription: 'cooperativa',
+    preferences: {
+      provincias: ['Teruel'],
+      sectores: ['agrícola'],
+      subsectores: ['frutal'],
+      tipos_alerta: { ayudas: true },
+    },
+  };
+
+  const result = diagnosticarAlertaUsuario(alerta, userFrutal);
+  assert.strictEqual(result.ok, true);
+});
+
+test('tipo plazos no bloquea una ayuda si el texto contiene plazo', () => {
+  const alerta = {
+    fuente: 'BOE',
+    provincias: ['nacional'],
+    sectores: ['agricultura'],
+    subsectores: ['olivar'],
+    tipos_alerta: ['ayudas_subvenciones'],
+    titulo: 'Convocatoria de ayudas para olivar',
+    resumen_final: 'FICHA_IA\nPLAZO: 20 dias habiles\nACCION: presentar solicitud',
+  };
+  const userPlazos = {
+    subscription: 'cooperativa',
+    preferences: {
+      provincias: ['Teruel'],
+      sectores: ['agricultura'],
+      subsectores: ['olivar'],
+      tipos_alerta: { plazos: true },
+    },
+  };
+
+  const result = diagnosticarAlertaUsuario(alerta, userPlazos);
   assert.strictEqual(result.ok, true);
 });
 

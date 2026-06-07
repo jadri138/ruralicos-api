@@ -71,6 +71,34 @@ test('incluye alertas accionables con score explicable', () => {
   assert(decision.diagnostico.ranking.reasons.some((reason) => reason.code === 'accion_con_plazo'));
 });
 
+test('alerta de todas las provincias entra aunque el usuario tenga una provincia concreta', () => {
+  const decision = decidirAlertaParaDigest(alerta(101, {
+    fuente: 'BOE',
+    titulo: 'Ayudas estatales para explotaciones agrarias en todo el territorio nacional',
+    provincias: ['todas'],
+  }), user);
+
+  assert.strictEqual(decision.incluir, true);
+  assert.strictEqual(decision.diagnostico.policy.matches.provincia, true);
+  assert.strictEqual(decision.diagnostico.policy.matches.provincia_nacional, true);
+});
+
+test('preferencia plazos acepta ayuda accionable con plazo aunque el tipo base sea ayudas', () => {
+  const userPlazos = {
+    ...user,
+    preferences: {
+      ...user.preferences,
+      tipos_alerta: { plazos: true },
+    },
+  };
+  const decision = decidirAlertaParaDigest(alerta(102, {
+    tipos_alerta: ['ayudas_subvenciones'],
+  }), userPlazos);
+
+  assert.strictEqual(decision.incluir, true);
+  assert(decision.diagnostico.ranking.reasons.some((reason) => reason.code === 'accion_con_plazo'));
+});
+
 test('bloquea licitaciones aunque coincidan preferencias', () => {
   const decision = decidirAlertaParaDigest(alerta(2, {
     titulo: 'Anuncio de formalizacion de contrato de servicios agrarios en Teruel',

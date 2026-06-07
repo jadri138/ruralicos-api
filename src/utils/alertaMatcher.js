@@ -1,4 +1,10 @@
 const { fuentePermitida, normalizarFuenteBoletin } = require('../config/planes');
+const { extraerFeatureTagsDeTexto } = require('../brain/taxonomiaRuralicos');
+const {
+  canonicalSector,
+  canonicalSubsector,
+  canonicalTipoAlerta,
+} = require('./preferenceCanonical');
 
 function norm(str) {
   return (str || '')
@@ -10,6 +16,43 @@ function norm(str) {
 }
 
 const intersecta = (a, b) => a.some((x) => b.includes(x));
+const TIPOS_ALERTA_POR_FEATURE = {
+  plazos: 'concepto:plazo',
+  formacion: 'concepto:formacion',
+  licitaciones: 'tramite:licitacion',
+};
+
+function listaCanonica(value, canonicalizer) {
+  return Array.isArray(value)
+    ? value.map(canonicalizer).filter(Boolean)
+    : [];
+}
+
+function featureTagsAlerta(alerta = {}) {
+  const texto = [
+    alerta.titulo,
+    alerta.resumen,
+    alerta.resumen_final,
+    alerta.contenido,
+    ...(Array.isArray(alerta.sectores) ? alerta.sectores : []),
+    ...(Array.isArray(alerta.subsectores) ? alerta.subsectores : []),
+    ...(Array.isArray(alerta.tipos_alerta) ? alerta.tipos_alerta : []),
+  ].filter(Boolean).join(' ');
+
+  return extraerFeatureTagsDeTexto(texto);
+}
+
+function tiposCompatibles(tiposUserActivos = [], tiposAlerta = [], alerta = {}) {
+  if (tiposUserActivos.length === 0 || tiposAlerta.length === 0) return true;
+  if (tiposAlerta.some((tipo) => tiposUserActivos.includes(tipo))) return true;
+
+  const featureTags = featureTagsAlerta(alerta);
+  return tiposUserActivos.some((tipo) => {
+    const featureTag = TIPOS_ALERTA_POR_FEATURE[tipo];
+    return featureTag ? featureTags.includes(featureTag) : false;
+  });
+}
+
 const PROVINCIAS_POR_FUENTE = {
   BOE: ['nacional'],
   FEGA: ['nacional'],
@@ -181,14 +224,15 @@ function provinciasDerivadasAlerta(alerta = {}) {
   const provincias = Array.isArray(alerta.provincias)
     ? alerta.provincias.map(norm).filter(Boolean)
     : [];
+  if (provincias.some((p) => MARCADORES_NACIONALES.has(p))) return provincias;
+
   const porFuente = PROVINCIAS_POR_FUENTE[fuenteNormalizada(alerta)] || [];
   const provinciasTexto = extraerProvinciasDeTextoAlerta(alerta);
 
   if (provinciasTexto.length > 0) {
     const provinciasParecenFuente = porFuente.length > 1 && mismasProvincias(provincias, porFuente);
-    const provinciasSonNacionales = provincias.some((p) => MARCADORES_NACIONALES.has(p));
     const provinciasContradicenTexto = provincias.length > 0 && !intersecta(provincias, provinciasTexto);
-    if (provincias.length === 0 || provinciasParecenFuente || provinciasSonNacionales || provinciasContradicenTexto) {
+    if (provincias.length === 0 || provinciasParecenFuente || provinciasContradicenTexto) {
       return provinciasTexto;
     }
   }
@@ -224,25 +268,15 @@ function diagnosticarAlertaUsuario(alerta, user, options = {}) {
   const provinciasUserNorm = Array.isArray(prefs.provincias)
     ? prefs.provincias.map(norm)
     : [];
-  const sectoresUserNorm = Array.isArray(prefs.sectores)
-    ? prefs.sectores.map(norm)
-    : [];
-  const subsectoresUserNorm = Array.isArray(prefs.subsectores)
-    ? prefs.subsectores.map(norm)
-    : [];
+  const sectoresUserNorm = listaCanonica(prefs.sectores, canonicalSector);
+  const subsectoresUserNorm = listaCanonica(prefs.subsectores, canonicalSubsector);
   const tiposUser = prefs.tipos_alerta || {};
 
   const provinciasANorm = provinciasDerivadasAlerta(alerta);
   const alertaNacional = esAlertaNacional(alerta, provinciasANorm);
-  const sectoresANorm = Array.isArray(alerta.sectores)
-    ? alerta.sectores.map(norm)
-    : [];
-  const subsectoresANorm = Array.isArray(alerta.subsectores)
-    ? alerta.subsectores.map(norm)
-    : [];
-  const tiposANorm = Array.isArray(alerta.tipos_alerta)
-    ? alerta.tipos_alerta.map((t) => (t ? norm(t) : '')).filter(Boolean)
-    : [];
+  const sectoresANorm = listaCanonica(alerta.sectores, canonicalSector);
+  const subsectoresANorm = listaCanonica(alerta.subsectores, canonicalSubsector);
+  const tiposANorm = listaCanonica(alerta.tipos_alerta, canonicalTipoAlerta);
 
   const okProvincia =
     provinciasUserNorm.length === 0 ||
@@ -283,12 +317,11 @@ function diagnosticarAlertaUsuario(alerta, user, options = {}) {
 
   const tiposUserActivos = Object.entries(tiposUser)
     .filter(([_, v]) => v === true)
-    .map(([k]) => norm(k));
+    .map(([k]) => canonicalTipoAlerta(k))
+    .filter(Boolean);
 
-  if (tiposUserActivos.length > 0 && tiposANorm.length > 0) {
-    if (!tiposANorm.some((t) => tiposUserActivos.includes(t))) {
-      return { ok: false, motivo: 'tipo_alerta_no_coincide', detalle: { usuario: tiposUserActivos, alerta: tiposANorm } };
-    }
+  if (!tiposCompatibles(tiposUserActivos, tiposANorm, alerta)) {
+    return { ok: false, motivo: 'tipo_alerta_no_coincide', detalle: { usuario: tiposUserActivos, alerta: tiposANorm } };
   }
 
   return { ok: true, motivo: 'coincide' };

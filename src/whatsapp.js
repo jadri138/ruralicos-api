@@ -2,6 +2,12 @@
 const qs = require('querystring');
 const https = require('https');
 const { supabase } = require('./supabaseClient');
+const {
+  canonicalSector,
+  canonicalSubsector,
+  canonicalTipoAlerta,
+} = require('./utils/preferenceCanonical');
+const { alertaCoincideConUsuario } = require('./utils/alertaMatcher');
 
 
 // Credenciales UltraMsg desde .env
@@ -170,14 +176,14 @@ async function enviarWhatsAppResumen(alerta, supabase) {
     ? alerta.provincias.map(norm)
     : [];
   const sectoresANorm    = Array.isArray(alerta.sectores)
-    ? alerta.sectores.map(norm)
+    ? alerta.sectores.map(canonicalSector).filter(Boolean)
     : [];
   // FIX 2: subsectores de la alerta también normalizados
   const subsectoresANorm = Array.isArray(alerta.subsectores)
-    ? alerta.subsectores.map(norm)
+    ? alerta.subsectores.map(canonicalSubsector).filter(Boolean)
     : [];
   const tiposANorm       = Array.isArray(alerta.tipos_alerta)
-    ? alerta.tipos_alerta.map((t) => (t ? norm(t) : '')).filter(Boolean)
+    ? alerta.tipos_alerta.map(canonicalTipoAlerta).filter(Boolean)
     : [];
 
   for (const user of usuariosPro) {
@@ -185,17 +191,19 @@ async function enviarWhatsAppResumen(alerta, supabase) {
     if (!telefono) continue;
 
     const prefs = user.preferences || {};
+    const pasaFiltroCentral = alertaCoincideConUsuario(alerta, user);
+    if (!pasaFiltroCentral) continue;
 
     // Preferencias del usuario normalizadas
     const provinciasUserNorm  = Array.isArray(prefs.provincias)
       ? prefs.provincias.map(norm)
       : [];
     const sectoresUserNorm    = Array.isArray(prefs.sectores)
-      ? prefs.sectores.map(norm)
+      ? prefs.sectores.map(canonicalSector).filter(Boolean)
       : [];
     // FIX 2: subsectores del usuario también normalizados
     const subsectoresUserNorm = Array.isArray(prefs.subsectores)
-      ? prefs.subsectores.map(norm)
+      ? prefs.subsectores.map(canonicalSubsector).filter(Boolean)
       : [];
     const tiposUser           = prefs.tipos_alerta || {};
 
@@ -204,6 +212,7 @@ async function enviarWhatsAppResumen(alerta, supabase) {
     // [] en alerta  → nacional (llega a todos)
     // FIX 1: antes faltaba el caso provinciasANorm.length === 0
     const okProvincia =
+      pasaFiltroCentral ||
       provinciasUserNorm.length === 0 ||
       provinciasANorm.length === 0 ||
       intersecta(provinciasUserNorm, provinciasANorm);
@@ -217,6 +226,7 @@ async function enviarWhatsAppResumen(alerta, supabase) {
     const tieneMixtoAlerta = sectoresANorm.includes('mixto');
 
     const okSector =
+      pasaFiltroCentral ||
       sectoresUserNorm.length === 0 ||
       sectoresANorm.length === 0 ||
       intersecta(sectoresUserNorm, sectoresANorm) ||
@@ -228,6 +238,7 @@ async function enviarWhatsAppResumen(alerta, supabase) {
     // ==== 3. FILTRO SUBSECTOR ====
     // FIX 2: ahora ambos arrays están normalizados, la comparación es case-insensitive
     const okSubsector =
+      pasaFiltroCentral ||
       subsectoresUserNorm.length === 0 ||
       subsectoresANorm.length === 0 ||
       intersecta(subsectoresUserNorm, subsectoresANorm);
@@ -238,7 +249,8 @@ async function enviarWhatsAppResumen(alerta, supabase) {
     // Solo filtra si AMBOS tienen tipos definidos
     const tiposUserActivos = Object.entries(tiposUser)
       .filter(([_, v]) => v === true)
-      .map(([k]) => norm(k));
+      .map(([k]) => canonicalTipoAlerta(k))
+      .filter(Boolean);
 
     const hayTiposUsuario = tiposUserActivos.length > 0;
     const hayTiposAlerta  = tiposANorm.length > 0;
@@ -248,7 +260,7 @@ async function enviarWhatsAppResumen(alerta, supabase) {
       okTipo = tiposANorm.some((t) => tiposUserActivos.includes(t));
     }
 
-    if (!okTipo) continue;
+    if (!okTipo && !pasaFiltroCentral) continue;
 
     // ==== SI PASA TODOS LOS FILTROS, SE ENVÍA ====
     try {

@@ -7,6 +7,7 @@ const { enviarWhatsAppVerificacion, enviarWhatsAppRegistro, enviarWhatsAppResetP
 const { requireAuth, requireAdmin } = require('../../authMiddleware');
 const { getPlan, validarPreferencias, truncarPreferencias } = require('../config/planes');
 const { extraerPreferenciasBody, prepararPreferenciasExtra } = require('../utils/preferenciasRequest');
+const { normalizarPreferenciasUsuario } = require('../utils/preferenceCanonical');
 const { actualizarPerfilUsuarioMIASafe } = require('../brain/miaProfile');
 const { notificarCambioPlan } = require('../services/planChangeNotifier');
 
@@ -324,6 +325,7 @@ module.exports = function usersRoutes(app, supabase) {
     if (!preferences || typeof preferences !== 'object') {
       preferences = {};
     }
+    const rawPreferencesBody = preferences;
 
     const PLANES_REGISTRO = ['corral', 'agricultor', 'cooperativa'];
     const subscriptionNormalizada = PLANES_REGISTRO.includes(String(subscription || '').toLowerCase())
@@ -336,12 +338,14 @@ module.exports = function usersRoutes(app, supabase) {
     const rawPreferenciasExtra =
       typeof preferencias_extra === 'string' ? preferencias_extra
         : typeof preferenciasExtra === 'string' ? preferenciasExtra
-          : typeof preferences.preferencias_extra === 'string' ? preferences.preferencias_extra
+          : typeof rawPreferencesBody.preferencias_extra === 'string' ? rawPreferencesBody.preferencias_extra
             : null;
 
-    const preferenciasExtraLimpia = typeof rawPreferenciasExtra === 'string'
-      ? rawPreferenciasExtra.trim().slice(0, 1000)
-      : null;
+    const extraRegistro = prepararPreferenciasExtra(rawPreferenciasExtra);
+    if (!extraRegistro.ok) return res.status(400).json({ error: extraRegistro.error });
+    const preferenciasExtraLimpia = extraRegistro.valor;
+
+    preferences = normalizarPreferenciasUsuario(rawPreferencesBody);
 
     const validacionRegistro = validarPreferencias(subscriptionNormalizada, preferences);
     if (!validacionRegistro.ok) {
@@ -851,7 +855,7 @@ module.exports = function usersRoutes(app, supabase) {
       return res.status(404).json({ error: 'Usuario no encontrado' });
     }
 
-    res.json({ user: data });
+    res.json({ user: { ...data, preferences: normalizarPreferenciasUsuario(data.preferences || {}) } });
   });
 
   // --------------------------------------------------
@@ -887,7 +891,8 @@ module.exports = function usersRoutes(app, supabase) {
       });
     }
 
-    const { preferences: prefs, rawExtra, extraEnviado } = extraerPreferenciasBody(req.body);
+    const { preferences: prefsBody, rawExtra, extraEnviado } = extraerPreferenciasBody(req.body);
+    const prefs = normalizarPreferenciasUsuario(prefsBody);
 
     const validacion = validarPreferencias(user.subscription, prefs);
     if (!validacion.ok) {
@@ -1203,13 +1208,14 @@ module.exports = function usersRoutes(app, supabase) {
         return res.status(404).json({ error: 'Usuario no encontrado' });
       }
 
-      const preferencesActuales =
+      const preferencesActualesRaw =
         userActual.preferences && typeof userActual.preferences === 'object'
           ? userActual.preferences
           : {};
+      const preferencesActuales = normalizarPreferenciasUsuario(preferencesActualesRaw);
       const preferencesAjustadas = truncarPreferencias(plan, preferencesActuales);
       const seAjustaronPreferencias =
-        JSON.stringify(preferencesAjustadas) !== JSON.stringify(preferencesActuales);
+        JSON.stringify(preferencesAjustadas) !== JSON.stringify(preferencesActualesRaw);
       const planConfig = getPlan(plan);
 
       const { data, error } = await supabase

@@ -1,6 +1,6 @@
-const axios = require('axios');
 const cheerio = require('cheerio');
 const { htmlATexto } = require('../../../../utils/htmlParser');
+const { axiosGetWithRetry } = require('../../../../utils/httpClient');
 
 const BASE = 'https://www.araba.eus';
 const PORTADA = `${BASE}/BOTHA/Inicio/SGBO5001.aspx`;
@@ -170,13 +170,16 @@ async function obtenerTextoDocumento(doc) {
   if (!doc.urlHtml) return doc.texto || doc.titulo;
 
   try {
-    const { data } = await axios.get(doc.urlHtml, {
-      timeout: 20000,
+    const { data } = await axiosGetWithRetry(doc.urlHtml, {
+      timeout: Number(process.env.BOTHA_DOC_TIMEOUT_MS || 30000),
       headers: {
         Accept: 'text/html,application/xhtml+xml',
         'User-Agent': 'Mozilla/5.0 (RuralicosBot/2.0)',
         Referer: PORTADA,
       },
+    }, {
+      attempts: Number(process.env.BOTHA_HTTP_ATTEMPTS || 2),
+      allowInsecureFallback: true,
     });
     const texto = htmlATexto(String(data));
     return texto.length > 200 ? texto.slice(0, 15000) : (doc.texto || doc.titulo);
@@ -186,12 +189,15 @@ async function obtenerTextoDocumento(doc) {
 }
 
 async function obtenerDocumentosBothaConTexto(fechaISO, esRuralRelevante) {
-  const { data: html } = await axios.get(PORTADA, {
-    timeout: 30000,
+  const { data: html } = await axiosGetWithRetry(PORTADA, {
+    timeout: Number(process.env.BOTHA_HTML_TIMEOUT_MS || 45000),
     headers: {
       Accept: 'text/html,application/xhtml+xml',
       'User-Agent': 'Mozilla/5.0 (RuralicosBot/2.0)',
     },
+  }, {
+    attempts: Number(process.env.BOTHA_HTTP_ATTEMPTS || 2),
+    allowInsecureFallback: true,
   });
 
   const docs = parsearSumario(String(html), esRuralRelevante);

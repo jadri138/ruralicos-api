@@ -12,6 +12,8 @@
 //
 // ══════════════════════════════════════════════════════════════════════
 
+const { normalizarPreferenciasUsuario } = require('../utils/preferenceCanonical');
+
 const FUENTES_AUTONOMICAS = [
   'BOE',
   'BOA',
@@ -146,6 +148,7 @@ function fuentePermitida(subscription, fuente) {
  */
 function validarPreferencias(subscription, preferences) {
   const plan = getPlan(subscription);
+  const prefsNormalizadas = normalizarPreferenciasUsuario(preferences);
   const errores = [];
 
   const campos = ['provincias', 'sectores', 'subsectores'];
@@ -154,7 +157,7 @@ function validarPreferencias(subscription, preferences) {
     const limite = plan.limites[campo];
     if (limite === null) continue;  // sin límite → ok
 
-    const valor = preferences[campo];
+    const valor = prefsNormalizadas[campo];
     if (Array.isArray(valor) && valor.length > limite) {
       errores.push(
         `El plan ${plan.nombre} permite máximo ${limite} ${campo} (enviaste ${valor.length})`
@@ -173,7 +176,7 @@ function validarPreferencias(subscription, preferences) {
  */
 function truncarPreferencias(subscription, preferences) {
   const plan = getPlan(subscription);
-  const resultado = { ...preferences };
+  const resultado = normalizarPreferenciasUsuario(preferences);
 
   const campos = ['provincias', 'sectores', 'subsectores'];
 

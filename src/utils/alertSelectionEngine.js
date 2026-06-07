@@ -2,6 +2,11 @@ const { diagnosticarAlertaUsuario } = require('./alertaMatcher');
 const { evaluarCalidadAlerta } = require('../mia/alertQuality');
 const { extraerFeaturesAlerta, textoAlerta: textoFeaturesAlerta } = require('../brain/alertFeatures');
 const { clasificarPrioridadAlerta, pesoPrioridad } = require('../brain/alertPriority');
+const {
+  canonicalSector,
+  canonicalSubsector,
+  canonicalTipoAlerta,
+} = require('./preferenceCanonical');
 
 const DEFAULT_POLICY = {
   minIncludeScore: 64,
@@ -52,11 +57,13 @@ function norm(value) {
     .trim();
 }
 
-function lista(value) {
-  if (Array.isArray(value)) return value.map(norm).filter(Boolean);
+function lista(value, canonicalizer = norm) {
+  if (Array.isArray(value)) return value.map(canonicalizer).filter(Boolean);
   if (!value) return [];
-  return String(value).split(/[,;\n]/g).map(norm).filter(Boolean);
+  return String(value).split(/[,;\n]/g).map(canonicalizer).filter(Boolean);
 }
+
+const MARCADORES_NACIONALES = new Set(['nacional', 'espana', 'españa', 'estatal', 'todas', 'todo el territorio nacional']);
 
 function intersecta(a = [], b = []) {
   return a.some((item) => b.includes(item));
@@ -65,7 +72,8 @@ function intersecta(a = [], b = []) {
 function tiposActivosUsuario(user = {}) {
   return Object.entries(user.preferences?.tipos_alerta || {})
     .filter(([, active]) => active === true)
-    .map(([tipo]) => norm(tipo));
+    .map(([tipo]) => canonicalTipoAlerta(tipo))
+    .filter(Boolean);
 }
 
 function textoAlerta(alerta = {}) {
@@ -124,17 +132,19 @@ function construirSignals(alerta = {}, calidad = {}) {
 function coincidenciasDeclaradas(alerta = {}, user = {}) {
   const prefs = user.preferences || {};
   const provinciasUser = lista(prefs.provincias);
-  const sectoresUser = lista(prefs.sectores);
-  const subsectoresUser = lista(prefs.subsectores);
+  const sectoresUser = lista(prefs.sectores, canonicalSector);
+  const subsectoresUser = lista(prefs.subsectores, canonicalSubsector);
   const tiposUser = tiposActivosUsuario(user);
   const provinciasAlerta = lista(alerta.provincias);
-  const sectoresAlerta = lista(alerta.sectores);
-  const subsectoresAlerta = lista(alerta.subsectores);
-  const tiposAlerta = lista(alerta.tipos_alerta);
+  const sectoresAlerta = lista(alerta.sectores, canonicalSector);
+  const subsectoresAlerta = lista(alerta.subsectores, canonicalSubsector);
+  const tiposAlerta = lista(alerta.tipos_alerta, canonicalTipoAlerta);
+  const alertaNacional = provinciasAlerta.some((provincia) => MARCADORES_NACIONALES.has(provincia));
 
   return {
-    provincia: provinciasUser.length === 0 || intersecta(provinciasUser, provinciasAlerta),
-    provincia_expresa: provinciasUser.length > 0 && intersecta(provinciasUser, provinciasAlerta),
+    provincia: provinciasUser.length === 0 || alertaNacional || intersecta(provinciasUser, provinciasAlerta),
+    provincia_expresa: provinciasUser.length > 0 && !alertaNacional && intersecta(provinciasUser, provinciasAlerta),
+    provincia_nacional: alertaNacional,
     sector: sectoresUser.length === 0 || sectoresAlerta.length === 0 || intersecta(sectoresUser, sectoresAlerta),
     sector_expreso: sectoresUser.length > 0 && sectoresAlerta.length > 0 && intersecta(sectoresUser, sectoresAlerta),
     subsector: subsectoresUser.length === 0 || subsectoresAlerta.length === 0 || intersecta(subsectoresUser, subsectoresAlerta),
@@ -374,7 +384,7 @@ function evaluarAlertaParaDigest(alerta, user, options = {}) {
 }
 
 function tipoPrincipal(alerta = {}) {
-  const tipos = lista(alerta.tipos_alerta);
+  const tipos = lista(alerta.tipos_alerta, canonicalTipoAlerta);
   return tipos[0] || 'sin_tipo';
 }
 

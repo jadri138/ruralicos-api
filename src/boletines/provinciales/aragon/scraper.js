@@ -39,8 +39,8 @@ function decodeLatin1(buffer) {
 }
 
 async function getHtml(url, options = {}) {
-  const timeout = Number(options.timeout || process.env.BOP_ARAGON_HTML_TIMEOUT_MS || 30000);
-  const attempts = Math.max(1, Number(options.attempts || 1));
+  const timeout = Number(options.timeout || process.env.BOP_ARAGON_HTML_TIMEOUT_MS || 45000);
+  const attempts = Math.max(1, Number(options.attempts || process.env.BOP_ARAGON_HTML_ATTEMPTS || 2));
   let lastError = null;
 
   for (let attempt = 1; attempt <= attempts; attempt++) {
@@ -150,8 +150,8 @@ async function obtenerDocumentosBopzConTexto(fechaISO) {
   const html = await getHtml(BOPZ_PORTADA, {
     insecure: true,
     latin1: true,
-    timeout: Number(process.env.BOPZ_HTML_TIMEOUT_MS || 45000),
-    attempts: Number(process.env.BOPZ_HTML_ATTEMPTS || 2),
+    timeout: Number(process.env.BOPZ_HTML_TIMEOUT_MS || 90000),
+    attempts: Number(process.env.BOPZ_HTML_ATTEMPTS || 3),
   });
   const candidatos = extraerBopzSumario(html);
 
@@ -159,7 +159,20 @@ async function obtenerDocumentosBopzConTexto(fechaISO) {
 
   const docs = [];
   for (const doc of candidatos) {
-    const htmlDetalle = await getHtml(doc.urlHtml, { insecure: true, referer: BOPZ_PORTADA, latin1: true });
+    let htmlDetalle = '';
+    try {
+      htmlDetalle = await getHtml(doc.urlHtml, {
+        insecure: true,
+        referer: BOPZ_PORTADA,
+        latin1: true,
+        timeout: Number(process.env.BOPZ_DETAIL_TIMEOUT_MS || 45000),
+        attempts: Number(process.env.BOPZ_DETAIL_ATTEMPTS || 2),
+      });
+    } catch (error) {
+      console.warn(`[BOPZ] No se pudo leer detalle ${doc.id}: ${error.message}`);
+      continue;
+    }
+
     const texto = htmlATexto(htmlDetalle).slice(0, 15000);
     if (!esProvincialRelevante(`${doc.contexto} ${texto}`)) continue;
 

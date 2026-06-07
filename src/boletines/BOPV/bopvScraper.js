@@ -7,8 +7,8 @@
 // Disposicion HTML:
 //   https://www.euskadi.eus/web01-bopv/es/bopv2/datos/YYYY/MM/NNNNNNNa.shtml
 
-const axios = require('axios');
 const cheerio = require('cheerio');
+const { axiosGetWithRetry } = require('../../utils/httpClient');
 
 const BASE = 'https://www.euskadi.eus';
 const LISTING_URL = `${BASE}/web01-bopv/es/bopv2/datos/Ultimo.shtml`;
@@ -62,10 +62,13 @@ function fechaTextoAISO(texto) {
 }
 
 async function getHtml(url) {
-  const { data, headers } = await axios.get(url, {
+  const { data, headers } = await axiosGetWithRetry(url, {
     responseType: 'arraybuffer',
-    timeout: 15000,
+    timeout: Number(process.env.BOPV_HTTP_TIMEOUT_MS || 30000),
     headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Ruralicos/1.0)' },
+  }, {
+    attempts: Number(process.env.BOPV_HTTP_ATTEMPTS || 2),
+    allowInsecureFallback: true,
   });
 
   const contentType = String(headers['content-type'] || '').toLowerCase();

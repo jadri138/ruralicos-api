@@ -1,6 +1,6 @@
-const axios = require('axios');
 const cheerio = require('cheerio');
 const { htmlATexto } = require('../../../../utils/htmlParser');
+const { axiosGetWithRetry } = require('../../../../utils/httpClient');
 const { esProvincialRelevante } = require('../../shared/provincialFilter');
 
 const BASE = 'https://egoitza.gipuzkoa.eus';
@@ -34,13 +34,16 @@ function fechaAPath(fechaISO) {
 }
 
 async function getHtml(url) {
-  const { data } = await axios.get(url, {
-    timeout: 30000,
+  const { data } = await axiosGetWithRetry(url, {
+    timeout: Number(process.env.BOG_HTTP_TIMEOUT_MS || 45000),
     headers: {
       Accept: 'text/html,application/xhtml+xml',
       'User-Agent': 'Mozilla/5.0 (RuralicosBot/2.0)',
       Referer: PORTADA,
     },
+  }, {
+    attempts: Number(process.env.BOG_HTTP_ATTEMPTS || 2),
+    allowInsecureFallback: true,
   });
   return String(data || '');
 }

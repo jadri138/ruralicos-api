@@ -84,6 +84,18 @@ test('convierte texto libre de registro en preferencias estructuradas', () => {
   assert(resultado.conceptos.includes('incorporacion_joven'));
 });
 
+test('devuelve preferencias canonicas listas para guardar', () => {
+  const resultado = construirPreferenciasDesdeTexto(
+    'Tengo frutales, medio ambiente y quiero avisos de normativa con plazos'
+  );
+
+  assert(resultado.preferencias.sectores.includes('agricultura'));
+  assert(resultado.preferencias.subsectores.includes('frutales'));
+  assert(resultado.preferencias.subsectores.includes('medio_ambiente'));
+  assert(resultado.preferencias.tipos_alerta.normativa_general);
+  assert(resultado.preferencias.tipos_alerta.plazos);
+});
+
 test('detecta exclusiones sin mezclarlas con intereses', () => {
   const resultado = extraerTaxonomiaDeTexto('Quiero olivar y PAC, pero no quiero cursos ni licitaciones');
 

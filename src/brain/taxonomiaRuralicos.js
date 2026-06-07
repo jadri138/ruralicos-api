@@ -1,3 +1,5 @@
+const { normalizarPreferenciasUsuario } = require('../utils/preferenceCanonical');
+
 function normalizarTextoTaxonomia(value) {
   return String(value || '')
     .normalize('NFD')
@@ -50,8 +52,11 @@ function tipoAlertaDesdeItem(item = {}) {
   if (item.tipoAlerta) return item.tipoAlerta;
   if (item.id === 'concepto:ayuda_directa') return 'ayudas_subvenciones';
   if (item.id === 'concepto:plazo') return 'plazos';
-  if (item.id === 'concepto:normativa') return 'normativa';
+  if (item.id === 'concepto:normativa') return 'normativa_general';
   if (item.id === 'concepto:formacion') return 'formacion';
+  if (item.id === 'concepto:agua_riego') return 'agua_infraestructuras';
+  if (item.id === 'concepto:fiscalidad') return 'fiscalidad';
+  if (item.id === 'concepto:medio_ambiente') return 'medio_ambiente';
   if (item.id === 'tramite:licitacion') return 'licitaciones';
   return null;
 }
@@ -73,8 +78,8 @@ const TAXONOMIA_RURALICOS = [
     id: 'concepto:plazo',
     label: 'Plazo',
     featureTag: 'concepto:plazo',
-    featureRegex: /\b(plazo|hasta el|antes del|finaliza|termina|dias habiles|ultimos dias)\b/,
-    aliases: ['plazo', 'hasta el', 'dias habiles', 'ultimos dias'],
+    featureRegex: /\b(plazos?|hasta el|antes del|finaliza|termina|dias habiles|ultimos dias)\b/,
+    aliases: ['plazo', 'plazos', 'hasta el', 'dias habiles', 'ultimos dias'],
     feedbackCanonico: 'plazo',
   },
   {
@@ -133,6 +138,7 @@ const TAXONOMIA_RURALICOS = [
     aliases: ['agua', 'riego', 'regadio', 'regadios', 'pozo', 'pozos', 'comunidad de regantes', 'acequia', 'concesion de aguas'],
     feedbackCanonico: 'agua',
     sector: 'agricultura',
+    subsector: 'agua',
   },
   {
     id: 'concepto:sequia',
@@ -184,6 +190,7 @@ const TAXONOMIA_RURALICOS = [
     featureRegex: /\b(zepa|lic|natura 2000|impacto ambiental|evaluacion ambiental|biodiversidad|residuo|purin|nitratos)\b/,
     aliases: ['medio ambiente', 'medioambiental', 'ambiental', 'zepa', 'lic', 'natura 2000', 'impacto ambiental', 'evaluacion ambiental', 'biodiversidad', 'residuo', 'purin', 'purines', 'nitratos'],
     feedbackCanonico: 'medio ambiente',
+    subsector: 'medio_ambiente',
   },
   {
     id: 'concepto:energia',
@@ -191,6 +198,7 @@ const TAXONOMIA_RURALICOS = [
     featureTag: 'concepto:energia',
     featureRegex: /\b(fotovoltaica|energia|electrificacion|autoconsumo|biogas|biometano)\b/,
     aliases: ['energia', 'fotovoltaica', 'electrificacion', 'autoconsumo', 'biogas', 'biometano'],
+    subsector: 'energia',
   },
   {
     id: 'concepto:maquinaria_agricola',
@@ -278,7 +286,7 @@ const TAXONOMIA_RURALICOS = [
   { id: 'subsector:avicultura', label: 'Avicultura', featureTag: 'subsector:avicultura', aliases: ['avicultura', 'avicola', 'pollo', 'pollos', 'gallina', 'gallinas'], feedbackCanonico: 'avicultura', sector: 'ganaderia' },
   { id: 'subsector:apicultura', label: 'Apicultura', featureTag: 'subsector:apicultura', aliases: ['apicultura', 'abeja', 'abejas', 'miel'], feedbackCanonico: 'apicultura', sector: 'ganaderia' },
   { id: 'subsector:cunicultura', label: 'Cunicultura', featureTag: 'subsector:cunicultura', aliases: ['cunicultura', 'conejo', 'conejos'], feedbackCanonico: 'cunicultura', sector: 'ganaderia' },
-  { id: 'concepto:pastos', label: 'Pastos', featureTag: 'concepto:pastos', aliases: ['pasto', 'pastos', 'forraje', 'forrajes', 'pradera', 'praderas'], feedbackCanonico: 'pastos', sector: 'ganaderia' },
+  { id: 'concepto:pastos', label: 'Pastos', featureTag: 'concepto:pastos', aliases: ['pasto', 'pastos', 'forraje', 'forrajes', 'pradera', 'praderas'], feedbackCanonico: 'pastos', sector: 'ganaderia', subsector: 'forrajes' },
   { id: 'concepto:purines_estiercoles', label: 'Purines y estiercoles', featureTag: 'concepto:purines_estiercoles', aliases: ['purin', 'purines', 'estiercol', 'estiercoles', 'deyeccion', 'deyecciones'], feedbackCanonico: 'purines', sector: 'ganaderia' },
   { id: 'concepto:seguros_agrarios', label: 'Seguros agrarios', featureTag: 'concepto:seguros_agrarios', aliases: ['seguro agrario', 'seguros agrarios', 'agroseguro'], feedbackCanonico: 'seguros agrarios' },
   { id: 'concepto:ecologico', label: 'Produccion ecologica', featureTag: 'concepto:ecologico', aliases: ['ecologico', 'ecologica', 'produccion ecologica', 'agricultura ecologica'], feedbackCanonico: 'ecologico' },
@@ -507,6 +515,7 @@ function encontrarMatchesItem(textoNormalizado, item) {
         end,
         negado: detectarNegacionCercana(textoNormalizado, start),
         sector: item.sector || null,
+        subsector: item.subsector || null,
         feedback_canonico: item.feedbackCanonico || null,
         tipo_alerta: item.tipoAlerta || null,
         priority: item.priority,
@@ -570,6 +579,7 @@ function estructurarMatchesTaxonomia(matches = []) {
     positivosPorId.set(match.id, resumen);
     uniquePush(intereses, match.feedback_canonico || match.value);
     if (match.sector) uniquePush(preferencias.sectores, match.sector);
+    if (match.subsector) uniquePush(preferencias.subsectores, match.subsector);
     if (match.type === 'sector') uniquePush(preferencias.sectores, match.value);
     if (match.type === 'subsector') uniquePush(preferencias.subsectores, match.value);
     if (match.type === 'concepto') uniquePush(conceptos, match.value);
@@ -631,6 +641,7 @@ function construirPreferenciasDesdeTexto(texto, options = {}) {
     ok: resultado.matches.length > 0,
     confidence: Number((tieneIntencion ? confianzaBase : Math.max(0.25, confianzaBase - 0.12)).toFixed(2)),
     ...resultado,
+    preferencias: normalizarPreferenciasUsuario(resultado.preferencias),
   };
 }
 

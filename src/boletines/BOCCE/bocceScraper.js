@@ -11,9 +11,9 @@
 // Descarga PDF:
 //   /ceuta/component/jdownloads/finish/{id}-{mes}/{id-doc}-{slug}?Itemid=0
 
-const axios = require('axios');
 const cheerio = require('cheerio');
 const { PDFParse } = require('pdf-parse');
+const { axiosGetWithRetry } = require('../../utils/httpClient');
 
 const BASE = 'https://www.ceuta.es';
 const BOCCE_URL = `${BASE}/ceuta/bocce`;
@@ -59,9 +59,11 @@ function fechaTituloAISO(titulo) {
 }
 
 async function getHtml(url) {
-  const { data } = await axios.get(url, {
-    timeout: 15000,
+  const { data } = await axiosGetWithRetry(url, {
+    timeout: Number(process.env.BOCCE_HTML_TIMEOUT_MS || 45000),
     headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Ruralicos/1.0)' },
+  }, {
+    attempts: Number(process.env.BOCCE_HTML_ATTEMPTS || 2),
   });
   return data;
 }
@@ -130,10 +132,12 @@ async function obtenerBoletinesDelDia(fechaISO = getFechaHoyISO()) {
 async function obtenerTextoPdf(url) {
   let parser;
   try {
-    const { data } = await axios.get(url, {
+    const { data } = await axiosGetWithRetry(url, {
       responseType: 'arraybuffer',
-      timeout: 30000,
+      timeout: Number(process.env.BOCCE_PDF_TIMEOUT_MS || 60000),
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Ruralicos/1.0)' },
+    }, {
+      attempts: Number(process.env.BOCCE_PDF_ATTEMPTS || 2),
     });
 
     parser = new PDFParse({ data: Buffer.from(data) });

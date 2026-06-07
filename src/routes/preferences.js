@@ -11,6 +11,7 @@
 const { requireAuth } = require('../../authMiddleware');
 const { getPlan, validarPreferencias } = require('../config/planes');
 const { extraerPreferenciasBody, prepararPreferenciasExtra } = require('../utils/preferenciasRequest');
+const { normalizarPreferenciasUsuario } = require('../utils/preferenceCanonical');
 
 module.exports = (app, supabase) => {
 
@@ -41,7 +42,7 @@ module.exports = (app, supabase) => {
       const plan = getPlan(data.subscription);
 
       return res.json({
-        preferences:        data.preferences        || {},
+        preferences:        normalizarPreferenciasUsuario(data.preferences || {}),
         preferencias_extra: plan.campo_libre ? data.preferencias_extra || null : null,
         plan: {
           nombre:            plan.nombre,
@@ -91,9 +92,10 @@ module.exports = (app, supabase) => {
 
       // 2) Aceptar body plano, { preferences: {...} }, snake_case y camelCase
       const { preferences: prefsBody, rawExtra, extraEnviado } = extraerPreferenciasBody(req.body);
+      const preferences = normalizarPreferenciasUsuario(prefsBody);
 
       // 3) Validación hard de límites
-      const validacion = validarPreferencias(subscription, prefsBody);
+      const validacion = validarPreferencias(subscription, preferences);
       if (!validacion.ok) {
         return res.status(400).json({
           error: 'Límites del plan superados',
@@ -102,16 +104,6 @@ module.exports = (app, supabase) => {
           limites: plan.limites,
         });
       }
-
-      // 4) Preparar objeto de preferences (sin preferencias_extra)
-      const preferences = {
-        provincias:   Array.isArray(prefsBody.provincias)   ? prefsBody.provincias   : [],
-        sectores:     Array.isArray(prefsBody.sectores)     ? prefsBody.sectores     : [],
-        subsectores:  Array.isArray(prefsBody.subsectores)  ? prefsBody.subsectores  : [],
-        tipos_alerta: prefsBody.tipos_alerta && typeof prefsBody.tipos_alerta === 'object'
-          ? prefsBody.tipos_alerta
-          : {},
-      };
 
       // 5) Preparar actualización
       const updateData = { preferences };
