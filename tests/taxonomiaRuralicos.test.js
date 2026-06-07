@@ -96,5 +96,35 @@ test('detecta exclusiones sin mezclarlas con intereses', () => {
   assert(resultado.exclusiones.temas.includes('licitacion'));
 });
 
+test('separa negaciones largas con matices posteriores', () => {
+  const resultado = extraerTaxonomiaDeTexto(
+    'No quiero cursos ni licitaciones, aunque si me interesan jornadas tecnicas de olivar si son subvencionadas.'
+  );
+
+  assert(resultado.exclusiones.tags.includes('concepto:formacion'));
+  assert(resultado.exclusiones.tags.includes('tramite:licitacion'));
+  assert(resultado.intereses.includes('formacion'));
+  assert(resultado.intereses.includes('olivar'));
+  assert(resultado.conflictos.some((item) => item.id === 'concepto:formacion'));
+});
+
+test('evita falsos positivos rurales frecuentes', () => {
+  const texto = 'contrato de obras del ayuntamiento. ley general. pago de tasas. curso fluvial. vino de honor.';
+  const resultado = extraerTaxonomiaDeTexto(texto);
+  const features = extraerFeatureTagsDeTexto(texto);
+
+  assert(!resultado.matches.some((match) => match.id === 'tramite:licitacion'));
+  assert(!resultado.matches.some((match) => match.id === 'concepto:infraestructura'));
+  assert(!resultado.matches.some((match) => match.id === 'concepto:normativa'));
+  assert(!resultado.matches.some((match) => match.id === 'concepto:ayuda_directa'));
+  assert(!resultado.matches.some((match) => match.id === 'concepto:formacion'));
+  assert(!resultado.matches.some((match) => match.id === 'subsector:vinedo'));
+  assert(!features.includes('tramite:licitacion'));
+  assert(!features.includes('concepto:normativa'));
+  assert(!features.includes('concepto:ayuda_directa'));
+  assert(!features.includes('concepto:formacion'));
+  assert(!features.includes('subsector:vinedo'));
+});
+
 console.log(`\nResultados taxonomiaRuralicos: ${passed} aprobados, ${failed} fallidos`);
 if (failed > 0) process.exit(1);

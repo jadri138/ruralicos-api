@@ -29,6 +29,9 @@ function regexAliasGlobal(alias) {
 
 const NEGACION_CERCA_RE = /\b(no quiero|no me interesa(?:n)?|no necesito|evitar|excluir|quitar|quita|fuera|menos|sin|ni)\b/i;
 const INTENCION_POSITIVA_RE = /\b(me interesa(?:n)?|quiero|necesito|recibir|avisos?|alertas?|sobre|busco|tengo|cultivo|cultivos|explotacion|actividad)\b/i;
+const CONECTORES_CAMBIO_INTENCION_RE = /\b(sin embargo|aun asi|eso si|pero|aunque|salvo|excepto)\b/gi;
+const SEPARADOR_FRASE_RE = /[.!?;]/g;
+const INTENCION_AFIRMATIVA_CLAUSULA_RE = /\b(si me interesa(?:n)?|si quiero|(?<!no\s)(?<!no me\s)(me interesa(?:n)?|quiero|necesito|busco|recibir|avisos?|alertas?|salvo|excepto))\b/i;
 
 function tipoTaxonomia(id = '') {
   return String(id).split(':')[0] || 'tag';
@@ -99,8 +102,9 @@ const TAXONOMIA_RURALICOS = [
     id: 'concepto:ayuda_directa',
     label: 'Ayudas y subvenciones',
     featureTag: 'concepto:ayuda_directa',
-    featureRegex: /\b(ayuda|subvencion|prima|pago|indemnizacion|convocatoria)\b/,
-    aliases: ['ayuda', 'ayudas', 'subvencion', 'subvenciones', 'subsidio', 'subsidios', 'prima', 'pago', 'convocatoria'],
+    featureRegex: /\b(ayudas?|subvencion(?:es|ada|adas|ado|ados|able|ables)?|primas?|pagos?|indemnizaciones?|convocatorias?)\b/,
+    excludeRegex: /\b(pago|pagos)\s+de\s+(tasas|impuestos|recibos|multas)\b/,
+    aliases: ['ayuda', 'ayudas', 'subvencion', 'subvenciones', 'subvencionada', 'subvencionadas', 'subvencionado', 'subvencionados', 'subvencionable', 'subvencionables', 'subsidio', 'subsidios', 'prima', 'pago', 'convocatoria'],
     feedbackCanonico: 'ayuda',
     tipoAlerta: 'ayudas_subvenciones',
   },
@@ -246,13 +250,14 @@ const TAXONOMIA_RURALICOS = [
     label: 'Licitacion',
     featureTag: 'tramite:licitacion',
     featureRegex: /\b(licitacion|contrato|contratos|adjudicacion de contrato|formalizacion de contrato|formalizacion de contratos|anuncio de formalizacion)\b/,
+    excludeRegex: /\bcontrato\s+de\s+obras?\s+(del\s+)?ayuntamiento\b/,
     aliases: ['licitacion', 'licitaciones', 'contrato', 'contratos', 'adjudicacion de contrato', 'formalizacion de contrato'],
     feedbackCanonico: 'licitacion',
   },
   { id: 'sector:agricultura', label: 'Agricultura', featureTag: 'sector:agricultura', aliases: ['agricultura', 'agricola', 'cultivo', 'cultivos'], feedbackCanonico: 'agricultura', sector: 'agricultura' },
   { id: 'sector:ganaderia', label: 'Ganaderia', featureTag: 'sector:ganaderia', aliases: ['ganaderia', 'ganadero', 'ganadera', 'explotacion ganadera'], feedbackCanonico: 'ganaderia', sector: 'ganaderia' },
   { id: 'subsector:olivar', label: 'Olivar', featureTag: 'subsector:olivar', aliases: ['olivar', 'olivo', 'olivos', 'aceituna', 'aceitunas'], feedbackCanonico: 'olivar', sector: 'agricultura' },
-  { id: 'subsector:vinedo', label: 'Vinedo', featureTag: 'subsector:vinedo', aliases: ['vinedo', 'vinedos', 'vino', 'uva', 'uvas', 'vid', 'vina', 'vinas', 'viticultura'], feedbackCanonico: 'vinedo', sector: 'agricultura' },
+  { id: 'subsector:vinedo', label: 'Vinedo', featureTag: 'subsector:vinedo', excludeRegex: /\bvino\s+de\s+(honor|bienvenida|recepcion)\b/, aliases: ['vinedo', 'vinedos', 'vino', 'uva', 'uvas', 'vid', 'vina', 'vinas', 'viticultura'], feedbackCanonico: 'vinedo', sector: 'agricultura' },
   { id: 'subsector:almendro', label: 'Almendro', featureTag: 'subsector:almendro', aliases: ['almendro', 'almendros', 'almendra', 'almendras'], feedbackCanonico: 'almendro', sector: 'agricultura' },
   { id: 'subsector:citricos', label: 'Citricos', featureTag: 'subsector:citricos', aliases: ['citricos', 'citrico', 'naranja', 'naranjas', 'limon', 'limones'], feedbackCanonico: 'citricos', sector: 'agricultura' },
   { id: 'subsector:cereal', label: 'Cereal', featureTag: 'subsector:cereal', aliases: ['cereal', 'cereales'], feedbackCanonico: 'cereal', sector: 'agricultura' },
@@ -277,9 +282,9 @@ const TAXONOMIA_RURALICOS = [
   { id: 'concepto:purines_estiercoles', label: 'Purines y estiercoles', featureTag: 'concepto:purines_estiercoles', aliases: ['purin', 'purines', 'estiercol', 'estiercoles', 'deyeccion', 'deyecciones'], feedbackCanonico: 'purines', sector: 'ganaderia' },
   { id: 'concepto:seguros_agrarios', label: 'Seguros agrarios', featureTag: 'concepto:seguros_agrarios', aliases: ['seguro agrario', 'seguros agrarios', 'agroseguro'], feedbackCanonico: 'seguros agrarios' },
   { id: 'concepto:ecologico', label: 'Produccion ecologica', featureTag: 'concepto:ecologico', aliases: ['ecologico', 'ecologica', 'produccion ecologica', 'agricultura ecologica'], feedbackCanonico: 'ecologico' },
-  { id: 'concepto:formacion', label: 'Cursos y formacion', featureTag: 'concepto:formacion', aliases: ['curso', 'cursos', 'formacion', 'jornada', 'jornadas'], feedbackCanonico: 'formacion' },
-  { id: 'concepto:normativa', label: 'Normativa', featureTag: 'concepto:normativa', aliases: ['normativa', 'norma', 'normas', 'ley', 'leyes', 'obligacion', 'prohibicion'], feedbackCanonico: 'normativa' },
-  { id: 'concepto:infraestructura', label: 'Infraestructuras', featureTag: 'concepto:infraestructura', aliases: ['infraestructura', 'infraestructuras', 'obra', 'obras'], feedbackCanonico: 'infraestructura' },
+  { id: 'concepto:formacion', label: 'Cursos y formacion', featureTag: 'concepto:formacion', excludeRegex: /\bcurso\s+(fluvial|de agua|del rio|hidrologico)\b/, aliases: ['curso', 'cursos', 'formacion', 'jornada', 'jornadas'], feedbackCanonico: 'formacion' },
+  { id: 'concepto:normativa', label: 'Normativa', featureTag: 'concepto:normativa', excludeRegex: /\b(ley|leyes|norma|normas|normativa)\s+general\b/, aliases: ['normativa', 'norma', 'normas', 'ley', 'leyes', 'obligacion', 'prohibicion'], feedbackCanonico: 'normativa' },
+  { id: 'concepto:infraestructura', label: 'Infraestructuras', featureTag: 'concepto:infraestructura', excludeRegex: /\bcontrato\s+de\s+obras?\s+(del\s+)?ayuntamiento\b/, aliases: ['infraestructura', 'infraestructuras', 'obra', 'obras'], feedbackCanonico: 'infraestructura' },
 ];
 
 function compilarItemTaxonomia(item) {
@@ -302,7 +307,7 @@ const TAXONOMIA_POR_ID = new Map(TAXONOMIA_INDEXADA.map((item) => [item.id, item
 
 const REGLAS_FEATURES_TAXONOMIA = TAXONOMIA_INDEXADA
   .filter((item) => item.featureTag)
-  .map((item) => [item.featureTag, item.featureRegex || item.regexBusqueda]);
+  .map((item) => [item.featureTag, item.featureRegex || item.regexBusqueda, item]);
 
 const TEMAS_FEEDBACK_RURALICOS = Object.values(TAXONOMIA_INDEXADA.reduce((acc, item) => {
   if (!item.feedbackCanonico) return acc;
@@ -357,8 +362,8 @@ function extraerFeatureTagsDeTexto(texto) {
   const normalizado = normalizarTextoTaxonomia(texto);
   const features = new Set();
 
-  for (const [tag, regex] of REGLAS_FEATURES_TAXONOMIA) {
-    if (regex.test(normalizado)) features.add(tag);
+  for (const [tag, regex, item] of REGLAS_FEATURES_TAXONOMIA) {
+    if (tieneCoincidenciaSinExclusion(normalizado, item, regex)) features.add(tag);
   }
 
   return [...features];
@@ -376,10 +381,103 @@ function aliasesTemaFeedback(canonico) {
   return found ? found.aliases : [normalizado].filter(Boolean);
 }
 
+function obtenerLimitesClausula(texto, index) {
+  const cursor = Math.max(0, Math.min(texto.length, Number(index || 0)));
+  let start = 0;
+  let end = texto.length;
+
+  SEPARADOR_FRASE_RE.lastIndex = 0;
+  let separator;
+  while ((separator = SEPARADOR_FRASE_RE.exec(texto)) !== null) {
+    if (separator.index < cursor) {
+      start = Math.max(start, separator.index + separator[0].length);
+    } else {
+      end = Math.min(end, separator.index);
+      break;
+    }
+  }
+
+  CONECTORES_CAMBIO_INTENCION_RE.lastIndex = 0;
+  let connector;
+  while ((connector = CONECTORES_CAMBIO_INTENCION_RE.exec(texto)) !== null) {
+    if (connector.index < cursor) {
+      start = Math.max(start, connector.index + connector[0].length);
+    } else {
+      end = Math.min(end, connector.index);
+      break;
+    }
+  }
+
+  return {
+    start,
+    end,
+    texto: texto.slice(start, end).trim(),
+  };
+}
+
+function clonarRegexGlobal(regex) {
+  const flags = regex.flags.includes('g') ? regex.flags : `${regex.flags}g`;
+  return new RegExp(regex.source, flags);
+}
+
+function ultimoIndiceRegex(texto, regex) {
+  const globalRegex = clonarRegexGlobal(regex);
+  let lastIndex = -1;
+  let match;
+
+  while ((match = globalRegex.exec(texto)) !== null) {
+    lastIndex = match.index;
+    if (match.index === globalRegex.lastIndex) globalRegex.lastIndex += 1;
+  }
+
+  return lastIndex;
+}
+
+function tieneCoincidenciaSinExclusion(texto, item, regex) {
+  const globalRegex = clonarRegexGlobal(regex);
+  let match;
+
+  while ((match = globalRegex.exec(texto)) !== null) {
+    const start = match.index;
+    const end = start + String(match[0] || '').length;
+    const contextStart = Math.max(0, start - 45);
+    const contexto = texto.slice(contextStart, Math.min(texto.length, end + 90));
+    if (!coincideExclusionContextual(item, contexto, start - contextStart, end - contextStart)) return true;
+    if (match.index === globalRegex.lastIndex) globalRegex.lastIndex += 1;
+  }
+
+  return false;
+}
+
 function detectarNegacionCercana(texto, startIndex) {
-  const inicio = Math.max(0, Number(startIndex || 0) - 90);
-  const previo = texto.slice(inicio, startIndex);
-  return NEGACION_CERCA_RE.test(previo);
+  const cursor = Math.max(0, Math.min(texto.length, Number(startIndex || 0)));
+  const clausula = obtenerLimitesClausula(texto, cursor);
+  const offset = Math.max(0, cursor - clausula.start);
+  const previo = clausula.texto.slice(0, offset).trim();
+  if (!previo) return false;
+  const ultimaNegacion = ultimoIndiceRegex(previo, NEGACION_CERCA_RE);
+  if (ultimaNegacion < 0) return false;
+  const ultimaAfirmacion = ultimoIndiceRegex(previo, INTENCION_AFIRMATIVA_CLAUSULA_RE);
+  return ultimaAfirmacion <= ultimaNegacion;
+}
+
+function coincideExclusionContextual(item, contexto, matchStart = null, matchEnd = null) {
+  if (!item || !item.excludeRegex) return false;
+  const reglas = Array.isArray(item.excludeRegex) ? item.excludeRegex : [item.excludeRegex].filter(Boolean);
+  return reglas.some((regex) => {
+    const globalRegex = clonarRegexGlobal(regex);
+    let match;
+
+    while ((match = globalRegex.exec(contexto)) !== null) {
+      if (!Number.isFinite(matchStart) || !Number.isFinite(matchEnd)) return true;
+      const exclusionStart = match.index;
+      const exclusionEnd = exclusionStart + String(match[0] || '').length;
+      if (exclusionStart < matchEnd && exclusionEnd > matchStart) return true;
+      if (match.index === globalRegex.lastIndex) globalRegex.lastIndex += 1;
+    }
+
+    return false;
+  });
 }
 
 function encontrarMatchesItem(textoNormalizado, item) {
@@ -392,6 +490,13 @@ function encontrarMatchesItem(textoNormalizado, item) {
       const aliasCapturado = match[2] || alias;
       const start = match.index + (match[1] ? match[1].length : 0);
       const end = start + aliasCapturado.length;
+      const contextStart = Math.max(0, start - 45);
+      const contexto = textoNormalizado.slice(contextStart, Math.min(textoNormalizado.length, end + 90));
+      if (coincideExclusionContextual(item, contexto, start - contextStart, end - contextStart)) {
+        if (match.index === regex.lastIndex) regex.lastIndex += 1;
+        continue;
+      }
+
       matches.push({
         id: item.id,
         label: item.label,
@@ -443,15 +548,26 @@ function estructurarMatchesTaxonomia(matches = []) {
     tags: [],
     temas: [],
   };
+  const positivosPorId = new Map();
+  const negativosPorId = new Map();
 
   for (const match of matches) {
-    const targetTags = match.negado ? exclusiones.tags : null;
+    const resumen = {
+      id: match.id,
+      label: match.label,
+      type: match.type,
+      value: match.value,
+      tema: match.feedback_canonico || match.value,
+    };
+
     if (match.negado) {
+      negativosPorId.set(match.id, resumen);
       uniquePush(exclusiones.tags, match.id);
       uniquePush(exclusiones.temas, match.feedback_canonico || match.value);
       continue;
     }
 
+    positivosPorId.set(match.id, resumen);
     uniquePush(intereses, match.feedback_canonico || match.value);
     if (match.sector) uniquePush(preferencias.sectores, match.sector);
     if (match.type === 'sector') uniquePush(preferencias.sectores, match.value);
@@ -461,9 +577,14 @@ function estructurarMatchesTaxonomia(matches = []) {
     if (match.type === 'accion') uniquePush(acciones, match.value);
     if (match.type === 'tramite') uniquePush(tramites, match.value);
     if (match.tipo_alerta) preferencias.tipos_alerta[match.tipo_alerta] = true;
-
-    if (targetTags) uniquePush(targetTags, match.id);
   }
+
+  const conflictos = [...positivosPorId.keys()]
+    .filter((id) => negativosPorId.has(id))
+    .map((id) => ({
+      ...positivosPorId.get(id),
+      motivo: 'aparece_como_interes_y_exclusion',
+    }));
 
   return {
     preferencias,
@@ -473,6 +594,7 @@ function estructurarMatchesTaxonomia(matches = []) {
     acciones,
     tramites,
     exclusiones,
+    conflictos,
   };
 }
 
