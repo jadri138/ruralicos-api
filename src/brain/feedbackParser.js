@@ -1,35 +1,11 @@
 const { llamarIA, parsearJSON } = require('../utils/llamarIA');
+const {
+  TEMAS_FEEDBACK_RURALICOS,
+  aliasesTemaFeedback,
+  temaCanonicoTaxonomia,
+} = require('./taxonomiaRuralicos');
 
-const TEMAS_AGRARIOS = [
-  { canonico: 'pac', aliases: ['pac', 'politica agraria comun'] },
-  { canonico: 'olivar', aliases: ['olivar', 'olivo', 'olivos', 'aceituna', 'aceitunas'] },
-  { canonico: 'porcino', aliases: ['porcino', 'cerdo', 'cerdos', 'cochino', 'cochinos'] },
-  { canonico: 'vacuno', aliases: ['vacuno', 'vaca', 'vacas', 'bovino', 'bovinos'] },
-  { canonico: 'ovino', aliases: ['ovino', 'oveja', 'ovejas'] },
-  { canonico: 'caprino', aliases: ['caprino', 'cabra', 'cabras'] },
-  { canonico: 'avicultura', aliases: ['avicultura', 'avicola', 'pollo', 'pollos', 'gallina', 'gallinas'] },
-  { canonico: 'almendro', aliases: ['almendro', 'almendros', 'almendra', 'almendras'] },
-  { canonico: 'citricos', aliases: ['citricos', 'citrico', 'naranja', 'naranjas', 'limon', 'limones'] },
-  { canonico: 'vinedo', aliases: ['vinedo', 'vinedos', 'vino', 'uva', 'uvas', 'vid'] },
-  { canonico: 'trigo', aliases: ['trigo'] },
-  { canonico: 'cebada', aliases: ['cebada'] },
-  { canonico: 'maiz', aliases: ['maiz'] },
-  { canonico: 'arroz', aliases: ['arroz'] },
-  { canonico: 'agua', aliases: ['agua', 'riego', 'regadio', 'regadios', 'pozo', 'pozos'] },
-  { canonico: 'ayuda', aliases: ['ayuda', 'ayudas', 'subvencion', 'subvenciones', 'subsidio', 'subsidios'] },
-  { canonico: 'maquinaria agricola', aliases: ['maquinaria agricola', 'maquinaria', 'maquina', 'maquinas', 'tractor', 'tractores', 'apero', 'aperos'] },
-  { canonico: 'normativa', aliases: ['normativa', 'norma', 'normas', 'ley', 'leyes'] },
-  { canonico: 'medio ambiente', aliases: ['medio ambiente', 'medioambiental', 'ambiental'] },
-  { canonico: 'apicultura', aliases: ['apicultura', 'abeja', 'abejas', 'miel'] },
-  { canonico: 'forestal', aliases: ['forestal', 'monte', 'montes', 'bosque', 'bosques'] },
-  { canonico: 'patata', aliases: ['patata', 'patatas'] },
-  { canonico: 'hortalizas', aliases: ['hortaliza', 'hortalizas', 'huerta'] },
-  { canonico: 'frutal', aliases: ['frutal', 'frutales', 'fruta'] },
-  { canonico: 'trufa', aliases: ['trufa', 'trufas'] },
-  { canonico: 'leguminosa', aliases: ['leguminosa', 'leguminosas'] },
-  { canonico: 'infraestructura', aliases: ['infraestructura', 'infraestructuras', 'obra', 'obras'] },
-  { canonico: 'fiscal', aliases: ['fiscal', 'fiscalidad', 'impuesto', 'impuestos'] },
-];
+const TEMAS_AGRARIOS = TEMAS_FEEDBACK_RURALICOS;
 
 const PROVINCIAS = [
   'castellon', 'zaragoza', 'huesca', 'teruel', 'palencia', 'valladolid', 'cuenca',
@@ -61,9 +37,7 @@ function esComentarioTramiteOEspera(textoUsuario) {
 }
 
 function temaCanonico(tema) {
-  const normalizado = normalizarTexto(tema).trim();
-  const found = TEMAS_AGRARIOS.find((item) => item.aliases.includes(normalizado));
-  return found ? found.canonico : normalizado;
+  return temaCanonicoTaxonomia(tema);
 }
 
 function escapeRegex(text) {
@@ -72,8 +46,7 @@ function escapeRegex(text) {
 
 function contieneAliasTema(textoNormalizado, tema) {
   const canonico = temaCanonico(tema);
-  const item = TEMAS_AGRARIOS.find((t) => t.canonico === canonico);
-  const aliases = item ? item.aliases : [canonico];
+  const aliases = aliasesTemaFeedback(canonico);
 
   return aliases.some((alias) => {
     const escaped = escapeRegex(normalizarTexto(alias));
@@ -269,8 +242,7 @@ function extraerMencionesPosNeg(textoUsuario) {
 
   for (const tema of temas) {
     const canonico = temaCanonico(tema);
-    const item = TEMAS_AGRARIOS.find((t) => t.canonico === canonico);
-    const aliases = item ? item.aliases : [canonico];
+    const aliases = aliasesTemaFeedback(canonico);
     const apareceCercaDeNegacion = aliases.some((alias) => {
       const escaped = escapeRegex(normalizarTexto(alias));
       const temaAntesDeNegacion = new RegExp(`\\b${escaped}\\b[^.,;!?]{0,60}\\b(no me interesa(?:n)? tanto|no me interesa(?:n)?|no tanto|me interesa(?:n)? menos|no me va|no quiero|evitar|quita|quitar|fuera)\\b`, 'i');

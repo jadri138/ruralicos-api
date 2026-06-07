@@ -1,7 +1,13 @@
 {
   "permissions": {
     "allow": [
-      "WebFetch(domain:www.ibericadron.com)"
+      "WebFetch(domain:www.ibericadron.com)",
+      "WebSearch",
+      "WebFetch(domain:redpac.es)",
+      "WebFetch(domain:www.latiendadelagricultor.com)",
+      "WebFetch(domain:www.cocampo.com)",
+      "WebFetch(domain:www.elrural.com)",
+      "WebFetch(domain:subvencionesaldia.com)"
     ]
   }
 }
