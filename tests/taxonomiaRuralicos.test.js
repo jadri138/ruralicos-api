@@ -2,8 +2,11 @@ const assert = require('assert');
 const {
   aliasesTemaFeedback,
   buscarSugerenciasTaxonomia,
+  construirPreferenciasDesdeTexto,
   extraerFeatureTagsDeTexto,
+  extraerTaxonomiaDeTexto,
   temaCanonicoTaxonomia,
+  validarTaxonomiaRuralicos,
 } = require('../src/brain/taxonomiaRuralicos');
 
 let passed = 0;
@@ -52,9 +55,45 @@ test('expone aliases por tema de feedback', () => {
 });
 
 test('genera sugerencias útiles para registro', () => {
-  const sugerencias = buscarSugerenciasTaxonomia('ove');
+  const sugerencias = buscarSugerenciasTaxonomia('ove', { includeAliases: true });
   assert(sugerencias.some((item) => item.id === 'subsector:ovino'));
   assert(sugerencias.some((item) => item.feedback_canonico === 'ovino'));
+  assert(sugerencias.every((item) => Number(item.score) > 0));
+});
+
+test('valida consistencia interna de la taxonomía', () => {
+  const validacion = validarTaxonomiaRuralicos();
+  assert.strictEqual(validacion.ok, true);
+  assert(validacion.total >= 50);
+  assert(validacion.feedback_topics >= 30);
+});
+
+test('convierte texto libre de registro en preferencias estructuradas', () => {
+  const resultado = construirPreferenciasDesdeTexto(
+    'Me interesa cereal, PAC, maquinaria, jovenes agricultores, regadio y ayudas con plazo'
+  );
+
+  assert.strictEqual(resultado.ok, true);
+  assert(resultado.confidence >= 0.7);
+  assert(resultado.preferencias.sectores.includes('agricultura'));
+  assert(resultado.preferencias.subsectores.includes('cereal'));
+  assert(resultado.preferencias.tipos_alerta.ayudas_subvenciones);
+  assert(resultado.preferencias.tipos_alerta.plazos);
+  assert(resultado.conceptos.includes('pac'));
+  assert(resultado.conceptos.includes('maquinaria_agricola'));
+  assert(resultado.conceptos.includes('incorporacion_joven'));
+});
+
+test('detecta exclusiones sin mezclarlas con intereses', () => {
+  const resultado = extraerTaxonomiaDeTexto('Quiero olivar y PAC, pero no quiero cursos ni licitaciones');
+
+  assert(resultado.intereses.includes('olivar'));
+  assert(resultado.intereses.includes('pac'));
+  assert(!resultado.intereses.includes('formacion'));
+  assert(resultado.exclusiones.tags.includes('concepto:formacion'));
+  assert(resultado.exclusiones.tags.includes('tramite:licitacion'));
+  assert(resultado.exclusiones.temas.includes('formacion'));
+  assert(resultado.exclusiones.temas.includes('licitacion'));
 });
 
 console.log(`\nResultados taxonomiaRuralicos: ${passed} aprobados, ${failed} fallidos`);

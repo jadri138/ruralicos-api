@@ -21,6 +21,50 @@ function regexAliases(aliases = []) {
   return new RegExp(`(^|[^a-z0-9])(?:${patterns.join('|')})([^a-z0-9]|$)`, 'i');
 }
 
+function regexAliasGlobal(alias) {
+  const pattern = aliasPattern(alias);
+  if (!pattern) return null;
+  return new RegExp(`(^|[^a-z0-9])(${pattern})([^a-z0-9]|$)`, 'gi');
+}
+
+const NEGACION_CERCA_RE = /\b(no quiero|no me interesa(?:n)?|no necesito|evitar|excluir|quitar|quita|fuera|menos|sin|ni)\b/i;
+const INTENCION_POSITIVA_RE = /\b(me interesa(?:n)?|quiero|necesito|recibir|avisos?|alertas?|sobre|busco|tengo|cultivo|cultivos|explotacion|actividad)\b/i;
+
+function tipoTaxonomia(id = '') {
+  return String(id).split(':')[0] || 'tag';
+}
+
+function valorTaxonomia(id = '') {
+  return String(id).split(':').slice(1).join(':') || id;
+}
+
+function uniquePush(target, value) {
+  const normalized = normalizarTextoTaxonomia(value);
+  if (normalized && !target.includes(normalized)) target.push(normalized);
+}
+
+function tipoAlertaDesdeItem(item = {}) {
+  if (item.tipoAlerta) return item.tipoAlerta;
+  if (item.id === 'concepto:ayuda_directa') return 'ayudas_subvenciones';
+  if (item.id === 'concepto:plazo') return 'plazos';
+  if (item.id === 'concepto:normativa') return 'normativa';
+  if (item.id === 'concepto:formacion') return 'formacion';
+  if (item.id === 'tramite:licitacion') return 'licitaciones';
+  return null;
+}
+
+function prioridadItem(item = {}) {
+  const type = tipoTaxonomia(item.id);
+  if (Number.isFinite(Number(item.priority))) return Number(item.priority);
+  if (type === 'sector') return 40;
+  if (type === 'subsector') return 80;
+  if (type === 'concepto') return 70;
+  if (type === 'accion') return 55;
+  if (type === 'entidad') return 45;
+  if (type === 'tramite') return 35;
+  return 30;
+}
+
 const TAXONOMIA_RURALICOS = [
   {
     id: 'concepto:plazo',
@@ -238,21 +282,76 @@ const TAXONOMIA_RURALICOS = [
   { id: 'concepto:infraestructura', label: 'Infraestructuras', featureTag: 'concepto:infraestructura', aliases: ['infraestructura', 'infraestructuras', 'obra', 'obras'], feedbackCanonico: 'infraestructura' },
 ];
 
-const REGLAS_FEATURES_TAXONOMIA = TAXONOMIA_RURALICOS
-  .filter((item) => item.featureTag)
-  .map((item) => [item.featureTag, item.featureRegex || regexAliases(item.aliases)]);
+function compilarItemTaxonomia(item) {
+  const aliases = [...new Set([item.label, ...(item.aliases || [])].map(normalizarTextoTaxonomia).filter(Boolean))];
+  return {
+    ...item,
+    type: tipoTaxonomia(item.id),
+    value: valorTaxonomia(item.id),
+    aliases_normalizados: aliases,
+    aliasRegexes: aliases.map((alias) => ({ alias, regex: regexAliasGlobal(alias) })).filter((entry) => entry.regex),
+    regexBusqueda: regexAliases(aliases),
+    priority: prioridadItem(item),
+    tipoAlerta: tipoAlertaDesdeItem(item),
+  };
+}
 
-const TEMAS_FEEDBACK_RURALICOS = Object.values(TAXONOMIA_RURALICOS.reduce((acc, item) => {
+const TAXONOMIA_INDEXADA = TAXONOMIA_RURALICOS.map(compilarItemTaxonomia);
+
+const TAXONOMIA_POR_ID = new Map(TAXONOMIA_INDEXADA.map((item) => [item.id, item]));
+
+const REGLAS_FEATURES_TAXONOMIA = TAXONOMIA_INDEXADA
+  .filter((item) => item.featureTag)
+  .map((item) => [item.featureTag, item.featureRegex || item.regexBusqueda]);
+
+const TEMAS_FEEDBACK_RURALICOS = Object.values(TAXONOMIA_INDEXADA.reduce((acc, item) => {
   if (!item.feedbackCanonico) return acc;
-  const canonico = item.feedbackCanonico;
+  const canonico = normalizarTextoTaxonomia(item.feedbackCanonico);
   const actual = acc[canonico] || { canonico, aliases: [] };
-  actual.aliases.push(canonico, ...(item.aliases || []));
+  actual.aliases.push(canonico, ...item.aliases_normalizados);
   acc[canonico] = actual;
   return acc;
-}, {})).map((item) => ({
-  canonico: item.canonico,
-  aliases: [...new Set(item.aliases.map(normalizarTextoTaxonomia).filter(Boolean))],
-}));
+}, {}))
+  .map((item) => ({
+    canonico: item.canonico,
+    aliases: [...new Set(item.aliases.map(normalizarTextoTaxonomia).filter(Boolean))],
+  }))
+  .sort((a, b) => a.canonico.localeCompare(b.canonico));
+
+function validarTaxonomiaRuralicos() {
+  const errores = [];
+  const ids = new Set();
+  const featureTags = new Set();
+
+  for (const item of TAXONOMIA_INDEXADA) {
+    if (!item.id || !/^[a-z_]+:[a-z0-9_]+$/.test(item.id)) {
+      errores.push(`id_invalido:${item.id || '(vacio)'}`);
+    }
+    if (ids.has(item.id)) errores.push(`id_duplicado:${item.id}`);
+    ids.add(item.id);
+
+    if (!item.label) errores.push(`label_vacio:${item.id}`);
+    if (!Array.isArray(item.aliases) || item.aliases.length === 0) errores.push(`aliases_vacios:${item.id}`);
+
+    if (item.featureTag) {
+      if (featureTags.has(item.featureTag)) errores.push(`featureTag_duplicado:${item.featureTag}`);
+      featureTags.add(item.featureTag);
+    }
+  }
+
+  return {
+    ok: errores.length === 0,
+    errores,
+    total: TAXONOMIA_INDEXADA.length,
+    feedback_topics: TEMAS_FEEDBACK_RURALICOS.length,
+  };
+}
+
+const VALIDACION_TAXONOMIA = validarTaxonomiaRuralicos();
+
+if (!VALIDACION_TAXONOMIA.ok) {
+  throw new Error(`Taxonomia Ruralicos invalida: ${VALIDACION_TAXONOMIA.errores.join(', ')}`);
+}
 
 function extraerFeatureTagsDeTexto(texto) {
   const normalizado = normalizarTextoTaxonomia(texto);
@@ -277,38 +376,189 @@ function aliasesTemaFeedback(canonico) {
   return found ? found.aliases : [normalizado].filter(Boolean);
 }
 
-function buscarSugerenciasTaxonomia(query, limit = 8) {
+function detectarNegacionCercana(texto, startIndex) {
+  const inicio = Math.max(0, Number(startIndex || 0) - 90);
+  const previo = texto.slice(inicio, startIndex);
+  return NEGACION_CERCA_RE.test(previo);
+}
+
+function encontrarMatchesItem(textoNormalizado, item) {
+  const matches = [];
+
+  for (const { alias, regex } of item.aliasRegexes) {
+    regex.lastIndex = 0;
+    let match;
+    while ((match = regex.exec(textoNormalizado)) !== null) {
+      const aliasCapturado = match[2] || alias;
+      const start = match.index + (match[1] ? match[1].length : 0);
+      const end = start + aliasCapturado.length;
+      matches.push({
+        id: item.id,
+        label: item.label,
+        type: item.type,
+        value: item.value,
+        alias,
+        start,
+        end,
+        negado: detectarNegacionCercana(textoNormalizado, start),
+        sector: item.sector || null,
+        feedback_canonico: item.feedbackCanonico || null,
+        tipo_alerta: item.tipoAlerta || null,
+        priority: item.priority,
+      });
+
+      if (match.index === regex.lastIndex) regex.lastIndex += 1;
+    }
+  }
+
+  return matches;
+}
+
+function deduplicarMatches(matches = []) {
+  const best = new Map();
+
+  for (const match of matches) {
+    const key = `${match.id}:${match.negado ? 'negado' : 'positivo'}`;
+    const previous = best.get(key);
+    if (!previous || match.alias.length > previous.alias.length || match.priority > previous.priority) {
+      best.set(key, match);
+    }
+  }
+
+  return [...best.values()].sort((a, b) => b.priority - a.priority || a.start - b.start);
+}
+
+function estructurarMatchesTaxonomia(matches = []) {
+  const preferencias = {
+    sectores: [],
+    subsectores: [],
+    tipos_alerta: {},
+  };
+  const intereses = [];
+  const conceptos = [];
+  const entidades = [];
+  const acciones = [];
+  const tramites = [];
+  const exclusiones = {
+    tags: [],
+    temas: [],
+  };
+
+  for (const match of matches) {
+    const targetTags = match.negado ? exclusiones.tags : null;
+    if (match.negado) {
+      uniquePush(exclusiones.tags, match.id);
+      uniquePush(exclusiones.temas, match.feedback_canonico || match.value);
+      continue;
+    }
+
+    uniquePush(intereses, match.feedback_canonico || match.value);
+    if (match.sector) uniquePush(preferencias.sectores, match.sector);
+    if (match.type === 'sector') uniquePush(preferencias.sectores, match.value);
+    if (match.type === 'subsector') uniquePush(preferencias.subsectores, match.value);
+    if (match.type === 'concepto') uniquePush(conceptos, match.value);
+    if (match.type === 'entidad') uniquePush(entidades, match.value);
+    if (match.type === 'accion') uniquePush(acciones, match.value);
+    if (match.type === 'tramite') uniquePush(tramites, match.value);
+    if (match.tipo_alerta) preferencias.tipos_alerta[match.tipo_alerta] = true;
+
+    if (targetTags) uniquePush(targetTags, match.id);
+  }
+
+  return {
+    preferencias,
+    intereses,
+    conceptos,
+    entidades,
+    acciones,
+    tramites,
+    exclusiones,
+  };
+}
+
+function extraerTaxonomiaDeTexto(texto, options = {}) {
+  const textoNormalizado = normalizarTextoTaxonomia(texto);
+  const minScore = Number(options.minScore || 0);
+  if (!textoNormalizado) {
+    return {
+      texto_normalizado: '',
+      matches: [],
+      ...estructurarMatchesTaxonomia([]),
+    };
+  }
+
+  const matches = deduplicarMatches(
+    TAXONOMIA_INDEXADA.flatMap((item) => encontrarMatchesItem(textoNormalizado, item))
+  ).filter((match) => match.priority >= minScore);
+
+  return {
+    texto_normalizado: textoNormalizado,
+    matches,
+    ...estructurarMatchesTaxonomia(matches),
+  };
+}
+
+function construirPreferenciasDesdeTexto(texto, options = {}) {
+  const resultado = extraerTaxonomiaDeTexto(texto, options);
+  const confianzaBase = resultado.matches.length === 0
+    ? 0
+    : Math.min(0.95, 0.45 + Math.min(0.4, resultado.matches.length * 0.08));
+  const tieneIntencion = INTENCION_POSITIVA_RE.test(resultado.texto_normalizado);
+
+  return {
+    ok: resultado.matches.length > 0,
+    confidence: Number((tieneIntencion ? confianzaBase : Math.max(0.25, confianzaBase - 0.12)).toFixed(2)),
+    ...resultado,
+  };
+}
+
+function buscarSugerenciasTaxonomia(query, options = 8) {
+  const limit = typeof options === 'object' ? options.limit : options;
+  const type = typeof options === 'object' ? options.type : null;
+  const includeAliases = typeof options === 'object' ? options.includeAliases === true : false;
   const q = normalizarTextoTaxonomia(query);
   if (!q) return [];
 
-  return TAXONOMIA_RURALICOS
+  return TAXONOMIA_INDEXADA
+    .filter((item) => !type || item.type === type)
     .map((item) => {
-      const aliases = [item.label, ...(item.aliases || [])].map(normalizarTextoTaxonomia);
-      const exact = aliases.some((alias) => alias === q);
-      const starts = aliases.some((alias) => alias.startsWith(q));
-      const includes = aliases.some((alias) => alias.includes(q));
-      const score = exact ? 3 : starts ? 2 : includes ? 1 : 0;
-      return { item, score };
+      const exactAlias = item.aliases_normalizados.find((alias) => alias === q);
+      const startsAlias = item.aliases_normalizados.find((alias) => alias.startsWith(q));
+      const includesAlias = item.aliases_normalizados.find((alias) => alias.includes(q));
+      const score = exactAlias ? 100 : startsAlias ? 70 : includesAlias ? 35 : 0;
+      const alias = exactAlias || startsAlias || includesAlias || null;
+      return { item, alias, score: score + item.priority / 10 };
     })
     .filter((result) => result.score > 0)
     .sort((a, b) => b.score - a.score || a.item.label.localeCompare(b.item.label))
     .slice(0, Math.max(1, Number(limit) || 8))
-    .map(({ item }) => ({
+    .map(({ item, alias, score }) => ({
       id: item.id,
       label: item.label,
+      type: item.type,
       sector: item.sector || null,
       feedback_canonico: item.feedbackCanonico || null,
+      tipo_alerta: item.tipoAlerta || null,
+      score: Number(score.toFixed(2)),
+      ...(includeAliases ? { alias } : {}),
     }));
 }
 
 module.exports = {
   TAXONOMIA_RURALICOS,
+  TAXONOMIA_INDEXADA,
+  TAXONOMIA_POR_ID,
   REGLAS_FEATURES_TAXONOMIA,
   TEMAS_FEEDBACK_RURALICOS,
+  VALIDACION_TAXONOMIA,
   aliasesTemaFeedback,
   buscarSugerenciasTaxonomia,
+  construirPreferenciasDesdeTexto,
+  deduplicarMatches,
   extraerFeatureTagsDeTexto,
+  extraerTaxonomiaDeTexto,
   normalizarTextoTaxonomia,
   regexAliases,
   temaCanonicoTaxonomia,
+  validarTaxonomiaRuralicos,
 };
