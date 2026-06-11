@@ -51,11 +51,14 @@ function isRetryableError(err) {
 }
 
 async function hit(path) {
-  const url = `${BASE_URL}${path}${path.includes('?') ? '&' : '?'}token=${encodeURIComponent(CRON_TOKEN)}`;
+  const url = `${BASE_URL}${path}`;
 
   for (let attempt = 1; attempt <= HTTP_RETRIES + 1; attempt++) {
     try {
-      const res = await fetch(url, { method: 'GET' });
+      const res = await fetch(url, {
+        method: 'GET',
+        headers: { 'x-cron-token': CRON_TOKEN },
+      });
       const body = await readResponseBody(res);
 
       if (!res.ok) {

@@ -7,7 +7,16 @@
       "WebFetch(domain:www.latiendadelagricultor.com)",
       "WebFetch(domain:www.cocampo.com)",
       "WebFetch(domain:www.elrural.com)",
-      "WebFetch(domain:subvencionesaldia.com)"
+      "WebFetch(domain:subvencionesaldia.com)",
+      "Read(//c/Users/jadri/Desktop/Jaime/RURALICOS/COPIA SEGURIDAD/RURALICOS/**)",
+      "Bash(xargs ls -la)",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\jadri\\\\Desktop\\\\Jaime\\\\RURALICOS\\\\COPIA SEGURIDAD\\\\RURALICOS\\\\Ruralicos WEB\\\\actualidad-rural\" -Directory)",
+      "Bash(Select-Object Name)",
+      "Bash(dir \"c:\\\\Users\\\\jadri\\\\Desktop\\\\Jaime\\\\RURALICOS\\\\COPIA SEGURIDAD\\\\RURALICOS\\\\Ruralicos WEB\\\\actualidad-rural\")",
+      "Read(//c/Users/jadri/.claude/projects/c--Users-jadri-Desktop-Jaime-RURALICOS-COPIA-SEGURIDAD-RURALICOS-API-ruralicos-api/memory/**)"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\jadri\\.claude\\projects\\c--Users-jadri-Desktop-Jaime-RURALICOS-COPIA-SEGURIDAD-RURALICOS-API-ruralicos-api\\memory"
     ]
   }
 }

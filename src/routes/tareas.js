@@ -121,24 +121,46 @@ function getPipelineScrapePaths(options = {}) {
   return uniquePaths(paths);
 }
 
-function buildScrapeUrl(baseUrl, path, token, fechaISO) {
+function appendQuery(baseUrl, path, params) {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params || {})) {
+    if (value !== undefined && value !== null && value !== '') {
+      query.set(key, String(value));
+    }
+  }
+
+  const suffix = query.toString();
+  return suffix ? `${baseUrl}${path}${path.includes('?') ? '&' : '?'}${suffix}` : `${baseUrl}${path}`;
+}
+
+function buildCronFetchOptions(token, method = 'GET', extra = {}) {
+  return {
+    ...extra,
+    method,
+    headers: {
+      ...(extra.headers || {}),
+      'x-cron-token': token,
+    },
+  };
+}
+
+function buildScrapeUrl(baseUrl, path, fechaISO) {
   const fecha = path.startsWith('/scrape-boe-')
     ? fechaISO.replace(/-/g, '')
     : fechaISO;
-  const params = new URLSearchParams({ token, fecha });
-  return `${baseUrl}${path}${path.includes('?') ? '&' : '?'}${params.toString()}`;
+  return appendQuery(baseUrl, path, { fecha });
 }
 
-function buildComplementaryScrapeUrl(baseUrl, path, token, fechaISO, options = {}) {
+function buildComplementaryScrapeUrl(baseUrl, path, fechaISO, options = {}) {
   if (path === '/scrape-fega-beneficiarios') {
-    const params = new URLSearchParams({ token });
-    if (options.ejercicio) params.set('ejercicio', String(options.ejercicio));
-    if (options.enviarFega) params.set('enviar', 'true');
-    if (options.detectar === false) params.set('detectar', 'false');
-    return `${baseUrl}${path}${path.includes('?') ? '&' : '?'}${params.toString()}`;
+    return appendQuery(baseUrl, path, {
+      ejercicio: options.ejercicio || null,
+      enviar: options.enviarFega ? 'true' : null,
+      detectar: options.detectar === false ? 'false' : null,
+    });
   }
 
-  return buildScrapeUrl(baseUrl, path, token, fechaISO);
+  return buildScrapeUrl(baseUrl, path, fechaISO);
 }
 
 function obtenerFuenteScraper(path) {
@@ -266,8 +288,8 @@ module.exports = function tareasRoutes(app, supabase) {
 
     async function hit(path) {
       const startedAt = new Date();
-      const url = buildScrapeUrl(baseUrl, path, token, fecha);
-      const response = await fetch(url);
+      const url = buildScrapeUrl(baseUrl, path, fecha);
+      const response = await fetch(url, buildCronFetchOptions(token));
       const finishedAt = new Date();
 
       const body = await readResponseBody(response);
@@ -354,11 +376,11 @@ module.exports = function tareasRoutes(app, supabase) {
       : getFechaMadridISO();
 
     const startedAt = new Date();
-    const url = buildComplementaryScrapeUrl(baseUrl, path, token, fecha, {
+    const url = buildComplementaryScrapeUrl(baseUrl, path, fecha, {
       ejercicio: req.query.ejercicio || process.env.FEGA_EJERCICIO || null,
       enviarFega: String(req.query.enviar_fega || req.query.enviar || 'false').toLowerCase() === 'true',
     });
-    const response = await fetch(url);
+    const response = await fetch(url, buildCronFetchOptions(token));
     const finishedAt = new Date();
 
     const body = await readResponseBody(response);
@@ -419,11 +441,11 @@ module.exports = function tareasRoutes(app, supabase) {
 
     async function hit(path) {
       const startedAt = new Date();
-      const url = buildComplementaryScrapeUrl(baseUrl, path, token, fecha, {
+      const url = buildComplementaryScrapeUrl(baseUrl, path, fecha, {
         ejercicio: ejercicioFega,
         enviarFega,
       });
-      const response = await fetch(url);
+      const response = await fetch(url, buildCronFetchOptions(token));
       const finishedAt = new Date();
       const body = await readResponseBody(response);
 
@@ -547,13 +569,12 @@ module.exports = function tareasRoutes(app, supabase) {
 
       function buildPipelineUrl(path) {
         if (scrapePaths.includes(path)) {
-          return buildComplementaryScrapeUrl(baseUrl, path, token, fecha, {
+          return buildComplementaryScrapeUrl(baseUrl, path, fecha, {
             ejercicio: ejercicioFega,
             enviarFega,
           });
         }
-        const params = new URLSearchParams({ token, fecha });
-        return `${baseUrl}${path}${path.includes('?') ? '&' : '?'}${params.toString()}`;
+        return appendQuery(baseUrl, path, { fecha });
       }
 
       async function hit(path, method = 'GET') {
@@ -561,7 +582,7 @@ module.exports = function tareasRoutes(app, supabase) {
 
         for (let attempt = 1; attempt <= httpRetries + 1; attempt++) {
           try {
-            const response = await fetch(url, { method });
+            const response = await fetch(url, buildCronFetchOptions(token, method));
             const body = await readResponseBody(response);
 
             if (!response.ok) {

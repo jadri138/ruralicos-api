@@ -140,27 +140,30 @@ assert.ok(
 );
 
 const rutasConFuenteObligatoria = {
-  'src/routes/boe.js': "fuente: 'BOE'",
-  'src/routes/boa.js': "fuente: 'BOA'",
-  'src/routes/bocyl.js': "fuente:    'BOCYL'",
-  'src/routes/boja.js': "fuente:    'BOJA'",
-  'src/routes/doe.js': "fuente: 'DOE'",
-  'src/routes/docm.js': "fuente: 'DOCM'",
-  'src/routes/borm.js': "fuente:    'BORM'",
-  'src/routes/dog.js': "fuente:    'DOG'",
-  'src/routes/dogc.js': "fuente:    'DOGC'",
-  'src/routes/dogv.js': "fuente:    'DOGV'",
-  'src/routes/bon.js': "fuente: 'BON'",
-  'src/routes/bor.js': "fuente: 'BOR'",
-  'src/routes/boib.js': "fuente: 'BOIB'",
-  'src/routes/bocant.js': "fuente: 'BOCANT'",
-  'src/routes/bopv.js': "fuente: 'BOPV'",
+  'src/routes/boe.js': 'BOE',
+  'src/routes/boa.js': 'BOA',
+  'src/routes/bocyl.js': 'BOCYL',
+  'src/routes/boja.js': 'BOJA',
+  'src/routes/doe.js': 'DOE',
+  'src/routes/docm.js': 'DOCM',
+  'src/routes/borm.js': 'BORM',
+  'src/routes/dog.js': 'DOG',
+  'src/routes/dogc.js': 'DOGC',
+  'src/routes/dogv.js': 'DOGV',
+  'src/routes/bon.js': 'BON',
+  'src/routes/bor.js': 'BOR',
+  'src/routes/boib.js': 'BOIB',
+  'src/routes/bocant.js': 'BOCANT',
+  'src/routes/bopv.js': 'BOPV',
 };
 
-for (const [file, expected] of Object.entries(rutasConFuenteObligatoria)) {
+for (const [file, fuente] of Object.entries(rutasConFuenteObligatoria)) {
   const fullPath = path.join(__dirname, '..', file);
   const contenido = fs.readFileSync(fullPath, 'utf8');
-  assert.ok(contenido.includes(expected), `${file} debe insertar ${expected}`);
+  assert.ok(
+    new RegExp(`fuente\\s*:\\s*['"]${fuente}['"]`).test(contenido),
+    `${file} debe insertar fuente: '${fuente}'`
+  );
 }
 
 const adminRoutes = fs.readFileSync(path.join(__dirname, '..', 'src/routes/admin.js'), 'utf8');
@@ -212,6 +215,13 @@ assert.ok(
   whatsappRoutes.includes("phone_verified.is.null,phone_verified.eq.true"),
   'Los envios WhatsApp masivos no deben usar telefonos marcados como no verificados'
 );
+const adminAlertStart = whatsappRoutes.indexOf('async function enviarWhatsAppAdmin');
+const adminAlertEnd = whatsappRoutes.indexOf('module.exports =', adminAlertStart);
+const adminAlertBlock = whatsappRoutes.slice(adminAlertStart, adminAlertEnd);
+assert.ok(
+  adminAlertBlock.includes('getAdminAlertPhones') && !adminAlertBlock.includes(".eq('subscription', 'free')"),
+  'Los avisos admin deben usar telefonos configurados, no usuarios free'
+);
 
 const digestRoutes = fs.readFileSync(path.join(__dirname, '..', 'src/routes/digest.js'), 'utf8');
 assert.ok(
@@ -231,6 +241,18 @@ assert.ok(
 assert.ok(
   feedbackRoutes.includes("app.all('/webhooks/ultramsg/feedback'"),
   'Debe existir el webhook de feedback UltraMsg'
+);
+
+const cronTokenUtils = fs.readFileSync(path.join(__dirname, '..', 'src/utils/checkCronToken.js'), 'utf8');
+assert.ok(
+  cronTokenUtils.includes('crypto.timingSafeEqual'),
+  'La comparacion del CRON_TOKEN debe evitar comparacion directa'
+);
+
+const tareasRoutes = fs.readFileSync(path.join(__dirname, '..', 'src/routes/tareas.js'), 'utf8');
+assert.ok(
+  tareasRoutes.includes("'x-cron-token': token") && !/new URLSearchParams\(\{\s*token/.test(tareasRoutes),
+  'Las llamadas internas del pipeline deben pasar CRON_TOKEN por header, no por query string'
 );
 
 console.log('Core logic checks OK');

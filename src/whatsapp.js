@@ -14,6 +14,25 @@ const { alertaCoincideConUsuario } = require('./utils/alertaMatcher');
 const ULTRAMSG_INSTANCE_ID = process.env.ULTRAMSG_INSTANCE_ID;
 const ULTRAMSG_TOKEN = process.env.ULTRAMSG_TOKEN;
 
+function parsePhoneList(value) {
+  return String(value || '')
+    .split(/[,\s;]+/g)
+    .map((phone) => phone.trim())
+    .filter(Boolean);
+}
+
+function getAdminAlertPhones(env = process.env) {
+  return Array.from(new Set([
+    ...parsePhoneList(env.ADMIN_ALERT_PHONE),
+    ...parsePhoneList(env.ADMIN_ALERT_PHONES),
+  ]));
+}
+
+function maskPhone(phone) {
+  const value = String(phone || '').trim();
+  return value ? `****${value.slice(-4)}` : null;
+}
+
 /**
  * Llama a la API de UltraMsg para mandar un mensaje.
  */
@@ -614,30 +633,11 @@ async function enviarWhatsAppAdmin(mensaje) {
     return { skipped: true, reason: 'missing_ultramsg_credentials' };
   }
 
-  const telefonos = new Set();
-  const telefonoManual = (process.env.ADMIN_ALERT_PHONE || '').trim();
-  if (telefonoManual) telefonos.add(telefonoManual);
-
-  const { data: adminsFree, error } = await supabase
-    .from('users')
-    .select('phone')
-    .eq('subscription', 'free')
-    .not('phone', 'is', null)
-    .neq('phone', '')
-    .or('phone_verified.is.null,phone_verified.eq.true');
-
-  if (error) {
-    console.error('[ADMIN ALERT] Error consultando admins free:', error.message);
-  }
-
-  for (const user of adminsFree || []) {
-    const telefono = (user.phone || '').trim();
-    if (telefono) telefonos.add(telefono);
-  }
+  const telefonos = new Set(getAdminAlertPhones());
 
   if (telefonos.size === 0) {
-    console.warn('[ADMIN ALERT] No hay telefonos admin/free, no se manda aviso');
-    return { skipped: true, reason: 'missing_admin_phones' };
+    console.warn('[ADMIN ALERT] No hay telefonos admin configurados, no se manda aviso');
+    return { skipped: true, reason: 'missing_admin_alert_phones' };
   }
 
   let enviados = 0;
@@ -655,8 +655,8 @@ async function enviarWhatsAppAdmin(mensaje) {
         error_msg: null,
       });
     } catch (err) {
-      console.error('[ADMIN ALERT] Error enviando aviso:', err.message);
-      errores.push({ phone: telefono, error: err.message });
+      console.error(`[ADMIN ALERT] Error enviando aviso a ${maskPhone(telefono)}:`, err.message);
+      errores.push({ phone: maskPhone(telefono), error: err.message });
 
       await guardarLogWhatsApp({
         phone: telefono,
@@ -667,7 +667,7 @@ async function enviarWhatsAppAdmin(mensaje) {
     }
   }
 
-  return { sent: enviados, failed: errores.length, errors: errores };
+  return { recipients: telefonos.size, sent: enviados, failed: errores.length, errors: errores };
 }
 
 module.exports = {
@@ -680,4 +680,10 @@ module.exports = {
   enviarDigestPro,           // Digest diario personalizado por usuario
   enviarWhatsAppDirecto,
   enviarWhatsAppAdmin,
+};
+
+module.exports.__testing = {
+  getAdminAlertPhones,
+  maskPhone,
+  parsePhoneList,
 };

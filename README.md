@@ -64,12 +64,13 @@ lanzar el pipeline de digest.
 
 ### Cron recomendado (pipeline completo)
 
-Todas las rutas de cron validan `?token=CRON_TOKEN`.
+Todas las rutas de cron validan `?token=CRON_TOKEN` por compatibilidad.
+Para llamadas internas o scripts propios, preferir el header `x-cron-token`.
 
 El cron recomendado es un unico golpe diario al pipeline completo:
 
-```text
-/tareas/pipeline-diario?token=...
+```bash
+curl -fsS -H "x-cron-token: $CRON_TOKEN" "$PUBLIC_BASE_URL/tareas/pipeline-diario"
 ```
 
 Ese endpoint ejecuta scrapers BOE/autonomicos, fuentes complementarias
@@ -135,6 +136,8 @@ ULTRAMSG_INSTANCE_ID=...
 ULTRAMSG_TOKEN=...
 PUBLIC_BASE_URL=...
 FRONTEND_ORIGINS=https://panel.example.com,http://localhost:5174
+ADMIN_ALERT_PHONE=34600000000
+ADMIN_ALERT_PHONES=34600000000,34600000001
 
 Webhook UltraMsg
 

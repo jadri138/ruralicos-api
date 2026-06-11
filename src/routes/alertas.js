@@ -1,5 +1,5 @@
 // src/routes/alertas.js
-const { checkCronToken } = require('../utils/checkCronToken');
+const { checkCronToken, hasCronToken } = require('../utils/checkCronToken');
 const { llamarIA, parsearJSON } = require('../utils/llamarIA');
 const { enviarWhatsAppResumen } = require('../whatsapp');
 const { getFechaMadridISO } = require('../utils/fechaMadrid');
@@ -101,16 +101,6 @@ const FICHA_IA_TEXT_FORMAT = {
     },
   },
 };
-
-function hasCronToken(req) {
-  const authHeader = String(req.get('authorization') || '');
-  const bearerToken = authHeader.toLowerCase().startsWith('bearer ')
-    ? authHeader.slice(7).trim()
-    : '';
-  const token = req.query.token || req.get('x-cron-token') || bearerToken;
-
-  return Boolean(process.env.CRON_TOKEN && token === process.env.CRON_TOKEN);
-}
 
 function requireAdminOrCron(req, res, next) {
   if (hasCronToken(req)) return next();

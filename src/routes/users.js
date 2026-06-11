@@ -1,7 +1,7 @@
 // src/routes/users.js
 const bcrypt = require('bcryptjs');
 const rateLimit = require('express-rate-limit');
-const { checkCronToken } = require('../utils/checkCronToken');
+const { checkCronToken, hasCronToken } = require('../utils/checkCronToken');
 const { normalizePhone, isPhoneValid, LONGITUD_TELEFONO } = require('../utils/phoneNormalizer');
 const { enviarWhatsAppVerificacion, enviarWhatsAppRegistro, enviarWhatsAppResetPassword } = require('../whatsapp');
 const { requireAuth, requireAdmin } = require('../../authMiddleware');
@@ -10,6 +10,35 @@ const { extraerPreferenciasBody, prepararPreferenciasExtra } = require('../utils
 const { normalizarPreferenciasUsuario } = require('../utils/preferenceCanonical');
 const { actualizarPerfilUsuarioMIASafe } = require('../brain/miaProfile');
 const { notificarCambioPlan } = require('../services/planChangeNotifier');
+
+const USER_OWNED_TABLES = [
+  'mia_actions',
+  'mia_outbox',
+  'mia_agent_cases',
+  'mia_structured_memory',
+  'mia_alert_reviews',
+  'digest_items',
+  'alerta_click_links',
+  'alerta_clicks',
+  'alerta_feedback',
+  'official_list_matches',
+  'exploration_log',
+  'user_interest_profile',
+  'user_memory',
+  'user_conversations',
+  'mia_decisions',
+  'mia_inbound_messages',
+  'webhook_events',
+  'organization_members',
+  'preferences',
+  'alertas_vistas',
+  'digests',
+];
+
+function isSupabaseAuthUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+    .test(String(value || '').trim());
+}
 
 module.exports = function usersRoutes(app, supabase) {
   const accountLimiter = rateLimit({
@@ -93,6 +122,33 @@ module.exports = function usersRoutes(app, supabase) {
     if (error && !isMissingTableError(error)) throw error;
   }
 
+  async function deleteUserOwnedRows(userId) {
+    const cleaned = [];
+    for (const table of USER_OWNED_TABLES) {
+      await deleteUserRows(table, userId);
+      cleaned.push(table);
+    }
+    return cleaned;
+  }
+
+  async function deleteSupabaseAuthUserIfPossible(userId) {
+    if (!isSupabaseAuthUuid(userId)) {
+      return { attempted: false, reason: 'non_uuid_custom_user_id' };
+    }
+
+    try {
+      const { error } = await supabase.auth.admin.deleteUser(userId);
+      if (error) {
+        console.warn('[users:delete] No se pudo borrar usuario de Supabase Auth:', error.message);
+        return { attempted: true, ok: false, error: error.message };
+      }
+      return { attempted: true, ok: true };
+    } catch (err) {
+      console.warn('[users:delete] Error borrando usuario de Supabase Auth:', err.message);
+      return { attempted: true, ok: false, error: err.message };
+    }
+  }
+
   async function selectUserRows(table, columns, userId, options = {}) {
     let query = supabase
       .from(table)
@@ -117,14 +173,14 @@ module.exports = function usersRoutes(app, supabase) {
     if ((process.env.REQUIRE_ADMIN_FOR_USER_ADMIN_ROUTES || 'true').toLowerCase() !== 'true') {
       return next();
     }
-    if (req.query.token && process.env.CRON_TOKEN && req.query.token === process.env.CRON_TOKEN) {
+    if (hasCronToken(req)) {
       return next();
     }
     return requireAdmin(req, res, next);
   }
 
   function requireOwnerPhoneOrAdminOrCron(req, res, next) {
-    if (req.query.token && process.env.CRON_TOKEN && req.query.token === process.env.CRON_TOKEN) {
+    if (hasCronToken(req)) {
       return next();
     }
 
@@ -816,16 +872,32 @@ module.exports = function usersRoutes(app, supabase) {
     const { id } = req.params;
 
     try {
-      // 1. Eliminar de supabase.auth (requiere Service Role Key)
-      const { error: deleteAuthError } = await supabase.auth.admin.deleteUser(id);
-      if (deleteAuthError) throw deleteAuthError;
+      const { data: existingUser, error: existingError } = await supabase
+        .from('users')
+        .select('id')
+        .eq('id', id)
+        .maybeSingle();
 
-      // 2. Eliminar de tabla 'users' y tablas relacionadas
-      await supabase.from('preferences').delete().eq('user_id', id);
-      await supabase.from('alertas_vistas').delete().eq('user_id', id);
-      await supabase.from('users').delete().eq('id', id);
+      if (existingError) throw existingError;
+      if (!existingUser) return res.status(404).json({ error: 'Usuario no encontrado' });
 
-      res.status(200).json({ message: 'Cuenta eliminada correctamente' });
+      const authDelete = await deleteSupabaseAuthUserIfPossible(id);
+      const tablasLimpiadas = await deleteUserOwnedRows(id);
+      const { data: deletedUser, error: deleteUserError } = await supabase
+        .from('users')
+        .delete()
+        .eq('id', id)
+        .select('id')
+        .maybeSingle();
+
+      if (deleteUserError) throw deleteUserError;
+      if (!deletedUser) return res.status(404).json({ error: 'Usuario no encontrado' });
+
+      res.status(200).json({
+        message: 'Cuenta eliminada correctamente',
+        auth_delete: authDelete,
+        tablas_limpiadas: tablasLimpiadas,
+      });
     } catch (err) {
       console.error('Error eliminando usuario:', err);
       res.status(500).json({ error: 'No se pudo eliminar la cuenta' });
@@ -1481,33 +1553,7 @@ module.exports = function usersRoutes(app, supabase) {
   app.delete('/me', requireAuth, async (req, res) => {
     try {
       const userId = req.user.sub;
-
-      const relatedTables = [
-        'preferences',
-        'alertas_vistas',
-        'digests',
-        'alerta_feedback',
-        'user_interest_profile',
-        'user_memory',
-        'user_conversations',
-        'alerta_click_links',
-        'alerta_clicks',
-        'exploration_log',
-      ];
-
-      for (const table of relatedTables) {
-        const { error } = await supabase
-          .from(table)
-          .delete()
-          .eq('user_id', userId);
-
-        const missingTable =
-          error && ['42P01', '42703', 'PGRST205'].includes(error.code);
-
-        if (error && !missingTable) {
-          console.warn(`delete /me: no se pudo limpiar ${table}:`, error.message);
-        }
-      }
+      const tablasLimpiadas = await deleteUserOwnedRows(userId);
 
       const { data, error } = await supabase
         .from('users')
@@ -1525,7 +1571,11 @@ module.exports = function usersRoutes(app, supabase) {
         return res.status(404).json({ error: 'Usuario no encontrado' });
       }
 
-      return res.json({ ok: true, message: 'Cuenta eliminada correctamente' });
+      return res.json({
+        ok: true,
+        message: 'Cuenta eliminada correctamente',
+        tablas_limpiadas: tablasLimpiadas,
+      });
     } catch (err) {
       console.error('Error en DELETE /me:', err);
       return res.status(500).json({ error: 'Error interno' });
@@ -1607,4 +1657,9 @@ module.exports = function usersRoutes(app, supabase) {
       return res.status(500).json({ error: 'Error interno' });
     }
   });
+};
+
+module.exports.__testing = {
+  USER_OWNED_TABLES,
+  isSupabaseAuthUuid,
 };

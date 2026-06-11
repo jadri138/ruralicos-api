@@ -8,6 +8,7 @@ const crypto = require('crypto');
 const { supabase } = require('./supabaseClient');
 const { enviarWhatsAppTodos } = require('./whatsapp');
 const { getFechaMadridISO } = require('./utils/fechaMadrid');
+const { hasCronToken } = require('./utils/checkCronToken');
 const { requireAdmin } = require('../authMiddleware');
 
 
@@ -61,10 +62,6 @@ app.set('trust proxy', 1);
 /* ---------------------------------------------------
    PROTECCIONES DE SEGURIDAD
 --------------------------------------------------- */
-
-// Leer JSON del body (solo una vez)
-app.use(express.json({ limit: '25mb' }));
-app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 
 // Seguridad HTTP
 app.use(helmet());
@@ -170,16 +167,39 @@ const limiter = rateLimit({
   skip: (req) => {
     if (req.path === '/health') return true;
     if (hasTrustedUltraMsgWebhookToken(req)) return true;
-    const cronToken = process.env.CRON_TOKEN;
-    return Boolean(cronToken && req.query?.token && String(req.query.token) === cronToken);
+    return hasCronToken(req);
   },
 });
 
 app.use(limiter);
 
+// Leer JSON del body (solo una vez), despues de limitar peticiones.
+app.use(express.json({ limit: '25mb' }));
+app.use(express.urlencoded({ extended: true, limit: '25mb' }));
+
 // Servir archivos estáticos de la carpeta "public"
 app.use(express.static('public'));
 
+
+/* ---------------------------------------------------
+   STATS PÚBLICAS (sin auth, usadas por ruralicos.es)
+--------------------------------------------------- */
+
+app.get('/stats', async (req, res) => {
+  try {
+    const [{ count: totalUsers }, { count: totalAlertas }] = await Promise.all([
+      supabase.from('users').select('id', { count: 'exact', head: true }),
+      supabase.from('alertas').select('id', { count: 'exact', head: true }),
+    ]);
+    // Redondeamos para no exponer cifras exactas
+    const usuarios = Math.max(Math.floor((totalUsers || 0) / 10) * 10, 10);
+    const alertas  = Math.max(Math.floor((totalAlertas || 0) / 100) * 100, 100);
+    res.set('Cache-Control', 'public, max-age=3600');
+    res.json({ usuarios, alertas });
+  } catch {
+    res.json({ usuarios: 200, alertas: 7600 });
+  }
+});
 
 /* ---------------------------------------------------
    MENSAJES GENERALES

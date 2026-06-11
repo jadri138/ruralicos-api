@@ -165,8 +165,10 @@ async function hitCronPath(path) {
   }
 
   const baseUrl = getPublicBaseUrl().replace(/\/+$/, '');
-  const url = `${baseUrl}${path}${path.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`;
-  const response = await fetch(url);
+  const url = `${baseUrl}${path}`;
+  const response = await fetch(url, {
+    headers: { 'x-cron-token': token },
+  });
   const raw = await response.text();
   let body = null;
   if (raw) {
@@ -2371,14 +2373,17 @@ app.post('/admin/tareas/scrapers-diario', requireAdmin, async (req, res) => {
       }
 
       const baseUrl = String(process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
-      const replayUrl = `${baseUrl}/webhooks/ultramsg/feedback?token=${encodeURIComponent(webhookToken)}`;
+      const replayUrl = `${baseUrl}/webhooks/ultramsg/feedback`;
       const resultados = [];
 
       for (const { event, candidate } of candidatos) {
         try {
           const response = await fetch(replayUrl, {
             method: 'POST',
-            headers: { 'content-type': 'application/json' },
+            headers: {
+              'content-type': 'application/json',
+              'x-ruralicos-webhook-token': webhookToken,
+            },
             body: JSON.stringify(event.body_json || {}),
           });
           const raw = await response.text();
