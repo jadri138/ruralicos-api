@@ -49,7 +49,8 @@ function crearSupabaseMock(tablas = {}) {
         op: 'select',
         filters: [],
         patch: null,
-        select() {
+        select(columns) {
+          calls.push({ table, op: 'select', columns });
           return this;
         },
         eq(column, value) {
@@ -142,6 +143,14 @@ assert(
 
   const activa = await buscarConversacionActiva(supabaseConversaciones, 141, { fechaHoy: '2026-06-05' });
   assert(activa?.id === 11, 'Devuelve solo la conversacion activa del dia actual');
+  assert(
+    supabaseConversaciones.calls.some((call) =>
+      call.table === 'user_conversations' &&
+      call.op === 'select' &&
+      !String(call.columns || '').includes('created_at')
+    ),
+    'No pide user_conversations.created_at porque no existe en la BD real'
+  );
   assert(
     supabaseConversaciones.calls.some((call) =>
       call.table === 'user_conversations' &&

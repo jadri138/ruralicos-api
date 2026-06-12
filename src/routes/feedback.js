@@ -271,7 +271,7 @@ async function buscarConversacionActiva(supabase, userId, options = {}) {
   const fechaHoy = options.fechaHoy || getFechaMadridISO();
   const { data, error } = await supabase
     .from('user_conversations')
-    .select('id, user_id, estado, tipo, contexto_json, digest_id, abierta_at, created_at, expira_at')
+    .select('id, user_id, estado, tipo, contexto_json, digest_id, abierta_at, expira_at')
     .eq('user_id', userId)
     .eq('estado', 'activa')
     .gt('expira_at', new Date().toISOString())
