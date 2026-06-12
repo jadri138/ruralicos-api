@@ -27,7 +27,9 @@
       "Bash(git -C \"c:\\\\Users\\\\jadri\\\\Desktop\\\\Jaime\\\\RURALICOS\\\\COPIA SEGURIDAD\\\\RURALICOS\\\\API\\\\ruralicos-api\" status --short)",
       "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\jadri\\\\Desktop\\\\Jaime\\\\RURALICOS\\\\COPIA SEGURIDAD\\\\RURALICOS\\\\Ruralicos WEB\" -Recurse -Filter \"index.html\")",
       "Bash(Select-Object FullName)",
-      "Bash(Sort-Object FullName)"
+      "Bash(Sort-Object FullName)",
+      "mcp__claude_ai_Supabase__list_migrations",
+      "mcp__claude_ai_Supabase__apply_migration"
     ],
     "additionalDirectories": [
       "c:\\Users\\jadri\\.claude\\projects\\c--Users-jadri-Desktop-Jaime-RURALICOS-COPIA-SEGURIDAD-RURALICOS-API-ruralicos-api\\memory"

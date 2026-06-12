@@ -582,14 +582,43 @@ module.exports = (app, supabase) => {
       const id = normalizarOrganizationId(req.params.id);
       if (!id) return res.status(400).json({ error: 'id invalido' });
 
-      const { data, error } = await supabase
+      const [{ data, error }, membersResult] = await Promise.all([
+        supabase
         .from('users')
         .select('id, name, legal_name, first_name, phone, email, subscription, organization_id, created_at')
         .eq('organization_id', id)
-        .order('created_at', { ascending: false });
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('organization_members')
+          .select('user_id, role, status, updated_at')
+          .eq('organization_id', id),
+      ]);
 
       if (error) throw error;
-      return res.json({ ok: true, organization_id: id, users: data || [] });
+      if (membersResult.error && !isMissingTableError(membersResult.error)) {
+        console.warn('[admin:organizations] No se pudo cargar organization_members:', membersResult.error.message);
+      }
+
+      const membersByUserId = new Map(
+        (membersResult.error ? [] : membersResult.data || [])
+          .map((member) => [Number(member.user_id), member])
+      );
+      const users = (data || []).map((user) => {
+        const member = membersByUserId.get(Number(user.id));
+        return {
+          ...user,
+          member_role: member?.role || null,
+          member_status: member?.status || null,
+          member_updated_at: member?.updated_at || null,
+        };
+      });
+
+      return res.json({
+        ok: true,
+        organization_id: id,
+        users,
+        member_roles_available: !membersResult.error,
+      });
     } catch (err) {
       console.error('Error en /admin/organizations/:id/users:', err);
       return res.status(500).json({ error: err.message });
@@ -649,6 +678,58 @@ module.exports = (app, supabase) => {
       });
     } catch (err) {
       console.error('Error en POST /admin/organizations/:id/users/:userId:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete('/admin/organizations/:id/users/:userId', requireAdmin, async (req, res) => {
+    try {
+      const organizationId = normalizarOrganizationId(req.params.id);
+      const userId = Number(req.params.userId);
+      if (!organizationId) return res.status(400).json({ error: 'organization id invalido' });
+      if (!Number.isSafeInteger(userId) || userId <= 0) return res.status(400).json({ error: 'user id invalido' });
+
+      const { data: user, error: userError } = await supabase
+        .from('users')
+        .update({ organization_id: null })
+        .eq('id', userId)
+        .eq('organization_id', organizationId)
+        .select(USER_SELECT_ADMIN)
+        .maybeSingle();
+
+      if (userError) throw userError;
+      if (!user) return res.status(404).json({ error: 'Usuario no pertenece a esta organizacion' });
+
+      const memberResult = await supabase
+        .from('organization_members')
+        .update({
+          status: 'inactive',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('organization_id', organizationId)
+        .eq('user_id', userId)
+        .select('organization_id, user_id, role, status')
+        .maybeSingle();
+
+      if (memberResult.error && !isMissingTableError(memberResult.error)) {
+        console.warn('[admin:organizations] No se pudo marcar baja en organization_members:', memberResult.error.message);
+      }
+
+      await auditarAdmin(supabase, req, 'organization.user.remove', 'user', userId, organizationId, {
+        user_id: userId,
+        member_available: !memberResult.error,
+      });
+
+      return res.json({
+        ok: true,
+        organization_id: organizationId,
+        user,
+        member: memberResult.data || null,
+        member_available: !memberResult.error,
+        member_error: memberResult.error && !isMissingTableError(memberResult.error) ? memberResult.error.message : null,
+      });
+    } catch (err) {
+      console.error('Error en DELETE /admin/organizations/:id/users/:userId:', err);
       return res.status(500).json({ error: err.message });
     }
   });

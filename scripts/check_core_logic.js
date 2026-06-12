@@ -182,6 +182,14 @@ assert.ok(
   adminRoutes.includes('name: req.body?.name || req.query.name'),
   'admin dry-run digest debe resolver usuarios por id, telefono o nombre'
 );
+assert.ok(
+  adminRoutes.includes("app.get('/admin/organizations/:id/users'") &&
+  adminRoutes.includes('member_role') &&
+  adminRoutes.includes("app.post('/admin/organizations/:id/users/:userId'") &&
+  adminRoutes.includes("app.delete('/admin/organizations/:id/users/:userId'") &&
+  adminRoutes.includes('organization.user.remove'),
+  'El panel cooperativas debe soportar listado con roles, altas y bajas auditadas'
+);
 
 const indexRoutes = fs.readFileSync(path.join(__dirname, '..', 'src/index.js'), 'utf8');
 assert.ok(
