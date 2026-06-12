@@ -190,6 +190,12 @@ assert.ok(
   adminRoutes.includes('organization.user.remove'),
   'El panel cooperativas debe soportar listado con roles, altas y bajas auditadas'
 );
+assert.ok(
+  adminRoutes.includes('function leerVentanaHoras') &&
+  adminRoutes.includes('payloadVentanaHoras(timeWindow)') &&
+  (adminRoutes.match(/gte\('created_at', timeWindow\.since\)/g) || []).length >= 4,
+  'La trazabilidad MIA debe filtrar inbound, decisiones, acciones y memoria por ventana de horas'
+);
 
 const indexRoutes = fs.readFileSync(path.join(__dirname, '..', 'src/index.js'), 'utf8');
 assert.ok(

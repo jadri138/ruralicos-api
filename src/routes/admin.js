@@ -55,6 +55,19 @@ function isMissingTableError(error) {
   return error && ['42P01', '42703', 'PGRST204', 'PGRST205'].includes(error.code);
 }
 
+function leerVentanaHoras(query = {}, { maxHours = 720 } = {}) {
+  if (query.hours === undefined || query.hours === null || query.hours === '') return null;
+  const hours = Math.max(1, Math.min(maxHours, Number(query.hours) || 24));
+  return {
+    hours,
+    since: new Date(Date.now() - hours * 60 * 60 * 1000).toISOString(),
+  };
+}
+
+function payloadVentanaHoras(timeWindow) {
+  return timeWindow ? { hours: timeWindow.hours, since: timeWindow.since } : {};
+}
+
 function normalizarAdminUserId(value) {
   const id = Number(value);
   return Number.isSafeInteger(id) && id > 0 ? id : null;
@@ -1740,6 +1753,7 @@ app.post('/admin/tareas/scrapers-diario', requireAdmin, async (req, res) => {
     try {
       const limit = Math.max(1, Math.min(300, Number(req.query.limit || 100)));
       const status = req.query.status ? String(req.query.status).trim() : null;
+      const timeWindow = leerVentanaHoras(req.query);
 
       let query = supabase
         .from('mia_inbound_messages')
@@ -1748,16 +1762,17 @@ app.post('/admin/tareas/scrapers-diario', requireAdmin, async (req, res) => {
         .limit(limit);
 
       if (status) query = query.eq('status', status);
+      if (timeWindow) query = query.gte('created_at', timeWindow.since);
 
       const { data, error } = await query;
       if (error) {
         if (isMissingTableError(error)) {
-          return res.json({ ok: true, available: false, reason: 'mia_inbound_messages_no_disponible', items: [] });
+          return res.json({ ok: true, available: false, reason: 'mia_inbound_messages_no_disponible', items: [], ...payloadVentanaHoras(timeWindow) });
         }
         throw error;
       }
 
-      return res.json({ ok: true, available: true, items: data || [] });
+      return res.json({ ok: true, available: true, items: data || [], ...payloadVentanaHoras(timeWindow) });
     } catch (err) {
       console.error('Error en /admin/mia/inbound:', err);
       return res.status(500).json({ error: err.message });
@@ -1768,6 +1783,7 @@ app.post('/admin/tareas/scrapers-diario', requireAdmin, async (req, res) => {
     try {
       const limit = Math.max(1, Math.min(300, Number(req.query.limit || 100)));
       const userId = req.query.user_id ? Number(req.query.user_id) : null;
+      const timeWindow = leerVentanaHoras(req.query);
 
       let query = supabase
         .from('mia_structured_memory')
@@ -1776,16 +1792,17 @@ app.post('/admin/tareas/scrapers-diario', requireAdmin, async (req, res) => {
         .limit(limit);
 
       if (Number.isInteger(userId) && userId > 0) query = query.eq('user_id', userId);
+      if (timeWindow) query = query.gte('created_at', timeWindow.since);
 
       const { data, error } = await query;
       if (error) {
         if (isMissingTableError(error)) {
-          return res.json({ ok: true, available: false, reason: 'mia_structured_memory_no_disponible', items: [] });
+          return res.json({ ok: true, available: false, reason: 'mia_structured_memory_no_disponible', items: [], ...payloadVentanaHoras(timeWindow) });
         }
         throw error;
       }
 
-      return res.json({ ok: true, available: true, items: data || [] });
+      return res.json({ ok: true, available: true, items: data || [], ...payloadVentanaHoras(timeWindow) });
     } catch (err) {
       console.error('Error en /admin/mia/structured-memory:', err);
       return res.status(500).json({ error: err.message });
@@ -1837,6 +1854,7 @@ app.post('/admin/tareas/scrapers-diario', requireAdmin, async (req, res) => {
       const limit = Math.max(1, Math.min(300, Number(req.query.limit || 100)));
       const intent = req.query.intent ? String(req.query.intent).trim() : null;
       const userId = req.query.user_id ? Number(req.query.user_id) : null;
+      const timeWindow = leerVentanaHoras(req.query);
 
       let query = supabase
         .from('mia_decisions')
@@ -1846,16 +1864,17 @@ app.post('/admin/tareas/scrapers-diario', requireAdmin, async (req, res) => {
 
       if (intent) query = query.eq('intent', intent);
       if (Number.isInteger(userId) && userId > 0) query = query.eq('user_id', userId);
+      if (timeWindow) query = query.gte('created_at', timeWindow.since);
 
       const { data, error } = await query;
       if (error) {
         if (isMissingTableError(error)) {
-          return res.json({ ok: true, available: false, reason: 'mia_decisions_no_disponible', items: [] });
+          return res.json({ ok: true, available: false, reason: 'mia_decisions_no_disponible', items: [], ...payloadVentanaHoras(timeWindow) });
         }
         throw error;
       }
 
-      return res.json({ ok: true, available: true, items: data || [] });
+      return res.json({ ok: true, available: true, items: data || [], ...payloadVentanaHoras(timeWindow) });
     } catch (err) {
       console.error('Error en /admin/mia/decisions:', err);
       return res.status(500).json({ error: err.message });
@@ -1867,6 +1886,7 @@ app.post('/admin/tareas/scrapers-diario', requireAdmin, async (req, res) => {
       const limit = Math.max(1, Math.min(300, Number(req.query.limit || 100)));
       const status = req.query.status ? String(req.query.status).trim() : null;
       const actionType = req.query.action_type ? String(req.query.action_type).trim() : null;
+      const timeWindow = leerVentanaHoras(req.query);
 
       let query = supabase
         .from('mia_actions')
@@ -1876,16 +1896,17 @@ app.post('/admin/tareas/scrapers-diario', requireAdmin, async (req, res) => {
 
       if (status) query = query.eq('status', status);
       if (actionType) query = query.eq('action_type', actionType);
+      if (timeWindow) query = query.gte('created_at', timeWindow.since);
 
       const { data, error } = await query;
       if (error) {
         if (isMissingTableError(error)) {
-          return res.json({ ok: true, available: false, reason: 'mia_actions_no_disponible', items: [] });
+          return res.json({ ok: true, available: false, reason: 'mia_actions_no_disponible', items: [], ...payloadVentanaHoras(timeWindow) });
         }
         throw error;
       }
 
-      return res.json({ ok: true, available: true, items: data || [] });
+      return res.json({ ok: true, available: true, items: data || [], ...payloadVentanaHoras(timeWindow) });
     } catch (err) {
       console.error('Error en /admin/mia/actions:', err);
       return res.status(500).json({ error: err.message });
