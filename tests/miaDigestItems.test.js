@@ -35,6 +35,19 @@ const rows = construirDigestItems({
       motivo_seleccion_mia: 'pgvector_rpc:incluida:score_91:riesgo_bajo',
       mia_profile_score: 2.5,
       mia_profile_reasons: ['interest:ayudas_maquinaria:2.50'],
+      grupo_digest: 'Ayudas',
+      grupo_digest_key: 'ayudas',
+      relevancia_digest: 'Alta',
+      relevancia_digest_key: 'alta',
+      contexto_mia_digest: {
+        version: 'digest_context_v1',
+        motivo_usuario: 'Coincide con sector: agricultura; tipo: ayudas_subvenciones.',
+        mensaje: {
+          titulo_facil: 'Ayudas para maquinaria',
+          resumen_facil: 'Es una ayuda para maquinaria agrícola.',
+          accion_sugerida: 'Mira requisitos y plazo.',
+        },
+      },
     },
   ],
 });
@@ -58,6 +71,10 @@ assert(rows[0].tags_json.selection.score_source === 'selection_engine', 'Marca o
 assert(rows[0].tags_json.similitud === 0.82, 'Conserva similitud vectorial separada del score');
 assert(rows[0].tags_json.mia_profile_score === 2.5, 'Guarda score de perfil MIA');
 assert(rows[0].tags_json.mia_profile_reasons[0] === 'interest:ayudas_maquinaria:2.50', 'Guarda razones de perfil MIA');
+assert(rows[0].tags_json.grupo_digest === 'Ayudas', 'Guarda grupo visible del digest');
+assert(rows[0].tags_json.relevancia_digest === 'Alta', 'Guarda relevancia visible del digest');
+assert(rows[0].tags_json.contexto_mia_digest.version === 'digest_context_v1', 'Guarda contexto interno para MIA');
+assert(rows[0].tags_json.contexto_mia_digest.mensaje.accion_sugerida.includes('plazo'), 'Guarda accion interna por alerta');
 assert(/tractores/i.test(rows[0].resumen_usado), 'Guarda resumen usado para MIA');
 
 const fallbackRows = construirDigestItems({

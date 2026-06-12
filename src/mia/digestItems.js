@@ -38,6 +38,11 @@ function tagsAlerta(alerta = {}) {
     mia_profile_reasons: Array.isArray(alerta.mia_profile_reasons) ? alerta.mia_profile_reasons : [],
     mia_profile_excluded: Boolean(alerta.mia_profile_excluded),
     motivo_seleccion_mia: alerta.motivo_seleccion_mia || null,
+    grupo_digest: alerta.grupo_digest || null,
+    grupo_digest_key: alerta.grupo_digest_key || null,
+    relevancia_digest: alerta.relevancia_digest || null,
+    relevancia_digest_key: alerta.relevancia_digest_key || null,
+    contexto_mia_digest: alerta.contexto_mia_digest || null,
   };
 }
 

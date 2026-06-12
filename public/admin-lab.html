@@ -1,0 +1,893 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Ruralicos · Lab MIA Digest</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #08110d;
+      --panel: rgba(13, 31, 22, 0.86);
+      --panel-strong: rgba(18, 43, 30, 0.96);
+      --line: rgba(171, 214, 188, 0.16);
+      --line-strong: rgba(171, 214, 188, 0.34);
+      --text: #f4fff7;
+      --muted: #acc7b5;
+      --muted-2: #779681;
+      --green: #79e49b;
+      --green-2: #30b565;
+      --yellow: #ffd56a;
+      --orange: #ff9f6e;
+      --red: #ff7777;
+      --blue: #83c5ff;
+      --shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
+      --radius: 24px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      min-height: 100%;
+      background:
+        radial-gradient(circle at top left, rgba(121, 228, 155, 0.18), transparent 35rem),
+        radial-gradient(circle at top right, rgba(131, 197, 255, 0.12), transparent 30rem),
+        var(--bg);
+    }
+
+    body {
+      margin: 0;
+      min-height: 100%;
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.5;
+    }
+
+    button,
+    input,
+    select,
+    textarea {
+      font: inherit;
+    }
+
+    button {
+      border: 0;
+      cursor: pointer;
+    }
+
+    a {
+      color: var(--green);
+    }
+
+    .shell {
+      width: min(1480px, calc(100% - 28px));
+      margin: 0 auto;
+      padding: 28px 0 56px;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.65fr);
+      gap: 18px;
+      align-items: stretch;
+      margin-bottom: 18px;
+    }
+
+    .hero-card,
+    .card,
+    .result-card,
+    .alert-card,
+    .suggestion,
+    .mini-card {
+      border: 1px solid var(--line);
+      background: linear-gradient(145deg, rgba(14, 35, 24, 0.92), rgba(9, 23, 17, 0.86));
+      box-shadow: var(--shadow);
+      border-radius: var(--radius);
+    }
+
+    .hero-card {
+      padding: 30px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .hero-card::after {
+      content: "";
+      position: absolute;
+      right: -80px;
+      top: -90px;
+      width: 240px;
+      height: 240px;
+      border-radius: 50%;
+      background: rgba(121, 228, 155, 0.16);
+      filter: blur(4px);
+    }
+
+    .eyebrow {
+      color: var(--green);
+      font-size: 0.82rem;
+      font-weight: 800;
+      letter-spacing: 0.14em;
+      margin: 0 0 12px;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      font-size: clamp(2rem, 5vw, 4.2rem);
+      line-height: 0.98;
+      letter-spacing: -0.07em;
+      margin: 0 0 16px;
+      max-width: 940px;
+    }
+
+    h2,
+    h3 {
+      letter-spacing: -0.03em;
+      line-height: 1.1;
+      margin: 0;
+    }
+
+    .hero p {
+      color: var(--muted);
+      font-size: 1.02rem;
+      max-width: 820px;
+      margin: 0;
+    }
+
+    .safety-card {
+      padding: 22px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .safety-item {
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .safety-dot {
+      flex: 0 0 auto;
+      width: 11px;
+      height: 11px;
+      border-radius: 999px;
+      margin-top: 6px;
+      background: var(--green);
+      box-shadow: 0 0 0 7px rgba(121, 228, 155, 0.1);
+    }
+
+    .safety-item strong {
+      display: block;
+      margin-bottom: 2px;
+    }
+
+    .safety-item span {
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(310px, 390px) minmax(0, 1fr);
+      gap: 18px;
+      align-items: start;
+    }
+
+    .sidebar {
+      display: grid;
+      gap: 14px;
+      position: sticky;
+      top: 16px;
+    }
+
+    .card,
+    .result-card {
+      padding: 20px;
+    }
+
+    .card-title {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .card-title p {
+      color: var(--muted);
+      margin: 6px 0 0;
+      font-size: 0.92rem;
+    }
+
+    .field {
+      display: grid;
+      gap: 7px;
+      margin-bottom: 13px;
+    }
+
+    .field.inline {
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    label,
+    .label {
+      color: var(--muted);
+      font-size: 0.82rem;
+      font-weight: 750;
+    }
+
+    input,
+    textarea,
+    select {
+      width: 100%;
+      border: 1px solid var(--line-strong);
+      border-radius: 15px;
+      color: var(--text);
+      background: rgba(0, 0, 0, 0.26);
+      padding: 12px 13px;
+      outline: none;
+    }
+
+    input:focus,
+    textarea:focus {
+      border-color: rgba(121, 228, 155, 0.8);
+      box-shadow: 0 0 0 4px rgba(121, 228, 155, 0.1);
+    }
+
+    .segmented {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .segmented label,
+    .toggle-row {
+      display: flex;
+      gap: 9px;
+      align-items: center;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.035);
+      border-radius: 15px;
+      padding: 11px 12px;
+      color: var(--text);
+    }
+
+    .segmented input,
+    .toggle-row input {
+      width: auto;
+      accent-color: var(--green);
+    }
+
+    .hint {
+      color: var(--muted-2);
+      font-size: 0.82rem;
+      margin: 0;
+    }
+
+    .actions {
+      display: grid;
+      gap: 9px;
+    }
+
+    .actions.two {
+      grid-template-columns: 1fr 1fr;
+    }
+
+    .btn {
+      display: inline-flex;
+      justify-content: center;
+      align-items: center;
+      gap: 8px;
+      min-height: 45px;
+      border-radius: 15px;
+      padding: 11px 15px;
+      color: #06120b;
+      background: var(--green);
+      font-weight: 850;
+      transition: transform 0.15s ease, opacity 0.15s ease, background 0.15s ease;
+    }
+
+    .btn:hover {
+      transform: translateY(-1px);
+    }
+
+    .btn.secondary {
+      color: var(--text);
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid var(--line);
+    }
+
+    .btn.warning {
+      background: var(--yellow);
+    }
+
+    .btn.danger {
+      background: rgba(255, 119, 119, 0.15);
+      color: #ffd6d6;
+      border: 1px solid rgba(255, 119, 119, 0.28);
+    }
+
+    .btn:disabled {
+      cursor: progress;
+      opacity: 0.65;
+      transform: none;
+    }
+
+    .content {
+      display: grid;
+      gap: 18px;
+    }
+
+    .status-banner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 15px 18px;
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--muted);
+    }
+
+    .status-banner.success {
+      color: #dbffe6;
+      border-color: rgba(121, 228, 155, 0.42);
+      background: rgba(48, 181, 101, 0.12);
+    }
+
+    .status-banner.warn {
+      color: #fff1bf;
+      border-color: rgba(255, 213, 106, 0.4);
+      background: rgba(255, 213, 106, 0.1);
+    }
+
+    .status-banner.error {
+      color: #ffd3d3;
+      border-color: rgba(255, 119, 119, 0.4);
+      background: rgba(255, 119, 119, 0.11);
+    }
+
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .metric,
+    .mini-card {
+      padding: 14px;
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.035);
+      border: 1px solid var(--line);
+    }
+
+    .metric span {
+      display: block;
+      color: var(--muted-2);
+      font-size: 0.78rem;
+      font-weight: 750;
+      margin-bottom: 5px;
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 1.24rem;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .section-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    .section-head p {
+      color: var(--muted);
+      margin: 5px 0 0;
+      font-size: 0.9rem;
+    }
+
+    .message-preview,
+    pre.code {
+      margin: 0;
+      min-height: 180px;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      color: #effff4;
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      background: #07100b;
+      padding: 18px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      font-size: 0.92rem;
+      line-height: 1.55;
+    }
+
+    .message-preview.empty {
+      color: var(--muted-2);
+      display: grid;
+      place-items: center;
+      text-align: center;
+      font-family: inherit;
+    }
+
+    .alerts-container,
+    .diagnostic-container,
+    .inspector-grid,
+    .overview-grid {
+      display: grid;
+      gap: 12px;
+    }
+
+    .group {
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      padding: 14px;
+      background: rgba(0, 0, 0, 0.16);
+    }
+
+    .group-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin: 0 0 12px;
+    }
+
+    .alert-card {
+      padding: 16px;
+      box-shadow: none;
+      margin-bottom: 10px;
+    }
+
+    .alert-card:last-child {
+      margin-bottom: 0;
+    }
+
+    .alert-top {
+      display: flex;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 12px;
+    }
+
+    .alert-title {
+      display: grid;
+      gap: 5px;
+    }
+
+    .alert-title strong {
+      font-size: 1.05rem;
+    }
+
+    .alert-title small {
+      color: var(--muted-2);
+    }
+
+    .badges,
+    .chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+    }
+
+    .badge,
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      border: 1px solid var(--line);
+      color: var(--muted);
+      background: rgba(255, 255, 255, 0.04);
+      border-radius: 999px;
+      padding: 5px 9px;
+      font-size: 0.78rem;
+      font-weight: 800;
+    }
+
+    .badge.green,
+    .chip.green {
+      color: #dfffe8;
+      border-color: rgba(121, 228, 155, 0.36);
+      background: rgba(121, 228, 155, 0.1);
+    }
+
+    .badge.yellow,
+    .chip.yellow {
+      color: #fff1bf;
+      border-color: rgba(255, 213, 106, 0.36);
+      background: rgba(255, 213, 106, 0.1);
+    }
+
+    .badge.red,
+    .chip.red {
+      color: #ffd2d2;
+      border-color: rgba(255, 119, 119, 0.36);
+      background: rgba(255, 119, 119, 0.1);
+    }
+
+    .field-list {
+      display: grid;
+      gap: 9px;
+      margin-top: 10px;
+    }
+
+    .info-line {
+      display: grid;
+      gap: 3px;
+      padding: 10px 11px;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.035);
+      border: 1px solid var(--line);
+    }
+
+    .info-line span {
+      color: var(--muted-2);
+      font-size: 0.76rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .info-line strong,
+    .info-line p {
+      margin: 0;
+      color: var(--text);
+      font-weight: 650;
+    }
+
+    details {
+      margin-top: 10px;
+    }
+
+    summary {
+      color: var(--green);
+      cursor: pointer;
+      font-weight: 800;
+    }
+
+    .suggestions {
+      display: grid;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .suggestion {
+      box-shadow: none;
+      padding: 12px;
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .suggestion p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.86rem;
+    }
+
+    .suggestion strong {
+      display: block;
+      margin-bottom: 2px;
+    }
+
+    .mini-table {
+      width: 100%;
+      border-collapse: collapse;
+      overflow: hidden;
+      border-radius: 14px;
+      font-size: 0.88rem;
+    }
+
+    .mini-table th,
+    .mini-table td {
+      padding: 9px 10px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .mini-table th {
+      color: var(--muted);
+      font-size: 0.76rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .mini-table tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    .empty-note {
+      color: var(--muted-2);
+      border: 1px dashed var(--line-strong);
+      border-radius: 18px;
+      padding: 16px;
+      text-align: center;
+    }
+
+    @media (max-width: 1100px) {
+      .hero,
+      .layout {
+        grid-template-columns: 1fr;
+      }
+
+      .sidebar {
+        position: static;
+      }
+
+      .metric-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 680px) {
+      .shell {
+        width: min(100% - 18px, 1480px);
+        padding-top: 12px;
+      }
+
+      .hero-card,
+      .card,
+      .result-card {
+        padding: 16px;
+        border-radius: 19px;
+      }
+
+      .field.inline,
+      .actions.two,
+      .metric-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .alert-top,
+      .status-banner,
+      .suggestion {
+        flex-direction: column;
+        align-items: stretch;
+      }
+    }
+  </style>
+  <script defer src="/assets/js/admin-lab.js"></script>
+</head>
+<body>
+  <main class="shell">
+    <section class="hero" aria-labelledby="main-title">
+      <div class="hero-card">
+        <p class="eyebrow">Ruralicos · MIA Digest Lab</p>
+        <h1 id="main-title">Panel de pruebas seguro para digests.</h1>
+        <p>
+          Sirve para ver qué WhatsApp saldría, por qué se elige cada alerta, cómo se agrupa,
+          qué entiende MIA del usuario y qué filtros dejan cosas fuera. La idea: probar con lupa
+          sin escribir en la BD y sin mandar mensajes.
+        </p>
+      </div>
+      <aside class="safety-card" aria-label="Garantías del modo prueba">
+        <div class="safety-item">
+          <i class="safety-dot" aria-hidden="true"></i>
+          <div><strong>No manda WhatsApps</strong><span>El endpoint de preview devuelve `sends: []`.</span></div>
+        </div>
+        <div class="safety-item">
+          <i class="safety-dot" aria-hidden="true"></i>
+          <div><strong>No crea digests</strong><span>No inserta en `digests`, `digest_items` ni tracking links.</span></div>
+        </div>
+        <div class="safety-item">
+          <i class="safety-dot" aria-hidden="true"></i>
+          <div><strong>Explica el porqué</strong><span>Muestra grupo, relevancia, coincidencias y contexto interno por alerta.</span></div>
+        </div>
+      </aside>
+    </section>
+
+    <section class="layout">
+      <aside class="sidebar">
+        <section class="card" aria-labelledby="config-title">
+          <div class="card-title">
+            <div>
+              <h2 id="config-title">Conexión</h2>
+              <p>El token no se guarda salvo que marques sesión.</p>
+            </div>
+            <span class="badge green">Seguro</span>
+          </div>
+
+          <div class="field">
+            <label for="apiBase">URL de la API</label>
+            <input id="apiBase" name="apiBase" autocomplete="off" placeholder="https://ruralicos-api.onrender.com">
+          </div>
+
+          <div class="field">
+            <span class="label">Tipo de acceso</span>
+            <div class="segmented" role="radiogroup" aria-label="Tipo de acceso">
+              <label><input type="radio" name="authMode" value="cron" checked> Token pruebas</label>
+              <label><input type="radio" name="authMode" value="jwt"> JWT admin</label>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="secret">Token/JWT</label>
+            <input id="secret" name="secret" type="password" autocomplete="off" placeholder="Pega aquí el token">
+            <p id="tokenHelp" class="hint">Modo recomendado: token de pruebas para `/alertas/preview-digest`.</p>
+          </div>
+
+          <label class="toggle-row">
+            <input id="rememberSecret" type="checkbox">
+            Guardar solo en esta pestaña
+          </label>
+        </section>
+
+        <section class="card" aria-labelledby="user-title">
+          <div class="card-title">
+            <div>
+              <h2 id="user-title">Usuario</h2>
+              <p>Puedes usar ID, teléfono o nombre.</p>
+            </div>
+          </div>
+
+          <div class="field inline">
+            <div>
+              <label for="userId">User ID</label>
+              <input id="userId" inputmode="numeric" placeholder="123">
+            </div>
+            <div>
+              <label for="phone">Teléfono</label>
+              <input id="phone" inputmode="tel" placeholder="34600000000">
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="nameQuery">Nombre</label>
+            <input id="nameQuery" placeholder="Rubén, Jaime...">
+          </div>
+
+          <div class="actions two">
+            <button id="btnSearch" class="btn secondary" type="button">Buscar usuario</button>
+            <button id="btnClearUser" class="btn secondary" type="button">Limpiar</button>
+          </div>
+
+          <div id="suggestions" class="suggestions" aria-live="polite"></div>
+        </section>
+
+        <section class="card" aria-labelledby="controls-title">
+          <div class="card-title">
+            <div>
+              <h2 id="controls-title">Prueba</h2>
+              <p>Preview primero; diagnóstico si algo huele raro.</p>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="fecha">Fecha digest</label>
+            <input id="fecha" type="date">
+          </div>
+
+          <label class="toggle-row">
+            <input id="useRescate" type="checkbox" checked>
+            Permitir rescate semanal
+          </label>
+
+          <label class="toggle-row">
+            <input id="useIa" type="checkbox">
+            Usar IA real para redactar
+          </label>
+          <p class="hint">Sin IA usa el generador local: más rápido, gratis y suficiente para revisar filtros.</p>
+
+          <div class="actions">
+            <button id="btnPreview" class="btn" type="button">Generar preview seguro</button>
+            <button id="btnDiagnose" class="btn secondary" type="button">Ver diagnóstico de filtros</button>
+            <button id="btnOverview" class="btn secondary" type="button">Cargar estado MIA</button>
+          </div>
+        </section>
+
+        <section class="card" aria-labelledby="export-title">
+          <div class="card-title">
+            <div>
+              <h2 id="export-title">Exportar</h2>
+              <p>Útil para copiar una prueba o pasársela a alguien.</p>
+            </div>
+          </div>
+          <div class="actions two">
+            <button id="btnCopy" class="btn secondary" type="button">Copiar mensaje</button>
+            <button id="btnDownload" class="btn secondary" type="button">Descargar JSON</button>
+          </div>
+          <button id="btnClear" class="btn danger" type="button">Vaciar resultados</button>
+        </section>
+      </aside>
+
+      <section class="content">
+        <div id="statusBanner" class="status-banner">
+          <strong>Listo para probar.</strong>
+          <span>Rellena usuario + token y pulsa preview.</span>
+        </div>
+
+        <section class="result-card" aria-labelledby="metrics-title">
+          <div class="section-head">
+            <div>
+              <h2 id="metrics-title">Resumen de la prueba</h2>
+              <p>Semáforo rápido para saber si se generaría algo y por qué.</p>
+            </div>
+          </div>
+          <div id="metricGrid" class="metric-grid"></div>
+        </section>
+
+        <section class="result-card" aria-labelledby="message-title">
+          <div class="section-head">
+            <div>
+              <h2 id="message-title">WhatsApp que saldría</h2>
+              <p>Vista exacta del mensaje generado en modo prueba.</p>
+            </div>
+            <span id="messageMeta" class="badge">Sin preview</span>
+          </div>
+          <pre id="messagePreview" class="message-preview empty">Aquí aparecerá el mensaje. No se manda a nadie.</pre>
+        </section>
+
+        <section class="result-card" aria-labelledby="alerts-title">
+          <div class="section-head">
+            <div>
+              <h2 id="alerts-title">Alertas explicadas</h2>
+              <p>La parte importante: por qué esa alerta llega a ese usuario.</p>
+            </div>
+          </div>
+          <div id="alertsContainer" class="alerts-container"></div>
+        </section>
+
+        <section class="result-card" aria-labelledby="diagnostic-title">
+          <div class="section-head">
+            <div>
+              <h2 id="diagnostic-title">Diagnóstico de filtros</h2>
+              <p>Incluidas, descartadas, motivo, riesgo y calidad.</p>
+            </div>
+          </div>
+          <div id="diagnosticContainer" class="diagnostic-container"></div>
+        </section>
+
+        <section class="result-card" aria-labelledby="inspector-title">
+          <div class="section-head">
+            <div>
+              <h2 id="inspector-title">Inspector MIA del usuario</h2>
+              <p>Perfil, tags aprendidos, feedback, clicks, digests y exploraciones.</p>
+            </div>
+          </div>
+          <div id="userInspector" class="inspector-grid"></div>
+        </section>
+
+        <section class="result-card" aria-labelledby="overview-title">
+          <div class="section-head">
+            <div>
+              <h2 id="overview-title">Estado MIA / Operaciones</h2>
+              <p>Lectura rápida de salud del sistema para la fecha elegida.</p>
+            </div>
+          </div>
+          <div id="overviewBox" class="overview-grid"></div>
+        </section>
+
+        <section class="result-card" aria-labelledby="raw-title">
+          <div class="section-head">
+            <div>
+              <h2 id="raw-title">JSON bruto</h2>
+              <p>Para depurar sin perder ningún campo interno.</p>
+            </div>
+          </div>
+          <pre id="rawJson" class="code">{}</pre>
+        </section>
+      </section>
+    </section>
+  </main>
+</body>
+</html>

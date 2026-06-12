@@ -171,6 +171,33 @@ assert.ok(
   adminRoutes.includes("? 'pendiente_revisar'"),
   'admin reprocesar fase=revisar debe usar pendiente_revisar'
 );
+assert.ok(
+  adminRoutes.includes('/alertas/preview-digest?') &&
+  adminRoutes.includes("app.post('/admin/mia/dry-run-digest'"),
+  'admin dry-run digest debe usar preview seguro sin crear digest'
+);
+assert.ok(
+  adminRoutes.includes('resolverUsuarioAdminDigest') &&
+  adminRoutes.includes('phone: req.body?.phone || req.query.phone') &&
+  adminRoutes.includes('name: req.body?.name || req.query.name'),
+  'admin dry-run digest debe resolver usuarios por id, telefono o nombre'
+);
+
+const adminLabHtml = fs.readFileSync(path.join(__dirname, '..', 'public/admin-lab.html'), 'utf8');
+const adminLabJs = fs.readFileSync(path.join(__dirname, '..', 'public/assets/js/admin-lab.js'), 'utf8');
+assert.ok(
+  adminLabHtml.includes('Ruralicos · MIA Digest Lab') &&
+  adminLabHtml.includes('/assets/js/admin-lab.js') &&
+  !adminLabHtml.includes('<script>'),
+  'El lab admin debe existir y usar JS externo compatible con Helmet CSP'
+);
+assert.ok(
+  adminLabJs.includes('/alertas/preview-digest') &&
+  adminLabJs.includes('/admin/mia/dry-run-digest') &&
+  adminLabJs.includes('Preview seguro verificado') &&
+  adminLabJs.includes('contexto_mia_digest'),
+  'El lab admin debe conectar preview seguro y mostrar contexto interno MIA'
+);
 
 const indexRoutes = fs.readFileSync(path.join(__dirname, '..', 'src/index.js'), 'utf8');
 assert.ok(
@@ -198,6 +225,12 @@ assert.ok(
 assert.ok(
   alertasRoutes.includes("if (limit) query = query.limit(limit);"),
   'GET /alertas debe aceptar limit opcional sin cambiar la respuesta base'
+);
+assert.ok(
+  alertasRoutes.includes('RESUMEN_DIGEST debe sonar a humano') &&
+  alertasRoutes.includes('Evita empezar con "El boletin publica"') &&
+  alertasRoutes.includes('En sencillo:'),
+  'Las fichas IA deben generar resumenes faciles para WhatsApp'
 );
 
 const usersRoutes = fs.readFileSync(path.join(__dirname, '..', 'src/routes/users.js'), 'utf8');
@@ -235,6 +268,18 @@ assert.ok(
 assert.ok(
   digestRoutes.includes('DIGEST_RESCUE_AFTER_DAYS') &&
   digestRoutes.includes('generarMensajeDigestRescate') &&
+  digestRoutes.includes('DIGEST_RESCUE_MESSAGE_MAX_CHARS') &&
+  digestRoutes.includes('construirBloqueRescate') &&
+  digestRoutes.includes('construirResumenFacilDigest') &&
+  digestRoutes.includes('prepararAlertasFinalesDigest') &&
+  digestRoutes.includes('contexto_mia_digest') &&
+  digestRoutes.includes('agruparAlertasDigest') &&
+  digestRoutes.includes('construirPreviewDigestUsuario') &&
+  digestRoutes.includes("app.get('/alertas/preview-digest'") &&
+  digestRoutes.includes('Preview seguro: no inserta digests') &&
+  digestRoutes.includes('En sencillo:') &&
+  digestRoutes.includes('Qué miraría') &&
+  digestRoutes.includes('Por qué te la dejo') &&
   digestRoutes.includes('registrarDigestAttempt'),
   'El digest debe auditar no-envios y rescatar usuarios con silencio prolongado'
 );
@@ -243,6 +288,13 @@ assert.ok(
   digestAttempts.includes(".from('digest_attempts')") &&
   digestAttempts.includes("onConflict: 'user_id,fecha,kind'"),
   'La auditoria de digest debe persistir intentos por usuario, fecha y tipo'
+);
+const digestItems = fs.readFileSync(path.join(__dirname, '..', 'src/mia/digestItems.js'), 'utf8');
+assert.ok(
+  digestItems.includes('contexto_mia_digest') &&
+  digestItems.includes('grupo_digest') &&
+  digestItems.includes('relevancia_digest'),
+  'Los digest_items deben conservar contexto interno por alerta para MIA'
 );
 
 const feedbackRoutes = fs.readFileSync(path.join(__dirname, '..', 'src/routes/feedback.js'), 'utf8');

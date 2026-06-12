@@ -537,7 +537,7 @@ function construirMensajeFallback(alerta) {
   ) || 'sector_agrario';
   const fecha = limpiarTextoMensaje(alerta.fecha, 20) || 'El boletin no lo especifica';
   const detalle = contexto
-    ? `El boletin indica: ${contexto}`
+    ? `Dato oficial: ${contexto}`
     : 'no_detectado';
 
   return [
@@ -550,9 +550,9 @@ function construirMensajeFallback(alerta) {
     `OBJETO: ${titulo}`,
     'IMPACTO: no_detectado',
     'PLAZO: no_detectado',
-    `ACCION: leer el anuncio oficial publicado el ${fecha}`,
+    `ACCION: revisar si aparece tu explotacion, expediente o plazo publicado el ${fecha}`,
     `DETALLE: ${detalle}`,
-    `RESUMEN_DIGEST: ${contexto ? `El boletin publica: ${contexto}` : 'no_detectado'}`,
+    `RESUMEN_DIGEST: ${contexto ? `En sencillo: ${contexto}` : 'no_detectado'}`,
     `CLAVES: ${titulo}`,
   ].join('\n').slice(0, 2200).trim();
 }
@@ -650,7 +650,7 @@ function construirResumenDigestFicha({
   if (!base) return 'no_detectado';
 
   const limpio = base.replace(/^el boletin (indica|publica|recoge|dice)\s*:\s*/i, '').trim();
-  return limitarPalabras(`El boletin publica: ${limpio}`, 78, 620) || 'no_detectado';
+  return limitarPalabras(`En sencillo: ${limpio}`, 78, 620) || 'no_detectado';
 }
 
 function construirFichaIA(data = {}, alerta = {}) {
@@ -783,16 +783,17 @@ Campos por alerta:
 - plazo: fecha/plazo si aparece; si no, no_detectado
 - accion: accion recomendada en maximo 18 palabras
 - detalle: dato especifico util en maximo 34 palabras: importe, cultivo/especie, municipio, expediente, requisito, periodo, tramite, limitacion o destinatario. Si no aparece, no_detectado.
-- resumen_digest: resumen narrativo suficiente para WhatsApp en 2-4 frases cortas o 55-90 palabras. Debe dar contexto real al digest: que publica el boletin, a quien/que afecta, territorio, tramite/plazo y dato concreto si aparece.
+- resumen_digest: explicacion facil para WhatsApp en 2-4 frases cortas o 55-90 palabras. Debe traducir el boletin a lenguaje normal: que significa, a quien/que afecta, territorio, tramite/plazo y dato concreto si aparece.
 - claves: 3-8 palabras clave
 
 Reglas:
-- Lenguaje literal, seco y util para filtrado posterior.
+- Lenguaje claro, concreto y util para filtrado posterior. Sin jerga si hay forma sencilla de decirlo.
 - NO inventar datos que no esten en el texto.
 - Si un dato no aparece, usa no_detectado.
 - La ficha debe explicar lo que dice el boletin. Prohibido resolver con frases genericas como "publicacion oficial relevante", "revisa si aplica", "revisar documento oficial", "puede afectar a tu explotacion" o "determinar su aplicabilidad".
 - HECHO, DETALLE y RESUMEN_DIGEST deben salir del Texto recibido. Si el Texto no permite saber que acto se publica, pon prioridad=baja, hecho=no_detectado, impacto=no_detectado, accion=no_enviar_digest, detalle=no_detectado y resumen_digest=no_detectado.
 - RESUMEN_DIGEST no es marketing ni saludo. Es la explicacion que luego vera el usuario en el digest; tiene que poder entenderse sin abrir el PDF.
+- RESUMEN_DIGEST debe sonar a humano: "Es una ayuda...", "Cambia una norma...", "Abre un plazo...", "Publican un listado...". Evita empezar con "El boletin publica" si puedes decirlo mas claro.
 - Prioriza el contenido juridico/administrativo real frente a formulas como "Resolucion de..." o nombres de consejerias.
 - Si el texto solo anuncia exposicion publica, indica que documento/expediente se expone y a quien afecta.
 - No incluyas URL dentro de campos narrativos.
@@ -813,7 +814,7 @@ SALIDA: devuelve UNICAMENTE JSON valido con esta forma:
       "plazo": "no_detectado",
       "accion": "revisar documento oficial",
       "detalle": "dato especifico util",
-      "resumen_digest": "El boletin publica una actuacion concreta, explica a quien afecta, el territorio, el tramite o plazo y el dato util disponible.",
+      "resumen_digest": "Es una actuacion oficial concreta. Explica a quien afecta, el territorio, el tramite o plazo y el dato util disponible sin copiar la cabecera del boletin.",
       "claves": ["palabra1", "palabra2", "palabra3"]
     }
   ]
@@ -1474,7 +1475,8 @@ Reglas:
 - Si un dato no aparece, usa no_detectado.
 - HECHO debe explicar que publica el boletin, no copiar solo cabeceras del boletin.
 - DETALLE debe contener un dato concreto del texto original si existe: expediente, municipio, ayuda, requisito, periodo, beneficiario, especie, cultivo, importe o tramite.
-- RESUMEN_DIGEST debe ser 2-4 frases cortas con contexto suficiente para el digest: que publica el boletin, a quien afecta, territorio, tramite/plazo y dato concreto si aparece.
+- RESUMEN_DIGEST debe ser 2-4 frases cortas con contexto suficiente para el digest: que significa en lenguaje normal, a quien afecta, territorio, tramite/plazo y dato concreto si aparece.
+- RESUMEN_DIGEST debe sonar a humano: "Es una ayuda...", "Cambia una norma...", "Abre un plazo...", "Publican un listado...". Evita empezar con "El boletin publica" si puedes decirlo mas claro.
 - Prohibido dejar frases genericas como "publicacion oficial relevante", "revisa si aplica", "revisar documento oficial" o "determinar su aplicabilidad".
 - Si no se puede extraer el acto publicado, usa prioridad=baja, hecho=no_detectado, impacto=no_detectado, accion=no_enviar_digest, detalle=no_detectado y resumen_digest=no_detectado.
 - Mantiene etiquetas en mayusculas y una linea por campo.

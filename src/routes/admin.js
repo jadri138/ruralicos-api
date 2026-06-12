@@ -212,6 +212,65 @@ async function selectRowsByIds(supabase, table, select, ids, field = 'id') {
     .in(field, cleanIds);
 }
 
+async function resolverUsuarioAdminDigest(supabase, params = {}) {
+  const userId = normalizarAdminUserId(params.user_id);
+  const phone = params.phone ? normalizePhone(params.phone) : null;
+  const name = limpiarBusquedaUsuario(params.name || params.q);
+  const select = 'id, name, legal_name, phone, email, subscription, organization_id';
+
+  if (userId) {
+    const { data, error } = await supabase
+      .from('users')
+      .select(select)
+      .eq('id', userId)
+      .maybeSingle();
+    if (error) throw error;
+    return data ? { user: data } : { error: 'Usuario no encontrado', status: 404 };
+  }
+
+  if (phone) {
+    const { data, error } = await supabase
+      .from('users')
+      .select(select)
+      .eq('phone', phone)
+      .maybeSingle();
+    if (error) throw error;
+    return data ? { user: data } : { error: 'Usuario no encontrado', status: 404 };
+  }
+
+  if (name) {
+    const pattern = `%${escaparLike(name)}%`;
+    const { data, error } = await supabase
+      .from('users')
+      .select(select)
+      .or(`name.ilike.${pattern},legal_name.ilike.${pattern}`)
+      .order('legal_name', { ascending: true, nullsFirst: false })
+      .limit(8);
+    if (error) throw error;
+
+    const matches = data || [];
+    const exactos = matches.filter((user) =>
+      String(user.legal_name || user.name || '').trim().toLowerCase() === name.toLowerCase()
+    );
+
+    if (exactos.length === 1) return { user: exactos[0] };
+    if (matches.length === 1) return { user: matches[0] };
+    if (matches.length > 1) {
+      const suggestions = matches.map(resumenUsuarioSugerido);
+      return {
+        error: 'Hay varios usuarios con ese nombre. Elige uno por ID.',
+        status: 409,
+        suggestions,
+        ids: suggestions.map((user) => user.id),
+      };
+    }
+
+    return { error: 'Usuario no encontrado', status: 404 };
+  }
+
+  return { error: 'Indica user_id, phone o name', status: 400 };
+}
+
 // routes/admin.js
 module.exports = (app, supabase) => {
 
@@ -2662,35 +2721,40 @@ app.post('/admin/tareas/scrapers-diario', requireAdmin, async (req, res) => {
 
   app.post('/admin/mia/dry-run-digest', requireAdmin, async (req, res) => {
     try {
-      const userId = Number(req.body?.user_id || req.query.user_id);
-      if (!Number.isInteger(userId) || userId <= 0) {
-        return res.status(400).json({ error: 'Indica user_id valido' });
+      const resolved = await resolverUsuarioAdminDigest(supabase, {
+        user_id: req.body?.user_id || req.query.user_id,
+        phone: req.body?.phone || req.query.phone,
+        name: req.body?.name || req.query.name,
+        q: req.body?.q || req.query.q,
+      });
+
+      if (!resolved.user) {
+        return res.status(resolved.status || 400).json({
+          error: resolved.error || 'Usuario no encontrado',
+          ...(resolved.suggestions ? { suggestions: resolved.suggestions, ids: resolved.ids } : {}),
+        });
       }
+
+      const userId = resolved.user.id;
 
       const fecha = /^\d{4}-\d{2}-\d{2}$/.test(req.body?.fecha || req.query.fecha || '')
         ? (req.body?.fecha || req.query.fecha)
         : getFechaMadridISO();
 
-      const [diagnostico, preview] = await Promise.all([
-        hitCronPath(`/alertas/diagnosticar-digest?user_id=${encodeURIComponent(userId)}&fecha=${encodeURIComponent(fecha)}`),
-        supabase
-          .from('digests')
-          .select('id, user_id, fecha, mensaje, enviado, enviado_at, alerta_ids, created_at, error_msg')
-          .eq('user_id', userId)
-          .eq('fecha', fecha)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle(),
-      ]);
-
-      if (preview.error) throw preview.error;
+      const params = new URLSearchParams({
+        user_id: String(userId),
+        fecha,
+        ia: String(req.body?.ia ?? req.query.ia ?? false),
+        rescate: String(req.body?.rescate ?? req.query.rescate ?? true),
+      });
+      const preview = await hitCronPath(`/alertas/preview-digest?${params.toString()}`);
 
       return res.json({
         ok: true,
         fecha,
         user_id: userId,
-        digest_existente: preview.data || null,
-        diagnostico,
+        user: resumenUsuarioSugerido(resolved.user),
+        preview,
       });
     } catch (err) {
       console.error('Error en /admin/mia/dry-run-digest:', err);

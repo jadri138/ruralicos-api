@@ -21,7 +21,7 @@ const { checkCronToken }           = require('../utils/checkCronToken');
 const { llamarIA }                 = require('../utils/llamarIA');
 const { enviarDigestPro }          = require('../whatsapp');
 const { getPlan }                  = require('../config/planes');
-const { alertaCoincideConUsuario } = require('../utils/alertaMatcher');
+const { alertaCoincideConUsuario, diagnosticarAlertaUsuario } = require('../utils/alertaMatcher');
 const { fusionarAlertasUnicas }     = require('../utils/alertCandidateMerge');
 const {
   decidirAlertaParaDigest,
@@ -75,7 +75,8 @@ const DIGEST_MAX_ALERTAS_USUARIO = numeroConfig(
 const DIGEST_RESCUE_ENABLED = (process.env.DIGEST_RESCUE_ENABLED || 'true').toLowerCase() !== 'false';
 const DIGEST_RESCUE_AFTER_DAYS = numeroConfig('DIGEST_RESCUE_AFTER_DAYS', 7, 1, 30);
 const DIGEST_RESCUE_LOOKBACK_DAYS = numeroConfig('DIGEST_RESCUE_LOOKBACK_DAYS', 7, 1, 30);
-const DIGEST_RESCUE_MAX_ALERTAS = numeroConfig('DIGEST_RESCUE_MAX_ALERTAS', 3, 0, 5);
+const DIGEST_RESCUE_MAX_ALERTAS = numeroConfig('DIGEST_RESCUE_MAX_ALERTAS', 2, 0, 5);
+const DIGEST_RESCUE_MESSAGE_MAX_CHARS = numeroConfig('DIGEST_RESCUE_MESSAGE_MAX_CHARS', 1300, 800, 2200);
 const DIGEST_VECTOR_BACKFILL_MIN = Math.max(
   1,
   Math.min(DIGEST_MAX_ALERTAS_USUARIO, Number(process.env.DIGEST_VECTOR_BACKFILL_MIN || 3))
@@ -346,14 +347,14 @@ function anadirInstruccionFeedback(mensaje, alertas) {
   if (total === 0) return mensaje;
 
   const linea = total >= 2
-    ? '_Cuales te interesan? Responde con los numeros: *1*, *2*... o *ninguna*._'
-    : '_Te interesa? Responde con *1* o *ninguna*._';
+    ? '_¿Cuáles te interesan? Responde con los números: *1*, *2*... o *ninguna*._'
+    : '_¿Te interesa? Responde con *1* o *ninguna*._';
 
   const limpio = mensaje
-    .replace(/_?Cuales te han interesado\? Responde: 1, 2, ambas o ninguna\._?/gi, '')
-    .replace(/_?Te ha interesado\? Responde: 1 o ninguna\._?/gi, '')
-    .replace(/_?Cuales te interesan\? Responde con los numeros:[\s\S]*?ninguna\._?/gi, '')
-    .replace(/_?Te interesa\? Responde con \*1\* o \*ninguna\*\._?/gi, '')
+    .replace(/_?¿?Cuales te han interesado\? Responde: 1, 2, ambas o ninguna\._?/gi, '')
+    .replace(/_?¿?Te ha interesado\? Responde: 1 o ninguna\._?/gi, '')
+    .replace(/_?¿?Cu[aá]les te interesan\? Responde con los n[uú]meros:[\s\S]*?ninguna\._?/gi, '')
+    .replace(/_?¿?Te interesa\? Responde con \*1\* o \*ninguna\*\._?/gi, '')
     .trim();
 
   return `${limpio}\n\n${linea}`;
@@ -499,7 +500,295 @@ function construirResumenOficialDigest(alerta = {}, max = 320) {
 
   const base = limpiarLineaDigest(partes.filter(Boolean).join(' '), max - 22) ||
     extraerExtractoOficialDigest(alerta, max - 22);
-  return base ? `El boletin publica: ${base}` : '';
+  return base ? `Resumen oficial: ${base}` : '';
+}
+
+function construirTextoAlertaDigest(alerta = {}, extra = '') {
+  return norm([
+    alerta.titulo,
+    alerta.resumen_final,
+    alerta.resumen,
+    alerta.contenido,
+    extra,
+    ...(Array.isArray(alerta.tipos_alerta) ? alerta.tipos_alerta : []),
+    ...(Array.isArray(alerta.sectores) ? alerta.sectores : []),
+    ...(Array.isArray(alerta.subsectores) ? alerta.subsectores : []),
+  ].filter(Boolean).join(' '));
+}
+
+function construirTituloFacilDigest(alerta = {}, max = 120) {
+  const texto = construirTextoAlertaDigest(alerta);
+
+  if (/tramite administrativo.*concesion|concesion.*ayudas|conceden.*ayudas/.test(texto)) {
+    return 'Ayudas: trámite de concesión o listado del expediente';
+  }
+  if (/modifica.*orden|modificacion.*orden|se modifica/.test(texto)) {
+    return 'Cambio en una orden o ayuda agraria';
+  }
+  if (/bases reguladoras|concesion directa|de minimis/.test(texto)) {
+    return 'Nuevas bases para ayudas directas';
+  }
+  if (/informacion publica|exposicion publica|alegaciones/.test(texto)) {
+    return 'Expediente abierto a consulta o alegaciones';
+  }
+  if (/concesion.*agua|aprovechamiento.*agua|regantes|riego/.test(texto)) {
+    return 'Expediente de agua o riego';
+  }
+  if (/subsanacion|requerimiento|notificacion/.test(texto)) {
+    return 'Aviso oficial para revisar documentación';
+  }
+
+  return recortarTextoRescate(alerta.titulo || 'Alerta oficial', max);
+}
+
+function construirResumenPorPatronDigest(alerta = {}, raw = '') {
+  const texto = construirTextoAlertaDigest(alerta, raw);
+
+  if (/tramite administrativo.*concesion|concesion.*ayudas|conceden.*ayudas/.test(texto)) {
+    return 'Es un paso de una ayuda ya tramitada: publican información sobre la concesión. Te interesa sobre todo si pediste esa ayuda o puedes aparecer en el expediente.';
+  }
+  if (/modifica.*orden|modificacion.*orden|se modifica/.test(texto)) {
+    return 'Cambia una norma o convocatoria anterior. Lo importante es comprobar qué requisito, plazo, importe o condición ha cambiado.';
+  }
+  if (/bases reguladoras|concesion directa|de minimis/.test(texto)) {
+    return 'Marca las reglas de una ayuda directa: quién puede pedirla, condiciones y cómo se concede. Interesa si tu actividad encaja con el objeto de la ayuda.';
+  }
+  if (/subsanacion|requerimiento/.test(texto)) {
+    return 'Es un aviso para corregir o aportar documentación. Te interesa si solicitaste esa ayuda o apareces como titular en el expediente.';
+  }
+  if (/informacion publica|exposicion publica|alegaciones/.test(texto)) {
+    return 'Abre un periodo para consultar un expediente y presentar alegaciones. Te afecta si la zona, parcela o actividad tiene relación contigo.';
+  }
+  if (/concesion.*agua|aprovechamiento.*agua|regantes|riego/.test(texto)) {
+    return 'Es un expediente relacionado con agua o riego. Revísalo solo si tienes parcelas, derechos de agua o comunidad de regantes en esa zona.';
+  }
+  if (/sancion|expediente sancionador/.test(texto)) {
+    return 'Es un expediente sancionador o aviso administrativo. Solo suele importar si tú, tu explotación o tu expediente aparecéis en el anuncio.';
+  }
+
+  return '';
+}
+
+function construirResumenFacilDigest(alerta = {}, max = 260) {
+  const ficha = parsearFichaDigest(alerta.resumen_final || alerta.resumen || '');
+  const candidatos = [
+    ficha.resumen_digest,
+    ficha.hecho,
+    ficha.objeto,
+    ficha.impacto,
+    ficha.detalle,
+    alerta.resumen_final,
+    alerta.resumen,
+    alerta.contenido,
+  ].filter(campoDigestUtil);
+  const raw = candidatos[0] || '';
+  const resumenPorPatron = construirResumenPorPatronDigest(alerta, raw);
+
+  if (resumenPorPatron) return recortarTextoRescate(resumenPorPatron, max);
+
+  return recortarTextoRescate(raw || alerta.titulo || 'Publicación oficial rural.', max);
+}
+
+function grupoDigestAlerta(alerta = {}) {
+  const texto = construirTextoAlertaDigest(alerta);
+  const tipos = Array.isArray(alerta.tipos_alerta) ? alerta.tipos_alerta.map(norm) : [];
+
+  if (/curso|formacion|jornada|seminario|webinar|inscripcion.*curso/.test(texto) || tipos.includes('formacion')) {
+    return { key: 'cursos', label: 'Cursos y jornadas', order: 20 };
+  }
+  if (tipos.includes('ayudas_subvenciones') || /ayuda|subvencion|pac|fega|de minimis|convocatoria|concesion directa/.test(texto)) {
+    return { key: 'ayudas', label: 'Ayudas', order: 10 };
+  }
+  if (tipos.includes('agua_infraestructuras') || /agua|riego|regadio|regantes|concesion.*agua|aprovechamiento.*agua/.test(texto)) {
+    return { key: 'agua_riego', label: 'Agua y riego', order: 30 };
+  }
+  if (tipos.includes('fiscalidad') || /irpf|iva|modulos|impuesto|fiscal/.test(texto)) {
+    return { key: 'fiscalidad', label: 'Fiscalidad', order: 40 };
+  }
+  if (tipos.includes('medio_ambiente') || /medio ambiente|ambiental|residuo|vertido|forestal|incendio/.test(texto)) {
+    return { key: 'medio_ambiente', label: 'Medio ambiente', order: 50 };
+  }
+  if (/licitacion|contrato|adjudicacion/.test(texto)) {
+    return { key: 'licitaciones', label: 'Licitaciones y contratos', order: 60 };
+  }
+  if (tipos.includes('normativa_general') || /orden|decreto|resolucion|norma|bases reguladoras/.test(texto)) {
+    return { key: 'normativa', label: 'Normativa', order: 70 };
+  }
+
+  return { key: 'otros', label: 'Otros avisos', order: 90 };
+}
+
+function relevanciaDigestAlerta(alerta = {}, modoRescate = null) {
+  const prioridad = clasificarPrioridadAlerta(alerta);
+  const decisionScore = Number(alerta.decision_digest?.score);
+  const profileScore = Number(alerta.mia_profile_score);
+  const similarityScore = Number(alerta.similitud);
+
+  if (prioridad.prioridad === 'urgente') {
+    return { key: 'urgente', label: 'Urgente', order: 10, score: prioridad.score, prioridad };
+  }
+  if (Number.isFinite(decisionScore) && decisionScore >= 85) {
+    return { key: 'alta', label: 'Alta', order: 20, score: decisionScore, prioridad };
+  }
+  if (modoRescate?.tipo === 'suave' || prioridad.prioridad === 'baja') {
+    return { key: 'revision', label: 'Para revisar', order: 40, score: prioridad.score, prioridad };
+  }
+  if (Number.isFinite(profileScore) && profileScore > 0) {
+    return { key: 'media', label: 'Media', order: 30, score: profileScore, prioridad };
+  }
+  if (Number.isFinite(similarityScore) && similarityScore >= 0.65) {
+    return { key: 'media', label: 'Media', order: 30, score: similarityScore, prioridad };
+  }
+
+  return { key: 'normal', label: 'Normal', order: 30, score: prioridad.score, prioridad };
+}
+
+function valoresPrefsTiposActivos(tipos = {}) {
+  return Object.entries(tipos || {})
+    .filter(([, activo]) => activo === true)
+    .map(([tipo]) => tipo);
+}
+
+function interseccionTexto(usuario = [], alerta = []) {
+  const alertaNorm = new Set((alerta || []).map(norm).filter(Boolean));
+  return (usuario || [])
+    .filter((valor) => alertaNorm.has(norm(valor)))
+    .slice(0, 6);
+}
+
+function coincidenciasUsuarioDigest(alerta = {}, user = {}) {
+  const prefs = user.preferences || {};
+  const provinciasUsuario = Array.isArray(prefs.provincias) ? prefs.provincias : [];
+  const sectoresUsuario = Array.isArray(prefs.sectores) ? prefs.sectores : [];
+  const subsectoresUsuario = Array.isArray(prefs.subsectores) ? prefs.subsectores : [];
+  const tiposUsuario = valoresPrefsTiposActivos(prefs.tipos_alerta);
+  const provinciasAlerta = Array.isArray(alerta.provincias) ? alerta.provincias : [];
+  const sectoresAlerta = Array.isArray(alerta.sectores) ? alerta.sectores : [];
+  const subsectoresAlerta = Array.isArray(alerta.subsectores) ? alerta.subsectores : [];
+  const tiposAlerta = Array.isArray(alerta.tipos_alerta) ? alerta.tipos_alerta : [];
+  const provinciaNacional = provinciasAlerta.map(norm).some((provincia) =>
+    ['nacional', 'espana', 'españa', 'estatal', 'todas', 'todo el territorio nacional'].includes(provincia)
+  );
+
+  return {
+    provincias: provinciaNacional ? ['territorio nacional'] : interseccionTexto(provinciasUsuario, provinciasAlerta),
+    sectores: interseccionTexto(sectoresUsuario, sectoresAlerta),
+    subsectores: interseccionTexto(subsectoresUsuario, subsectoresAlerta),
+    tipos_alerta: interseccionTexto(tiposUsuario, tiposAlerta),
+  };
+}
+
+function explicarCoincidenciasDigest(coincidencias = {}, diagnostico = {}) {
+  const partes = [];
+  if (coincidencias.provincias?.length) partes.push(`zona: ${coincidencias.provincias.join(', ')}`);
+  if (coincidencias.sectores?.length) partes.push(`sector: ${coincidencias.sectores.join(', ')}`);
+  if (coincidencias.subsectores?.length) partes.push(`subsector: ${coincidencias.subsectores.join(', ')}`);
+  if (coincidencias.tipos_alerta?.length) partes.push(`tipo: ${coincidencias.tipos_alerta.join(', ')}`);
+  if (partes.length > 0) return `Coincide con ${partes.join('; ')}.`;
+  if (diagnostico.ok) return 'Pasa los filtros del perfil, aunque no hay una coincidencia textual fuerte.';
+  return `Aviso secundario: ${diagnostico.motivo || 'sin coincidencia directa'}; se conserva para revisión suave.`;
+}
+
+function construirContextoInternoDigest(alerta = {}, user = {}, options = {}) {
+  const { origenDigest = 'desconocido', modoRescate = null, fecha = null } = options;
+  const grupo = grupoDigestAlerta(alerta);
+  const relevancia = relevanciaDigestAlerta(alerta, modoRescate);
+  const ficha = parsearFichaDigest(alerta.resumen_final || alerta.resumen || '');
+  const diagnostico = diagnosticarAlertaUsuario(alerta, user);
+  const coincidencias = coincidenciasUsuarioDigest(alerta, user);
+  const tituloFacil = construirTituloFacilDigest(alerta, 140);
+  const resumenFacil = construirResumenFacilDigest(alerta, 320);
+  const accion = construirAccionRescate(alerta, modoRescate ? modoRescate.tipo : 'directo');
+  const porque = explicarCoincidenciasDigest(coincidencias, diagnostico);
+
+  return {
+    version: 'digest_context_v1',
+    grupo: grupo.key,
+    grupo_label: grupo.label,
+    relevancia: relevancia.key,
+    relevancia_label: relevancia.label,
+    motivo_usuario: porque,
+    coincidencias,
+    diagnostico_usuario: {
+      ok: Boolean(diagnostico.ok),
+      motivo: diagnostico.motivo || null,
+      detalle: diagnostico.detalle || null,
+    },
+    mensaje: {
+      titulo_facil: tituloFacil,
+      resumen_facil: resumenFacil,
+      accion_sugerida: accion,
+    },
+    seleccion: {
+      origen: origenDigest,
+      modo: modoRescate ? 'rescate' : 'diario',
+      tipo_rescate: modoRescate?.tipo || null,
+      prioridad: relevancia.prioridad?.prioridad || null,
+      prioridad_score: relevancia.prioridad?.score ?? null,
+      prioridad_motivos: relevancia.prioridad?.motivos || [],
+      decision_digest: alerta.decision_digest || null,
+      similitud: Number.isFinite(Number(alerta.similitud)) ? Number(alerta.similitud) : null,
+      mia_profile_score: Number.isFinite(Number(alerta.mia_profile_score)) ? Number(alerta.mia_profile_score) : null,
+      mia_profile_reasons: Array.isArray(alerta.mia_profile_reasons) ? alerta.mia_profile_reasons : [],
+    },
+    temporal: {
+      fecha_digest: fecha,
+      fecha_alerta: alerta.fecha || null,
+      plazo_detectado: campoDigestUtil(ficha.plazo) ? ficha.plazo : null,
+      rescate_desde: modoRescate?.desde || null,
+    },
+  };
+}
+
+function prepararAlertasFinalesDigest(alertas = [], user = {}, options = {}) {
+  return (alertas || [])
+    .map((alerta, index) => {
+      const grupo = grupoDigestAlerta(alerta);
+      const relevancia = relevanciaDigestAlerta(alerta, options.modoRescate);
+      return {
+        ...alerta,
+        grupo_digest: grupo.label,
+        grupo_digest_key: grupo.key,
+        relevancia_digest: relevancia.label,
+        relevancia_digest_key: relevancia.key,
+        contexto_mia_digest: construirContextoInternoDigest(alerta, user, options),
+        __digest_group_order: grupo.order,
+        __digest_relevance_order: relevancia.order,
+        __digest_original_index: index,
+      };
+    })
+    .sort((left, right) =>
+      left.__digest_group_order - right.__digest_group_order ||
+      left.__digest_relevance_order - right.__digest_relevance_order ||
+      left.__digest_original_index - right.__digest_original_index
+    )
+    .map(({
+      __digest_group_order,
+      __digest_relevance_order,
+      __digest_original_index,
+      ...alerta
+    }) => alerta);
+}
+
+function agruparAlertasDigest(alertas = []) {
+  const grupos = [];
+  const indexByKey = new Map();
+
+  for (const alerta of alertas || []) {
+    const grupo = grupoDigestAlerta(alerta);
+    const key = alerta.grupo_digest_key || grupo.key;
+    if (!indexByKey.has(key)) {
+      indexByKey.set(key, grupos.length);
+      grupos.push({
+        key,
+        label: alerta.grupo_digest || grupo.label,
+        alertas: [],
+      });
+    }
+    grupos[indexByKey.get(key)].alertas.push(alerta);
+  }
+
+  return grupos;
 }
 
 function obtenerNombreCortoDigest(user = {}) {
@@ -604,20 +893,28 @@ function generarMensajeDigestFallback({ user, alertas, fecha, organizationContex
     ? `_Cualquier duda, visita ${branding.website}_`
     : `_Cualquier duda, contacta con ${branding.reply_sender}_`;
 
-  const bloques = seleccion.map((alerta, index) => {
-    const prioridad = clasificarPrioridadAlerta(alerta);
-    const titulo = limpiarLineaDigest(alerta.titulo, 150) || 'Alerta oficial';
-    const lectura = construirLecturaBoletinDigest(alerta);
-    const resumen = construirResumenOficialDigest(alerta, 320) ||
-      limpiarLineaDigest(lectura.lectura || alerta.resumen_final || alerta.resumen || alerta.contenido, 300) ||
-      'Sin extracto oficial suficiente para resumirla con seguridad.';
-    const url = String(alerta.url || '').trim();
+  let itemNumero = 0;
+  const bloques = agruparAlertasDigest(seleccion).map((grupo) => {
+    const items = grupo.alertas.map((alerta) => {
+      itemNumero += 1;
+      const prioridad = clasificarPrioridadAlerta(alerta);
+      const titulo = construirTituloFacilDigest(alerta, 120);
+      const lectura = construirLecturaBoletinDigest(alerta);
+      const resumen = construirResumenFacilDigest(alerta, 300) ||
+        construirResumenOficialDigest(alerta, 320) ||
+        limpiarLineaDigest(lectura.lectura || alerta.resumen_final || alerta.resumen || alerta.contenido, 300) ||
+        'Sin extracto oficial suficiente para resumirla con seguridad.';
+      const url = String(alerta.url || '').trim();
 
-    return [
-      `*${index + 1}. ${prioridad.prioridad.toUpperCase()} - ${titulo}*`,
-      resumen,
-      url,
-    ].filter(Boolean).join('\n');
+      return [
+        `*${itemNumero}. ${prioridad.prioridad.toUpperCase()} - ${titulo}*`,
+        `En sencillo: ${resumen}`,
+        `Qué miraría: ${recortarTextoRescate(construirAccionRescate(alerta, 'directo'), 170)}`,
+        url,
+      ].filter(Boolean).join('\n');
+    });
+
+    return [`*${grupo.label}*`, ...items].join('\n');
   }).join('\n\n');
 
   return [
@@ -636,7 +933,7 @@ function generarMensajeDigestFallback({ user, alertas, fecha, organizationContex
 function construirAccionRescate(alerta = {}, tipo = 'suave') {
   const ficha = parsearFichaDigest(alerta.resumen_final || alerta.resumen || '');
   if (campoDigestUtil(ficha.accion)) return limpiarLineaDigest(ficha.accion, 220);
-  if (campoDigestUtil(ficha.plazo)) return `Revisa el plazo y comprueba si encaja con tu explotacion: ${limpiarLineaDigest(ficha.plazo, 160)}`;
+  if (campoDigestUtil(ficha.plazo)) return `Revisa el plazo y comprueba si encaja con tu explotación: ${limpiarLineaDigest(ficha.plazo, 160)}`;
 
   const bolsa = norm([
     alerta.titulo,
@@ -646,16 +943,100 @@ function construirAccionRescate(alerta = {}, tipo = 'suave') {
     ...(Array.isArray(alerta.sectores) ? alerta.sectores : []),
   ].filter(Boolean).join(' '));
 
+  if (/tramite administrativo.*concesion|concesion.*ayudas|conceden.*ayudas/.test(bolsa)) {
+    return 'Comprueba si tú o tu explotación aparecéis en el listado, anexo o expediente.';
+  }
+  if (/modifica.*orden|modificacion.*orden|se modifica/.test(bolsa)) {
+    return 'Busca qué cambia: plazo, requisitos, importes, beneficiarios o forma de solicitud.';
+  }
+  if (/bases reguladoras|concesion directa|de minimis/.test(bolsa)) {
+    return 'Mira beneficiarios, requisitos y si después se abre solicitud o concesión directa.';
+  }
   if (/pac|ayuda|subvencion|convocatoria|solicitud|subsanacion/.test(bolsa)) {
     return 'Mira requisitos y plazo antes de descartarla.';
   }
   if (/agua|concesion|aprovechamiento|expediente|parcela|municipio/.test(bolsa)) {
-    return 'Solo te afecta si tienes relacion con esa zona, parcela o expediente.';
+    return 'Solo te afecta si tienes relación con esa zona, parcela o expediente.';
   }
 
   return tipo === 'directo'
-    ? 'Revisala y guardala si encaja con tu zona o actividad.'
-    : 'Solo merece revisarla si el titulo encaja con tu zona o actividad.';
+    ? 'Revísala y guárdala si encaja con tu zona o actividad.'
+    : 'Solo merece revisarla si el título encaja con tu zona o actividad.';
+}
+
+function recortarTextoRescate(texto, max = 220) {
+  const limpio = limpiarLineaDigest(texto, max + 80)
+    .replace(/^El bolet[ií]n publica:\s*/i, '')
+    .replace(/^En sencillo:\s*/i, '')
+    .replace(/^Resumen oficial:\s*/i, '')
+    .replace(/^Resumen:\s*/i, '')
+    .replace(/^Hecho:\s*/i, '')
+    .trim();
+
+  if (limpio.length <= max) return limpio;
+
+  const corte = limpio.slice(0, max + 1);
+  const puntuacion = Math.max(
+    corte.lastIndexOf('.'),
+    corte.lastIndexOf(';'),
+    corte.lastIndexOf(':')
+  );
+  const espacio = corte.lastIndexOf(' ');
+  const indice = puntuacion > max * 0.55 ? puntuacion + 1 : espacio;
+  return `${corte.slice(0, indice > 40 ? indice : max).trim()}...`;
+}
+
+function construirResumenRescate(alerta = {}, max = 220) {
+  const resumenFacil = construirResumenFacilDigest(alerta, max);
+  const bolsa = construirTextoAlertaDigest(alerta);
+  const rawNorm = norm(resumenFacil);
+  if (/^(indice|preambulo)\b/.test(rawNorm) || /indice\s+preambulo\s+primero/.test(rawNorm)) {
+    if (/ayuda|subvencion|de minimis|convocatoria/.test(bolsa)) {
+      return 'Publicación relacionada con ayudas agrarias. No la veo claramente directa para ti, pero podría interesarte si encajas en la zona o requisitos.';
+    }
+    if (/agua|concesion|aprovechamiento|expediente/.test(bolsa)) {
+      return 'Publicación relacionada con agua o expedientes. Solo merece revisarla si la zona, parcela o expediente te toca de cerca.';
+    }
+  }
+
+  return resumenFacil;
+}
+
+function construirMotivoRescate(alerta = {}, tipo = 'suave') {
+  const provincias = Array.isArray(alerta.provincias) ? alerta.provincias.filter(Boolean).slice(0, 2) : [];
+  const sectores = Array.isArray(alerta.sectores) ? alerta.sectores.filter(Boolean).slice(0, 2) : [];
+  const tipos = Array.isArray(alerta.tipos_alerta) ? alerta.tipos_alerta.filter(Boolean).slice(0, 2) : [];
+  const pistas = [
+    provincias.length ? `zona: ${provincias.join(', ')}` : null,
+    sectores.length ? `sector: ${sectores.join(', ')}` : null,
+    tipos.length ? `tema: ${tipos.join(', ')}` : null,
+  ].filter(Boolean);
+
+  if (tipo === 'directo') {
+    return pistas.length
+      ? `Puede encajar por ${pistas.join('; ')}.`
+      : 'Puede encajar con tu perfil, pero conviene confirmarlo en el anuncio.';
+  }
+
+  return pistas.length
+    ? `No la veo directa al 100%, pero la dejo por ${pistas.join('; ')}.`
+    : 'No la veo directa al 100%, pero la dejo como aviso secundario.';
+}
+
+function construirBloqueRescate(alerta = {}, index, tipo = 'suave') {
+  const titulo = construirTituloFacilDigest(alerta, 105);
+  const resumen = construirResumenRescate(alerta, 210);
+  const motivo = construirMotivoRescate(alerta, tipo);
+  const accion = recortarTextoRescate(construirAccionRescate(alerta, tipo), 170);
+  const url = String(alerta.url || '').trim();
+
+  return [
+    `*${index + 1}. ${titulo}*`,
+    `Por qué te la dejo: ${motivo}`,
+    `En sencillo: ${resumen}`,
+    `Qué miraría: ${accion}`,
+    url,
+  ].filter(Boolean).join('\n');
 }
 
 function generarMensajeDigestRescate({
@@ -671,42 +1052,56 @@ function generarMensajeDigestRescate({
   const seleccion = (alertas || []).slice(0, DIGEST_RESCUE_MAX_ALERTAS);
   const dias = Math.max(1, (diasEntreFechas(desde, fecha) || DIGEST_RESCUE_LOOKBACK_DAYS - 1) + 1);
   const intro = tipo === 'directo'
-    ? `He revisado los ultimos ${dias} dias y te aviso de esto porque puede encajar con tu perfil.`
-    : `Esta semana no he visto ninguna alerta claramente directa para tu perfil, pero sigo vigilando.`;
+    ? `He revisado los últimos ${dias} días y te dejo estos avisos porque pueden encajar con tu perfil.`
+    : `No he visto nada claramente directo para tu perfil esta semana. Para que no te quedes a ciegas, te dejo estos avisos secundarios.`;
   const cierre = branding.website
     ? `_Cualquier duda, visita ${branding.website}_`
     : `_Cualquier duda, contacta con ${branding.reply_sender}_`;
 
-  const bloques = seleccion.map((alerta, index) => {
-    const titulo = limpiarLineaDigest(alerta.titulo, 150) || 'Alerta oficial';
-    const resumen = construirResumenOficialDigest(alerta, 260) ||
-      limpiarLineaDigest(alerta.resumen_final || alerta.resumen || alerta.contenido, 260) ||
-      'No hay suficiente detalle para resumirla con seguridad.';
-    const accion = construirAccionRescate(alerta, tipo);
-    const url = String(alerta.url || '').trim();
-
-    return [
-      `*${index + 1}. ${titulo}*`,
-      `Que significa: ${resumen}`,
-      `Que haria ahora: ${accion}`,
-      url,
-    ].filter(Boolean).join('\n');
-  }).join('\n\n');
-
-  return [
+  const cabecera = [
     saludo,
     '',
     intro,
     '',
     seleccion.length > 0
-      ? 'Te dejo estas publicaciones por si quieres echarles un vistazo:'
-      : 'No te mando enlaces de relleno: prefiero avisarte cuando haya algo con un minimo de sentido.',
-    '',
-    bloques,
-    seleccion.length > 0 ? '_Si no encaja con tu explotacion, puedes ignorarlo sin problema._' : '',
+      ? 'No son urgentes: revísalos solo si encajan contigo.'
+      : 'No te mando enlaces de relleno: prefiero avisarte cuando haya algo con un mínimo de sentido.',
+  ].filter((linea) => linea !== '').join('\n');
+
+  const bloques = [];
+  let grupoActual = null;
+  for (const alerta of seleccion) {
+    const grupo = grupoDigestAlerta(alerta);
+    const incluirGrupo = grupoActual !== grupo.key;
+    const bloqueAlerta = construirBloqueRescate(alerta, bloques.length, tipo);
+    const bloque = incluirGrupo
+      ? [`*${alerta.grupo_digest || grupo.label}*`, bloqueAlerta].join('\n')
+      : bloqueAlerta;
+    const candidato = [
+      cabecera,
+      '',
+      ...bloques,
+      bloques.length > 0 ? '' : null,
+      bloque,
+      '',
+      '_Si no encaja con tu explotación, puedes ignorarlo sin problema._',
+      '',
+      cierre,
+    ].filter((linea) => linea !== null).join('\n');
+
+    if (candidato.length > DIGEST_RESCUE_MESSAGE_MAX_CHARS && bloques.length > 0) break;
+    bloques.push(bloque);
+    grupoActual = grupo.key;
+  }
+
+  return [
+    cabecera,
+    bloques.length > 0 ? '' : null,
+    bloques.join('\n\n'),
+    bloques.length > 0 ? '_Si no encaja con tu explotación, puedes ignorarlo sin problema._' : '',
     '',
     cierre,
-  ].filter((linea) => linea !== '').join('\n').slice(0, 1600).trim();
+  ].filter((linea) => linea !== null && linea !== '').join('\n').trim();
 }
 
 function getClickBaseUrl() {
@@ -1135,8 +1530,18 @@ async function generarMensajeDigest({ user, alertas, fecha, plan, aprendizaje, o
       const fuente = a.fuente || 'Boletin';
       const prioridad = clasificarPrioridadAlerta(a);
       const lectura = construirLecturaBoletinDigest(a);
+      const contextoInterno = a.contexto_mia_digest || construirContextoInternoDigest(a, user, {
+        origenDigest: 'generacion_mensaje',
+        fecha,
+      });
       return [
         `ALERTA ${i + 1} [${fuente}] [PRIORIDAD: ${prioridad.prioridad.toUpperCase()}]:`,
+        `Grupo sugerido: ${contextoInterno.grupo_label}`,
+        `Relevancia interna: ${contextoInterno.relevancia_label}`,
+        `Por que se eligio para este usuario: ${contextoInterno.motivo_usuario}`,
+        `Titulo facil sugerido: ${contextoInterno.mensaje.titulo_facil}`,
+        `Explicacion facil sugerida: ${contextoInterno.mensaje.resumen_facil}`,
+        `Que mirar sugerido: ${contextoInterno.mensaje.accion_sugerida}`,
         `Titulo: ${a.titulo}`,
         `Provincias detectadas: ${Array.isArray(a.provincias) && a.provincias.length ? a.provincias.join(', ') : (a.region || 'No especificadas')}`,
         `Sectores detectados: ${Array.isArray(a.sectores) && a.sectores.length ? a.sectores.join(', ') : 'No especificados'}`,
@@ -1184,7 +1589,7 @@ ${bloqueExtra}
 ${bloqueAprendizaje}
 ${bloqueContextoMIA}
 ${bloqueMotivoMIA}
-Se te pasan ${alertas.length} alertas candidatas ya filtradas y ordenadas para este usuario. Debes mantener la numeracion y el orden. No cambies el numero de una alerta.
+Se te pasan ${alertas.length} alertas candidatas ya filtradas, agrupadas por tipo y ordenadas por relevancia interna. Debes mantener la numeracion global de ALERTA 1, ALERTA 2... No cambies el numero de una alerta.
 
 CRITERIOS DE DESCARTE:
 - Expedientes administrativos individuales (concesiones de agua, autorizaciones de vertido, extincion de derechos) que afectan a un titular concreto que no es este usuario.
@@ -1200,9 +1605,10 @@ ${saludo}
 
 Tienes *N alerta${alertas.length !== 1 ? 's' : ''}* relevante${alertas.length !== 1 ? 's' : ''} hoy:
 
-[Para cada alerta candidata, este bloque numerado en el mismo orden recibido:]
+[Agrupa por "Grupo sugerido". Usa una cabecera por grupo, por ejemplo *Ayudas*, *Cursos y jornadas*, *Agua y riego*. Dentro de cada grupo, usa este bloque numerado:]
 *N. [Urgente / Normal / Para revisar] - [Titulo breve y descriptivo de la alerta]*
-[Resumen. ${nivelDetalle}]
+En sencillo: [Explicación fácil. ${nivelDetalle}]
+[Qué miraría: acción concreta si hay plazo, listado, requisitos, expediente, zona o anexo que comprobar]
 [URL exacta de la alerta]
 
 ${cierreDigest}
@@ -1211,11 +1617,16 @@ REGLAS:
 - Ajusta el numero N del encabezado al total de alertas candidatas recibidas.
 - Usa exactamente este saludo: "${saludo}". No anadas apellidos, nombre completo ni otra frase de bienvenida.
 - Despues del saludo va directamente el titulo "*${tituloDigest}*". No anadas una frase inicial personalizada.
-- Mantén exactamente los numeros 1, 2, 3... en el mismo orden de ALERTAS CANDIDATAS.
+- Mantén exactamente los numeros globales de ALERTAS CANDIDATAS aunque haya cabeceras de grupo.
+- Agrupa por tipo de mensaje usando "Grupo sugerido": Ayudas, Cursos y jornadas, Agua y riego, Fiscalidad, Normativa, Medio ambiente u Otros avisos.
+- No mezcles ayudas con cursos o normativa si pertenecen a grupos distintos.
 - Respeta la prioridad indicada en cada alerta. Si es URGENTE, abre con "Urgente". Si es BAJA, usa "Para revisar" y se muy breve.
 - Maximo 1600 caracteres en total. Si hay muchas alertas, reduce las frases de cada una.
 - Lenguaje sencillo, directo y profesional. Cercano, pero sin confianza excesiva.
-- Cada resumen debe explicar que publica el boletin: acto, destinatario/territorio, tramite, plazo o dato concreto si aparece. No basta con decir que es "relevante".
+- Escribe cada alerta como si se la explicaras a alguien que no sabe leer boletines: "es una ayuda", "cambia una norma", "abre alegaciones", "publican un listado", etc.
+- Cada resumen debe explicar que significa en la practica: acto, destinatario/territorio, tramite, plazo o dato concreto si aparece. No basta con decir que es "relevante".
+- Evita empezar con "El boletin publica". Traduce a lenguaje claro y usa "En sencillo:".
+- La linea "Qué miraría" debe decir qué comprobar: requisitos, plazo, anexo/listado, expediente, municipio/parcela, beneficiarios o documentación.
 - Si la ficha trae RESUMEN_DIGEST, usalo como base principal y solo recortalo si hace falta por longitud.
 - Usa primero "Lectura obligatoria del boletin" y "Extracto oficial"; si contradicen la ficha IA, manda el contenido oficial.
 - NO inventes datos que no esten en la ficha IA, la lectura obligatoria o el extracto oficial.
@@ -1231,7 +1642,7 @@ REGLAS:
 - No preguntes por feedback dentro del mensaje. El sistema anadira una linea fija de feedback despues.
 - Asteriscos (*) para negrita, guiones bajos (_) para cursiva, exactamente como en el formato.
 - El enlace va al final de cada bloque de alerta, en su propia linea.
-- No anadas secciones ni texto fuera del formato, salvo que las PREFERENCIAS PERSONALES DEL USUARIO lo indiquen explicitamente.
+- No anadas secciones fuera de las cabeceras de grupo y el formato indicado, salvo que las PREFERENCIAS PERSONALES DEL USUARIO lo indiquen explicitamente.
 
 ALERTAS CANDIDATAS:
 ${bloqueAlertas}
@@ -1248,6 +1659,207 @@ Responde UNICAMENTE con el mensaje WhatsApp final. Sin JSON, sin explicaciones, 
     return generarMensajeDigestFallback({ user, alertas, fecha, organizationContext });
   }
   return limpio;
+}
+
+async function construirPreviewDigestUsuario(supabase, {
+  user,
+  fecha,
+  usarIA = false,
+  incluirRescate = true,
+  organizationContext = null,
+}) {
+  const plan = getPlan(user.subscription);
+  const organization = organizationContext || await cargarOrganizationContextMIA(supabase, user);
+  const organizationId = organization.organization_id || null;
+  const userConOrganization = aplicarOrganizationContextAUsuario(user, organization);
+  const motivoElegibilidad = motivoUsuarioNoRecibeDigest(user);
+
+  const { data: alertasRaw, error: errAlertas } = await cargarAlertasListasDigest(supabase, { fecha });
+  if (errAlertas) throw errAlertas;
+
+  const totalAlertasDia = (alertasRaw || []).length;
+  const calidadDia = DIGEST_QUALITY_GATE
+    ? filtrarAlertasPorCalidadDigest(alertasRaw || [], { minScore: 65 })
+    : { aceptadas: alertasRaw || [], rechazadas: [] };
+  const alertasDia = calidadDia.aceptadas;
+  const alertasVisibles = filtrarAlertasPorOrganization(alertasDia, organizationId);
+  const decisionFn = (alerta) => decidirAlertaParaDigest(alerta, userConOrganization, {
+    qualityGate: DIGEST_QUALITY_GATE,
+    allowReview: DIGEST_INCLUDE_REVIEW,
+    minReviewQualityScore: DIGEST_REVIEW_MIN_QUALITY_SCORE,
+    allowIndividualWithoutMunicipio: DIGEST_INCLUDE_INDIVIDUAL_PROVINCIAL,
+    exclusionPreferencias: (item) => alertaExcluidaPorPreferenciasExtra(item, user.preferencias_extra),
+  });
+  const seleccionBase = filtrarAlertasParaDigest(alertasVisibles, userConOrganization, {
+    qualityGate: DIGEST_QUALITY_GATE,
+    allowReview: DIGEST_INCLUDE_REVIEW,
+    minReviewQualityScore: DIGEST_REVIEW_MIN_QUALITY_SCORE,
+    allowIndividualWithoutMunicipio: DIGEST_INCLUDE_INDIVIDUAL_PROVINCIAL,
+    exclusionPreferencias: (item) => alertaExcluidaPorPreferenciasExtra(item, user.preferencias_extra),
+  });
+  const alertasUsuario = seleccionBase.alertas;
+  const aprendizaje = await obtenerAprendizajeUsuario(supabase, user.id);
+  const perfilOperativoMIA = await cargarPerfilOperativoMIA(supabase, user.id, { user: userConOrganization });
+  const userConPerfilMIA = aplicarPerfilOperativoAUsuario(userConOrganization, perfilOperativoMIA);
+  const alertasConPerfilMIA = ordenarAlertasConPerfilOperativoMIA(alertasUsuario, perfilOperativoMIA);
+  const seleccionMIA = await seleccionarAlertasConMIA(supabase, {
+    user: userConPerfilMIA,
+    fecha,
+    alertasFallback: alertasConPerfilMIA,
+    organizationId,
+    decisionFn,
+  });
+  const usandoMIA = Boolean(seleccionMIA?.alertas?.length);
+  const candidatasFinales = usandoMIA
+    ? fusionarAlertasUnicas(seleccionMIA.alertas, alertasConPerfilMIA)
+    : alertasConPerfilMIA;
+  const alertasOrdenadas = usandoMIA
+    ? ordenarAlertasConPerfilOperativoMIA(candidatasFinales, perfilOperativoMIA, { excludeHard: false })
+    : ordenarPorAprendizaje(candidatasFinales, aprendizaje);
+  const maxAlertasUsuario = getMaxAlertasDigestUsuario(userConPerfilMIA);
+  const seleccionFinal = seleccionarAlertasParaDigest(alertasOrdenadas, userConPerfilMIA, {
+    qualityGate: DIGEST_QUALITY_GATE,
+    allowReview: DIGEST_INCLUDE_REVIEW,
+    minReviewQualityScore: DIGEST_REVIEW_MIN_QUALITY_SCORE,
+    allowIndividualWithoutMunicipio: DIGEST_INCLUDE_INDIVIDUAL_PROVINCIAL,
+    minItems: Math.min(DIGEST_VECTOR_BACKFILL_MIN, maxAlertasUsuario),
+    targetItems: maxAlertasUsuario,
+    maxItems: maxAlertasUsuario,
+    origen: usandoMIA ? seleccionMIA.origen : 'perfil_tags_prioridad',
+    exclusionPreferencias: (item) => alertaExcluidaPorPreferenciasExtra(item, user.preferencias_extra),
+  });
+
+  let alertasFinales = seleccionFinal.alertas;
+  let modoRescate = null;
+  let origenDigest = usandoMIA ? seleccionMIA.origen : 'perfil_tags_prioridad';
+
+  if (alertasFinales.length === 0 && incluirRescate) {
+    const desdeRescate = sumarDiasFechaISO(fecha, -(DIGEST_RESCUE_LOOKBACK_DAYS - 1));
+    const { data: alertasVentanaRaw, error: errRescate } = await cargarAlertasListasDigest(supabase, {
+      desde: desdeRescate,
+      hasta: fecha,
+    });
+    if (errRescate) throw errRescate;
+
+    const calidadRescate = DIGEST_QUALITY_GATE
+      ? filtrarAlertasPorCalidadDigest(alertasVentanaRaw || [], { minScore: 65 })
+      : { aceptadas: alertasVentanaRaw || [], rechazadas: [] };
+    const rescate = seleccionarAlertasRescate({
+      alertas: calidadRescate.aceptadas,
+      user: userConPerfilMIA,
+      aprendizaje,
+      perfilOperativoMIA,
+      organizationId,
+      maxItems: Math.min(DIGEST_RESCUE_MAX_ALERTAS, maxAlertasUsuario),
+    });
+
+    alertasFinales = rescate.alertas;
+    modoRescate = {
+      tipo: rescate.tipo,
+      desde: desdeRescate,
+      totalAlertasVentana: (alertasVentanaRaw || []).length,
+      alertasVentanaTrasCalidad: calidadRescate.aceptadas.length,
+      descartadasCalidad: calidadRescate.rechazadas.length,
+      trasFiltroUsuario: rescate.trasFiltroUsuario,
+      trasScoring: rescate.trasScoring,
+    };
+    origenDigest = `rescate_semanal_${rescate.tipo}`;
+  }
+
+  alertasFinales = prepararAlertasFinalesDigest(alertasFinales, userConPerfilMIA, {
+    origenDigest,
+    modoRescate,
+    fecha,
+  });
+
+  const motivoNoEnvio = alertasFinales.length === 0
+    ? totalAlertasDia === 0
+      ? 'no_habia_alertas'
+      : alertasDia.length === 0
+        ? 'calidad_baja'
+        : alertasUsuario.length === 0
+          ? 'perfil_sin_coincidencias'
+          : 'sin_alertas_para_usuario'
+    : null;
+
+  let mensajeRaw = null;
+  let mensaje = null;
+  let generador = 'sin_mensaje';
+
+  if (alertasFinales.length > 0) {
+    if (modoRescate) {
+      mensajeRaw = generarMensajeDigestRescate({
+        user: userConPerfilMIA,
+        alertas: alertasFinales,
+        fecha,
+        desde: modoRescate.desde,
+        tipo: modoRescate.tipo,
+        organizationContext: organization,
+      });
+      generador = 'rescate_local';
+    } else if (usarIA) {
+      mensajeRaw = await generarMensajeDigest({
+        user: userConPerfilMIA,
+        alertas: alertasFinales,
+        fecha,
+        plan,
+        aprendizaje,
+        organizationContext: organization,
+      });
+      generador = 'ia_sin_guardar';
+    } else {
+      mensajeRaw = generarMensajeDigestFallback({
+        user: userConPerfilMIA,
+        alertas: alertasFinales,
+        fecha,
+        organizationContext: organization,
+      });
+      generador = 'local_sin_ia';
+    }
+
+    mensaje = anadirInstruccionFeedback(
+      aplicarTextoObligatorio(mensajeRaw, user.preferencias_extra),
+      alertasFinales
+    ).trim();
+  }
+
+  return {
+    success: true,
+    dry_run: true,
+    writes: [],
+    sends: [],
+    fecha,
+    usar_ia: usarIA,
+    generador,
+    elegible_envio_real: !motivoElegibilidad,
+    motivo_no_elegible_envio_real: motivoElegibilidad,
+    plan: plan.nombre,
+    origen: origenDigest,
+    modo_rescate: modoRescate,
+    contadores: {
+      alertas_dia_total: totalAlertasDia,
+      tras_quality_gate: alertasDia.length,
+      descartadas_calidad: calidadDia.rechazadas.length,
+      tras_filtro_usuario: alertasUsuario.length,
+      tras_scoring: alertasOrdenadas.length,
+      alertas_finales: alertasFinales.length,
+    },
+    motivo_no_envio: motivoNoEnvio,
+    mensaje,
+    alertas: alertasFinales.map((alerta, index) => ({
+      item_numero: index + 1,
+      id: alerta.id,
+      titulo: alerta.titulo,
+      titulo_facil: alerta.contexto_mia_digest?.mensaje?.titulo_facil || construirTituloFacilDigest(alerta),
+      grupo: alerta.grupo_digest,
+      grupo_key: alerta.grupo_digest_key,
+      relevancia: alerta.relevancia_digest,
+      relevancia_key: alerta.relevancia_digest_key,
+      contexto_mia_digest: alerta.contexto_mia_digest,
+      url: alerta.url,
+    })),
+    aviso: 'Preview seguro: no inserta digests, no crea tracking links, no registra digest_items y no envia WhatsApp.',
+  };
 }
 // RUTAS
 // ══════════════════════════════════════════════════════════════════════
@@ -1333,6 +1945,49 @@ module.exports = function digestRoutes(app, supabase) {
       });
     } catch (err) {
       console.error('Error en /alertas/diagnosticar-digest', err);
+      return res.status(500).json({ error: err.message });
+    }
+  };
+
+  const previewDigestHandler = async (req, res) => {
+    try {
+      const fecha = /^\d{4}-\d{2}-\d{2}$/.test(req.query.fecha || req.body?.fecha || '')
+        ? (req.query.fecha || req.body?.fecha)
+        : getFechaMadridISO();
+      const phone = req.query.phone || req.body?.phone
+        ? String(req.query.phone || req.body?.phone).replace(/\D/g, '')
+        : null;
+      const userId = req.query.user_id || req.body?.user_id
+        ? Number(req.query.user_id || req.body?.user_id)
+        : null;
+      const usarIA = String(req.query.ia ?? req.body?.ia ?? 'false').toLowerCase() === 'true';
+      const incluirRescate = String(req.query.rescate ?? req.body?.rescate ?? 'true').toLowerCase() !== 'false';
+
+      if (!phone && !userId) {
+        return res.status(400).json({ error: 'Indica phone o user_id' });
+      }
+
+      const userQuery = supabase
+        .from('users')
+        .select('id, name, first_name, phone, phone_verified, subscription, preferences, preferencias_extra, organization_id, perfil_embedding, perfil_actualizado_at, contexto_narrativo');
+
+      const { data: user, error: errUser } = userId
+        ? await userQuery.eq('id', userId).maybeSingle()
+        : await userQuery.eq('phone', phone).maybeSingle();
+
+      if (errUser) return res.status(500).json({ error: errUser.message });
+      if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
+
+      const preview = await construirPreviewDigestUsuario(supabase, {
+        user,
+        fecha,
+        usarIA,
+        incluirRescate,
+      });
+
+      return res.json(preview);
+    } catch (err) {
+      console.error('Error en /alertas/preview-digest', err);
       return res.status(500).json({ error: err.message });
     }
   };
@@ -1620,6 +2275,15 @@ module.exports = function digestRoutes(app, supabase) {
           }
         }
 
+        const origenDigest = modoRescate
+          ? `rescate_semanal_${modoRescate.tipo}`
+          : (usandoMIA ? seleccionMIA.origen : 'perfil_tags_prioridad');
+        alertasFinales = prepararAlertasFinalesDigest(alertasFinales, userConPerfilMIA, {
+          origenDigest,
+          modoRescate,
+          fecha: hoy,
+        });
+
         console.log(`[digest] User ${user.id} (${plan.nombre}) → ${alertasFinales.length}/${alertasUsuario.length} alertas → generando...`);
 
         try {
@@ -1765,10 +2429,6 @@ module.exports = function digestRoutes(app, supabase) {
                 }
               }
             }
-
-            const origenDigest = modoRescate
-              ? `rescate_semanal_${modoRescate.tipo}`
-              : (usandoMIA ? seleccionMIA.origen : 'perfil_tags_prioridad');
 
             await registrarDigestAttempt(supabase, {
               userId: user.id,
@@ -2089,6 +2749,15 @@ module.exports = function digestRoutes(app, supabase) {
   app.get('/alertas/diagnosticar-digest', (req, res) => {
     if (!checkCronToken(req, res)) return;
     diagnosticarDigestHandler(req, res);
+  });
+
+  app.get('/alertas/preview-digest', (req, res) => {
+    if (!checkCronToken(req, res)) return;
+    previewDigestHandler(req, res);
+  });
+  app.post('/alertas/preview-digest', (req, res) => {
+    if (!checkCronToken(req, res)) return;
+    previewDigestHandler(req, res);
   });
 
   app.post('/alertas/enviar-digest', (req, res) => {

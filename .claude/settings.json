@@ -13,7 +13,15 @@
       "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\jadri\\\\Desktop\\\\Jaime\\\\RURALICOS\\\\COPIA SEGURIDAD\\\\RURALICOS\\\\Ruralicos WEB\\\\actualidad-rural\" -Directory)",
       "Bash(Select-Object Name)",
       "Bash(dir \"c:\\\\Users\\\\jadri\\\\Desktop\\\\Jaime\\\\RURALICOS\\\\COPIA SEGURIDAD\\\\RURALICOS\\\\Ruralicos WEB\\\\actualidad-rural\")",
-      "Read(//c/Users/jadri/.claude/projects/c--Users-jadri-Desktop-Jaime-RURALICOS-COPIA-SEGURIDAD-RURALICOS-API-ruralicos-api/memory/**)"
+      "Read(//c/Users/jadri/.claude/projects/c--Users-jadri-Desktop-Jaime-RURALICOS-COPIA-SEGURIDAD-RURALICOS-API-ruralicos-api/memory/**)",
+      "Bash(New-Item -ItemType Directory -Force \"c:\\\\Users\\\\jadri\\\\Desktop\\\\Jaime\\\\RURALICOS\\\\COPIA SEGURIDAD\\\\RURALICOS\\\\Ruralicos WEB\\\\subvenciones-canarias\")",
+      "PowerShell(New-Item -ItemType Directory -Force \"c:\\\\Users\\\\jadri\\\\Desktop\\\\Jaime\\\\RURALICOS\\\\COPIA SEGURIDAD\\\\RURALICOS\\\\Ruralicos WEB\\\\subvenciones-canarias\")",
+      "PowerShell(\"OK\")",
+      "WebFetch(domain:www.fega.gob.es)",
+      "WebFetch(domain:www.mapa.gob.es)",
+      "WebFetch(domain:sede.gobiernodecanarias.org)",
+      "WebFetch(domain:www.idae.es)",
+      "WebFetch(domain:www3.gobiernodecanarias.org)"
     ],
     "additionalDirectories": [
       "c:\\Users\\jadri\\.claude\\projects\\c--Users-jadri-Desktop-Jaime-RURALICOS-COPIA-SEGURIDAD-RURALICOS-API-ruralicos-api\\memory"
