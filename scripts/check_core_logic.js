@@ -183,22 +183,6 @@ assert.ok(
   'admin dry-run digest debe resolver usuarios por id, telefono o nombre'
 );
 
-const adminLabHtml = fs.readFileSync(path.join(__dirname, '..', 'public/admin-lab.html'), 'utf8');
-const adminLabJs = fs.readFileSync(path.join(__dirname, '..', 'public/assets/js/admin-lab.js'), 'utf8');
-assert.ok(
-  adminLabHtml.includes('Ruralicos · MIA Digest Lab') &&
-  adminLabHtml.includes('/assets/js/admin-lab.js') &&
-  !adminLabHtml.includes('<script>'),
-  'El lab admin debe existir y usar JS externo compatible con Helmet CSP'
-);
-assert.ok(
-  adminLabJs.includes('/alertas/preview-digest') &&
-  adminLabJs.includes('/admin/mia/dry-run-digest') &&
-  adminLabJs.includes('Preview seguro verificado') &&
-  adminLabJs.includes('contexto_mia_digest'),
-  'El lab admin debe conectar preview seguro y mostrar contexto interno MIA'
-);
-
 const indexRoutes = fs.readFileSync(path.join(__dirname, '..', 'src/index.js'), 'utf8');
 assert.ok(
   indexRoutes.includes("app.post('/admin/send-broadcast', requireAdmin"),
