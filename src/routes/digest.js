@@ -33,6 +33,10 @@ const { leerPerfilIntereses, ordenarAlertasPorPerfil, clasificarPrioridadAlerta,
 const { similitudCoseno }          = require('../utils/embeddings');
 const { registrarDigestItemsMIA }  = require('../mia/digestItems');
 const {
+  actualizarDigestAttemptPorDigest,
+  registrarDigestAttempt,
+} = require('../mia/digestAttempts');
+const {
   cargarPerfilOperativoMIA,
   aplicarPerfilOperativoAUsuario,
   ordenarAlertasConPerfilOperativoMIA,
@@ -47,14 +51,31 @@ const {
   obtenerMiaBranding,
 } = require('../mia/organizationContext');
 
-const PREPARAR_DIGEST_BATCH_SIZE = Number(process.env.PREPARAR_DIGEST_BATCH_SIZE || 5);
+function numeroConfig(name, fallback, min = 0, max = Number.MAX_SAFE_INTEGER) {
+  const value = Number(process.env[name]);
+  const number = Number.isFinite(value) ? value : fallback;
+  return Math.max(min, Math.min(max, number));
+}
+
+const PREPARAR_DIGEST_BATCH_SIZE = numeroConfig('PREPARAR_DIGEST_BATCH_SIZE', 50, 1, 200);
 const DIGEST_LOCAL_FALLBACK = (process.env.DIGEST_LOCAL_FALLBACK || 'true').toLowerCase() !== 'false';
 const DIGEST_QUALITY_GATE = (process.env.DIGEST_QUALITY_GATE || 'true').toLowerCase() !== 'false';
 const DIGEST_INCLUDE_REVIEW = (process.env.DIGEST_INCLUDE_REVIEW || 'true').toLowerCase() !== 'false';
 const DIGEST_INCLUDE_INDIVIDUAL_PROVINCIAL =
   (process.env.DIGEST_INCLUDE_INDIVIDUAL_PROVINCIAL || 'true').toLowerCase() !== 'false';
 const DIGEST_REVIEW_MIN_QUALITY_SCORE = Number(process.env.DIGEST_REVIEW_MIN_QUALITY_SCORE || 78);
-const DIGEST_MAX_ALERTAS_USUARIO = Math.max(1, Math.min(10, Number(process.env.DIGEST_MAX_ALERTAS_USUARIO || 7)));
+const DIGEST_MAX_ALERTAS_NORMAL = numeroConfig('DIGEST_MAX_ALERTAS_NORMAL', 3, 1, 5);
+const DIGEST_MAX_ALERTAS_COOPERATIVA = numeroConfig('DIGEST_MAX_ALERTAS_COOPERATIVA', 5, 1, 8);
+const DIGEST_MAX_ALERTAS_USUARIO = numeroConfig(
+  'DIGEST_MAX_ALERTAS_USUARIO',
+  Math.max(DIGEST_MAX_ALERTAS_NORMAL, DIGEST_MAX_ALERTAS_COOPERATIVA),
+  1,
+  10
+);
+const DIGEST_RESCUE_ENABLED = (process.env.DIGEST_RESCUE_ENABLED || 'true').toLowerCase() !== 'false';
+const DIGEST_RESCUE_AFTER_DAYS = numeroConfig('DIGEST_RESCUE_AFTER_DAYS', 7, 1, 30);
+const DIGEST_RESCUE_LOOKBACK_DAYS = numeroConfig('DIGEST_RESCUE_LOOKBACK_DAYS', 7, 1, 30);
+const DIGEST_RESCUE_MAX_ALERTAS = numeroConfig('DIGEST_RESCUE_MAX_ALERTAS', 3, 0, 5);
 const DIGEST_VECTOR_BACKFILL_MIN = Math.max(
   1,
   Math.min(DIGEST_MAX_ALERTAS_USUARIO, Number(process.env.DIGEST_VECTOR_BACKFILL_MIN || 3))
@@ -73,6 +94,133 @@ function norm(str) {
 }
 
 const intersecta = (a, b) => a.some((x) => b.includes(x));
+
+const ALERTA_DIGEST_SELECT =
+  'id, titulo, url, fecha, region, fuente, resumen, resumen_final, contenido, provincias, sectores, subsectores, tipos_alerta, estado_ia, duplicado_de, organization_id, embedding_generated_at, created_at';
+const ALERTA_DIGEST_SELECT_WITH_EMBEDDING = `${ALERTA_DIGEST_SELECT}, embedding`;
+
+function getMaxAlertasDigestUsuario(user = {}) {
+  return String(user.subscription || '').toLowerCase() === 'cooperativa'
+    ? Math.min(DIGEST_MAX_ALERTAS_USUARIO, DIGEST_MAX_ALERTAS_COOPERATIVA)
+    : Math.min(DIGEST_MAX_ALERTAS_USUARIO, DIGEST_MAX_ALERTAS_NORMAL);
+}
+
+function sumarDiasFechaISO(fechaISO, dias) {
+  const [year, month, day] = String(fechaISO || '').split('-').map(Number);
+  if (!year || !month || !day) return getFechaMadridISO();
+  const date = new Date(Date.UTC(year, month - 1, day));
+  date.setUTCDate(date.getUTCDate() + Number(dias || 0));
+  return date.toISOString().slice(0, 10);
+}
+
+function diasEntreFechas(desdeISO, hastaISO) {
+  const desde = new Date(`${desdeISO}T00:00:00Z`).getTime();
+  const hasta = new Date(`${hastaISO}T00:00:00Z`).getTime();
+  if (!Number.isFinite(desde) || !Number.isFinite(hasta)) return null;
+  return Math.floor((hasta - desde) / 86400000);
+}
+
+function motivoUsuarioNoRecibeDigest(user = {}) {
+  const telefono = String(user.phone || '').trim();
+  if (!telefono) return 'usuario_sin_telefono';
+  if (user.phone_verified === false) return 'telefono_no_verificado';
+  return null;
+}
+
+function alertaNoExcluidaPorPreferencias(alerta, user) {
+  return !alertaExcluidaPorPreferenciasExtra(alerta, user.preferencias_extra);
+}
+
+function aplicarFiltroFechaAlertas(query, { fecha, desde, hasta } = {}) {
+  if (fecha) return query.eq('fecha', fecha);
+  let next = query;
+  if (desde) next = next.gte('fecha', desde);
+  if (hasta) next = next.lte('fecha', hasta);
+  return next;
+}
+
+async function cargarAlertasListasDigest(supabase, options = {}) {
+  let query = supabase
+    .from('alertas')
+    .select(ALERTA_DIGEST_SELECT_WITH_EMBEDDING)
+    .eq('estado_ia', 'listo');
+  query = aplicarFiltroFechaAlertas(query, options);
+  let { data, error } = await query;
+
+  if (error && /embedding/i.test(error.message || '')) {
+    let fallback = supabase
+      .from('alertas')
+      .select(ALERTA_DIGEST_SELECT)
+      .eq('estado_ia', 'listo');
+    fallback = aplicarFiltroFechaAlertas(fallback, options);
+    const result = await fallback;
+    data = result.data;
+    error = result.error;
+  }
+
+  return { data: data || [], error };
+}
+
+async function cargarUsuariosPagoDigest(supabase) {
+  let { data, error } = await supabase
+    .from('users')
+    .select('id, name, first_name, phone, phone_verified, subscription, preferences, preferencias_extra, organization_id, perfil_embedding, perfil_actualizado_at, contexto_narrativo')
+    .in('subscription', ['corral', 'agricultor', 'cooperativa']);
+
+  if (error && /perfil_embedding|perfil_actualizado_at|contexto_narrativo/i.test(error.message || '')) {
+    const fallback = await supabase
+      .from('users')
+      .select('id, name, first_name, phone, phone_verified, subscription, preferences, preferencias_extra, organization_id')
+      .in('subscription', ['corral', 'agricultor', 'cooperativa']);
+    data = fallback.data;
+    error = fallback.error;
+  }
+
+  if (error && /phone_verified/i.test(error.message || '')) {
+    const fallback = await supabase
+      .from('users')
+      .select('id, name, first_name, phone, subscription, preferences, preferencias_extra, organization_id')
+      .in('subscription', ['corral', 'agricultor', 'cooperativa']);
+    data = (fallback.data || []).map((user) => ({ ...user, phone_verified: null }));
+    error = fallback.error;
+  }
+
+  return { data: data || [], error };
+}
+
+async function cargarUltimosDigestEnviados(supabase, userIds = [], desdeFecha) {
+  if (!Array.isArray(userIds) || userIds.length === 0) return new Map();
+
+  const { data, error } = await supabase
+    .from('digests')
+    .select('id, user_id, fecha, enviado_at, created_at')
+    .in('user_id', userIds)
+    .eq('enviado', true)
+    .gte('fecha', desdeFecha)
+    .order('fecha', { ascending: false });
+
+  if (error) {
+    console.warn('[digest:rescue] No se pudieron cargar ultimos digests enviados:', error.message);
+    return new Map();
+  }
+
+  const map = new Map();
+  for (const digest of data || []) {
+    const actual = map.get(digest.user_id);
+    if (!actual || String(digest.fecha || '') > String(actual.fecha || '')) {
+      map.set(digest.user_id, digest);
+    }
+  }
+  return map;
+}
+
+function necesitaRescateSemanal(user, ultimosEnviadosPorUsuario, fecha) {
+  if (!DIGEST_RESCUE_ENABLED) return false;
+  const ultimo = ultimosEnviadosPorUsuario.get(user.id);
+  if (!ultimo?.fecha) return true;
+  const dias = diasEntreFechas(ultimo.fecha, fecha);
+  return dias === null || dias >= DIGEST_RESCUE_AFTER_DAYS;
+}
 
 // ─────────────────────────────────────────────
 // Helper: extrae términos de exclusión desde preferencias_extra.
@@ -485,6 +633,82 @@ function generarMensajeDigestFallback({ user, alertas, fecha, organizationContex
   ].join('\n').slice(0, 1600).trim();
 }
 
+function construirAccionRescate(alerta = {}, tipo = 'suave') {
+  const ficha = parsearFichaDigest(alerta.resumen_final || alerta.resumen || '');
+  if (campoDigestUtil(ficha.accion)) return limpiarLineaDigest(ficha.accion, 220);
+  if (campoDigestUtil(ficha.plazo)) return `Revisa el plazo y comprueba si encaja con tu explotacion: ${limpiarLineaDigest(ficha.plazo, 160)}`;
+
+  const bolsa = norm([
+    alerta.titulo,
+    alerta.resumen_final,
+    alerta.resumen,
+    ...(Array.isArray(alerta.tipos_alerta) ? alerta.tipos_alerta : []),
+    ...(Array.isArray(alerta.sectores) ? alerta.sectores : []),
+  ].filter(Boolean).join(' '));
+
+  if (/pac|ayuda|subvencion|convocatoria|solicitud|subsanacion/.test(bolsa)) {
+    return 'Mira requisitos y plazo antes de descartarla.';
+  }
+  if (/agua|concesion|aprovechamiento|expediente|parcela|municipio/.test(bolsa)) {
+    return 'Solo te afecta si tienes relacion con esa zona, parcela o expediente.';
+  }
+
+  return tipo === 'directo'
+    ? 'Revisala y guardala si encaja con tu zona o actividad.'
+    : 'Solo merece revisarla si el titulo encaja con tu zona o actividad.';
+}
+
+function generarMensajeDigestRescate({
+  user,
+  alertas,
+  fecha,
+  desde,
+  tipo = 'suave',
+  organizationContext = null,
+}) {
+  const branding = obtenerMiaBranding(organizationContext || user.mia_organization_context || null);
+  const saludo = construirSaludoDigest(user);
+  const seleccion = (alertas || []).slice(0, DIGEST_RESCUE_MAX_ALERTAS);
+  const dias = Math.max(1, (diasEntreFechas(desde, fecha) || DIGEST_RESCUE_LOOKBACK_DAYS - 1) + 1);
+  const intro = tipo === 'directo'
+    ? `He revisado los ultimos ${dias} dias y te aviso de esto porque puede encajar con tu perfil.`
+    : `Esta semana no he visto ninguna alerta claramente directa para tu perfil, pero sigo vigilando.`;
+  const cierre = branding.website
+    ? `_Cualquier duda, visita ${branding.website}_`
+    : `_Cualquier duda, contacta con ${branding.reply_sender}_`;
+
+  const bloques = seleccion.map((alerta, index) => {
+    const titulo = limpiarLineaDigest(alerta.titulo, 150) || 'Alerta oficial';
+    const resumen = construirResumenOficialDigest(alerta, 260) ||
+      limpiarLineaDigest(alerta.resumen_final || alerta.resumen || alerta.contenido, 260) ||
+      'No hay suficiente detalle para resumirla con seguridad.';
+    const accion = construirAccionRescate(alerta, tipo);
+    const url = String(alerta.url || '').trim();
+
+    return [
+      `*${index + 1}. ${titulo}*`,
+      `Que significa: ${resumen}`,
+      `Que haria ahora: ${accion}`,
+      url,
+    ].filter(Boolean).join('\n');
+  }).join('\n\n');
+
+  return [
+    saludo,
+    '',
+    intro,
+    '',
+    seleccion.length > 0
+      ? 'Te dejo estas publicaciones por si quieres echarles un vistazo:'
+      : 'No te mando enlaces de relleno: prefiero avisarte cuando haya algo con un minimo de sentido.',
+    '',
+    bloques,
+    seleccion.length > 0 ? '_Si no encaja con tu explotacion, puedes ignorarlo sin problema._' : '',
+    '',
+    cierre,
+  ].filter((linea) => linea !== '').join('\n').slice(0, 1600).trim();
+}
+
 function getClickBaseUrl() {
   return String(
     process.env.CLICK_BASE_URL ||
@@ -587,6 +811,64 @@ function ordenarPorAprendizaje(alertas, aprendizaje) {
       return (pesoPrioridad(prioridadB.prioridad) + prioridadB.score) -
         (pesoPrioridad(prioridadA.prioridad) + prioridadA.score);
     });
+}
+
+function seleccionarAlertasRescate({
+  alertas,
+  user,
+  aprendizaje,
+  perfilOperativoMIA,
+  organizationId = null,
+  maxItems = DIGEST_RESCUE_MAX_ALERTAS,
+}) {
+  const alertasVisibles = filtrarAlertasPorOrganization(alertas || [], organizationId);
+  const seleccionBase = filtrarAlertasParaDigest(alertasVisibles, user, {
+    qualityGate: DIGEST_QUALITY_GATE,
+    allowReview: true,
+    minReviewQualityScore: DIGEST_REVIEW_MIN_QUALITY_SCORE,
+    allowIndividualWithoutMunicipio: DIGEST_INCLUDE_INDIVIDUAL_PROVINCIAL,
+    exclusionPreferencias: (item) => alertaExcluidaPorPreferenciasExtra(item, user.preferencias_extra),
+  });
+
+  const directasOrdenadas = ordenarAlertasConPerfilOperativoMIA(
+    seleccionBase.alertas,
+    perfilOperativoMIA,
+    { excludeHard: false }
+  );
+  const directasFinales = seleccionarAlertasParaDigest(directasOrdenadas, user, {
+    qualityGate: DIGEST_QUALITY_GATE,
+    allowReview: true,
+    minReviewQualityScore: DIGEST_REVIEW_MIN_QUALITY_SCORE,
+    allowIndividualWithoutMunicipio: DIGEST_INCLUDE_INDIVIDUAL_PROVINCIAL,
+    minItems: Math.min(1, maxItems),
+    targetItems: maxItems,
+    maxItems,
+    origen: 'rescate_semanal_directo',
+    exclusionPreferencias: (item) => alertaExcluidaPorPreferenciasExtra(item, user.preferencias_extra),
+  });
+
+  if (directasFinales.alertas.length > 0) {
+    return {
+      tipo: 'directo',
+      alertas: directasFinales.alertas,
+      trasFiltroUsuario: seleccionBase.alertas.length,
+      trasScoring: directasOrdenadas.length,
+    };
+  }
+
+  const suavesBase = alertasVisibles
+    .filter((alerta) => alertaNoExcluidaPorPreferencias(alerta, user));
+  const suavesOrdenadas = ordenarPorAprendizaje(
+    ordenarAlertasConPerfilOperativoMIA(suavesBase, perfilOperativoMIA, { excludeHard: false }),
+    aprendizaje
+  );
+
+  return {
+    tipo: suavesOrdenadas.length > 0 ? 'suave' : 'sin_alertas_ventana',
+    alertas: suavesOrdenadas.slice(0, maxItems),
+    trasFiltroUsuario: seleccionBase.alertas.length,
+    trasScoring: suavesOrdenadas.length,
+  };
 }
 
 function parseVector(value) {
@@ -1089,34 +1371,13 @@ module.exports = function digestRoutes(app, supabase) {
       }
 
       // 1) Alertas del día listas para enviar
-      let { data: alertas, error: errAlertas } = await supabase
-        .from('alertas')
-        .select('id, titulo, url, fecha, region, fuente, resumen, resumen_final, contenido, provincias, sectores, subsectores, tipos_alerta, estado_ia, duplicado_de, organization_id, embedding_generated_at, created_at, embedding')
-        .eq('fecha', hoy)
-        .eq('estado_ia', 'listo');
-
-      if (errAlertas && /embedding/i.test(errAlertas.message || '')) {
-        const fallback = await supabase
-          .from('alertas')
-          .select('id, titulo, url, fecha, region, fuente, resumen, resumen_final, contenido, provincias, sectores, subsectores, tipos_alerta, estado_ia, duplicado_de, organization_id, embedding_generated_at, created_at')
-          .eq('fecha', hoy)
-          .eq('estado_ia', 'listo');
-        alertas = fallback.data;
-        errAlertas = fallback.error;
-      }
+      const { data: alertasDia, error: errAlertas } = await cargarAlertasListasDigest(supabase, { fecha: hoy });
 
       if (errAlertas) return res.status(500).json({ error: errAlertas.message });
 
-      if (!alertas || alertas.length === 0) {
-        return res.json({
-          success: true,
-          mensaje:           'No hay alertas listas hoy',
-          fecha:             hoy,
-          digests_generados: 0,
-        });
-      }
-
       // 2) Compuerta de calidad antes de personalizar por usuario
+      const totalAlertasDia = (alertasDia || []).length;
+      let alertas = alertasDia || [];
       let alertasDescartadasCalidad = [];
       if (DIGEST_QUALITY_GATE) {
         const calidad = filtrarAlertasPorCalidadDigest(alertas, { minScore: 65 });
@@ -1128,37 +1389,14 @@ module.exports = function digestRoutes(app, supabase) {
         }
       }
 
-      if (!alertas || alertas.length === 0) {
-        return res.json({
-          success: true,
-          mensaje: 'No hay alertas con calidad suficiente para digest',
-          fecha: hoy,
-          digests_generados: 0,
-          alertas_descartadas_calidad: alertasDescartadasCalidad.length,
-          descartes_calidad: alertasDescartadasCalidad.slice(0, 25),
-        });
+      if (totalAlertasDia === 0) {
+        console.log('[digest] No hay alertas listas hoy; se revisaran rescates semanales si aplica');
+      } else if (!alertas || alertas.length === 0) {
+        console.log('[digest] No hay alertas con calidad suficiente hoy; se revisaran rescates semanales si aplica');
       }
 
-      // 3) Usuarios de pago con telefono
-      let { data: usuarios, error: errUsuarios } = await supabase
-        .from('users')
-        .select('id, name, first_name, phone, subscription, preferences, preferencias_extra, organization_id, perfil_embedding, perfil_actualizado_at, contexto_narrativo')
-        .in('subscription', ['corral', 'agricultor', 'cooperativa'])
-        .not('phone', 'is', null)
-        .neq('phone', '')
-        .or('phone_verified.is.null,phone_verified.eq.true');
-
-      if (errUsuarios && /perfil_embedding|perfil_actualizado_at|contexto_narrativo/i.test(errUsuarios.message || '')) {
-        const fallback = await supabase
-          .from('users')
-          .select('id, name, first_name, phone, subscription, preferences, preferencias_extra, organization_id')
-          .in('subscription', ['corral', 'agricultor', 'cooperativa'])
-          .not('phone', 'is', null)
-          .neq('phone', '')
-          .or('phone_verified.is.null,phone_verified.eq.true');
-        usuarios = fallback.data;
-        errUsuarios = fallback.error;
-      }
+      // 3) Usuarios de pago
+      const { data: usuarios, error: errUsuarios } = await cargarUsuariosPagoDigest(supabase);
 
       if (errUsuarios) return res.status(500).json({ error: errUsuarios.message });
 
@@ -1178,10 +1416,21 @@ module.exports = function digestRoutes(app, supabase) {
         .eq('fecha', hoy);
 
       const digestsPorUsuario = new Map((digestsExistentes || []).map((d) => [d.user_id, d]));
+      const userIds = usuarios.map((user) => user.id).filter(Boolean);
+      const fechaCorteRescate = sumarDiasFechaISO(hoy, -DIGEST_RESCUE_AFTER_DAYS);
+      const desdeRescate = sumarDiasFechaISO(hoy, -(DIGEST_RESCUE_LOOKBACK_DAYS - 1));
+      const ultimosEnviadosPorUsuario = await cargarUltimosDigestEnviados(
+        supabase,
+        userIds,
+        fechaCorteRescate
+      );
+      let alertasRescateCache = null;
 
       let generados  = 0;
       let sinAlertas = 0;
       let saltados   = 0;
+      let rescatados = 0;
+      let sinTelefono = 0;
       let fallbackLocal = 0;
       const errores  = [];
 
@@ -1192,13 +1441,42 @@ module.exports = function digestRoutes(app, supabase) {
         // Ya tiene digest hoy → saltar
         // Con force=true se rehace solo si aun no fue enviado.
         const digestExistente = digestsPorUsuario.get(user.id);
+        const plan = getPlan(user.subscription);
 
         if (digestExistente && (!force || digestExistente.enviado)) {
+          await registrarDigestAttempt(supabase, {
+            userId: user.id,
+            fecha: hoy,
+            kind: 'daily',
+            status: 'skipped_existing',
+            digestId: digestExistente.id,
+            totalAlertasDia,
+            trasQualityGate: alertas.length,
+            metadata: {
+              plan: plan.nombre,
+              enviado: Boolean(digestExistente.enviado),
+            },
+          });
           saltados++;
           continue;
         }
 
-        const plan = getPlan(user.subscription);
+        const motivoNoRecibe = motivoUsuarioNoRecibeDigest(user);
+        if (motivoNoRecibe) {
+          await registrarDigestAttempt(supabase, {
+            userId: user.id,
+            fecha: hoy,
+            kind: 'daily',
+            status: 'no_send',
+            totalAlertasDia,
+            trasQualityGate: alertas.length,
+            motivoNoEnvio: motivoNoRecibe,
+            metadata: { plan: plan.nombre },
+          });
+          sinTelefono++;
+          continue;
+        }
+
         const organizationContext = await cargarOrganizationContextMIA(supabase, user);
         const organizationId = organizationContext.organization_id || null;
         const userConOrganization = aplicarOrganizationContextAUsuario(user, organizationContext);
@@ -1238,24 +1516,108 @@ module.exports = function digestRoutes(app, supabase) {
         const alertasOrdenadas = usandoMIA
           ? ordenarAlertasConPerfilOperativoMIA(candidatasFinales, perfilOperativoMIA, { excludeHard: false })
           : ordenarPorAprendizaje(candidatasFinales, aprendizaje);
+        const maxAlertasUsuario = getMaxAlertasDigestUsuario(userConPerfilMIA);
         const seleccionFinal = seleccionarAlertasParaDigest(alertasOrdenadas, userConPerfilMIA, {
           qualityGate: DIGEST_QUALITY_GATE,
           allowReview: DIGEST_INCLUDE_REVIEW,
           minReviewQualityScore: DIGEST_REVIEW_MIN_QUALITY_SCORE,
           allowIndividualWithoutMunicipio: DIGEST_INCLUDE_INDIVIDUAL_PROVINCIAL,
-          minItems: DIGEST_VECTOR_BACKFILL_MIN,
-          targetItems: Math.min(5, DIGEST_MAX_ALERTAS_USUARIO),
-          maxItems: DIGEST_MAX_ALERTAS_USUARIO,
+          minItems: Math.min(DIGEST_VECTOR_BACKFILL_MIN, maxAlertasUsuario),
+          targetItems: maxAlertasUsuario,
+          maxItems: maxAlertasUsuario,
           origen: usandoMIA ? seleccionMIA.origen : 'perfil_tags_prioridad',
           exclusionPreferencias: (item) => alertaExcluidaPorPreferenciasExtra(item, user.preferencias_extra),
         });
-        const alertasFinales = seleccionFinal.alertas;
+        let alertasFinales = seleccionFinal.alertas;
+        let modoRescate = null;
 
         // Sin alertas relevantes → silencio
         if (alertasFinales.length === 0) {
-          sinAlertas++;
-          console.log(`[digest] User ${user.id} (${plan.nombre}) → 0 alertas relevantes → sin digest`);
-          continue;
+          const rescateElegible = necesitaRescateSemanal(user, ultimosEnviadosPorUsuario, hoy);
+
+          if (rescateElegible) {
+            if (!alertasRescateCache) {
+              const { data: alertasVentana, error: errRescate } = await cargarAlertasListasDigest(supabase, {
+                desde: desdeRescate,
+                hasta: hoy,
+              });
+              if (errRescate) {
+                console.warn('[digest:rescue] No se pudieron cargar alertas de rescate:', errRescate.message);
+                alertasRescateCache = {
+                  alertas: [],
+                  total: 0,
+                  descartadasCalidad: 0,
+                  error: errRescate.message,
+                };
+              } else if (DIGEST_QUALITY_GATE) {
+                const calidadRescate = filtrarAlertasPorCalidadDigest(alertasVentana || [], { minScore: 65 });
+                alertasRescateCache = {
+                  alertas: calidadRescate.aceptadas,
+                  total: (alertasVentana || []).length,
+                  descartadasCalidad: calidadRescate.rechazadas.length,
+                };
+              } else {
+                alertasRescateCache = {
+                  alertas: alertasVentana || [],
+                  total: (alertasVentana || []).length,
+                  descartadasCalidad: 0,
+                };
+              }
+            }
+
+            const rescate = seleccionarAlertasRescate({
+              alertas: alertasRescateCache.alertas,
+              user: userConPerfilMIA,
+              aprendizaje,
+              perfilOperativoMIA,
+              organizationId,
+              maxItems: Math.min(DIGEST_RESCUE_MAX_ALERTAS, getMaxAlertasDigestUsuario(userConPerfilMIA)),
+            });
+
+            alertasFinales = rescate.alertas;
+            modoRescate = {
+              tipo: rescate.tipo,
+              desde: desdeRescate,
+              totalAlertasVentana: alertasRescateCache.total,
+              alertasVentanaTrasCalidad: alertasRescateCache.alertas.length,
+              descartadasCalidad: alertasRescateCache.descartadasCalidad,
+              trasFiltroUsuario: rescate.trasFiltroUsuario,
+              trasScoring: rescate.trasScoring,
+            };
+            console.log(`[digest:rescue] User ${user.id} (${plan.nombre}) → rescate ${rescate.tipo} con ${alertasFinales.length} alertas`);
+          } else {
+            const motivoNoEnvio = totalAlertasDia === 0
+              ? 'no_habia_alertas'
+              : alertas.length === 0
+                ? 'calidad_baja'
+                : alertasUsuario.length === 0
+                  ? 'perfil_sin_coincidencias'
+                  : alertasOrdenadas.length === 0
+                    ? 'scoring_sin_candidatas'
+                    : 'sin_alertas_para_usuario';
+
+            await registrarDigestAttempt(supabase, {
+              userId: user.id,
+              fecha: hoy,
+              kind: 'daily',
+              status: 'no_send',
+              totalAlertasDia,
+              trasQualityGate: alertas.length,
+              trasFiltroUsuario: alertasUsuario.length,
+              trasScoring: alertasOrdenadas.length,
+              alertasFinales: 0,
+              motivoNoEnvio,
+              metadata: {
+                plan: plan.nombre,
+                rescate_enabled: DIGEST_RESCUE_ENABLED,
+                rescate_elegible: false,
+              },
+            });
+
+            sinAlertas++;
+            console.log(`[digest] User ${user.id} (${plan.nombre}) → 0 alertas relevantes → sin digest`);
+            continue;
+          }
         }
 
         console.log(`[digest] User ${user.id} (${plan.nombre}) → ${alertasFinales.length}/${alertasUsuario.length} alertas → generando...`);
@@ -1263,14 +1625,25 @@ module.exports = function digestRoutes(app, supabase) {
         try {
           let mensajeRaw;
           try {
-            mensajeRaw = await generarMensajeDigest({
-              user: userConPerfilMIA,
-              alertas: alertasFinales,
-              fecha:   hoy,
-              plan,
-              aprendizaje,
-              organizationContext,
-            });
+            if (modoRescate) {
+              mensajeRaw = generarMensajeDigestRescate({
+                user: userConPerfilMIA,
+                alertas: alertasFinales,
+                fecha: hoy,
+                desde: modoRescate.desde,
+                tipo: modoRescate.tipo,
+                organizationContext,
+              });
+            } else {
+              mensajeRaw = await generarMensajeDigest({
+                user: userConPerfilMIA,
+                alertas: alertasFinales,
+                fecha:   hoy,
+                plan,
+                aprendizaje,
+                organizationContext,
+              });
+            }
           } catch (errGenerar) {
             if (!DIGEST_LOCAL_FALLBACK) throw errGenerar;
             console.warn(`[digest] Fallback local user ${user.id}:`, errGenerar.message);
@@ -1285,6 +1658,19 @@ module.exports = function digestRoutes(app, supabase) {
           }
 
           if (!mensajeRaw || mensajeRaw.trim() === 'SIN_ALERTAS') {
+            await registrarDigestAttempt(supabase, {
+              userId: user.id,
+              fecha: hoy,
+              kind: 'daily',
+              status: 'no_send',
+              totalAlertasDia,
+              trasQualityGate: alertas.length,
+              trasFiltroUsuario: alertasUsuario.length,
+              trasScoring: alertasOrdenadas.length,
+              alertasFinales: alertasFinales.length,
+              motivoNoEnvio: 'ia_sin_alertas',
+              metadata: { plan: plan.nombre },
+            });
             sinAlertas++;
             console.log(`[digest] User ${user.id} → IA descartó todas las alertas → sin digest`);
             continue;
@@ -1334,9 +1720,37 @@ module.exports = function digestRoutes(app, supabase) {
             if (writeError.code === '23505') {
               // Carrera entre crons — no es error crítico
               console.warn(`[digest] UNIQUE violation user ${user.id} — ya existe, saltando`);
+              await registrarDigestAttempt(supabase, {
+                userId: user.id,
+                fecha: hoy,
+                kind: modoRescate ? 'rescue' : 'daily',
+                status: 'skipped_existing',
+                totalAlertasDia,
+                totalAlertasVentana: modoRescate?.totalAlertasVentana || 0,
+                trasQualityGate: modoRescate?.alertasVentanaTrasCalidad || alertas.length,
+                trasFiltroUsuario: modoRescate?.trasFiltroUsuario || alertasUsuario.length,
+                trasScoring: modoRescate?.trasScoring || alertasOrdenadas.length,
+                alertasFinales: alertasFinales.length,
+                metadata: { plan: plan.nombre, rescate: modoRescate },
+              });
               saltados++;
             } else {
               console.error(`[digest] Error guardando digest user ${user.id}:`, writeError.message);
+              await registrarDigestAttempt(supabase, {
+                userId: user.id,
+                fecha: hoy,
+                kind: modoRescate ? 'rescue' : 'daily',
+                status: 'failed',
+                totalAlertasDia,
+                totalAlertasVentana: modoRescate?.totalAlertasVentana || 0,
+                trasQualityGate: modoRescate?.alertasVentanaTrasCalidad || alertas.length,
+                trasFiltroUsuario: modoRescate?.trasFiltroUsuario || alertasUsuario.length,
+                trasScoring: modoRescate?.trasScoring || alertasOrdenadas.length,
+                alertasFinales: alertasFinales.length,
+                motivoNoEnvio: 'error_guardando_digest',
+                errorMsg: writeError.message,
+                metadata: { plan: plan.nombre, rescate: modoRescate },
+              });
               errores.push({ userId: user.id, error: writeError.message });
             }
           } else {
@@ -1352,12 +1766,58 @@ module.exports = function digestRoutes(app, supabase) {
               }
             }
 
+            const origenDigest = modoRescate
+              ? `rescate_semanal_${modoRescate.tipo}`
+              : (usandoMIA ? seleccionMIA.origen : 'perfil_tags_prioridad');
+
+            await registrarDigestAttempt(supabase, {
+              userId: user.id,
+              fecha: hoy,
+              kind: 'daily',
+              status: modoRescate ? 'rescued' : 'generated',
+              digestId: digestInsertado.id,
+              totalAlertasDia,
+              totalAlertasVentana: modoRescate?.totalAlertasVentana || 0,
+              trasQualityGate: alertas.length,
+              trasFiltroUsuario: alertasUsuario.length,
+              trasScoring: alertasOrdenadas.length,
+              alertasFinales: alertasFinales.length,
+              motivoNoEnvio: modoRescate ? 'sin_alertas_hoy_rescate_semanal_generado' : null,
+              metadata: {
+                plan: plan.nombre,
+                origen: origenDigest,
+                rescate: modoRescate,
+              },
+            });
+
+            if (modoRescate) {
+              await registrarDigestAttempt(supabase, {
+                userId: user.id,
+                fecha: hoy,
+                kind: 'rescue',
+                status: 'generated',
+                digestId: digestInsertado.id,
+                totalAlertasDia,
+                totalAlertasVentana: modoRescate.totalAlertasVentana,
+                trasQualityGate: modoRescate.alertasVentanaTrasCalidad,
+                trasFiltroUsuario: modoRescate.trasFiltroUsuario,
+                trasScoring: modoRescate.trasScoring,
+                alertasFinales: alertasFinales.length,
+                metadata: {
+                  plan: plan.nombre,
+                  tipo: modoRescate.tipo,
+                  desde: modoRescate.desde,
+                  descartadas_calidad: modoRescate.descartadasCalidad,
+                },
+              });
+            }
+
             const digestItems = await registrarDigestItemsMIA(supabase, {
               digestId: digestInsertado.id,
               userId: user.id,
               fecha: hoy,
               alertas: alertasFinales,
-              origen: usandoMIA ? seleccionMIA.origen : 'perfil_tags_prioridad',
+              origen: origenDigest,
               organizationId,
             });
 
@@ -1396,25 +1856,27 @@ module.exports = function digestRoutes(app, supabase) {
               }
             }
 
-            try {
-              await abrirConversacionFeedbackDigest(supabase, {
-                userId: user.id,
-                digestId: digestInsertado.id,
-                alertaIds: alertaIdsDigest,
-                fecha: hoy,
-                organizationId,
-              });
-            } catch (errConversacion) {
-              console.warn(`[digest] No se pudo abrir conversacion feedback user ${user.id}:`, errConversacion.message);
-              errores.push({
-                userId: user.id,
-                digestId: digestInsertado.id,
-                warning: 'conversacion_feedback_no_creada',
-                error: errConversacion.message,
-              });
+            if (alertaIdsDigest.length > 0) {
+              try {
+                await abrirConversacionFeedbackDigest(supabase, {
+                  userId: user.id,
+                  digestId: digestInsertado.id,
+                  alertaIds: alertaIdsDigest,
+                  fecha: hoy,
+                  organizationId,
+                });
+              } catch (errConversacion) {
+                console.warn(`[digest] No se pudo abrir conversacion feedback user ${user.id}:`, errConversacion.message);
+                errores.push({
+                  userId: user.id,
+                  digestId: digestInsertado.id,
+                  warning: 'conversacion_feedback_no_creada',
+                  error: errConversacion.message,
+                });
+              }
             }
 
-            if (seleccionMIA?.exploracion) {
+            if (!modoRescate && seleccionMIA?.exploracion) {
               try {
                 await registrarExploracionDigest(supabase, {
                   userId: user.id,
@@ -1434,12 +1896,31 @@ module.exports = function digestRoutes(app, supabase) {
               }
             }
 
+            if (modoRescate) rescatados++;
             generados++;
             console.log(`[digest] ✓ Generado para user ${user.id}`);
           }
 
         } catch (errIA) {
           console.error(`[digest] Error IA user ${user.id}:`, errIA.message);
+          await registrarDigestAttempt(supabase, {
+            userId: user.id,
+            fecha: hoy,
+            kind: modoRescate ? 'rescue' : 'daily',
+            status: 'failed',
+            totalAlertasDia,
+            totalAlertasVentana: modoRescate?.totalAlertasVentana || 0,
+            trasQualityGate: modoRescate?.alertasVentanaTrasCalidad || alertas.length,
+            trasFiltroUsuario: modoRescate?.trasFiltroUsuario || alertasUsuario.length,
+            trasScoring: modoRescate?.trasScoring || alertasOrdenadas.length,
+            alertasFinales: alertasFinales.length,
+            motivoNoEnvio: 'error_generando_digest',
+            errorMsg: errIA.message,
+            metadata: {
+              plan: plan.nombre,
+              rescate: modoRescate,
+            },
+          });
           errores.push({ userId: user.id, error: errIA.message });
         }
       }
@@ -1447,6 +1928,7 @@ module.exports = function digestRoutes(app, supabase) {
       return res.json({
         success: true,
         fecha: hoy,
+        alertas_dia_total: totalAlertasDia,
         alertas_disponibles:  alertas.length,
         alertas_descartadas_calidad: alertasDescartadasCalidad.length,
         usuarios_procesados:  usuarios.length,
@@ -1454,9 +1936,16 @@ module.exports = function digestRoutes(app, supabase) {
         procesadas:           generados,
         actualizadas:         generados,
         digests_generados:    generados,
+        rescates_generados:   rescatados,
         usuarios_sin_alertas: sinAlertas,
+        usuarios_sin_telefono: sinTelefono,
         saltados,
         fallback_local:       fallbackLocal,
+        rescate: {
+          enabled: DIGEST_RESCUE_ENABLED,
+          after_days: DIGEST_RESCUE_AFTER_DAYS,
+          lookback_days: DIGEST_RESCUE_LOOKBACK_DAYS,
+        },
         errores,
       });
 
@@ -1481,7 +1970,7 @@ module.exports = function digestRoutes(app, supabase) {
       // 1) Digests pendientes de hoy
       const { data: digests, error } = await supabase
         .from('digests')
-        .select('id, user_id, mensaje')
+        .select('id, user_id, fecha, mensaje')
         .eq('fecha', hoy)
         .eq('enviado', false)
         .order('created_at', { ascending: true });
@@ -1522,6 +2011,11 @@ module.exports = function digestRoutes(app, supabase) {
 
         if (!telefono) {
           console.warn(`[digest] User ${digest.user_id} sin teléfono → saltando`);
+          await actualizarDigestAttemptPorDigest(supabase, digest.id, {
+            status: 'failed',
+            motivoNoEnvio: 'usuario_sin_telefono_envio',
+            errorMsg: 'Usuario sin telefono verificable en envio',
+          });
           continue;
         }
 
@@ -1536,6 +2030,12 @@ module.exports = function digestRoutes(app, supabase) {
               error_msg:  null,
             })
             .eq('id', digest.id);
+
+          await actualizarDigestAttemptPorDigest(supabase, digest.id, {
+            status: 'sent',
+            motivoNoEnvio: null,
+            errorMsg: null,
+          });
 
           enviados++;
           console.log(`[digest] ✓ Enviado a ${telefono} [${i + 1}/${digests.length}]`);
@@ -1553,6 +2053,12 @@ module.exports = function digestRoutes(app, supabase) {
             .from('digests')
             .update({ error_msg: errEnvio.message })
             .eq('id', digest.id);
+
+          await actualizarDigestAttemptPorDigest(supabase, digest.id, {
+            status: 'failed',
+            motivoNoEnvio: 'fallo_envio_whatsapp',
+            errorMsg: errEnvio.message,
+          });
         }
       }
 

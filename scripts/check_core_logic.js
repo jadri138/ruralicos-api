@@ -228,6 +228,22 @@ assert.ok(
   digestRoutes.includes("phone_verified.is.null,phone_verified.eq.true"),
   'El digest no debe preparar/enviar a telefonos marcados como no verificados'
 );
+assert.ok(
+  digestRoutes.includes("PREPARAR_DIGEST_BATCH_SIZE', 50"),
+  'El batch por defecto de preparar digest debe ser suficiente para usuarios de pago'
+);
+assert.ok(
+  digestRoutes.includes('DIGEST_RESCUE_AFTER_DAYS') &&
+  digestRoutes.includes('generarMensajeDigestRescate') &&
+  digestRoutes.includes('registrarDigestAttempt'),
+  'El digest debe auditar no-envios y rescatar usuarios con silencio prolongado'
+);
+const digestAttempts = fs.readFileSync(path.join(__dirname, '..', 'src/mia/digestAttempts.js'), 'utf8');
+assert.ok(
+  digestAttempts.includes(".from('digest_attempts')") &&
+  digestAttempts.includes("onConflict: 'user_id,fecha,kind'"),
+  'La auditoria de digest debe persistir intentos por usuario, fecha y tipo'
+);
 
 const feedbackRoutes = fs.readFileSync(path.join(__dirname, '..', 'src/routes/feedback.js'), 'utf8');
 assert.ok(

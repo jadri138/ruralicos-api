@@ -17,6 +17,7 @@ const USER_OWNED_TABLES = [
   'mia_agent_cases',
   'mia_structured_memory',
   'mia_alert_reviews',
+  'digest_attempts',
   'digest_items',
   'alerta_click_links',
   'alerta_clicks',

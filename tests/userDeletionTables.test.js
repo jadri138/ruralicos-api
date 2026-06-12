@@ -23,6 +23,7 @@ console.log('\n=== TESTS: user deletion tables ===\n');
 test('limpia tablas personales nuevas y legacy', () => {
   const requiredTables = [
     'digest_items',
+    'digest_attempts',
     'official_list_matches',
     'mia_actions',
     'mia_decisions',
