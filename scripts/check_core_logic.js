@@ -166,7 +166,11 @@ for (const [file, fuente] of Object.entries(rutasConFuenteObligatoria)) {
   );
 }
 
-const adminRoutes = fs.readFileSync(path.join(__dirname, '..', 'src/modules/admin/admin.routes.js'), 'utf8');
+// Las rutas de administracion estan repartidas por area (panel, usuarios,
+// alertas, operaciones, mia) mas helpers compartidos; las leemos todas juntas.
+const adminRoutes = ['helpers', 'panel', 'usuarios', 'alertas', 'operaciones', 'mia', 'routes']
+  .map((g) => fs.readFileSync(path.join(__dirname, '..', `src/modules/admin/admin.${g}.${g === 'helpers' || g === 'routes' ? 'js' : 'routes.js'}`), 'utf8'))
+  .join('\n');
 assert.ok(
   adminRoutes.includes("? 'pendiente_revisar'"),
   'admin reprocesar fase=revisar debe usar pendiente_revisar'
