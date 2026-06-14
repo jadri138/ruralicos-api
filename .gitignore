@@ -6,3 +6,8 @@ node_modules
 *.log
 coverage
 dist
+
+# Artefactos temporales de la reestructuracion (snapshots de inventario de rutas)
+.refactor-inventario-*.txt
+.refactor-inventario-*.err
+graphify-out/
