@@ -1,4 +1,4 @@
-const { tagsAlerta } = require('../brain/userInterestProfile');
+const { tagsAlerta } = require('../../brain/userInterestProfile');
 const {
   inferirTopic,
   inferirPolarity,

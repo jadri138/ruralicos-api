@@ -1,5 +1,5 @@
 const crypto = require('crypto');
-const { normalizarOrganizationId } = require('../mia/organizationContext');
+const { normalizarOrganizationId } = require('../modules/mia/organizationContext');
 
 const MISSING_SCHEMA_CODES = new Set(['42P01', '42703', 'PGRST204', 'PGRST205']);
 

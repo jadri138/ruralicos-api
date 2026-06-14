@@ -6,7 +6,7 @@ const {
   registrarCasoAgenteMIA,
   abrirConversacionAgenteMIA,
   necesitaCasoAgenteMIA,
-} = require('../src/mia/actionExecutor');
+} = require('../src/modules/mia/actionExecutor');
 
 let passed = 0;
 let failed = 0;

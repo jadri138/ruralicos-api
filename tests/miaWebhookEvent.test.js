@@ -1,7 +1,7 @@
 const {
   construirWebhookEventRow,
   guardarWebhookEventSeguro,
-} = require('../src/mia/webhookEvent');
+} = require('../src/modules/mia/webhookEvent');
 
 let passed = 0;
 let failed = 0;

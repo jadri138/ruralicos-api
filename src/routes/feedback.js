@@ -13,34 +13,34 @@ const {
 } = require('../brain');
 const { enviarDigestPro } = require('../platform/whatsapp');
 const { extraerUltraMsg, esEventoMensajeUltraMsg } = require('../shared/ultramsgParser');
-const { registrarInboundMIA, actualizarInboundMIA } = require('../mia/inbound');
-const { decidirMensajeMIA, esRespuestaOrigenCaptacionMIA } = require('../mia/decisionCore');
-const { cargarDigestItemsMIA } = require('../mia/digestItems');
-const { registrarMemoriaEstructuradaMIA } = require('../mia/structuredMemory');
+const { registrarInboundMIA, actualizarInboundMIA } = require('../modules/mia/inbound');
+const { decidirMensajeMIA, esRespuestaOrigenCaptacionMIA } = require('../modules/mia/decisionCore');
+const { cargarDigestItemsMIA } = require('../modules/mia/digestItems');
+const { registrarMemoriaEstructuradaMIA } = require('../modules/mia/structuredMemory');
 const {
   ejecutarAccionesMIA,
   registrarCasoAgenteMIA,
   abrirConversacionAgenteMIA,
-} = require('../mia/actionExecutor');
+} = require('../modules/mia/actionExecutor');
 const {
   resolverPreguntaConBaseConocimientoMIA,
   aplicarRespuestaConocimientoADecision,
-} = require('../mia/knowledgeBase');
+} = require('../modules/mia/knowledgeBase');
 const {
   registrarDecisionYAccionesMIA,
   actualizarDecisionResultadoMIA,
   actualizarAccionesPorTipoMIA,
-} = require('../mia/decisionStore');
+} = require('../modules/mia/decisionStore');
 const {
   encolarRespuestaMIA,
   procesarOutboxItemMIA,
-} = require('../mia/outbox');
-const { guardarWebhookEventSeguro } = require('../mia/webhookEvent');
+} = require('../modules/mia/outbox');
+const { guardarWebhookEventSeguro } = require('../modules/mia/webhookEvent');
 const {
   cargarPerfilOperativoMIA,
   aplicarPerfilOperativoAUsuario,
-} = require('../mia/userProfile');
-const { evaluarPoliticaDecisionMIA } = require('../mia/policy');
+} = require('../modules/mia/userProfile');
+const { evaluarPoliticaDecisionMIA } = require('../modules/mia/policy');
 const {
   conOrganizationId,
   extraerOrganizationId,
@@ -48,7 +48,7 @@ const {
   cargarOrganizationContextMIA,
   aplicarOrganizationContextAUsuario,
   obtenerMiaBranding,
-} = require('../mia/organizationContext');
+} = require('../modules/mia/organizationContext');
 
 function comprobarWebhookToken(req) {
   const esperado = String(process.env.ULTRAMSG_WEBHOOK_TOKEN || '').trim();

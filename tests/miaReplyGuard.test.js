@@ -4,8 +4,8 @@ const {
   formatearRespuestaWhatsAppMIA,
   evaluarRespuestaMIA,
   contienePatronProhibido,
-} = require('../src/mia/replyGuard');
-const { construirOutboxDesdeDecision } = require('../src/mia/outbox');
+} = require('../src/modules/mia/replyGuard');
+const { construirOutboxDesdeDecision } = require('../src/modules/mia/outbox');
 
 let passed = 0;
 let failed = 0;

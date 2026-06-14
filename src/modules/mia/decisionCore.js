@@ -1,4 +1,4 @@
-const { interpretarMensaje } = require('../utils/cerebro');
+const { interpretarMensaje } = require('../../utils/cerebro');
 
 const DECISION_VERSION = 'mia_decision_v1';
 

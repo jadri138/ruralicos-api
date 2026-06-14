@@ -6,7 +6,7 @@ const {
   actualizarDigestAttemptPorDigest,
   construirDigestAttemptRow,
   registrarDigestAttempt,
-} = require('../src/mia/digestAttempts');
+} = require('../src/modules/mia/digestAttempts');
 
 function test(name, fn) {
   Promise.resolve()

@@ -7,7 +7,7 @@ const {
   construirOrganizationContext,
   obtenerMiaBranding,
   aplicarOrganizationContextAUsuario,
-} = require('../src/mia/organizationContext');
+} = require('../src/modules/mia/organizationContext');
 
 let passed = 0;
 let failed = 0;

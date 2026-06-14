@@ -8,7 +8,7 @@ const {
   cargarOutboxPendiente,
   procesarOutboxItemMIA,
   generarOutboxHealthMIA,
-} = require('../mia/outbox');
+} = require('../modules/mia/outbox');
 
 const SCRAPE_PATHS_DEFAULT = [
   '/scrape-boe-oficial',

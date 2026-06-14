@@ -1,7 +1,7 @@
 const {
   inicializarOpenAI,
   generarEmbedding,
-} = require('../platform/ia/embeddings');
+} = require('../../platform/ia/embeddings');
 const { generarRespuestaGroundedMIA } = require('./groundedAnswer');
 const {
   normalizarOrganizationId,

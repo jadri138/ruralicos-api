@@ -4,7 +4,7 @@ const {
   procesarOutboxItemMIA,
   calcularNextAttemptAt,
   calcularOutboxHealthMIA,
-} = require('../src/mia/outbox');
+} = require('../src/modules/mia/outbox');
 
 let passed = 0;
 let failed = 0;

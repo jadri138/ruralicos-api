@@ -2,7 +2,7 @@ const {
   MIA_EVAL_FIXTURES,
   ejecutarEvalsMIA,
   evaluarEscenarioMIA,
-} = require('../src/mia/evalHarness');
+} = require('../src/modules/mia/evalHarness');
 
 let passed = 0;
 let failed = 0;

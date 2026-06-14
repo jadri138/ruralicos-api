@@ -4,7 +4,7 @@ const {
   ordenarAlertasConPerfilOperativoMIA,
   puntuarAlertaConPerfilOperativoMIA,
   extraerExclusiones,
-} = require('../src/mia/userProfile');
+} = require('../src/modules/mia/userProfile');
 
 let passed = 0;
 let failed = 0;

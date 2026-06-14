@@ -1,5 +1,5 @@
 const { diagnosticarAlertaUsuario } = require('./alertaMatcher');
-const { evaluarCalidadAlerta } = require('../mia/alertQuality');
+const { evaluarCalidadAlerta } = require('../modules/mia/alertQuality');
 const { extraerFeaturesAlerta, textoAlerta: textoFeaturesAlerta } = require('../brain/alertFeatures');
 const { clasificarPrioridadAlerta, pesoPrioridad } = require('../brain/alertPriority');
 const {

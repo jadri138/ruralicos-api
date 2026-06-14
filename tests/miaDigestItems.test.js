@@ -1,4 +1,4 @@
-const { construirDigestItems } = require('../src/mia/digestItems');
+const { construirDigestItems } = require('../src/modules/mia/digestItems');
 
 let passed = 0;
 let failed = 0;

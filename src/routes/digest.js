@@ -31,17 +31,17 @@ const {
 const { getFechaMadridISO, getRangoDiaMadridUTC } = require('../shared/fechaMadrid');
 const { leerPerfilIntereses, ordenarAlertasPorPerfil, clasificarPrioridadAlerta, pesoPrioridad } = require('../brain');
 const { similitudCoseno }          = require('../platform/ia/embeddings');
-const { registrarDigestItemsMIA }  = require('../mia/digestItems');
+const { registrarDigestItemsMIA }  = require('../modules/mia/digestItems');
 const {
   actualizarDigestAttemptPorDigest,
   registrarDigestAttempt,
-} = require('../mia/digestAttempts');
+} = require('../modules/mia/digestAttempts');
 const {
   cargarPerfilOperativoMIA,
   aplicarPerfilOperativoAUsuario,
   ordenarAlertasConPerfilOperativoMIA,
-} = require('../mia/userProfile');
-const { evaluarCalidadAlerta }     = require('../mia/alertQuality');
+} = require('../modules/mia/userProfile');
+const { evaluarCalidadAlerta }     = require('../modules/mia/alertQuality');
 const {
   conOrganizationId,
   extraerOrganizationId,
@@ -49,7 +49,7 @@ const {
   cargarOrganizationContextMIA,
   aplicarOrganizationContextAUsuario,
   obtenerMiaBranding,
-} = require('../mia/organizationContext');
+} = require('../modules/mia/organizationContext');
 
 function numeroConfig(name, fallback, min = 0, max = Number.MAX_SAFE_INTEGER) {
   const value = Number(process.env[name]);

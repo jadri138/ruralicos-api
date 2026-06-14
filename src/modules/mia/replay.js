@@ -1,6 +1,6 @@
-const { extraerTextoEntrante, extraerTelefonoEntrante } = require('../brain/feedbackParser');
-const { normalizePhone } = require('../shared/phoneNormalizer');
-const { extraerUltraMsg, esEventoMensajeUltraMsg } = require('../shared/ultramsgParser');
+const { extraerTextoEntrante, extraerTelefonoEntrante } = require('../../brain/feedbackParser');
+const { normalizePhone } = require('../../shared/phoneNormalizer');
+const { extraerUltraMsg, esEventoMensajeUltraMsg } = require('../../shared/ultramsgParser');
 
 const REASONS_REPLAY_SEGURO = new Set([
   'webhook_token_no_configurado',

@@ -1,7 +1,7 @@
 const {
   construirAnswerAuditMIA,
   evaluarDecisionRespuesta,
-} = require('../src/mia/answerAudit');
+} = require('../src/modules/mia/answerAudit');
 
 let passed = 0;
 let failed = 0;

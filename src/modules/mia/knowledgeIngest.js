@@ -1,10 +1,10 @@
 const path = require('path');
 const crypto = require('crypto');
-const { extraerTextoPdf } = require('../shared/pdfExtractor');
+const { extraerTextoPdf } = require('../../shared/pdfExtractor');
 const {
   inicializarOpenAI,
   generarEmbeddingsBatch,
-} = require('../platform/ia/embeddings');
+} = require('../../platform/ia/embeddings');
 
 const DEFAULT_CHUNK_WORDS = 500;
 const DEFAULT_OVERLAP_WORDS = 80;

@@ -7,26 +7,26 @@ const {
   cargarOutboxPendiente,
   procesarOutboxItemMIA,
   generarOutboxHealthMIA,
-} = require('../mia/outbox');
+} = require('../modules/mia/outbox');
 const {
   analizarWebhookEventParaReplay,
   parseJsonObject,
-} = require('../mia/replay');
-const { resolverPreguntaConBaseConocimientoMIA } = require('../mia/knowledgeBase');
-const { generarQualityReportMIA } = require('../mia/qualityReport');
-const { generarAnswerAuditMIA } = require('../mia/answerAudit');
-const { cargarPerfilOperativoMIA } = require('../mia/userProfile');
-const { ejecutarEvalsMIA } = require('../mia/evalHarness');
-const { generarReporteCalidadOperativaMIA } = require('../mia/alertQuality');
+} = require('../modules/mia/replay');
+const { resolverPreguntaConBaseConocimientoMIA } = require('../modules/mia/knowledgeBase');
+const { generarQualityReportMIA } = require('../modules/mia/qualityReport');
+const { generarAnswerAuditMIA } = require('../modules/mia/answerAudit');
+const { cargarPerfilOperativoMIA } = require('../modules/mia/userProfile');
+const { ejecutarEvalsMIA } = require('../modules/mia/evalHarness');
+const { generarReporteCalidadOperativaMIA } = require('../modules/mia/alertQuality');
 const {
   ingestKnowledgeDocument,
   normalizeBase64,
-} = require('../mia/knowledgeIngest');
+} = require('../modules/mia/knowledgeIngest');
 const {
   cargarOrganizationContextMIA,
   normalizarOrganizationId,
   obtenerMiaBranding,
-} = require('../mia/organizationContext');
+} = require('../modules/mia/organizationContext');
 const {
   registrarAdminAuditLog,
   getAdminActor,
@@ -36,7 +36,7 @@ const {
   construirDatasetRevisionMIA,
   construirReviewRowMIA,
   esTablaRevisionNoDisponible,
-} = require('../mia/alertReview');
+} = require('../modules/mia/alertReview');
 
 const PLANES_VALIDOS = ['free', 'corral', 'agricultor', 'cooperativa'];
 const ORGANIZATION_STATUS_VALIDOS = ['active', 'paused', 'disabled'];

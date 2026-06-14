@@ -1,9 +1,9 @@
-const { normalizePhone } = require('../shared/phoneNormalizer');
+const { normalizePhone } = require('../../shared/phoneNormalizer');
 const {
   extraerTextoEntrante,
   extraerTelefonoEntrante,
-} = require('../brain');
-const { extraerUltraMsg } = require('../shared/ultramsgParser');
+} = require('../../brain');
+const { extraerUltraMsg } = require('../../shared/ultramsgParser');
 const { normalizarOrganizationId } = require('./organizationContext');
 
 const MISSING_SCHEMA_CODES = new Set(['42P01', '42703', 'PGRST204', 'PGRST205']);

@@ -281,13 +281,13 @@ assert.ok(
   digestRoutes.includes('registrarDigestAttempt'),
   'El digest debe auditar no-envios y rescatar usuarios con silencio prolongado'
 );
-const digestAttempts = fs.readFileSync(path.join(__dirname, '..', 'src/mia/digestAttempts.js'), 'utf8');
+const digestAttempts = fs.readFileSync(path.join(__dirname, '..', 'src/modules/mia/digestAttempts.js'), 'utf8');
 assert.ok(
   digestAttempts.includes(".from('digest_attempts')") &&
   digestAttempts.includes("onConflict: 'user_id,fecha,kind'"),
   'La auditoria de digest debe persistir intentos por usuario, fecha y tipo'
 );
-const digestItems = fs.readFileSync(path.join(__dirname, '..', 'src/mia/digestItems.js'), 'utf8');
+const digestItems = fs.readFileSync(path.join(__dirname, '..', 'src/modules/mia/digestItems.js'), 'utf8');
 assert.ok(
   digestItems.includes('contexto_mia_digest') &&
   digestItems.includes('grupo_digest') &&

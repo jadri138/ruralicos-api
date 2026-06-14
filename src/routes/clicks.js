@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 const { checkCronToken } = require('../middleware/cronToken');
-const { conOrganizationId, extraerOrganizationId } = require('../mia/organizationContext');
+const { conOrganizationId, extraerOrganizationId } = require('../modules/mia/organizationContext');
 
 function hashIp(ip) {
   const salt = process.env.JWT_SECRET || process.env.CRON_TOKEN || 'ruralicos';
