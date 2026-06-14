@@ -2,7 +2,7 @@ const assert = require('assert');
 const {
   calcularAjusteFeedbackTag,
   esRechazoGlobalFeedback,
-} = require('../src/brain/userInterestProfile');
+} = require('../src/modules/aprendizaje/userInterestProfile');
 
 let passed = 0;
 let failed = 0;

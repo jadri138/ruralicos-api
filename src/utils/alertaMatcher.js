@@ -1,5 +1,5 @@
 const { fuentePermitida, normalizarFuenteBoletin } = require('../config/planes');
-const { extraerFeatureTagsDeTexto } = require('../brain/taxonomiaRuralicos');
+const { extraerFeatureTagsDeTexto } = require('../modules/aprendizaje/taxonomiaRuralicos');
 const {
   canonicalSector,
   canonicalSubsector,

@@ -1,5 +1,5 @@
 const { diagnosticarAlertaUsuario } = require('../../utils/alertaMatcher');
-const { extraerFeaturesAlerta } = require('../../brain/alertFeatures');
+const { extraerFeaturesAlerta } = require('../aprendizaje/alertFeatures');
 const { evaluarCalidadAlerta } = require('./alertQuality');
 
 function clamp(value, min = 0, max = 100) {

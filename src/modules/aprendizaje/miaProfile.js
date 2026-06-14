@@ -2,8 +2,8 @@ const {
   inicializarOpenAI,
   generarEmbedding,
   calcularCentroidePonderado,
-} = require('../platform/ia/embeddings');
-const { generarContextoNarrativo } = require('../utils/cerebro');
+} = require('../../platform/ia/embeddings');
+const { generarContextoNarrativo } = require('./cerebro');
 
 const MISSING_TABLE_CODES = new Set(['42P01', '42703', 'PGRST205']);
 

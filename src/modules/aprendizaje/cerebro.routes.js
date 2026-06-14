@@ -1,23 +1,23 @@
-const { checkCronToken } = require('../middleware/cronToken');
-const { getFechaMadridISO } = require('../shared/fechaMadrid');
+const { checkCronToken } = require('../../middleware/cronToken');
+const { getFechaMadridISO } = require('../../shared/fechaMadrid');
 const {
   inicializarOpenAI,
   generarEmbeddingsBatch,
   BATCH_SIZE,
   BATCH_DELAY_MS,
-} = require('../platform/ia/embeddings');
+} = require('../../platform/ia/embeddings');
 const {
   generarContextoNarrativo,
   generarPreguntaExploracion,
-} = require('../utils/cerebro');
-const { diagnosticarAlertaUsuario } = require('../utils/alertaMatcher');
-const { enviarDigestPro } = require('../platform/whatsapp');
+} = require('./cerebro');
+const { diagnosticarAlertaUsuario } = require('../../utils/alertaMatcher');
+const { enviarDigestPro } = require('../../platform/whatsapp');
 const {
   actualizarPerfilUsuarioMIA,
   parseVector,
   vectorToSql,
   vectorValido,
-} = require('../brain/miaProfile');
+} = require('./miaProfile');
 
 const DEFAULT_SELECT_LIMIT = 100;
 const DEFAULT_MAX_LOOPS = 1;

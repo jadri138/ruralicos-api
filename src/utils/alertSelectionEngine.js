@@ -1,7 +1,7 @@
 const { diagnosticarAlertaUsuario } = require('./alertaMatcher');
 const { evaluarCalidadAlerta } = require('../modules/mia/alertQuality');
-const { extraerFeaturesAlerta, textoAlerta: textoFeaturesAlerta } = require('../brain/alertFeatures');
-const { clasificarPrioridadAlerta, pesoPrioridad } = require('../brain/alertPriority');
+const { extraerFeaturesAlerta, textoAlerta: textoFeaturesAlerta } = require('../modules/aprendizaje/alertFeatures');
+const { clasificarPrioridadAlerta, pesoPrioridad } = require('../modules/aprendizaje/alertPriority');
 const {
   canonicalSector,
   canonicalSubsector,

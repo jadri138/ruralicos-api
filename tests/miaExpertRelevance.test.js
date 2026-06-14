@@ -1,6 +1,6 @@
 const assert = require('assert');
 const { evaluarRelevanciaExperta } = require('../src/modules/mia/expertRelevance');
-const { extraerFeaturesAlerta } = require('../src/brain/alertFeatures');
+const { extraerFeaturesAlerta } = require('../src/modules/aprendizaje/alertFeatures');
 
 let passed = 0;
 let failed = 0;

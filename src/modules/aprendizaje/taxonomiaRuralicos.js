@@ -1,4 +1,4 @@
-const { normalizarPreferenciasUsuario } = require('../shared/preferenceCanonical');
+const { normalizarPreferenciasUsuario } = require('../../shared/preferenceCanonical');
 
 function normalizarTextoTaxonomia(value) {
   return String(value || '')

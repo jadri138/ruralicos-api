@@ -2,7 +2,7 @@ const { normalizePhone } = require('../../shared/phoneNormalizer');
 const {
   extraerTextoEntrante,
   extraerTelefonoEntrante,
-} = require('../../brain');
+} = require('../aprendizaje');
 const { extraerUltraMsg } = require('../../shared/ultramsgParser');
 const { normalizarOrganizationId } = require('./organizationContext');
 

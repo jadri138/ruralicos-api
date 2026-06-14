@@ -6,7 +6,7 @@ const path = require('path');
 const { getPlan, fuentePermitida, validarPreferencias } = require('../src/config/planes');
 const { extraerPreferenciasBody, prepararPreferenciasExtra } = require('../src/shared/preferenciasRequest');
 const { alertaCoincideConUsuario, diagnosticarAlertaUsuario } = require('../src/utils/alertaMatcher');
-const { parsearVotosDigest, clasificarPrioridadAlerta, extraerFeaturesAlerta } = require('../src/brain');
+const { parsearVotosDigest, clasificarPrioridadAlerta, extraerFeaturesAlerta } = require('../src/modules/aprendizaje');
 
 assert.strictEqual(getPlan('corral').nombre, 'Corral');
 assert.strictEqual(getPlan('agricultor').nombre, 'Agricultor');
@@ -295,7 +295,7 @@ assert.ok(
   'Los digest_items deben conservar contexto interno por alerta para MIA'
 );
 
-const feedbackRoutes = fs.readFileSync(path.join(__dirname, '..', 'src/routes/feedback.js'), 'utf8');
+const feedbackRoutes = fs.readFileSync(path.join(__dirname, '..', 'src/modules/feedback/feedback.routes.js'), 'utf8');
 assert.ok(
   feedbackRoutes.includes("process.env.NODE_ENV === 'production'"),
   'El webhook UltraMsg debe exigir token en produccion'

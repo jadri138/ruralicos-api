@@ -29,7 +29,7 @@ const {
   seleccionarAlertasParaDigest,
 } = require('../utils/alertSelectionGate');
 const { getFechaMadridISO, getRangoDiaMadridUTC } = require('../shared/fechaMadrid');
-const { leerPerfilIntereses, ordenarAlertasPorPerfil, clasificarPrioridadAlerta, pesoPrioridad } = require('../brain');
+const { leerPerfilIntereses, ordenarAlertasPorPerfil, clasificarPrioridadAlerta, pesoPrioridad } = require('../modules/aprendizaje');
 const { similitudCoseno }          = require('../platform/ia/embeddings');
 const { registrarDigestItemsMIA }  = require('../modules/mia/digestItems');
 const {

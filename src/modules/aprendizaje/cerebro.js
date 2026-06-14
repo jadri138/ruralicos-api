@@ -1,10 +1,10 @@
-const { llamarIA, parsearJSON } = require('../platform/ia/llamarIA');
+const { llamarIA, parsearJSON } = require('../../platform/ia/llamarIA');
 const {
   parsearVotosDigest,
   parsearVotosNaturalesPorAlertas,
   analizarFeedbackCompleto,
   esComentarioTramiteOEspera,
-} = require('../brain/feedbackParser');
+} = require('./feedbackParser');
 
 function confianzaAPeso(confianza) {
   if (confianza === 'alta') return 1.0;

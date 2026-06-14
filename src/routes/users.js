@@ -8,7 +8,7 @@ const { requireAuth, requireAdmin } = require('../middleware/requireAdmin');
 const { getPlan, validarPreferencias, truncarPreferencias } = require('../config/planes');
 const { extraerPreferenciasBody, prepararPreferenciasExtra } = require('../shared/preferenciasRequest');
 const { normalizarPreferenciasUsuario } = require('../shared/preferenceCanonical');
-const { actualizarPerfilUsuarioMIASafe } = require('../brain/miaProfile');
+const { actualizarPerfilUsuarioMIASafe } = require('../modules/aprendizaje/miaProfile');
 const { notificarCambioPlan } = require('../services/planChangeNotifier');
 
 const USER_OWNED_TABLES = [

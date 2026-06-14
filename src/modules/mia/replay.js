@@ -1,4 +1,4 @@
-const { extraerTextoEntrante, extraerTelefonoEntrante } = require('../../brain/feedbackParser');
+const { extraerTextoEntrante, extraerTelefonoEntrante } = require('../aprendizaje/feedbackParser');
 const { normalizePhone } = require('../../shared/phoneNormalizer');
 const { extraerUltraMsg, esEventoMensajeUltraMsg } = require('../../shared/ultramsgParser');
 

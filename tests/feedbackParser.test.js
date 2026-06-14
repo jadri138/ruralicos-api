@@ -3,8 +3,8 @@ const {
   esComentarioTramiteOEspera,
   extraerMencionesPosNeg,
   parsearVotosNaturalesPorAlertas,
-} = require('../src/brain/feedbackParser');
-const { __testing: cerebroTesting } = require('../src/utils/cerebro');
+} = require('../src/modules/aprendizaje/feedbackParser');
+const { __testing: cerebroTesting } = require('../src/modules/aprendizaje/cerebro');
 
 let passed = 0;
 let failed = 0;

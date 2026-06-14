@@ -1,7 +1,7 @@
 const { requireAdmin } = require('../middleware/requireAdmin');
 const { normalizePhone } = require('../shared/phoneNormalizer');
 const { getFechaMadridISO, getRangoDiaMadridUTC } = require('../shared/fechaMadrid');
-const { actualizarPerfilUsuarioMIA } = require('../brain/miaProfile');
+const { actualizarPerfilUsuarioMIA } = require('../modules/aprendizaje/miaProfile');
 const { enviarDigestPro } = require('../platform/whatsapp');
 const {
   cargarOutboxPendiente,

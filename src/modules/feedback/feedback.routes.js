@@ -1,7 +1,7 @@
-const { checkCronToken } = require('../middleware/cronToken');
+const { checkCronToken } = require('../../middleware/cronToken');
 const crypto = require('crypto');
-const { getFechaMadridISO, getRangoDiaMadridUTC } = require('../shared/fechaMadrid');
-const { normalizePhone } = require('../shared/phoneNormalizer');
+const { getFechaMadridISO, getRangoDiaMadridUTC } = require('../../shared/fechaMadrid');
+const { normalizePhone } = require('../../shared/phoneNormalizer');
 const {
   aplicarFeedbackAlPerfil,
   extraerTextoEntrante,
@@ -10,37 +10,37 @@ const {
   parsearVotosDigest,
   parsearVotosNaturalesPorAlertas,
   analizarFeedbackCompleto,
-} = require('../brain');
-const { enviarDigestPro } = require('../platform/whatsapp');
-const { extraerUltraMsg, esEventoMensajeUltraMsg } = require('../shared/ultramsgParser');
-const { registrarInboundMIA, actualizarInboundMIA } = require('../modules/mia/inbound');
-const { decidirMensajeMIA, esRespuestaOrigenCaptacionMIA } = require('../modules/mia/decisionCore');
-const { cargarDigestItemsMIA } = require('../modules/mia/digestItems');
-const { registrarMemoriaEstructuradaMIA } = require('../modules/mia/structuredMemory');
+} = require('../aprendizaje');
+const { enviarDigestPro } = require('../../platform/whatsapp');
+const { extraerUltraMsg, esEventoMensajeUltraMsg } = require('../../shared/ultramsgParser');
+const { registrarInboundMIA, actualizarInboundMIA } = require('../mia/inbound');
+const { decidirMensajeMIA, esRespuestaOrigenCaptacionMIA } = require('../mia/decisionCore');
+const { cargarDigestItemsMIA } = require('../mia/digestItems');
+const { registrarMemoriaEstructuradaMIA } = require('../mia/structuredMemory');
 const {
   ejecutarAccionesMIA,
   registrarCasoAgenteMIA,
   abrirConversacionAgenteMIA,
-} = require('../modules/mia/actionExecutor');
+} = require('../mia/actionExecutor');
 const {
   resolverPreguntaConBaseConocimientoMIA,
   aplicarRespuestaConocimientoADecision,
-} = require('../modules/mia/knowledgeBase');
+} = require('../mia/knowledgeBase');
 const {
   registrarDecisionYAccionesMIA,
   actualizarDecisionResultadoMIA,
   actualizarAccionesPorTipoMIA,
-} = require('../modules/mia/decisionStore');
+} = require('../mia/decisionStore');
 const {
   encolarRespuestaMIA,
   procesarOutboxItemMIA,
-} = require('../modules/mia/outbox');
-const { guardarWebhookEventSeguro } = require('../modules/mia/webhookEvent');
+} = require('../mia/outbox');
+const { guardarWebhookEventSeguro } = require('../mia/webhookEvent');
 const {
   cargarPerfilOperativoMIA,
   aplicarPerfilOperativoAUsuario,
-} = require('../modules/mia/userProfile');
-const { evaluarPoliticaDecisionMIA } = require('../modules/mia/policy');
+} = require('../mia/userProfile');
+const { evaluarPoliticaDecisionMIA } = require('../mia/policy');
 const {
   conOrganizationId,
   extraerOrganizationId,
@@ -48,7 +48,7 @@ const {
   cargarOrganizationContextMIA,
   aplicarOrganizationContextAUsuario,
   obtenerMiaBranding,
-} = require('../modules/mia/organizationContext');
+} = require('../mia/organizationContext');
 
 function comprobarWebhookToken(req) {
   const esperado = String(process.env.ULTRAMSG_WEBHOOK_TOKEN || '').trim();
