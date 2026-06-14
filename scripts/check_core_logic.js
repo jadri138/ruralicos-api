@@ -212,7 +212,10 @@ assert.ok(
   'clicksRoutes debe registrarse antes que usersRoutes para que /?a=token no lo capture la ruta raiz'
 );
 
-const alertasRoutes = fs.readFileSync(path.join(__dirname, '..', 'src/modules/alertas/alertas.routes.js'), 'utf8');
+const alertasRoutes =
+  fs.readFileSync(path.join(__dirname, '..', 'src/modules/alertas/alertas.routes.js'), 'utf8') +
+  '\n' +
+  fs.readFileSync(path.join(__dirname, '..', 'src/modules/alertas/alertas.service.js'), 'utf8');
 assert.ok(
   alertasRoutes.includes("app.post('/alertas', requireAdminOrCron"),
   'POST /alertas debe requerir admin o token de cron'
