@@ -8,7 +8,7 @@
 //   https://www.euskadi.eus/web01-bopv/es/bopv2/datos/YYYY/MM/NNNNNNNa.shtml
 
 const cheerio = require('cheerio');
-const { axiosGetWithRetry } = require('../../utils/httpClient');
+const { axiosGetWithRetry } = require('../../platform/httpClient');
 
 const BASE = 'https://www.euskadi.eus';
 const LISTING_URL = `${BASE}/web01-bopv/es/bopv2/datos/Ultimo.shtml`;

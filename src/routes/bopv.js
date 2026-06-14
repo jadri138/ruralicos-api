@@ -3,7 +3,7 @@
 // Scraper del BOPV / EHAA (Boletin Oficial del Pais Vasco).
 // Cron recomendado: dias laborables a partir de las 08:30h.
 
-const { checkCronToken } = require('../utils/checkCronToken');
+const { checkCronToken } = require('../middleware/cronToken');
 const { obtenerDocumentosBopvConTexto, getFechaHoyISO } = require('../boletines/BOPV/bopvScraper');
 const { insertarAlertasBoletin } = require('./boletines/shared/insertarAlertasBoletin');
 

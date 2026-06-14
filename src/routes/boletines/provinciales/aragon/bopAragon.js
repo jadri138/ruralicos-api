@@ -1,4 +1,4 @@
-const { checkCronToken } = require('../../../../utils/checkCronToken');
+const { checkCronToken } = require('../../../../middleware/cronToken');
 const { getFechaMadridISO } = require('../../../../utils/fechaMadrid');
 const {
   obtenerDocumentosBopzConTexto,

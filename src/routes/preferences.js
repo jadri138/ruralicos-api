@@ -8,7 +8,7 @@
 //   - GET devuelve también el plan y los límites aplicables (útil para el frontend)
 // ══════════════════════════════════════════════════════════════════════
 
-const { requireAuth } = require('../../authMiddleware');
+const { requireAuth } = require('../middleware/requireAdmin');
 const { getPlan, validarPreferencias } = require('../config/planes');
 const { extraerPreferenciasBody, prepararPreferenciasExtra } = require('../utils/preferenciasRequest');
 const { normalizarPreferenciasUsuario } = require('../utils/preferenceCanonical');

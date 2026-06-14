@@ -1,10 +1,10 @@
 // src/routes/users.js
 const bcrypt = require('bcryptjs');
 const rateLimit = require('express-rate-limit');
-const { checkCronToken, hasCronToken } = require('../utils/checkCronToken');
+const { checkCronToken, hasCronToken } = require('../middleware/cronToken');
 const { normalizePhone, isPhoneValid, LONGITUD_TELEFONO } = require('../utils/phoneNormalizer');
-const { enviarWhatsAppVerificacion, enviarWhatsAppRegistro, enviarWhatsAppResetPassword } = require('../whatsapp');
-const { requireAuth, requireAdmin } = require('../../authMiddleware');
+const { enviarWhatsAppVerificacion, enviarWhatsAppRegistro, enviarWhatsAppResetPassword } = require('../platform/whatsapp');
+const { requireAuth, requireAdmin } = require('../middleware/requireAdmin');
 const { getPlan, validarPreferencias, truncarPreferencias } = require('../config/planes');
 const { extraerPreferenciasBody, prepararPreferenciasExtra } = require('../utils/preferenciasRequest');
 const { normalizarPreferenciasUsuario } = require('../utils/preferenceCanonical');

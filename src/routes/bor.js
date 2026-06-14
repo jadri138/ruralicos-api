@@ -3,7 +3,7 @@
 // Scraper del BOR (Boletin Oficial de La Rioja).
 // Cron recomendado: dias laborables a partir de las 08:30h.
 
-const { checkCronToken } = require('../utils/checkCronToken');
+const { checkCronToken } = require('../middleware/cronToken');
 const { obtenerDocumentosBorConTexto, getFechaHoyISO } = require('../boletines/BOR/borScraper');
 const { insertarAlertasBoletin } = require('./boletines/shared/insertarAlertasBoletin');
 

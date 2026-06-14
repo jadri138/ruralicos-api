@@ -3,7 +3,7 @@
 // Scraper del BOCM (Boletín Oficial de la Comunidad de Madrid).
 // Cron recomendado: días laborables a partir de las 08:30h.
 
-const { checkCronToken } = require('../utils/checkCronToken');
+const { checkCronToken } = require('../middleware/cronToken');
 const { obtenerDocumentosBocmConTexto, getFechaHoyISO } = require('../boletines/BOCM/bocmScraper');
 const { insertarAlertasBoletin } = require('./boletines/shared/insertarAlertasBoletin');
 

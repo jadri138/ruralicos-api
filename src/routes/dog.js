@@ -3,7 +3,7 @@
 // Scraper del DOG (Diario Oficial de Galicia).
 // Cron recomendado: días laborables a las 10:00h.
 
-const { checkCronToken } = require('../utils/checkCronToken');
+const { checkCronToken } = require('../middleware/cronToken');
 const { obtenerDocumentosDogConTexto, getFechaHoyISO } = require('../boletines/DOG/dogScraper');
 const { insertarAlertasBoletin } = require('./boletines/shared/insertarAlertasBoletin');
 

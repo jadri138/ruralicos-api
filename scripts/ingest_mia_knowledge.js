@@ -3,7 +3,7 @@ require('dotenv').config();
 
 const fs = require('fs/promises');
 const path = require('path');
-const { supabase } = require('../src/supabaseClient');
+const { supabase } = require('../src/platform/supabase');
 const { ingestKnowledgeDocument } = require('../src/mia/knowledgeIngest');
 
 function parseArgs(argv) {

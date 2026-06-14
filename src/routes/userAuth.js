@@ -2,7 +2,7 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const rateLimit = require('express-rate-limit');
-const { requireAuth } = require('../../authMiddleware');
+const { requireAuth } = require('../middleware/requireAdmin');
 const { normalizePhone, LONGITUD_TELEFONO } = require('../utils/phoneNormalizer');
 
 module.exports = (app, supabase) => {

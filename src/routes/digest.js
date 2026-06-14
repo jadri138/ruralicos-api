@@ -17,9 +17,9 @@
 
 
 const crypto = require('crypto');
-const { checkCronToken }           = require('../utils/checkCronToken');
-const { llamarIA }                 = require('../utils/llamarIA');
-const { enviarDigestPro }          = require('../whatsapp');
+const { checkCronToken }           = require('../middleware/cronToken');
+const { llamarIA }                 = require('../platform/ia/llamarIA');
+const { enviarDigestPro }          = require('../platform/whatsapp');
 const { getPlan }                  = require('../config/planes');
 const { alertaCoincideConUsuario, diagnosticarAlertaUsuario } = require('../utils/alertaMatcher');
 const { fusionarAlertasUnicas }     = require('../utils/alertCandidateMerge');
@@ -29,8 +29,8 @@ const {
   seleccionarAlertasParaDigest,
 } = require('../utils/alertSelectionGate');
 const { getFechaMadridISO, getRangoDiaMadridUTC } = require('../utils/fechaMadrid');
-const { leerPerfilIntereses, ordenarAlertasPorPerfil, clasificarPrioridadAlerta, pesoPrioridad } = require('../brain');
-const { similitudCoseno }          = require('../utils/embeddings');
+const { leerPerfilIntereses, ordenarAlertasPorPerfil, clasificarPrioridadAlerta, pesoPrioridad } = require('../brain/index');
+const { similitudCoseno }          = require('../platform/ia/embeddings');
 const { registrarDigestItemsMIA }  = require('../mia/digestItems');
 const {
   actualizarDigestAttemptPorDigest,

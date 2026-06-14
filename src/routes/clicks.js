@@ -1,5 +1,5 @@
 const crypto = require('crypto');
-const { checkCronToken } = require('../utils/checkCronToken');
+const { checkCronToken } = require('../middleware/cronToken');
 const { conOrganizationId, extraerOrganizationId } = require('../mia/organizationContext');
 
 function hashIp(ip) {

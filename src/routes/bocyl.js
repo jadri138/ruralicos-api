@@ -7,7 +7,7 @@
 // Cron recomendado: días laborables a las 10:00–11:00h (el BOCYL
 // se publica entre las 08:00 y las 10:30h de lunes a viernes).
 
-const { checkCronToken }                          = require('../utils/checkCronToken');
+const { checkCronToken }                          = require('../middleware/cronToken');
 const { getFechaHoyYYYYMMDD, obtenerDocumentosBocylPorFecha } = require('../boletines/BOCYL/bocylScraper');
 const { insertarAlertasBoletin } = require('./boletines/shared/insertarAlertasBoletin');
 

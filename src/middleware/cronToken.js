@@ -1,4 +1,4 @@
-// src/utils/checkCronToken.js
+// src/middleware/cronToken.js
 const crypto = require('crypto');
 
 function timingSafeTokenEqual(expected, received) {

@@ -3,7 +3,7 @@
 // Scraper del BOPA (Boletín Oficial del Principado de Asturias).
 // Cron recomendado: días laborables a partir de las 08:30h.
 
-const { checkCronToken } = require('../utils/checkCronToken');
+const { checkCronToken } = require('../middleware/cronToken');
 const { obtenerDocumentosBopaConTexto, getFechaHoyISO } = require('../boletines/BOPA/bopaScraper');
 const { insertarAlertasBoletin } = require('./boletines/shared/insertarAlertasBoletin');
 

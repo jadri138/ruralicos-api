@@ -3,7 +3,7 @@
 // Scraper del BOIB (Boletin Oficial de las Illes Balears).
 // Cron recomendado: dias laborables a partir de las 08:30h.
 
-const { checkCronToken } = require('../utils/checkCronToken');
+const { checkCronToken } = require('../middleware/cronToken');
 const { obtenerDocumentosBoibConTexto, getFechaHoyISO } = require('../boletines/BOIB/boibScraper');
 const { insertarAlertasBoletin } = require('./boletines/shared/insertarAlertasBoletin');
 

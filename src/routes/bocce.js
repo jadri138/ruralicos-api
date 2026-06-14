@@ -2,7 +2,7 @@
 //
 // Scraper del BOCCE (Boletin Oficial de la Ciudad Autonoma de Ceuta).
 
-const { checkCronToken } = require('../utils/checkCronToken');
+const { checkCronToken } = require('../middleware/cronToken');
 const { obtenerDocumentosBocceConTexto, getFechaHoyISO } = require('../boletines/BOCCE/bocceScraper');
 const { insertarAlertasBoletin } = require('./boletines/shared/insertarAlertasBoletin');
 

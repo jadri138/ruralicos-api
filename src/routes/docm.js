@@ -1,4 +1,4 @@
-const { checkCronToken } = require('../utils/checkCronToken');
+const { checkCronToken } = require('../middleware/cronToken');
 const { getFechaHoyYYYYMMDD, obtenerDocumentosDocmPorFecha } = require('../boletines/DOCM/docmScraper');
 const { insertarAlertasBoletin } = require('./boletines/shared/insertarAlertasBoletin');
 

@@ -9,7 +9,7 @@
 //
 // Uso en pipeline: llamar despues de /alertas/revisar y antes de /alertas/preparar-digest.
 
-const { checkCronToken }  = require('../utils/checkCronToken');
+const { checkCronToken }  = require('../middleware/cronToken');
 const { similitudTitulos } = require('../utils/similitud');
 const { getFechaMadridISO } = require('../utils/fechaMadrid');
 

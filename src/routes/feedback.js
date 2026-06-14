@@ -1,4 +1,4 @@
-const { checkCronToken } = require('../utils/checkCronToken');
+const { checkCronToken } = require('../middleware/cronToken');
 const crypto = require('crypto');
 const { getFechaMadridISO, getRangoDiaMadridUTC } = require('../utils/fechaMadrid');
 const { normalizePhone } = require('../utils/phoneNormalizer');
@@ -10,8 +10,8 @@ const {
   parsearVotosDigest,
   parsearVotosNaturalesPorAlertas,
   analizarFeedbackCompleto,
-} = require('../brain');
-const { enviarDigestPro } = require('../whatsapp');
+} = require('../brain/index');
+const { enviarDigestPro } = require('../platform/whatsapp');
 const { extraerUltraMsg, esEventoMensajeUltraMsg } = require('../utils/ultramsgParser');
 const { registrarInboundMIA, actualizarInboundMIA } = require('../mia/inbound');
 const { decidirMensajeMIA, esRespuestaOrigenCaptacionMIA } = require('../mia/decisionCore');

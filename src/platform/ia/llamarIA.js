@@ -1,4 +1,4 @@
-// src/utils/llamarIA.js
+// src/platform/ia/llamarIA.js
 //
 // Centraliza las llamadas a OpenAI Responses API y el parseo de JSON.
 // Compartido por alertas.js, digest.js, alertasFree.js y revisarAlertas.js.

@@ -11,3 +11,6 @@ dist
 .refactor-inventario-*.txt
 .refactor-inventario-*.err
 graphify-out/
+
+# Herramientas temporales del refactor (codemods)
+.refactor-tools/

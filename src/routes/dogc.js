@@ -3,7 +3,7 @@
 // Scraper del DOGC (Diari Oficial de la Generalitat de Catalunya).
 // Cron recomendado: días laborables a las 10:00–11:00h.
 
-const { checkCronToken } = require('../utils/checkCronToken');
+const { checkCronToken } = require('../middleware/cronToken');
 const { obtenerDocumentosDogcConTexto, getFechaHoyISO } = require('../boletines/DOGC/dogcScraper');
 const { insertarAlertasBoletin } = require('./boletines/shared/insertarAlertasBoletin');
 

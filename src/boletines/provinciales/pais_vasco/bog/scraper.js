@@ -1,6 +1,6 @@
 const cheerio = require('cheerio');
 const { htmlATexto } = require('../../../../utils/htmlParser');
-const { axiosGetWithRetry } = require('../../../../utils/httpClient');
+const { axiosGetWithRetry } = require('../../../../platform/httpClient');
 const { esProvincialRelevante } = require('../../shared/provincialFilter');
 
 const BASE = 'https://egoitza.gipuzkoa.eus';

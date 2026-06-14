@@ -13,7 +13,7 @@
 
 const cheerio = require('cheerio');
 const { PDFParse } = require('pdf-parse');
-const { axiosGetWithRetry } = require('../../utils/httpClient');
+const { axiosGetWithRetry } = require('../../platform/httpClient');
 
 const BASE = 'https://www.ceuta.es';
 const BOCCE_URL = `${BASE}/ceuta/bocce`;

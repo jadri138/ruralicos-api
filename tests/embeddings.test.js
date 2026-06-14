@@ -20,7 +20,7 @@ const {
   similitudCoseno,
   calcularCentroide,
   calcularCentroidePonderado,
-} = require('../src/utils/embeddings');
+} = require('../src/platform/ia/embeddings');
 
 const {
   calcularPesoDecay,

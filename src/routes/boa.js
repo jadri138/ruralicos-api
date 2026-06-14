@@ -1,5 +1,5 @@
 // src/routes/boa.js
-const { checkCronToken } = require('../utils/checkCronToken');
+const { checkCronToken } = require('../middleware/cronToken');
 const {
   obtenerMlkobsSumarioHoy,
   obtenerMlkobsPorFecha,

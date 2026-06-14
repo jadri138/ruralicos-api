@@ -3,7 +3,7 @@
 // Scraper del DOGV (Diari Oficial de la Generalitat Valenciana).
 // Cron recomendado: días laborables a las 11:00–12:00h.
 
-const { checkCronToken } = require('../utils/checkCronToken');
+const { checkCronToken } = require('../middleware/cronToken');
 const { obtenerDocumentosDogvConTexto, getFechaHoyISO } = require('../boletines/DOGV/dogvScraper');
 const { insertarAlertasBoletin } = require('./boletines/shared/insertarAlertasBoletin');
 

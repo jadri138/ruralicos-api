@@ -1,5 +1,5 @@
 // src/routes/doe.js
-const { checkCronToken } = require('../utils/checkCronToken');
+const { checkCronToken } = require('../middleware/cronToken');
 const {
   getFechaHoyYYYYMMDD,
   obtenerDocumentosDoePorFecha,

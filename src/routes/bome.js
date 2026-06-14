@@ -2,7 +2,7 @@
 //
 // Scraper del BOME (Boletin Oficial de la Ciudad Autonoma de Melilla).
 
-const { checkCronToken } = require('../utils/checkCronToken');
+const { checkCronToken } = require('../middleware/cronToken');
 const { obtenerDocumentosBomeConTexto, getFechaHoyISO } = require('../boletines/BOME/bomeScraper');
 const { insertarAlertasBoletin } = require('./boletines/shared/insertarAlertasBoletin');
 

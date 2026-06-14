@@ -7,7 +7,7 @@
 // Cron recomendado: días laborables a las 10:00–11:00h (el BOJA
 // se publica normalmente entre las 08:00 y las 10:00h de lunes a viernes).
 
-const { checkCronToken } = require('../utils/checkCronToken');
+const { checkCronToken } = require('../middleware/cronToken');
 const { getFechaHoyYYYYMMDD, obtenerDocumentosBojaPorFecha } = require('../boletines/BOJA/bojaScraper');
 const { insertarAlertasBoletin } = require('./boletines/shared/insertarAlertasBoletin');
 

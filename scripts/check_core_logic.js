@@ -6,7 +6,7 @@ const path = require('path');
 const { getPlan, fuentePermitida, validarPreferencias } = require('../src/config/planes');
 const { extraerPreferenciasBody, prepararPreferenciasExtra } = require('../src/utils/preferenciasRequest');
 const { alertaCoincideConUsuario, diagnosticarAlertaUsuario } = require('../src/utils/alertaMatcher');
-const { parsearVotosDigest, clasificarPrioridadAlerta, extraerFeaturesAlerta } = require('../src/brain');
+const { parsearVotosDigest, clasificarPrioridadAlerta, extraerFeaturesAlerta } = require('../src/brain/index');
 
 assert.strictEqual(getPlan('corral').nombre, 'Corral');
 assert.strictEqual(getPlan('agricultor').nombre, 'Agricultor');
@@ -241,7 +241,7 @@ assert.ok(
   'Debe existir /me/verify-phone para verificar cambios de telefono autenticados'
 );
 
-const whatsappRoutes = fs.readFileSync(path.join(__dirname, '..', 'src/whatsapp.js'), 'utf8');
+const whatsappRoutes = fs.readFileSync(path.join(__dirname, '..', 'src/platform/whatsapp.js'), 'utf8');
 assert.ok(
   whatsappRoutes.includes("phone_verified.is.null,phone_verified.eq.true"),
   'Los envios WhatsApp masivos no deben usar telefonos marcados como no verificados'
@@ -309,7 +309,7 @@ assert.ok(
   'Debe existir el webhook de feedback UltraMsg'
 );
 
-const cronTokenUtils = fs.readFileSync(path.join(__dirname, '..', 'src/utils/checkCronToken.js'), 'utf8');
+const cronTokenUtils = fs.readFileSync(path.join(__dirname, '..', 'src/middleware/cronToken.js'), 'utf8');
 assert.ok(
   cronTokenUtils.includes('crypto.timingSafeEqual'),
   'La comparacion del CRON_TOKEN debe evitar comparacion directa'

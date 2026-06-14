@@ -1,4 +1,4 @@
-const { llamarIA } = require('../utils/llamarIA');
+const { llamarIA } = require('../platform/ia/llamarIA');
 const { obtenerMiaBranding } = require('./organizationContext');
 
 const DEFAULT_MODEL = process.env.MIA_GROUNDED_MODEL || 'gpt-4o-mini';

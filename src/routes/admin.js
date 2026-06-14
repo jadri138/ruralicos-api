@@ -1,8 +1,8 @@
-const { requireAdmin } = require('../../authMiddleware');
+const { requireAdmin } = require('../middleware/requireAdmin');
 const { normalizePhone } = require('../utils/phoneNormalizer');
 const { getFechaMadridISO, getRangoDiaMadridUTC } = require('../utils/fechaMadrid');
 const { actualizarPerfilUsuarioMIA } = require('../brain/miaProfile');
-const { enviarDigestPro } = require('../whatsapp');
+const { enviarDigestPro } = require('../platform/whatsapp');
 const {
   cargarOutboxPendiente,
   procesarOutboxItemMIA,

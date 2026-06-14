@@ -1,13 +1,13 @@
-// src/whatsapp.js
+// src/platform/whatsapp.js
 const qs = require('querystring');
 const https = require('https');
-const { supabase } = require('./supabaseClient');
+const { supabase } = require('./supabase');
 const {
   canonicalSector,
   canonicalSubsector,
   canonicalTipoAlerta,
-} = require('./utils/preferenceCanonical');
-const { alertaCoincideConUsuario } = require('./utils/alertaMatcher');
+} = require('../utils/preferenceCanonical');
+const { alertaCoincideConUsuario } = require('../utils/alertaMatcher');
 
 
 // Credenciales UltraMsg desde .env

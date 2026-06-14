@@ -3,7 +3,7 @@
 // Scraper del BOC (Boletin Oficial de Cantabria).
 // Cron recomendado: dias laborables a partir de las 08:30h.
 
-const { checkCronToken } = require('../utils/checkCronToken');
+const { checkCronToken } = require('../middleware/cronToken');
 const { obtenerDocumentosBocantConTexto, getFechaHoyISO } = require('../boletines/BOCANT/bocantScraper');
 const { insertarAlertasBoletin } = require('./boletines/shared/insertarAlertasBoletin');
 

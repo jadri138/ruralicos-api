@@ -15,11 +15,11 @@ const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const crypto = require('crypto');
-const { supabase } = require('./supabaseClient');
-const { enviarWhatsAppTodos } = require('./whatsapp');
+const { supabase } = require('./platform/supabase');
+const { enviarWhatsAppTodos } = require('./platform/whatsapp');
 const { getFechaMadridISO } = require('./utils/fechaMadrid');
-const { hasCronToken } = require('./utils/checkCronToken');
-const { requireAdmin } = require('../authMiddleware');
+const { hasCronToken } = require('./middleware/cronToken');
+const { requireAdmin } = require('./middleware/requireAdmin');
 
 
 // Rutas

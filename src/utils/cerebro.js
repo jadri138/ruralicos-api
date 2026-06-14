@@ -1,4 +1,4 @@
-const { llamarIA, parsearJSON } = require('./llamarIA');
+const { llamarIA, parsearJSON } = require('../platform/ia/llamarIA');
 const {
   parsearVotosDigest,
   parsearVotosNaturalesPorAlertas,

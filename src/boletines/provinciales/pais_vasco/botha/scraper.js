@@ -1,6 +1,6 @@
 const cheerio = require('cheerio');
 const { htmlATexto } = require('../../../../utils/htmlParser');
-const { axiosGetWithRetry } = require('../../../../utils/httpClient');
+const { axiosGetWithRetry } = require('../../../../platform/httpClient');
 
 const BASE = 'https://www.araba.eus';
 const PORTADA = `${BASE}/BOTHA/Inicio/SGBO5001.aspx`;

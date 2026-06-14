@@ -1,4 +1,4 @@
-const { checkCronToken } = require('../utils/checkCronToken');
+const { checkCronToken } = require('../middleware/cronToken');
 const { calcularPesoDecay } = require('../utils/decay');
 const {
   inicializarOpenAI,
@@ -6,7 +6,7 @@ const {
   generarEmbeddingsBatch,
   similitudCoseno,
   calcularCentroidePonderado,
-} = require('../utils/embeddings');
+} = require('../platform/ia/embeddings');
 
 const DEFAULT_BATCH_SIZE = 50;
 const DEFAULT_MAX_BATCHES = 1;

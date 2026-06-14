@@ -1,6 +1,6 @@
 // src/routes/tareas.js
-const { checkCronToken } = require('../utils/checkCronToken');
-const { enviarWhatsAppAdmin, enviarDigestPro } = require('../whatsapp');
+const { checkCronToken } = require('../middleware/cronToken');
+const { enviarWhatsAppAdmin, enviarDigestPro } = require('../platform/whatsapp');
 const { getFechaMadridISO } = require('../utils/fechaMadrid');
 const { evaluarRespuestaScraper } = require('../utils/scraperRunQuality');
 const { cotejarListadosOficiales } = require('../services/officialListMatcher');

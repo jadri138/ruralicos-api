@@ -1,4 +1,4 @@
-const { checkCronToken } = require('../../../../utils/checkCronToken');
+const { checkCronToken } = require('../../../../middleware/cronToken');
 const { esRuralRelevante } = require('../../../../boletines/shared/ruralFilter');
 const {
   getFechaHoyISO,

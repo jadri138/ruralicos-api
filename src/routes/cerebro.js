@@ -1,17 +1,17 @@
-const { checkCronToken } = require('../utils/checkCronToken');
+const { checkCronToken } = require('../middleware/cronToken');
 const { getFechaMadridISO } = require('../utils/fechaMadrid');
 const {
   inicializarOpenAI,
   generarEmbeddingsBatch,
   BATCH_SIZE,
   BATCH_DELAY_MS,
-} = require('../utils/embeddings');
+} = require('../platform/ia/embeddings');
 const {
   generarContextoNarrativo,
   generarPreguntaExploracion,
 } = require('../utils/cerebro');
 const { diagnosticarAlertaUsuario } = require('../utils/alertaMatcher');
-const { enviarDigestPro } = require('../whatsapp');
+const { enviarDigestPro } = require('../platform/whatsapp');
 const {
   actualizarPerfilUsuarioMIA,
   parseVector,

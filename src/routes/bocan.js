@@ -3,7 +3,7 @@
 // Scraper del BOC (Boletín Oficial de Canarias).
 // Cron recomendado: días laborables a partir de las 08:30h.
 
-const { checkCronToken } = require('../utils/checkCronToken');
+const { checkCronToken } = require('../middleware/cronToken');
 const { obtenerDocumentosBocanConTexto, getFechaHoyISO } = require('../boletines/BOCAN/bocanScraper');
 const { insertarAlertasBoletin } = require('./boletines/shared/insertarAlertasBoletin');
 

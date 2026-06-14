@@ -1,5 +1,5 @@
 /**
- * utils/embeddings.js
+ * src/platform/ia/embeddings.js
  * 
  * GENERADOR DE EMBEDDINGS
  * 

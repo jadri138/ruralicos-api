@@ -1,4 +1,4 @@
-const { llamarIA, parsearJSON } = require('../utils/llamarIA');
+const { llamarIA, parsearJSON } = require('../platform/ia/llamarIA');
 const {
   TEMAS_FEEDBACK_RURALICOS,
   aliasesTemaFeedback,
