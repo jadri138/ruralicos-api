@@ -236,7 +236,11 @@ assert.ok(
   'Las fichas IA deben generar resumenes faciles para WhatsApp'
 );
 
-const usersRoutes = fs.readFileSync(path.join(__dirname, '..', 'src/modules/usuarios/usuarios.routes.js'), 'utf8');
+// Las rutas de usuarios estan repartidas por responsabilidad (gestion, registro,
+// cuenta) mas el contexto compartido; las leemos todas juntas.
+const usersRoutes = ['context', 'gestion.routes', 'registro.routes', 'cuenta.routes', 'routes']
+  .map((g) => fs.readFileSync(path.join(__dirname, '..', `src/modules/usuarios/usuarios.${g}.js`), 'utf8'))
+  .join('\n');
 assert.ok(
   usersRoutes.includes("phone_verification_required"),
   'PUT /me debe indicar cuando un cambio de telefono requiere verificacion'
