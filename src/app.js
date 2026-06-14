@@ -20,50 +20,7 @@ const { enviarWhatsAppTodos } = require('./platform/whatsapp');
 const { getFechaMadridISO } = require('./shared/fechaMadrid');
 const { hasCronToken } = require('./middleware/cronToken');
 const { requireAdmin } = require('./middleware/requireAdmin');
-
-
-// Rutas
-const usersRoutes = require('./modules/usuarios/usuarios.routes');
-const alertasRoutes = require('./modules/alertas/alertas.routes');
-const alertasFreeRoutes = require('./modules/alertas/alertasFree.routes');
-const boeRoutes = require('./modules/boletines/rutas/boe');
-const boaRoutes = require('./modules/boletines/rutas/boa');
-const tareasRoutes = require('./modules/tareas/tareas.routes');
-const authRoutes = require('./modules/usuarios/auth.routes');
-const adminRoutes = require('./modules/admin/admin.routes');
-const preferencesRoutes = require('./modules/usuarios/preferences.routes');
-const taxonomyRoutes = require('./modules/taxonomy/taxonomy.routes');
-const userAuthRoutes = require('./modules/usuarios/userAuth.routes');
-const revisarAlertasRoutes = require("./modules/alertas/revisarAlertas.routes");
-const bocylRoutes = require('./modules/boletines/rutas/bocyl');
-const bojaRoutes = require('./modules/boletines/rutas/boja');
-const doeRoutes = require('./modules/boletines/rutas/doe');
-const docmRoutes = require('./modules/boletines/rutas/docm');
-const bormRoutes = require('./modules/boletines/rutas/borm');
-const digestRoutes = require('./modules/digest/digest.routes');
-const deduplicarRoutes = require('./modules/alertas/deduplicar.routes');
-const feedbackRoutes = require('./modules/feedback/feedback.routes');
-const dogcRoutes       = require('./modules/boletines/rutas/dogc');
-const dogvRoutes       = require('./modules/boletines/rutas/dogv');
-const dogRoutes        = require('./modules/boletines/rutas/dog');
-const bonRoutes        = require('./modules/boletines/rutas/bon');
-const borRoutes        = require('./modules/boletines/rutas/bor');
-const bopaRoutes       = require('./modules/boletines/rutas/bopa');
-const bocmRoutes       = require('./modules/boletines/rutas/bocm');
-const bocanRoutes      = require('./modules/boletines/rutas/bocan');
-const boibRoutes       = require('./modules/boletines/rutas/boib');
-const bocantRoutes     = require('./modules/boletines/rutas/bocant');
-const bopvRoutes       = require('./modules/boletines/rutas/bopv');
-const bomeRoutes       = require('./modules/boletines/rutas/bome');
-const bocceRoutes      = require('./modules/boletines/rutas/bocce');
-const embeddingsRoutes = require('./modules/embeddings/embeddings.routes');
-const cerebroRoutes    = require('./modules/aprendizaje/cerebro.routes');
-const clicksRoutes     = require('./modules/feedback/clicks.routes');
-const bothaRoutes      = require('./modules/boletines/rutas/provinciales/pais_vasco/botha');
-const bogRoutes        = require('./modules/boletines/rutas/provinciales/pais_vasco/bog');
-const bopAragonRoutes  = require('./modules/boletines/rutas/provinciales/aragon/bopAragon');
-const fegaRoutes       = require('./modules/boletines/rutas/estatales/fega');
-
+const registrarRutas = require('./routes');
 
 
 const app = express();
@@ -238,46 +195,7 @@ app.post('/admin/send-broadcast', requireAdmin, async (req, res) => {
    ACTIVAR RUTAS
 --------------------------------------------------- */
 
-clicksRoutes(app, supabase);
-bothaRoutes(app, supabase);
-bogRoutes(app, supabase);
-bopAragonRoutes(app, supabase);
-fegaRoutes(app, supabase);
-usersRoutes(app, supabase);
-alertasRoutes(app, supabase);
-alertasFreeRoutes(app, supabase);
-boeRoutes(app, supabase);
-boaRoutes(app, supabase);
-tareasRoutes(app, supabase);
-authRoutes(app, supabase);
-adminRoutes(app, supabase);
-preferencesRoutes(app, supabase);
-taxonomyRoutes(app);
-userAuthRoutes(app, supabase);
-revisarAlertasRoutes(app, supabase);
-bocylRoutes(app, supabase);
-bojaRoutes(app, supabase);
-doeRoutes(app, supabase);
-docmRoutes(app, supabase);
-bormRoutes(app, supabase);
-digestRoutes(app, supabase);
-deduplicarRoutes(app, supabase);
-feedbackRoutes(app, supabase);
-dogcRoutes(app, supabase);
-dogvRoutes(app, supabase);
-dogRoutes(app, supabase);
-bonRoutes(app, supabase);
-borRoutes(app, supabase);
-bopaRoutes(app, supabase);
-bocmRoutes(app, supabase);
-bocanRoutes(app, supabase);
-boibRoutes(app, supabase);
-bocantRoutes(app, supabase);
-bopvRoutes(app, supabase);
-bomeRoutes(app, supabase);
-bocceRoutes(app, supabase);
-embeddingsRoutes(app, supabase);
-cerebroRoutes(app, supabase);
+registrarRutas(app, supabase);
 
 
 module.exports = app;

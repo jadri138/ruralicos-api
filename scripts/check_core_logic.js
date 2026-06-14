@@ -206,8 +206,9 @@ assert.ok(
   indexRoutes.includes("app.post('/admin/send-broadcast', requireAdmin"),
   '/admin/send-broadcast debe requerir admin'
 );
+const routesRegistry = fs.readFileSync(path.join(__dirname, '..', 'src/routes.js'), 'utf8');
 assert.ok(
-  indexRoutes.indexOf('clicksRoutes(app, supabase);') < indexRoutes.indexOf('usersRoutes(app, supabase);'),
+  routesRegistry.indexOf('clicksRoutes(app, supabase);') < routesRegistry.indexOf('usersRoutes(app, supabase);'),
   'clicksRoutes debe registrarse antes que usersRoutes para que /?a=token no lo capture la ruta raiz'
 );
 
