@@ -3,6 +3,23 @@ const https = require('https');
 
 const httpsInseguro = new https.Agent({ rejectUnauthorized: false });
 
+// Cabeceras de navegador real. Varias webs oficiales (Joomla de ceuta.es,
+// Domino de las diputaciones aragonesas, etc.) deprioritizan o "tarpitan" las
+// peticiones cuyo User-Agent se anuncia como bot desde IPs de datacenter, lo
+// que se manifiesta como conexiones que cuelgan hasta agotar el timeout. Usar
+// un perfil de navegador completo reduce ese bloqueo.
+const NAVEGADOR_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+
+function cabecerasNavegador(extra = {}) {
+  return {
+    'User-Agent': NAVEGADOR_UA,
+    Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'es-ES,es;q=0.9',
+    'Upgrade-Insecure-Requests': '1',
+    ...extra,
+  };
+}
+
 const TLS_ERROR_CODES = new Set([
   'CERT_HAS_EXPIRED',
   'DEPTH_ZERO_SELF_SIGNED_CERT',
@@ -74,4 +91,6 @@ module.exports = {
   httpsInseguro,
   isTlsCertificateError,
   isRetryableHttpError,
+  NAVEGADOR_UA,
+  cabecerasNavegador,
 };

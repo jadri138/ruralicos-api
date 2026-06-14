@@ -6,7 +6,7 @@ const { conOrganizationId, extraerOrganizationId } = require('../../../mia/organ
 const {
   BENEFICIARIOS_URL,
   obtenerFicheroBeneficiarios,
-  descargarTextosBeneficiarios,
+  obtenerTextosBeneficiariosConCache,
   buscarCoincidenciasEnTextos,
 } = require('../../scrapers/estatales/fega/scraper');
 
@@ -166,7 +166,8 @@ module.exports = function fegaRoutes(app, supabase) {
         });
       }
 
-      const textos = await descargarTextosBeneficiarios(fichero.urlDescarga);
+      const forzar = String(req.query.forzar_descarga || 'false').toLowerCase() === 'true';
+      const { textos, actualizado, desdeCache } = await obtenerTextosBeneficiariosConCache(fichero, { forzar });
       const matches = buscarCoincidenciasEnTextos(textos, users);
 
       const resultados = [];
@@ -192,6 +193,8 @@ module.exports = function fegaRoutes(app, supabase) {
         ejercicio: fichero.ejercicio,
         fichero,
         alerta,
+        fichero_actualizado: actualizado,
+        desde_cache: desdeCache,
         usuarios_revisados: users.length,
         archivos_revisados: textos.map((t) => t.fileName),
         coincidencias: matches.length,

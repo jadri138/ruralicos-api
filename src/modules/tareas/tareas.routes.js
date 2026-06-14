@@ -554,7 +554,7 @@ module.exports = function tareasRoutes(app, supabase) {
       const incluirComplementarios = boolValue(req.query.complementarios, boolValue(process.env.PIPELINE_INCLUDE_COMPLEMENTARY, true));
       const incluirFega = boolValue(
         req.query.fega,
-        boolValue(process.env.PIPELINE_INCLUDE_FEGA, boolValue(process.env.COMPLEMENTARY_INCLUDE_FEGA, false))
+        boolValue(process.env.PIPELINE_INCLUDE_FEGA, boolValue(process.env.COMPLEMENTARY_INCLUDE_FEGA, true))
       );
       const enviarFega = boolValue(req.query.enviar_fega, boolValue(process.env.FEGA_ENVIAR_MATCHES, false));
       const ejercicioFega = req.query.ejercicio || process.env.FEGA_EJERCICIO || null;

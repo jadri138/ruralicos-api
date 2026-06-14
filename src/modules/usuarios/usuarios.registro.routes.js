@@ -14,6 +14,7 @@ const { extraerPreferenciasBody, prepararPreferenciasExtra } = require('../../sh
 const { normalizarPreferenciasUsuario } = require('../../shared/preferenceCanonical');
 const { actualizarPerfilUsuarioMIASafe } = require('../aprendizaje/miaProfile');
 const { notificarCambioPlan } = require('../../services/planChangeNotifier');
+const { validarPassword } = require('../../shared/passwordPolicy');
 
 module.exports = (app, supabase, ctx) => {
   const {
@@ -64,9 +65,14 @@ module.exports = (app, supabase, ctx) => {
       return res.status(400).json({ error: 'Falta el número de teléfono' });
     }
 
-    // Validar contraseña (mínimo 6 caracteres)
-    if (!password || String(password).length < 6) {
-      return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres' });
+    // Validar contraseña con política mínima de seguridad
+    const passwordValidation = validarPassword(password);
+    if (!passwordValidation.ok) {
+      return res.status(400).json({
+        error: passwordValidation.error,
+        code: 'password_policy',
+        requirements: passwordValidation.requirements,
+      });
     }
 
     // Normalizar teléfono
@@ -484,9 +490,14 @@ module.exports = (app, supabase, ctx) => {
       return res.status(400).json({ error: 'Faltan teléfono, código o contraseña' });
     }
 
-    // Validar contraseña (mínimo 6)
-    if (String(password).length < 6) {
-      return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres' });
+    // Validar contraseña con política mínima de seguridad
+    const passwordValidation = validarPassword(password);
+    if (!passwordValidation.ok) {
+      return res.status(400).json({
+        error: passwordValidation.error,
+        code: 'password_policy',
+        requirements: passwordValidation.requirements,
+      });
     }
 
     // Normalizar teléfono

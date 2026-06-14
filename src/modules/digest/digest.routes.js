@@ -23,7 +23,7 @@
 const crypto = require('crypto');
 const { checkCronToken }           = require('../../middleware/cronToken');
 const { llamarIA }                 = require('../../platform/ia/llamarIA');
-const { enviarDigestPro }          = require('../../platform/whatsapp');
+const { enviarDigestPro, maskPhone } = require('../../platform/whatsapp');
 const { getPlan }                  = require('../../config/planes');
 const { alertaCoincideConUsuario, diagnosticarAlertaUsuario } = require('../alertas/seleccion/alertaMatcher');
 const { fusionarAlertasUnicas }     = require('../alertas/seleccion/alertCandidateMerge');
@@ -982,7 +982,7 @@ module.exports = function digestRoutes(app, supabase) {
           });
 
           enviados++;
-          console.log(`[digest] ✓ Enviado a ${telefono} [${i + 1}/${digests.length}]`);
+          console.log(`[digest] ✓ Enviado a ${maskPhone(telefono)} [${i + 1}/${digests.length}]`);
 
           // Delay entre mensajes (no tras el último)
           if (i < digests.length - 1) {
@@ -990,7 +990,7 @@ module.exports = function digestRoutes(app, supabase) {
           }
 
         } catch (errEnvio) {
-          console.error(`[digest] ✗ Error enviando a ${telefono}:`, errEnvio.message);
+          console.error(`[digest] ✗ Error enviando a ${maskPhone(telefono)}:`, errEnvio.message);
           errores.push({ digestId: digest.id, userId: digest.user_id, error: errEnvio.message });
 
           await supabase
@@ -1054,4 +1054,3 @@ module.exports = function digestRoutes(app, supabase) {
   });
 
 };
-

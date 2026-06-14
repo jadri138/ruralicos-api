@@ -3,6 +3,7 @@ const cheerio = require('cheerio');
 const https = require('https');
 const { htmlATexto } = require('../../../../../shared/htmlParser');
 const { extraerTextoPdf } = require('../../../../../shared/pdfExtractor');
+const { cabecerasNavegador } = require('../../../../../platform/httpClient');
 
 const { esProvincialRelevante } = require('../shared/provincialFilter');
 
@@ -49,11 +50,7 @@ async function getHtml(url, options = {}) {
         responseType: 'arraybuffer',
         timeout,
         httpsAgent: options.insecure ? httpsInseguro : undefined,
-        headers: {
-          Accept: 'text/html,application/xhtml+xml',
-          'User-Agent': 'Mozilla/5.0 (RuralicosBot/2.0)',
-          Referer: options.referer,
-        },
+        headers: cabecerasNavegador({ Referer: options.referer }),
       });
       return options.latin1 ? decodeLatin1(data) : Buffer.from(data).toString('utf8');
     } catch (err) {
@@ -72,11 +69,7 @@ async function getPdfText(url, options = {}) {
     responseType: 'arraybuffer',
     timeout: 45000,
     httpsAgent: options.insecure ? httpsInseguro : undefined,
-    headers: {
-      Accept: 'application/pdf,*/*',
-      'User-Agent': 'Mozilla/5.0 (RuralicosBot/2.0)',
-      Referer: options.referer,
-    },
+    headers: cabecerasNavegador({ Accept: 'application/pdf,*/*', Referer: options.referer }),
   });
   return extraerTextoPdf(Buffer.from(data));
 }
@@ -150,7 +143,7 @@ async function obtenerDocumentosBopzConTexto(fechaISO) {
   const html = await getHtml(BOPZ_PORTADA, {
     insecure: true,
     latin1: true,
-    timeout: Number(process.env.BOPZ_HTML_TIMEOUT_MS || 90000),
+    timeout: Number(process.env.BOPZ_HTML_TIMEOUT_MS || 40000),
     attempts: Number(process.env.BOPZ_HTML_ATTEMPTS || 3),
   });
   const candidatos = extraerBopzSumario(html);

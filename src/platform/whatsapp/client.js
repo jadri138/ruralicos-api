@@ -10,6 +10,7 @@ const { supabase } = require('../supabase');
 
 const ULTRAMSG_INSTANCE_ID = process.env.ULTRAMSG_INSTANCE_ID;
 const ULTRAMSG_TOKEN = process.env.ULTRAMSG_TOKEN;
+const ULTRAMSG_TIMEOUT_MS = Math.max(3000, Math.min(60000, Number(process.env.ULTRAMSG_TIMEOUT_MS || 15000)));
 
 function parsePhoneList(value) {
   return String(value || '')
@@ -30,9 +31,18 @@ function maskPhone(phone) {
   return value ? `****${value.slice(-4)}` : null;
 }
 
-/**
- * Llama a la API de UltraMsg para mandar un mensaje.
- */
+function summarizeUltraMsgResponse(body) {
+  try {
+    const json = JSON.parse(String(body || ''));
+    return {
+      sent: json.sent ?? null,
+      id: json.id || json.messageId || json.message_id || null,
+      error: json.error || null,
+    };
+  } catch {
+    return { raw_preview: String(body || '').replace(/\s+/g, ' ').slice(0, 120) };
+  }
+}
 
 function enviarMensajeUltraMsg(telefono, cuerpo) {
   return new Promise((resolve, reject) => {
@@ -58,19 +68,21 @@ function enviarMensajeUltraMsg(telefono, cuerpo) {
       res.on('data', (chunk) => chunks.push(chunk));
       res.on('end', () => {
         const body = Buffer.concat(chunks).toString();
-        console.log(
-          `[UltraMsg → ${telefono}] Status: ${res.statusCode} | Respuesta: ${body}`
-        );
+        console.log('[UltraMsg] Respuesta', {
+          to: maskPhone(telefono),
+          status: res.statusCode,
+          response: summarizeUltraMsgResponse(body),
+        });
 
         if (res.statusCode !== 200) {
-          return reject(new Error(`UltraMsg error HTTP ${res.statusCode}: ${body}`));
+          return reject(new Error(`UltraMsg error HTTP ${res.statusCode}`));
         }
 
         try {
           const json = JSON.parse(body);
 
           if (json.error) {
-            return reject(new Error(`UltraMsg error lógico: ${json.error}`));
+            return reject(new Error(`UltraMsg error logico: ${json.error}`));
           }
 
           if (json.sent === false) {
@@ -78,17 +90,19 @@ function enviarMensajeUltraMsg(telefono, cuerpo) {
           }
 
           return resolve({ status: 200, body: json });
-        } catch (e) {
-          return reject(
-            new Error(`UltraMsg devolvió respuesta no JSON: ${body}`)
-          );
+        } catch {
+          return reject(new Error('UltraMsg devolvio respuesta no JSON'));
         }
       });
     });
 
     req.on('error', (err) => {
-      console.error(`[UltraMsg] Error de conexión a ${telefono}:`, err.message);
+      console.error(`[UltraMsg] Error de conexion a ${maskPhone(telefono)}:`, err.message);
       reject(err);
+    });
+
+    req.setTimeout(ULTRAMSG_TIMEOUT_MS, () => {
+      req.destroy(new Error(`UltraMsg timeout tras ${ULTRAMSG_TIMEOUT_MS}ms`));
     });
 
     req.write(postData);
@@ -98,14 +112,14 @@ function enviarMensajeUltraMsg(telefono, cuerpo) {
 
 async function guardarLogWhatsApp({ phone, status, message_type, error_msg }) {
   console.log('[LOG WHATSAPP] Voy a guardar log', {
-    phone,
+    phone: maskPhone(phone),
     status,
     message_type,
     error_msg,
   });
 
   try {
-    const { data, error } = await supabase.from('whatsapp_logs').insert([
+    const { error } = await supabase.from('whatsapp_logs').insert([
       {
         phone,
         status,
@@ -114,7 +128,7 @@ async function guardarLogWhatsApp({ phone, status, message_type, error_msg }) {
       },
     ]);
 
-    console.log('[LOG WHATSAPP] Resultado insert:', { data, error });
+    console.log('[LOG WHATSAPP] Resultado insert:', { ok: !error, error: error?.message || null });
 
     if (error) {
       console.error('[LOG WHATSAPP] Error guardando log:', error.message);
@@ -123,10 +137,6 @@ async function guardarLogWhatsApp({ phone, status, message_type, error_msg }) {
     console.error('[LOG WHATSAPP] Error inesperado:', e.message);
   }
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Helper: normaliza un string para comparaciones (sin tildes, minúsculas, trim)
-// ─────────────────────────────────────────────────────────────────────────────
 
 function norm(str) {
   return str
@@ -137,20 +147,11 @@ function norm(str) {
     .toLowerCase();
 }
 
-/**
- * ENVÍA ALERTA INDIVIDUAL → SOLO A USUARIOS PRO (CON FILTROS)
- *
- * Lógica de filtros:
- *   - Si el usuario tiene el array VACÍO en cualquier campo → sin filtro, recibe todo
- *   - Si la alerta tiene provincias VACÍO → es nacional, llega a todos
- *   - Si la alerta tiene sectores/subsectores VACÍO → genérica, llega a todos
- *   - "mixto" en el usuario acepta alertas de agricultura o ganadería (y viceversa)
- */
-
 module.exports = {
   parsePhoneList,
   getAdminAlertPhones,
   maskPhone,
+  summarizeUltraMsgResponse,
   enviarMensajeUltraMsg,
   guardarLogWhatsApp,
   norm,

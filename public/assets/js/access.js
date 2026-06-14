@@ -1,6 +1,7 @@
 (function () {
   const API_BASE = getApiBase();
   const STORAGE_TOKEN_KEY = "ruralicos_user_token";
+  const PASSWORD_POLICY_MESSAGE = "La contrasena debe tener 8 caracteres, una mayuscula, un numero y un simbolo.";
 
   const PROVINCIAS = [
     "Alava", "Albacete", "Alicante", "Almeria", "Asturias", "Avila", "Badajoz", "Barcelona",
@@ -94,6 +95,14 @@
     }
     element.textContent = message;
     element.className = "notice is-visible notice-" + type;
+  }
+
+  function passwordCumplePolitica(password) {
+    const value = String(password || "");
+    return value.length >= 8 &&
+      /[A-Z]/.test(value) &&
+      /\d/.test(value) &&
+      /[^A-Za-z0-9\s]/.test(value);
   }
 
   function populateChips(container, options, name, checkedByDefault) {
@@ -376,8 +385,8 @@
         return false;
       }
 
-      if (password.length < 6) {
-        setNotice(notice, "La contrasena debe tener al menos 6 caracteres.", "error");
+      if (!passwordCumplePolitica(password)) {
+        setNotice(notice, PASSWORD_POLICY_MESSAGE, "error");
         return false;
       }
 
@@ -573,8 +582,8 @@
         return;
       }
 
-      if (password.length < 6) {
-        setNotice(verifyNotice, "La contrasena nueva debe tener al menos 6 caracteres.", "error");
+      if (!passwordCumplePolitica(password)) {
+        setNotice(verifyNotice, PASSWORD_POLICY_MESSAGE, "error");
         return;
       }
 

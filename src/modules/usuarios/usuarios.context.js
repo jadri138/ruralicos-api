@@ -4,6 +4,7 @@
 // autorizacion y helpers de datos que dependen de supabase. Se construye una vez
 // por arranque con crearContextoUsuarios(supabase) y lo consumen las sub-rutas.
 
+const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const rateLimit = require('express-rate-limit');
 const { checkCronToken, hasCronToken } = require('../../middleware/cronToken');
@@ -260,7 +261,7 @@ function crearContextoUsuarios(supabase) {
   }
 
   function generarCodigoVerificacion() {
-    return Math.floor(100000 + Math.random() * 900000).toString();
+    return String(crypto.randomInt(100000, 1000000));
   }
 
   function nuevaCaducidadVerificacion() {
