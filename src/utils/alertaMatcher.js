@@ -4,7 +4,7 @@ const {
   canonicalSector,
   canonicalSubsector,
   canonicalTipoAlerta,
-} = require('./preferenceCanonical');
+} = require('../shared/preferenceCanonical');
 
 function norm(str) {
   return (str || '')

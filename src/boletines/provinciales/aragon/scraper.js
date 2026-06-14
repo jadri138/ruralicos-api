@@ -1,8 +1,8 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
 const https = require('https');
-const { htmlATexto } = require('../../../utils/htmlParser');
-const { extraerTextoPdf } = require('../../../utils/pdfExtractor');
+const { htmlATexto } = require('../../../shared/htmlParser');
+const { extraerTextoPdf } = require('../../../shared/pdfExtractor');
 
 const { esProvincialRelevante } = require('../shared/provincialFilter');
 

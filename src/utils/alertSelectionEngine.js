@@ -6,7 +6,7 @@ const {
   canonicalSector,
   canonicalSubsector,
   canonicalTipoAlerta,
-} = require('./preferenceCanonical');
+} = require('../shared/preferenceCanonical');
 
 const DEFAULT_POLICY = {
   minIncludeScore: 64,

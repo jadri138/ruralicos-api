@@ -27,7 +27,7 @@ const {
   calcularPesosDecay,
   aplicarDecayAItems,
   debugDecay,
-} = require('../src/utils/decay');
+} = require('../src/shared/decay');
 
 // ─────────────────────────────────────────────
 // HELPERS PARA TESTS

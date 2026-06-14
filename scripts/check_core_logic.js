@@ -4,9 +4,9 @@ const fs = require('fs');
 const path = require('path');
 
 const { getPlan, fuentePermitida, validarPreferencias } = require('../src/config/planes');
-const { extraerPreferenciasBody, prepararPreferenciasExtra } = require('../src/utils/preferenciasRequest');
+const { extraerPreferenciasBody, prepararPreferenciasExtra } = require('../src/shared/preferenciasRequest');
 const { alertaCoincideConUsuario, diagnosticarAlertaUsuario } = require('../src/utils/alertaMatcher');
-const { parsearVotosDigest, clasificarPrioridadAlerta, extraerFeaturesAlerta } = require('../src/brain/index');
+const { parsearVotosDigest, clasificarPrioridadAlerta, extraerFeaturesAlerta } = require('../src/brain');
 
 assert.strictEqual(getPlan('corral').nombre, 'Corral');
 assert.strictEqual(getPlan('agricultor').nombre, 'Agricultor');

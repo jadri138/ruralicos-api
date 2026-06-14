@@ -6,7 +6,7 @@
 // - Descarga PDF y extrae texto con pdfjs
 
 const axios = require('axios');
-const { extraerTextoPdf } = require('../../utils/pdfExtractor');
+const { extraerTextoPdf } = require('../../shared/pdfExtractor');
 
 // URL base FIJA (como BOE/BOA): no dependemos de variables de entorno.
 const DOE_LIST_URL = 'https://doe.juntaex.es/ultimosdoe/mostrardoe.php';

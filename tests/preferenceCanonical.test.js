@@ -4,7 +4,7 @@ const {
   canonicalSubsector,
   canonicalTipoAlerta,
   normalizarPreferenciasUsuario,
-} = require('../src/utils/preferenceCanonical');
+} = require('../src/shared/preferenceCanonical');
 
 let passed = 0;
 let failed = 0;

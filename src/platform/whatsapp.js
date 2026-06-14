@@ -6,7 +6,7 @@ const {
   canonicalSector,
   canonicalSubsector,
   canonicalTipoAlerta,
-} = require('../utils/preferenceCanonical');
+} = require('../shared/preferenceCanonical');
 const { alertaCoincideConUsuario } = require('../utils/alertaMatcher');
 
 

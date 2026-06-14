@@ -1,7 +1,7 @@
 // src/boletines/boa/boaPdf.js
 
 const axios = require('axios');
-const { extraerTextoPdf } = require('../../utils/pdfExtractor');
+const { extraerTextoPdf } = require('../../shared/pdfExtractor');
 
 // =============================
 //  FECHA HOY (YYYYMMDD)

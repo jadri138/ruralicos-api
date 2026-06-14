@@ -1,5 +1,5 @@
 const cheerio = require('cheerio');
-const { htmlATexto } = require('../../../../utils/htmlParser');
+const { htmlATexto } = require('../../../../shared/htmlParser');
 const { axiosGetWithRetry } = require('../../../../platform/httpClient');
 const { esProvincialRelevante } = require('../../shared/provincialFilter');
 

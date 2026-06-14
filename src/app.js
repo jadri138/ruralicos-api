@@ -17,7 +17,7 @@ const rateLimit = require('express-rate-limit');
 const crypto = require('crypto');
 const { supabase } = require('./platform/supabase');
 const { enviarWhatsAppTodos } = require('./platform/whatsapp');
-const { getFechaMadridISO } = require('./utils/fechaMadrid');
+const { getFechaMadridISO } = require('./shared/fechaMadrid');
 const { hasCronToken } = require('./middleware/cronToken');
 const { requireAdmin } = require('./middleware/requireAdmin');
 

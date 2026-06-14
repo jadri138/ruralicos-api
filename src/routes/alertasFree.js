@@ -3,7 +3,7 @@
 const { checkCronToken } = require('../middleware/cronToken');
 const { llamarIA, parsearJSON } = require('../platform/ia/llamarIA');
 const { enviarWhatsAppFree } = require('../platform/whatsapp');
-const { getFechaMadridISO } = require('../utils/fechaMadrid');
+const { getFechaMadridISO } = require('../shared/fechaMadrid');
 
 module.exports = function alertasFreeRoutes(app, supabase) {
   // ================================================

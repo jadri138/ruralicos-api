@@ -1,5 +1,5 @@
 const { checkCronToken } = require('../middleware/cronToken');
-const { calcularPesoDecay } = require('../utils/decay');
+const { calcularPesoDecay } = require('../shared/decay');
 const {
   inicializarOpenAI,
   generarEmbedding,

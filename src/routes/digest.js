@@ -28,8 +28,8 @@ const {
   filtrarAlertasParaDigest,
   seleccionarAlertasParaDigest,
 } = require('../utils/alertSelectionGate');
-const { getFechaMadridISO, getRangoDiaMadridUTC } = require('../utils/fechaMadrid');
-const { leerPerfilIntereses, ordenarAlertasPorPerfil, clasificarPrioridadAlerta, pesoPrioridad } = require('../brain/index');
+const { getFechaMadridISO, getRangoDiaMadridUTC } = require('../shared/fechaMadrid');
+const { leerPerfilIntereses, ordenarAlertasPorPerfil, clasificarPrioridadAlerta, pesoPrioridad } = require('../brain');
 const { similitudCoseno }          = require('../platform/ia/embeddings');
 const { registrarDigestItemsMIA }  = require('../mia/digestItems');
 const {

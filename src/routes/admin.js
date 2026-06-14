@@ -1,6 +1,6 @@
 const { requireAdmin } = require('../middleware/requireAdmin');
-const { normalizePhone } = require('../utils/phoneNormalizer');
-const { getFechaMadridISO, getRangoDiaMadridUTC } = require('../utils/fechaMadrid');
+const { normalizePhone } = require('../shared/phoneNormalizer');
+const { getFechaMadridISO, getRangoDiaMadridUTC } = require('../shared/fechaMadrid');
 const { actualizarPerfilUsuarioMIA } = require('../brain/miaProfile');
 const { enviarDigestPro } = require('../platform/whatsapp');
 const {

@@ -1,6 +1,6 @@
 const path = require('path');
 const crypto = require('crypto');
-const { extraerTextoPdf } = require('../utils/pdfExtractor');
+const { extraerTextoPdf } = require('../shared/pdfExtractor');
 const {
   inicializarOpenAI,
   generarEmbeddingsBatch,

@@ -10,8 +10,8 @@
 
 const { requireAuth } = require('../middleware/requireAdmin');
 const { getPlan, validarPreferencias } = require('../config/planes');
-const { extraerPreferenciasBody, prepararPreferenciasExtra } = require('../utils/preferenciasRequest');
-const { normalizarPreferenciasUsuario } = require('../utils/preferenceCanonical');
+const { extraerPreferenciasBody, prepararPreferenciasExtra } = require('../shared/preferenciasRequest');
+const { normalizarPreferenciasUsuario } = require('../shared/preferenceCanonical');
 
 module.exports = (app, supabase) => {
 

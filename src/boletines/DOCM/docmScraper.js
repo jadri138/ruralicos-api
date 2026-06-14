@@ -1,6 +1,6 @@
 const axios = require('axios');
-const { htmlATexto } = require('../../utils/htmlParser');
-const { extraerTextoPdf } = require('../../utils/pdfExtractor');
+const { htmlATexto } = require('../../shared/htmlParser');
+const { extraerTextoPdf } = require('../../shared/pdfExtractor');
 
 const DOCM_BASE = 'https://docm.jccm.es/docm/';
 

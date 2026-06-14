@@ -1,5 +1,5 @@
 const { checkCronToken } = require('../middleware/cronToken');
-const { getFechaMadridISO } = require('../utils/fechaMadrid');
+const { getFechaMadridISO } = require('../shared/fechaMadrid');
 const {
   inicializarOpenAI,
   generarEmbeddingsBatch,

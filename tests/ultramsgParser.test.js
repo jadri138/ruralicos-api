@@ -2,7 +2,7 @@ const {
   extraerUltraMsg,
   esEventoMensajeUltraMsg,
   parseBoolean,
-} = require('../src/utils/ultramsgParser');
+} = require('../src/shared/ultramsgParser');
 
 let passed = 0;
 let failed = 0;

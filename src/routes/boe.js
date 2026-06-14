@@ -1,7 +1,7 @@
 // src/routes/boe.js
 const { XMLParser } = require('fast-xml-parser');
 const { checkCronToken } = require('../middleware/cronToken');
-const { htmlATexto } = require('../utils/htmlParser');
+const { htmlATexto } = require('../shared/htmlParser');
 
 const xmlParser = new XMLParser({ ignoreAttributes: false });
 

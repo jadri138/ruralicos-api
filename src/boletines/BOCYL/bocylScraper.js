@@ -7,8 +7,8 @@
 // lo que impedía procesar el boletín en el cron de las 8:30h.
 
 const axios = require('axios');
-const { htmlATexto }      = require('../../utils/htmlParser');
-const { extraerTextoPdf } = require('../../utils/pdfExtractor');
+const { htmlATexto }      = require('../../shared/htmlParser');
+const { extraerTextoPdf } = require('../../shared/pdfExtractor');
 
 const BOCYL_BASE  = 'https://bocyl.jcyl.es/';
 const BOCYL_INDEX = 'https://bocyl.jcyl.es/boletin.do';

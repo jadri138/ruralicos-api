@@ -5,7 +5,7 @@ const {
   obtenerMlkobsPorFecha,
   procesarBoaPorMlkob,
 } = require('../boletines/boa/boaPdf');
-const { getFechaMadridISO, getFechaMadridYYYYMMDD } = require('../utils/fechaMadrid');
+const { getFechaMadridISO, getFechaMadridYYYYMMDD } = require('../shared/fechaMadrid');
 const { insertarAlertasBoletin } = require('./boletines/shared/insertarAlertasBoletin');
 
 // Convierte AAAAMMDD → AAAA-MM-DD

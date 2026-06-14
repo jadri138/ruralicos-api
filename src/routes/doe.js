@@ -6,7 +6,7 @@ const {
   procesarDoePdf,
   extraerFechaBoletin,
 } = require('../boletines/DOE/doeScraper');
-const { getFechaMadridISO, getFechaMadridYYYYMMDD } = require('../utils/fechaMadrid');
+const { getFechaMadridISO, getFechaMadridYYYYMMDD } = require('../shared/fechaMadrid');
 const { insertarAlertasBoletin } = require('./boletines/shared/insertarAlertasBoletin');
 
 function formatearFecha(fecha) {
