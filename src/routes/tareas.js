@@ -2,7 +2,7 @@
 const { checkCronToken } = require('../middleware/cronToken');
 const { enviarWhatsAppAdmin, enviarDigestPro } = require('../platform/whatsapp');
 const { getFechaMadridISO } = require('../shared/fechaMadrid');
-const { evaluarRespuestaScraper } = require('../utils/scraperRunQuality');
+const { evaluarRespuestaScraper } = require('../modules/boletines/scraperRunQuality');
 const { cotejarListadosOficiales } = require('../services/officialListMatcher');
 const {
   cargarOutboxPendiente,

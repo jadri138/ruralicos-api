@@ -2,7 +2,7 @@ const assert = require('assert');
 const {
   insertarAlertasBoletin,
   crearContenidoBoletin,
-} = require('../src/routes/boletines/shared/insertarAlertasBoletin');
+} = require('../src/modules/boletines/rutas/shared/insertarAlertasBoletin');
 
 let passed = 0;
 let failed = 0;

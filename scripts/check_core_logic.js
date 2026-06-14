@@ -140,21 +140,21 @@ assert.ok(
 );
 
 const rutasConFuenteObligatoria = {
-  'src/routes/boe.js': 'BOE',
-  'src/routes/boa.js': 'BOA',
-  'src/routes/bocyl.js': 'BOCYL',
-  'src/routes/boja.js': 'BOJA',
-  'src/routes/doe.js': 'DOE',
-  'src/routes/docm.js': 'DOCM',
-  'src/routes/borm.js': 'BORM',
-  'src/routes/dog.js': 'DOG',
-  'src/routes/dogc.js': 'DOGC',
-  'src/routes/dogv.js': 'DOGV',
-  'src/routes/bon.js': 'BON',
-  'src/routes/bor.js': 'BOR',
-  'src/routes/boib.js': 'BOIB',
-  'src/routes/bocant.js': 'BOCANT',
-  'src/routes/bopv.js': 'BOPV',
+  'src/modules/boletines/rutas/boe.js': 'BOE',
+  'src/modules/boletines/rutas/boa.js': 'BOA',
+  'src/modules/boletines/rutas/bocyl.js': 'BOCYL',
+  'src/modules/boletines/rutas/boja.js': 'BOJA',
+  'src/modules/boletines/rutas/doe.js': 'DOE',
+  'src/modules/boletines/rutas/docm.js': 'DOCM',
+  'src/modules/boletines/rutas/borm.js': 'BORM',
+  'src/modules/boletines/rutas/dog.js': 'DOG',
+  'src/modules/boletines/rutas/dogc.js': 'DOGC',
+  'src/modules/boletines/rutas/dogv.js': 'DOGV',
+  'src/modules/boletines/rutas/bon.js': 'BON',
+  'src/modules/boletines/rutas/bor.js': 'BOR',
+  'src/modules/boletines/rutas/boib.js': 'BOIB',
+  'src/modules/boletines/rutas/bocant.js': 'BOCANT',
+  'src/modules/boletines/rutas/bopv.js': 'BOPV',
 };
 
 for (const [file, fuente] of Object.entries(rutasConFuenteObligatoria)) {
