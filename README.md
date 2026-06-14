@@ -110,54 +110,80 @@ Requisito de runtime: Node.js `>=20.18.1`.
 
 ## Estructura del proyecto
 
+El código sigue una organización **modular por dominio** (modular monolith).
+Mapa rápido:
+
 ```text
-ruralicos-api
-├─ src
-│  ├─ boletines
-│  ├─ alertas
-│  ├─ ia
-│  ├─ cron
-│  ├─ supabaseClient.js
-│  └─ index.js
-│
-├─ README.md
-├─ LICENSE
-└─ CONTRIBUTING.md
-Variables de entorno
-env
-Copiar código
-SUPABASE_URL=...
-SUPABASE_SERVICE_ROLE_KEY=...
-OPENAI_API_KEY=...
-JWT_SECRET=...
-CRON_TOKEN=...
-ULTRAMSG_WEBHOOK_TOKEN=...
-ULTRAMSG_INSTANCE_ID=...
-ULTRAMSG_TOKEN=...
-PUBLIC_BASE_URL=...
-FRONTEND_ORIGINS=https://panel.example.com,http://localhost:5174
-ADMIN_ALERT_PHONE=34600000000
-ADMIN_ALERT_PHONES=34600000000,34600000001
-PREPARAR_DIGEST_BATCH_SIZE=50
-DIGEST_RESCUE_ENABLED=true
-DIGEST_RESCUE_AFTER_DAYS=7
-DIGEST_RESCUE_LOOKBACK_DAYS=7
-DIGEST_RESCUE_MAX_ALERTAS=3
-DIGEST_MAX_ALERTAS_NORMAL=3
-DIGEST_MAX_ALERTAS_COOPERATIVA=5
+src/
+├─ server.js              # entrypoint: arranca el servidor (app.listen)
+├─ app.js                 # construye la app Express (seguridad, /health, /stats)
+├─ routes.js              # registro central de todas las rutas
+├─ config/                # planes de suscripción y configuración
+├─ middleware/            # requireAdmin, cronToken
+├─ platform/              # clientes de infraestructura: supabase, whatsapp, ia/, http
+├─ shared/                # utilidades puras (fechas, similitud, html/pdf, teléfono…)
+├─ services/              # servicios de negocio transversales (listas oficiales, planes)
+└─ modules/               # un dominio por carpeta:
+   ├─ boletines/          #   scrapers + rutas de cada fuente oficial (BOE, BOJA, DOG…)
+   ├─ alertas/            #   alta/revisión/dedup + motor de selección (seleccion/)
+   ├─ digest/             #   mensaje diario por usuario (routes + service)
+   ├─ feedback/           #   webhooks de feedback y tracking de clics
+   ├─ aprendizaje/        #   aprendizaje por keywords/score + perfilado (cerebro)
+   ├─ mia/                #   agente conversacional (decisión, outbox, conocimiento…)
+   ├─ usuarios/           #   usuarios, auth y preferencias
+   ├─ admin/              #   panel de administración (5 sub-rutas + helpers)
+   ├─ tareas/             #   orquestación del pipeline diario
+   ├─ embeddings/         #   generación de embeddings de alertas
+   └─ taxonomy/           #   taxonomía rural (sectores/subsectores)
+```
 
-Webhook UltraMsg
+Para entender cómo encaja todo (ciclo de vida de una petición, el pipeline
+diario y la frontera entre `aprendizaje` y `mia`), ver **[docs/ARQUITECTURA.md](docs/ARQUITECTURA.md)**.
+Convenciones de código y dónde va cada cosa: **[CONTRIBUTING.md](CONTRIBUTING.md)**.
 
-En produccion el webhook `/webhooks/ultramsg/feedback` exige
-`ULTRAMSG_WEBHOOK_TOKEN`. Configura UltraMsg para enviarlo como `?token=...`,
-header `x-ruralicos-webhook-token`, header `x-ultramsg-token` o Bearer token.
-Estado del proyecto
-Beta activa con usuarios reales y ajustes continuos en clasificación y resúmenes.
+## Arranque local
 
-Licencia
-MIT
+```bash
+npm install
+cp .env.example .env   # y rellena las variables
+npm start              # o: node src/server.js
+```
 
-Contribuciones
-Las contribuciones son bienvenidas mediante issues o pull requests.
+Comprobaciones de salud: `GET /health` (incluye estado de Supabase y de las env)
+y `GET /stats` (cifras públicas).
 
-Nota: este repositorio contiene únicamente la lógica del sistema.
+## Variables de entorno
+
+Todas las variables están documentadas en **[.env.example](.env.example)**.
+Las imprescindibles para arrancar:
+
+| Variable | Para qué sirve |
+| --- | --- |
+| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | Acceso a la base de datos (backend) |
+| `OPENAI_API_KEY` | Resúmenes, clasificación y embeddings |
+| `JWT_SECRET` | Firma de tokens de sesión |
+| `CRON_TOKEN` | Autoriza las rutas de cron (`?token=` o header `x-cron-token`) |
+| `ULTRAMSG_INSTANCE_ID`, `ULTRAMSG_TOKEN` | Envío de WhatsApp vía UltraMsg |
+| `ULTRAMSG_WEBHOOK_TOKEN` | Valida el webhook entrante `/webhooks/ultramsg/feedback` |
+| `PUBLIC_BASE_URL` | URL pública (enlaces de tracking, cron internos) |
+
+El resto (lotes de IA, ajustes de digest, timeouts de scrapers, etc.) son
+opcionales y tienen valores por defecto sensatos.
+
+## Pruebas
+
+```bash
+npm run test:local   # suite local (tests unitarios, sin red)
+npm run check:core   # invariantes de lógica de negocio
+```
+
+## Estado del proyecto
+
+Beta activa con usuarios reales y ajustes continuos en clasificación, resúmenes
+y experiencia del digest.
+
+## Licencia
+
+MIT. Las contribuciones son bienvenidas mediante issues o pull requests.
+
+> Nota: este repositorio contiene únicamente la lógica del sistema (backend).
