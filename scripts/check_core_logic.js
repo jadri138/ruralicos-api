@@ -166,7 +166,7 @@ for (const [file, fuente] of Object.entries(rutasConFuenteObligatoria)) {
   );
 }
 
-const adminRoutes = fs.readFileSync(path.join(__dirname, '..', 'src/routes/admin.js'), 'utf8');
+const adminRoutes = fs.readFileSync(path.join(__dirname, '..', 'src/modules/admin/admin.routes.js'), 'utf8');
 assert.ok(
   adminRoutes.includes("? 'pendiente_revisar'"),
   'admin reprocesar fase=revisar debe usar pendiente_revisar'
@@ -254,7 +254,7 @@ assert.ok(
   'Los avisos admin deben usar telefonos configurados, no usuarios free'
 );
 
-const digestRoutes = fs.readFileSync(path.join(__dirname, '..', 'src/routes/digest.js'), 'utf8');
+const digestRoutes = fs.readFileSync(path.join(__dirname, '..', 'src/modules/digest/digest.routes.js'), 'utf8');
 assert.ok(
   digestRoutes.includes("phone_verified.is.null,phone_verified.eq.true"),
   'El digest no debe preparar/enviar a telefonos marcados como no verificados'
@@ -315,7 +315,7 @@ assert.ok(
   'La comparacion del CRON_TOKEN debe evitar comparacion directa'
 );
 
-const tareasRoutes = fs.readFileSync(path.join(__dirname, '..', 'src/routes/tareas.js'), 'utf8');
+const tareasRoutes = fs.readFileSync(path.join(__dirname, '..', 'src/modules/tareas/tareas.routes.js'), 'utf8');
 assert.ok(
   tareasRoutes.includes("'x-cron-token': token") && !/new URLSearchParams\(\{\s*token/.test(tareasRoutes),
   'Las llamadas internas del pipeline deben pasar CRON_TOKEN por header, no por query string'

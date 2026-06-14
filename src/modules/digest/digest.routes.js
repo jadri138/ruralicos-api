@@ -17,31 +17,31 @@
 
 
 const crypto = require('crypto');
-const { checkCronToken }           = require('../middleware/cronToken');
-const { llamarIA }                 = require('../platform/ia/llamarIA');
-const { enviarDigestPro }          = require('../platform/whatsapp');
-const { getPlan }                  = require('../config/planes');
-const { alertaCoincideConUsuario, diagnosticarAlertaUsuario } = require('../modules/alertas/seleccion/alertaMatcher');
-const { fusionarAlertasUnicas }     = require('../modules/alertas/seleccion/alertCandidateMerge');
+const { checkCronToken }           = require('../../middleware/cronToken');
+const { llamarIA }                 = require('../../platform/ia/llamarIA');
+const { enviarDigestPro }          = require('../../platform/whatsapp');
+const { getPlan }                  = require('../../config/planes');
+const { alertaCoincideConUsuario, diagnosticarAlertaUsuario } = require('../alertas/seleccion/alertaMatcher');
+const { fusionarAlertasUnicas }     = require('../alertas/seleccion/alertCandidateMerge');
 const {
   decidirAlertaParaDigest,
   filtrarAlertasParaDigest,
   seleccionarAlertasParaDigest,
-} = require('../modules/alertas/seleccion/alertSelectionGate');
-const { getFechaMadridISO, getRangoDiaMadridUTC } = require('../shared/fechaMadrid');
-const { leerPerfilIntereses, ordenarAlertasPorPerfil, clasificarPrioridadAlerta, pesoPrioridad } = require('../modules/aprendizaje');
-const { similitudCoseno }          = require('../platform/ia/embeddings');
-const { registrarDigestItemsMIA }  = require('../modules/mia/digestItems');
+} = require('../alertas/seleccion/alertSelectionGate');
+const { getFechaMadridISO, getRangoDiaMadridUTC } = require('../../shared/fechaMadrid');
+const { leerPerfilIntereses, ordenarAlertasPorPerfil, clasificarPrioridadAlerta, pesoPrioridad } = require('../aprendizaje');
+const { similitudCoseno }          = require('../../platform/ia/embeddings');
+const { registrarDigestItemsMIA }  = require('../mia/digestItems');
 const {
   actualizarDigestAttemptPorDigest,
   registrarDigestAttempt,
-} = require('../modules/mia/digestAttempts');
+} = require('../mia/digestAttempts');
 const {
   cargarPerfilOperativoMIA,
   aplicarPerfilOperativoAUsuario,
   ordenarAlertasConPerfilOperativoMIA,
-} = require('../modules/mia/userProfile');
-const { evaluarCalidadAlerta }     = require('../modules/mia/alertQuality');
+} = require('../mia/userProfile');
+const { evaluarCalidadAlerta }     = require('../mia/alertQuality');
 const {
   conOrganizationId,
   extraerOrganizationId,
@@ -49,7 +49,7 @@ const {
   cargarOrganizationContextMIA,
   aplicarOrganizationContextAUsuario,
   obtenerMiaBranding,
-} = require('../modules/mia/organizationContext');
+} = require('../mia/organizationContext');
 
 function numeroConfig(name, fallback, min = 0, max = Number.MAX_SAFE_INTEGER) {
   const value = Number(process.env[name]);

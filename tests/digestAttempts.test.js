@@ -108,7 +108,7 @@ test('actualiza intento asociado a digest enviado', async () => {
 });
 
 test('digest implementa rescate semanal y auditoria de no-envios', () => {
-  const source = fs.readFileSync(path.join(__dirname, '..', 'src/routes/digest.js'), 'utf8');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'src/modules/digest/digest.routes.js'), 'utf8');
 
   assert(source.includes("const PREPARAR_DIGEST_BATCH_SIZE = numeroConfig('PREPARAR_DIGEST_BATCH_SIZE', 50"), 'El batch por defecto debe subir de 5 a 50');
   assert(source.includes('DIGEST_RESCUE_AFTER_DAYS'), 'Debe existir umbral de rescate semanal');

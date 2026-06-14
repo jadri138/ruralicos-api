@@ -3,7 +3,7 @@ const {
   buscarSugerenciasTaxonomia,
   construirPreferenciasDesdeTexto,
   normalizarTextoTaxonomia,
-} = require('../modules/aprendizaje/taxonomiaRuralicos');
+} = require('../aprendizaje/taxonomiaRuralicos');
 
 const TIPOS_TAXONOMIA_PERMITIDOS = new Set(['sector', 'subsector', 'concepto', 'accion', 'entidad', 'tramite']);
 const MAX_SUGGEST_QUERY_LENGTH = 80;

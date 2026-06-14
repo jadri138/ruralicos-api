@@ -1,14 +1,14 @@
 // src/routes/tareas.js
-const { checkCronToken } = require('../middleware/cronToken');
-const { enviarWhatsAppAdmin, enviarDigestPro } = require('../platform/whatsapp');
-const { getFechaMadridISO } = require('../shared/fechaMadrid');
-const { evaluarRespuestaScraper } = require('../modules/boletines/scraperRunQuality');
-const { cotejarListadosOficiales } = require('../services/officialListMatcher');
+const { checkCronToken } = require('../../middleware/cronToken');
+const { enviarWhatsAppAdmin, enviarDigestPro } = require('../../platform/whatsapp');
+const { getFechaMadridISO } = require('../../shared/fechaMadrid');
+const { evaluarRespuestaScraper } = require('../boletines/scraperRunQuality');
+const { cotejarListadosOficiales } = require('../../services/officialListMatcher');
 const {
   cargarOutboxPendiente,
   procesarOutboxItemMIA,
   generarOutboxHealthMIA,
-} = require('../modules/mia/outbox');
+} = require('../mia/outbox');
 
 const SCRAPE_PATHS_DEFAULT = [
   '/scrape-boe-oficial',

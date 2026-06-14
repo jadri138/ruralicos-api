@@ -2,7 +2,7 @@ const {
   construirAdminAuditRow,
   registrarAdminAuditLog,
   getAdminActor,
-} = require('../src/admin/auditLog');
+} = require('../src/modules/admin/auditLog');
 
 let passed = 0;
 let failed = 0;
