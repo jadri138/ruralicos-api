@@ -313,7 +313,10 @@ assert.ok(
   'Los digest_items deben conservar contexto interno por alerta para MIA'
 );
 
-const feedbackRoutes = fs.readFileSync(path.join(__dirname, '..', 'src/modules/feedback/feedback.routes.js'), 'utf8');
+const feedbackRoutes =
+  fs.readFileSync(path.join(__dirname, '..', 'src/modules/feedback/feedback.routes.js'), 'utf8') +
+  '\n' +
+  fs.readFileSync(path.join(__dirname, '..', 'src/modules/feedback/feedback.service.js'), 'utf8');
 assert.ok(
   feedbackRoutes.includes("process.env.NODE_ENV === 'production'"),
   'El webhook UltraMsg debe exigir token en produccion'

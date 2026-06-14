@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Entrar | Ruralicos</title>
+  <meta name="description" content="Accede a tu cuenta Ruralicos y recupera el control de tus alertas.">
+  <link rel="stylesheet" href="/assets/css/access.css">
+</head>
+<body data-page="login">
+  <main class="access-page">
+    <div class="access-shell">
+      <div class="access-topbar">
+        <a class="brand-link" href="/">
+          <span class="brand-badge"><img src="/images/favicon.png" alt="Ruralicos"></span>
+          <span class="brand-copy">
+            <span class="brand-title">Ruralicos</span>
+            <span class="brand-subtitle">Alta profesional</span>
+          </span>
+        </a>
+        <a class="back-link" href="/">&#8592; ruralicos.es</a>
+      </div>
+
+      <section class="access-layout">
+        <div class="access-hero">
+          <span class="eyebrow">Acceso a Ruralicos</span>
+          <h1 class="hero-title">Entra en tu panel.</h1>
+          <p class="hero-text">Revisa tus alertas, plazos y filtros activos desde un unico sitio. En movil el acceso tiene que sentirse directo y sin dudas.</p>
+        </div>
+
+        <div class="access-grid">
+          <section class="access-card">
+            <div class="access-card-head">
+              <div class="access-card-row">
+                <div>
+                  <h2 class="access-card-title">Iniciar sesion</h2>
+                  <p class="access-card-copy">Usa el telefono asociado a tu explotacion o cooperativa.</p>
+                </div>
+                <a class="pill" href="/recuperar/">Recuperar acceso</a>
+              </div>
+            </div>
+
+            <div class="section-stack">
+              <div class="field">
+                <label class="field-label">Telefono</label>
+                <div class="phone-field">
+                  <select class="select" id="loginPhonePrefix">
+                    <option value="34" selected>+34</option>
+                  </select>
+                  <input class="input" id="loginPhone" type="tel" inputmode="numeric" placeholder="600 000 000" autocomplete="tel">
+                </div>
+              </div>
+
+              <div class="field">
+                <label class="field-label" for="loginPassword">Contrasena</label>
+                <input class="input" id="loginPassword" type="password" placeholder="********" autocomplete="current-password">
+              </div>
+
+              <div class="actions-row">
+                <button class="button" type="button" id="loginSubmit">Entrar &#8594;</button>
+              </div>
+
+              <div class="inline-box hidden" id="loginVerifyBox">
+                <h3>Te falta verificar el telefono</h3>
+                <p>Tu cuenta existe, pero todavia no esta activada. Introduce el codigo enviado a <strong id="loginVerifyPhoneHint"></strong>.</p>
+                <div class="field" style="margin-top: 12px;">
+                  <label class="field-label" for="loginVerifyCode">Codigo</label>
+                  <input class="input" id="loginVerifyCode" type="text" maxlength="6" inputmode="numeric" placeholder="Codigo de 6 digitos">
+                </div>
+                <div class="actions-row">
+                  <button class="button" type="button" id="loginVerifySubmit">Activar cuenta</button>
+                  <button class="button-secondary" type="button" id="loginVerifyResend">Reenviar codigo</button>
+                </div>
+                <div class="notice" id="loginVerifyNotice"></div>
+              </div>
+
+              <div class="helper-links">
+                <span>Aun no tienes cuenta?</span>
+                <a href="/registro/">Crear cuenta</a>
+              </div>
+            </div>
+
+            <div class="notice" id="loginNotice"></div>
+          </section>
+
+          <aside class="access-aside">
+            <div class="access-card-head">
+              <h2 class="access-card-title">Acceso mas claro</h2>
+              <p class="access-card-copy">Si algo falla, el flujo te acompana: recuperar acceso, verificar telefono o volver a crear la cuenta sin perderte.</p>
+            </div>
+            <ul class="aside-list">
+              <li><strong>Solo un dato principal</strong><span>Telefono como identificador natural para el mundo rural.</span></li>
+              <li><strong>Recuperacion visible</strong><span>La salida esta a la vista desde el primer segundo.</span></li>
+              <li><strong>Verificacion integrada</strong><span>Si la cuenta existe pero no esta activa, no mandamos al usuario a un callejon sin salida.</span></li>
+            </ul>
+          </aside>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script src="/assets/js/access.js"></script>
+</body>
+</html>

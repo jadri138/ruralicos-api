@@ -140,8 +140,8 @@ module.exports = (app, supabase, ctx) => {
         const lastName1Clean = limpiarCampoNombre(last_name_1 ?? lastName1 ?? userActual.last_name_1);
         const lastName2Clean = limpiarCampoNombre(last_name_2 ?? lastName2 ?? userActual.last_name_2);
 
-        if (!firstNameClean || !lastName1Clean || !lastName2Clean) {
-          return res.status(400).json({ error: 'Indica nombre, primer apellido y segundo apellido' });
+        if (!firstNameClean || !lastName1Clean) {
+          return res.status(400).json({ error: 'Indica nombre y primer apellido' });
         }
 
         const legalName = construirNombreLegal({

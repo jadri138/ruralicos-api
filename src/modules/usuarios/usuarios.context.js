@@ -88,7 +88,7 @@ function crearContextoUsuarios(supabase) {
     const partes = [firstName, lastName1, lastName2]
       .map((value) => limpiarCampoNombre(value))
       .filter(Boolean);
-    if (partes.length === 3) return partes.join(' ');
+    if (partes.length >= 2) return partes.join(' ');
     return limpiarCampoNombre(fallbackName, 180);
   }
 

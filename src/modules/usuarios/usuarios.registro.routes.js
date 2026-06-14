@@ -86,8 +86,8 @@ module.exports = (app, supabase, ctx) => {
       fallbackName: name,
     });
 
-    if (!firstNameClean || !lastName1Clean || !lastName2Clean) {
-      return res.status(400).json({ error: 'Indica nombre, primer apellido y segundo apellido' });
+    if (!firstNameClean || !lastName1Clean) {
+      return res.status(400).json({ error: 'Indica nombre y primer apellido' });
     }
 
     name = legalName;
