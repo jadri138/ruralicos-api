@@ -254,7 +254,10 @@ assert.ok(
   'Los avisos admin deben usar telefonos configurados, no usuarios free'
 );
 
-const digestRoutes = fs.readFileSync(path.join(__dirname, '..', 'src/modules/digest/digest.routes.js'), 'utf8');
+const digestRoutes =
+  fs.readFileSync(path.join(__dirname, '..', 'src/modules/digest/digest.routes.js'), 'utf8') +
+  '\n' +
+  fs.readFileSync(path.join(__dirname, '..', 'src/modules/digest/digest.service.js'), 'utf8');
 assert.ok(
   digestRoutes.includes("phone_verified.is.null,phone_verified.eq.true"),
   'El digest no debe preparar/enviar a telefonos marcados como no verificados'
