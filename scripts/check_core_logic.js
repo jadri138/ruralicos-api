@@ -246,7 +246,10 @@ assert.ok(
   'Debe existir /me/verify-phone para verificar cambios de telefono autenticados'
 );
 
-const whatsappRoutes = fs.readFileSync(path.join(__dirname, '..', 'src/platform/whatsapp.js'), 'utf8');
+const whatsappRoutes =
+  fs.readFileSync(path.join(__dirname, '..', 'src/platform/whatsapp/client.js'), 'utf8') +
+  '\n' +
+  fs.readFileSync(path.join(__dirname, '..', 'src/platform/whatsapp/mensajes.js'), 'utf8');
 assert.ok(
   whatsappRoutes.includes("phone_verified.is.null,phone_verified.eq.true"),
   'Los envios WhatsApp masivos no deben usar telefonos marcados como no verificados'

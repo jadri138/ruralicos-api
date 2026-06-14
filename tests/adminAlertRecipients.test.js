@@ -35,7 +35,7 @@ test('enmascara telefonos en errores operativos', () => {
 });
 
 test('el aviso admin no consulta usuarios free como destinatarios', () => {
-  const source = fs.readFileSync(path.join(__dirname, '..', 'src/platform/whatsapp.js'), 'utf8');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'src/platform/whatsapp/mensajes.js'), 'utf8');
   const start = source.indexOf('async function enviarWhatsAppAdmin');
   const end = source.indexOf('module.exports =', start);
   const block = source.slice(start, end);
