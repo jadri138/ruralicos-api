@@ -197,7 +197,7 @@ assert.ok(
   'La trazabilidad MIA debe filtrar inbound, decisiones, acciones y memoria por ventana de horas'
 );
 
-const indexRoutes = fs.readFileSync(path.join(__dirname, '..', 'src/index.js'), 'utf8');
+const indexRoutes = fs.readFileSync(path.join(__dirname, '..', 'src/app.js'), 'utf8');
 assert.ok(
   indexRoutes.includes("app.post('/admin/send-broadcast', requireAdmin"),
   '/admin/send-broadcast debe requerir admin'

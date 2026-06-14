@@ -9,7 +9,7 @@
 // Cómo funciona: intercepta `express()` con un grabador que registra cada
 // llamada a app.get/post/put/patch/delete/all (incluidos los routers de módulo),
 // sin abrir puertos ni conectar a servicios externos. Luego carga el entrypoint
-// real de la app (por defecto src/index.js).
+// real de la app (por defecto src/app.js).
 //
 // Uso:
 //   node scripts/inventario_rutas.js                 # imprime el inventario
@@ -82,7 +82,7 @@ require.cache[require.resolve('express')].exports = expressFalso;
 // 4) Cargamos el entrypoint real: ejecuta todo el cableado sobre el grabador.
 const argv = process.argv.slice(2);
 const idxEntry = argv.indexOf('--entry');
-const entry = idxEntry !== -1 ? argv[idxEntry + 1] : 'src/index.js';
+const entry = idxEntry !== -1 ? argv[idxEntry + 1] : 'src/app.js';
 const entryAbs = path.resolve(process.cwd(), entry);
 
 try {

@@ -1,12 +1,12 @@
 {
   "name": "ruralicos-api",
   "version": "1.0.0",
-  "main": "index.js",
+  "main": "src/server.js",
   "engines": {
     "node": ">=20.18.1"
   },
   "scripts": {
-    "start": "node src/index.js",
+    "start": "node src/server.js",
     "workflow:digest": "node scripts/run_digest_workflow.js",
     "knowledge:ingest": "node scripts/ingest_mia_knowledge.js",
     "check:core": "node scripts/check_core_logic.js",

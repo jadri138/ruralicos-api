@@ -1,3 +1,13 @@
+// src/app.js
+//
+// Construcción de la aplicación Express: middleware de seguridad (helmet, CORS,
+// rate-limit), parseo de body, ficheros estáticos, endpoints públicos básicos
+// (/health, /stats, /admin/send-broadcast) y montaje de todas las rutas de la API.
+//
+// Este módulo SOLO construye y exporta la app. El arranque del servidor
+// (app.listen) vive en src/server.js para mantener separado el "qué es la app"
+// del "cómo se ejecuta" (facilita tests e introspección — ver scripts/inventario_rutas.js).
+
 require('dotenv').config();
 
 const express = require('express');
@@ -270,12 +280,4 @@ embeddingsRoutes(app, supabase);
 cerebroRoutes(app, supabase);
 
 
-
-/* ---------------------------------------------------
-   INICIAR SERVIDOR
---------------------------------------------------- */
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`La API de Ruralicos está lista en el puerto ${PORT}!!`);
-});
+module.exports = app;
