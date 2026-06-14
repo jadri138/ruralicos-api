@@ -1,6 +1,6 @@
-const { evaluarPoliticaDecisionMIA } = require('../src/mia/policy');
-const { necesitaCasoAgenteMIA } = require('../src/mia/actionExecutor');
-const { construirAccionesDesdeDecision } = require('../src/mia/decisionStore');
+const { evaluarPoliticaDecisionMIA } = require('../src/modules/mia/policy');
+const { necesitaCasoAgenteMIA } = require('../src/modules/mia/actionExecutor');
+const { construirAccionesDesdeDecision } = require('../src/modules/mia/decisionStore');
 
 let passed = 0;
 let failed = 0;

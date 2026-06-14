@@ -4,9 +4,9 @@ const fs = require('fs');
 const path = require('path');
 
 const { getPlan, fuentePermitida, validarPreferencias } = require('../src/config/planes');
-const { extraerPreferenciasBody, prepararPreferenciasExtra } = require('../src/utils/preferenciasRequest');
-const { alertaCoincideConUsuario, diagnosticarAlertaUsuario } = require('../src/utils/alertaMatcher');
-const { parsearVotosDigest, clasificarPrioridadAlerta, extraerFeaturesAlerta } = require('../src/brain');
+const { extraerPreferenciasBody, prepararPreferenciasExtra } = require('../src/shared/preferenciasRequest');
+const { alertaCoincideConUsuario, diagnosticarAlertaUsuario } = require('../src/modules/alertas/seleccion/alertaMatcher');
+const { parsearVotosDigest, clasificarPrioridadAlerta, extraerFeaturesAlerta } = require('../src/modules/aprendizaje');
 
 assert.strictEqual(getPlan('corral').nombre, 'Corral');
 assert.strictEqual(getPlan('agricultor').nombre, 'Agricultor');
@@ -140,21 +140,21 @@ assert.ok(
 );
 
 const rutasConFuenteObligatoria = {
-  'src/routes/boe.js': 'BOE',
-  'src/routes/boa.js': 'BOA',
-  'src/routes/bocyl.js': 'BOCYL',
-  'src/routes/boja.js': 'BOJA',
-  'src/routes/doe.js': 'DOE',
-  'src/routes/docm.js': 'DOCM',
-  'src/routes/borm.js': 'BORM',
-  'src/routes/dog.js': 'DOG',
-  'src/routes/dogc.js': 'DOGC',
-  'src/routes/dogv.js': 'DOGV',
-  'src/routes/bon.js': 'BON',
-  'src/routes/bor.js': 'BOR',
-  'src/routes/boib.js': 'BOIB',
-  'src/routes/bocant.js': 'BOCANT',
-  'src/routes/bopv.js': 'BOPV',
+  'src/modules/boletines/rutas/boe.js': 'BOE',
+  'src/modules/boletines/rutas/boa.js': 'BOA',
+  'src/modules/boletines/rutas/bocyl.js': 'BOCYL',
+  'src/modules/boletines/rutas/boja.js': 'BOJA',
+  'src/modules/boletines/rutas/doe.js': 'DOE',
+  'src/modules/boletines/rutas/docm.js': 'DOCM',
+  'src/modules/boletines/rutas/borm.js': 'BORM',
+  'src/modules/boletines/rutas/dog.js': 'DOG',
+  'src/modules/boletines/rutas/dogc.js': 'DOGC',
+  'src/modules/boletines/rutas/dogv.js': 'DOGV',
+  'src/modules/boletines/rutas/bon.js': 'BON',
+  'src/modules/boletines/rutas/bor.js': 'BOR',
+  'src/modules/boletines/rutas/boib.js': 'BOIB',
+  'src/modules/boletines/rutas/bocant.js': 'BOCANT',
+  'src/modules/boletines/rutas/bopv.js': 'BOPV',
 };
 
 for (const [file, fuente] of Object.entries(rutasConFuenteObligatoria)) {
@@ -166,7 +166,11 @@ for (const [file, fuente] of Object.entries(rutasConFuenteObligatoria)) {
   );
 }
 
-const adminRoutes = fs.readFileSync(path.join(__dirname, '..', 'src/routes/admin.js'), 'utf8');
+// Las rutas de administracion estan repartidas por area (panel, usuarios,
+// alertas, operaciones, mia) mas helpers compartidos; las leemos todas juntas.
+const adminRoutes = ['helpers', 'panel', 'usuarios', 'alertas', 'operaciones', 'mia', 'routes']
+  .map((g) => fs.readFileSync(path.join(__dirname, '..', `src/modules/admin/admin.${g}.${g === 'helpers' || g === 'routes' ? 'js' : 'routes.js'}`), 'utf8'))
+  .join('\n');
 assert.ok(
   adminRoutes.includes("? 'pendiente_revisar'"),
   'admin reprocesar fase=revisar debe usar pendiente_revisar'
@@ -197,17 +201,21 @@ assert.ok(
   'La trazabilidad MIA debe filtrar inbound, decisiones, acciones y memoria por ventana de horas'
 );
 
-const indexRoutes = fs.readFileSync(path.join(__dirname, '..', 'src/index.js'), 'utf8');
+const indexRoutes = fs.readFileSync(path.join(__dirname, '..', 'src/app.js'), 'utf8');
 assert.ok(
   indexRoutes.includes("app.post('/admin/send-broadcast', requireAdmin"),
   '/admin/send-broadcast debe requerir admin'
 );
+const routesRegistry = fs.readFileSync(path.join(__dirname, '..', 'src/routes.js'), 'utf8');
 assert.ok(
-  indexRoutes.indexOf('clicksRoutes(app, supabase);') < indexRoutes.indexOf('usersRoutes(app, supabase);'),
+  routesRegistry.indexOf('clicksRoutes(app, supabase);') < routesRegistry.indexOf('usersRoutes(app, supabase);'),
   'clicksRoutes debe registrarse antes que usersRoutes para que /?a=token no lo capture la ruta raiz'
 );
 
-const alertasRoutes = fs.readFileSync(path.join(__dirname, '..', 'src/routes/alertas.js'), 'utf8');
+const alertasRoutes =
+  fs.readFileSync(path.join(__dirname, '..', 'src/modules/alertas/alertas.routes.js'), 'utf8') +
+  '\n' +
+  fs.readFileSync(path.join(__dirname, '..', 'src/modules/alertas/alertas.service.js'), 'utf8');
 assert.ok(
   alertasRoutes.includes("app.post('/alertas', requireAdminOrCron"),
   'POST /alertas debe requerir admin o token de cron'
@@ -231,7 +239,11 @@ assert.ok(
   'Las fichas IA deben generar resumenes faciles para WhatsApp'
 );
 
-const usersRoutes = fs.readFileSync(path.join(__dirname, '..', 'src/routes/users.js'), 'utf8');
+// Las rutas de usuarios estan repartidas por responsabilidad (gestion, registro,
+// cuenta) mas el contexto compartido; las leemos todas juntas.
+const usersRoutes = ['context', 'gestion.routes', 'registro.routes', 'cuenta.routes', 'routes']
+  .map((g) => fs.readFileSync(path.join(__dirname, '..', `src/modules/usuarios/usuarios.${g}.js`), 'utf8'))
+  .join('\n');
 assert.ok(
   usersRoutes.includes("phone_verification_required"),
   'PUT /me debe indicar cuando un cambio de telefono requiere verificacion'
@@ -241,7 +253,10 @@ assert.ok(
   'Debe existir /me/verify-phone para verificar cambios de telefono autenticados'
 );
 
-const whatsappRoutes = fs.readFileSync(path.join(__dirname, '..', 'src/whatsapp.js'), 'utf8');
+const whatsappRoutes =
+  fs.readFileSync(path.join(__dirname, '..', 'src/platform/whatsapp/client.js'), 'utf8') +
+  '\n' +
+  fs.readFileSync(path.join(__dirname, '..', 'src/platform/whatsapp/mensajes.js'), 'utf8');
 assert.ok(
   whatsappRoutes.includes("phone_verified.is.null,phone_verified.eq.true"),
   'Los envios WhatsApp masivos no deben usar telefonos marcados como no verificados'
@@ -254,7 +269,10 @@ assert.ok(
   'Los avisos admin deben usar telefonos configurados, no usuarios free'
 );
 
-const digestRoutes = fs.readFileSync(path.join(__dirname, '..', 'src/routes/digest.js'), 'utf8');
+const digestRoutes =
+  fs.readFileSync(path.join(__dirname, '..', 'src/modules/digest/digest.routes.js'), 'utf8') +
+  '\n' +
+  fs.readFileSync(path.join(__dirname, '..', 'src/modules/digest/digest.service.js'), 'utf8');
 assert.ok(
   digestRoutes.includes("phone_verified.is.null,phone_verified.eq.true"),
   'El digest no debe preparar/enviar a telefonos marcados como no verificados'
@@ -281,13 +299,13 @@ assert.ok(
   digestRoutes.includes('registrarDigestAttempt'),
   'El digest debe auditar no-envios y rescatar usuarios con silencio prolongado'
 );
-const digestAttempts = fs.readFileSync(path.join(__dirname, '..', 'src/mia/digestAttempts.js'), 'utf8');
+const digestAttempts = fs.readFileSync(path.join(__dirname, '..', 'src/modules/mia/digestAttempts.js'), 'utf8');
 assert.ok(
   digestAttempts.includes(".from('digest_attempts')") &&
   digestAttempts.includes("onConflict: 'user_id,fecha,kind'"),
   'La auditoria de digest debe persistir intentos por usuario, fecha y tipo'
 );
-const digestItems = fs.readFileSync(path.join(__dirname, '..', 'src/mia/digestItems.js'), 'utf8');
+const digestItems = fs.readFileSync(path.join(__dirname, '..', 'src/modules/mia/digestItems.js'), 'utf8');
 assert.ok(
   digestItems.includes('contexto_mia_digest') &&
   digestItems.includes('grupo_digest') &&
@@ -295,7 +313,10 @@ assert.ok(
   'Los digest_items deben conservar contexto interno por alerta para MIA'
 );
 
-const feedbackRoutes = fs.readFileSync(path.join(__dirname, '..', 'src/routes/feedback.js'), 'utf8');
+const feedbackRoutes =
+  fs.readFileSync(path.join(__dirname, '..', 'src/modules/feedback/feedback.routes.js'), 'utf8') +
+  '\n' +
+  fs.readFileSync(path.join(__dirname, '..', 'src/modules/feedback/feedback.service.js'), 'utf8');
 assert.ok(
   feedbackRoutes.includes("process.env.NODE_ENV === 'production'"),
   'El webhook UltraMsg debe exigir token en produccion'
@@ -309,13 +330,13 @@ assert.ok(
   'Debe existir el webhook de feedback UltraMsg'
 );
 
-const cronTokenUtils = fs.readFileSync(path.join(__dirname, '..', 'src/utils/checkCronToken.js'), 'utf8');
+const cronTokenUtils = fs.readFileSync(path.join(__dirname, '..', 'src/middleware/cronToken.js'), 'utf8');
 assert.ok(
   cronTokenUtils.includes('crypto.timingSafeEqual'),
   'La comparacion del CRON_TOKEN debe evitar comparacion directa'
 );
 
-const tareasRoutes = fs.readFileSync(path.join(__dirname, '..', 'src/routes/tareas.js'), 'utf8');
+const tareasRoutes = fs.readFileSync(path.join(__dirname, '..', 'src/modules/tareas/tareas.routes.js'), 'utf8');
 assert.ok(
   tareasRoutes.includes("'x-cron-token': token") && !/new URLSearchParams\(\{\s*token/.test(tareasRoutes),
   'Las llamadas internas del pipeline deben pasar CRON_TOKEN por header, no por query string'

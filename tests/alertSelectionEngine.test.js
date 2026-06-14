@@ -2,7 +2,7 @@ const assert = require('assert');
 const {
   decidirAlertaParaDigest,
   seleccionarAlertasParaDigest,
-} = require('../src/utils/alertSelectionEngine');
+} = require('../src/modules/alertas/seleccion/alertSelectionEngine');
 
 let passed = 0;
 let failed = 0;

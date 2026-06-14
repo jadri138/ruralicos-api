@@ -2,7 +2,7 @@ const {
   construirQualityReportMIA,
   calcularQualityScoreMIA,
   calidadPorScore,
-} = require('../src/mia/qualityReport');
+} = require('../src/modules/mia/qualityReport');
 
 let passed = 0;
 let failed = 0;

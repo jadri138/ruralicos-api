@@ -6,7 +6,7 @@ const {
   actualizarDigestAttemptPorDigest,
   construirDigestAttemptRow,
   registrarDigestAttempt,
-} = require('../src/mia/digestAttempts');
+} = require('../src/modules/mia/digestAttempts');
 
 function test(name, fn) {
   Promise.resolve()
@@ -108,7 +108,13 @@ test('actualiza intento asociado a digest enviado', async () => {
 });
 
 test('digest implementa rescate semanal y auditoria de no-envios', () => {
-  const source = fs.readFileSync(path.join(__dirname, '..', 'src/routes/digest.js'), 'utf8');
+  // La logica del digest se reparte entre la capa HTTP (digest.routes.js) y el
+  // motor (digest.service.js); leemos ambos como una sola fuente.
+  const dir = path.join(__dirname, '..', 'src/modules/digest');
+  const source =
+    fs.readFileSync(path.join(dir, 'digest.routes.js'), 'utf8') +
+    '\n' +
+    fs.readFileSync(path.join(dir, 'digest.service.js'), 'utf8');
 
   assert(source.includes("const PREPARAR_DIGEST_BATCH_SIZE = numeroConfig('PREPARAR_DIGEST_BATCH_SIZE', 50"), 'El batch por defecto debe subir de 5 a 50');
   assert(source.includes('DIGEST_RESCUE_AFTER_DAYS'), 'Debe existir umbral de rescate semanal');

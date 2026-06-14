@@ -1,4 +1,4 @@
-const { construirAccionesDesdeDecision } = require('../src/mia/decisionStore');
+const { construirAccionesDesdeDecision } = require('../src/modules/mia/decisionStore');
 
 let passed = 0;
 let failed = 0;

@@ -12,7 +12,7 @@
 //
 // ══════════════════════════════════════════════════════════════════════
 
-const { normalizarPreferenciasUsuario } = require('../utils/preferenceCanonical');
+const { normalizarPreferenciasUsuario } = require('../shared/preferenceCanonical');
 
 const FUENTES_AUTONOMICAS = [
   'BOE',

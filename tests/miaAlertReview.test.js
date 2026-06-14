@@ -3,7 +3,7 @@ const {
   normalizarReasonCodes,
   construirReviewRowMIA,
   construirDatasetRevisionMIA,
-} = require('../src/mia/alertReview');
+} = require('../src/modules/mia/alertReview');
 
 let passed = 0;
 let failed = 0;

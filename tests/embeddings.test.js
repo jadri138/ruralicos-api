@@ -20,14 +20,14 @@ const {
   similitudCoseno,
   calcularCentroide,
   calcularCentroidePonderado,
-} = require('../src/utils/embeddings');
+} = require('../src/platform/ia/embeddings');
 
 const {
   calcularPesoDecay,
   calcularPesosDecay,
   aplicarDecayAItems,
   debugDecay,
-} = require('../src/utils/decay');
+} = require('../src/shared/decay');
 
 // ─────────────────────────────────────────────
 // HELPERS PARA TESTS

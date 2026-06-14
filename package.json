@@ -1,12 +1,17 @@
 {
   "name": "ruralicos-api",
   "version": "1.0.0",
-  "main": "index.js",
+  "main": "src/server.js",
   "engines": {
     "node": ">=20.18.1"
   },
   "scripts": {
-    "start": "node src/index.js",
+    "start": "node src/server.js",
+    "test": "npm run lint && npm run test:local && npm run check:core",
+    "lint": "eslint \"src/**/*.js\" \"scripts/**/*.js\" \"tests/**/*.js\"",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "rutas:inventario": "node scripts/inventario_rutas.js",
     "workflow:digest": "node scripts/run_digest_workflow.js",
     "knowledge:ingest": "node scripts/ingest_mia_knowledge.js",
     "check:core": "node scripts/check_core_logic.js",
@@ -27,5 +32,9 @@
     "node-fetch": "^2.7.0",
     "openai": "^6.35.0",
     "pdf-parse": "^2.4.5"
+  },
+  "devDependencies": {
+    "eslint": "^9.39.4",
+    "prettier": "^3.8.4"
   }
 }

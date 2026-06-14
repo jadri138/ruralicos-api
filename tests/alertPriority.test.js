@@ -1,5 +1,5 @@
 const assert = require('assert');
-const { clasificarPrioridadAlerta } = require('../src/brain/alertPriority');
+const { clasificarPrioridadAlerta } = require('../src/modules/aprendizaje/alertPriority');
 
 let passed = 0;
 let failed = 0;

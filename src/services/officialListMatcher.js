@@ -1,7 +1,7 @@
 const crypto = require('crypto');
-const { enviarWhatsAppDirecto } = require('../whatsapp');
+const { enviarWhatsAppDirecto } = require('../platform/whatsapp');
 const { fuentePermitida } = require('../config/planes');
-const { conOrganizationId, extraerOrganizationId } = require('../mia/organizationContext');
+const { conOrganizationId, extraerOrganizationId } = require('../modules/mia/organizationContext');
 
 function normalizar(texto) {
   return String(texto || '')

@@ -4,7 +4,7 @@ const {
   validarRespuestaGroundedMIA,
   construirRespuestaFallbackGroundedMIA,
   generarRespuestaGroundedMIA,
-} = require('../src/mia/groundedAnswer');
+} = require('../src/modules/mia/groundedAnswer');
 
 let passed = 0;
 let failed = 0;

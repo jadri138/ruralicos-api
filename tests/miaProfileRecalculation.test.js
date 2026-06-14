@@ -1,7 +1,7 @@
 const {
   textoMemorias,
   ajustarContextoNarrativoPorPerfil,
-} = require('../src/brain/miaProfile');
+} = require('../src/modules/aprendizaje/miaProfile');
 
 let passed = 0;
 let failed = 0;

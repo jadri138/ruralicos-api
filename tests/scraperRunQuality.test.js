@@ -1,5 +1,5 @@
 const assert = require('assert');
-const { evaluarRespuestaScraper } = require('../src/utils/scraperRunQuality');
+const { evaluarRespuestaScraper } = require('../src/modules/boletines/scraperRunQuality');
 
 let passed = 0;
 let failed = 0;

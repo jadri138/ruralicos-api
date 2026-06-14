@@ -137,7 +137,7 @@ async function notificarCambioPlan({
   }
 
   try {
-    const sender = enviarWhatsAppDirecto || require('../whatsapp').enviarWhatsAppDirecto;
+    const sender = enviarWhatsAppDirecto || require('../platform/whatsapp').enviarWhatsAppDirecto;
     await sender(phone, mensaje, 'plan_change');
     return { sent: true, skipped: false, direction: direccion };
   } catch (err) {

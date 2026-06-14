@@ -3,7 +3,7 @@ const {
   hashDetalle,
   inferirPolarity,
   inferirTopic,
-} = require('../src/mia/structuredMemory');
+} = require('../src/modules/mia/structuredMemory');
 
 let passed = 0;
 let failed = 0;

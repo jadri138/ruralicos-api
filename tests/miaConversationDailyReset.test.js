@@ -1,7 +1,7 @@
 process.env.SUPABASE_URL = process.env.SUPABASE_URL || 'https://example.supabase.co';
 process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || 'test-service-role-key';
 
-const { __testing } = require('../src/routes/feedback');
+const { __testing } = require('../src/modules/feedback/feedback.routes');
 
 const {
   buscarConversacionActiva,

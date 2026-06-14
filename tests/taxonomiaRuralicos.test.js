@@ -7,7 +7,7 @@ const {
   extraerTaxonomiaDeTexto,
   temaCanonicoTaxonomia,
   validarTaxonomiaRuralicos,
-} = require('../src/brain/taxonomiaRuralicos');
+} = require('../src/modules/aprendizaje/taxonomiaRuralicos');
 
 let passed = 0;
 let failed = 0;

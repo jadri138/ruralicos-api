@@ -4,7 +4,7 @@ const {
   evaluarCalidadScraperRuns,
   evaluarCalidadPipelineRuns,
   construirReporteCalidadOperativa,
-} = require('../src/mia/alertQuality');
+} = require('../src/modules/mia/alertQuality');
 
 let passed = 0;
 let failed = 0;

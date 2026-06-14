@@ -8,7 +8,7 @@ const {
   combinarYRankearAlertasMIA,
   construirRespuestaConAlertasMIA,
   aplicarRespuestaConocimientoADecision,
-} = require('../src/mia/knowledgeBase');
+} = require('../src/modules/mia/knowledgeBase');
 
 let passed = 0;
 let failed = 0;

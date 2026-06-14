@@ -1,5 +1,5 @@
 const assert = require('assert');
-const { diagnosticarAlertaUsuario } = require('../src/utils/alertaMatcher');
+const { diagnosticarAlertaUsuario } = require('../src/modules/alertas/seleccion/alertaMatcher');
 
 let passed = 0;
 let failed = 0;

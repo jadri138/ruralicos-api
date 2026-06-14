@@ -4,7 +4,7 @@ const {
   esRespuestaOrigenCaptacionMIA,
   esMensajeTrivialMIA,
   limpiarRespuestaMIA,
-} = require('../src/mia/decisionCore');
+} = require('../src/modules/mia/decisionCore');
 
 let passed = 0;
 let failed = 0;

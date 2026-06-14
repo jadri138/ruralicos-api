@@ -3,7 +3,7 @@ const {
   filtrarEventosReplay,
   ocultarTelefono,
   resumirTexto,
-} = require('../src/mia/replay');
+} = require('../src/modules/mia/replay');
 
 let passed = 0;
 let failed = 0;

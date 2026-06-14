@@ -2,7 +2,7 @@ const {
   crearIdentidadMensajeMIA,
   normalizarTextoFingerprint,
   getFallbackDedupeMs,
-} = require('../src/mia/inbound');
+} = require('../src/modules/mia/inbound');
 
 let passed = 0;
 let failed = 0;

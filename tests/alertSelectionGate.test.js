@@ -3,7 +3,7 @@ const {
   decidirAlertaParaDigest,
   filtrarAlertasParaDigest,
   puedeIncluirRevisionSegura,
-} = require('../src/utils/alertSelectionGate');
+} = require('../src/modules/alertas/seleccion/alertSelectionGate');
 
 let passed = 0;
 let failed = 0;
