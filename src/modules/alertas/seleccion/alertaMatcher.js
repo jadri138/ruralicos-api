@@ -1,10 +1,10 @@
-const { fuentePermitida, normalizarFuenteBoletin } = require('../config/planes');
-const { extraerFeatureTagsDeTexto } = require('../modules/aprendizaje/taxonomiaRuralicos');
+const { fuentePermitida, normalizarFuenteBoletin } = require('../../../config/planes');
+const { extraerFeatureTagsDeTexto } = require('../../aprendizaje/taxonomiaRuralicos');
 const {
   canonicalSector,
   canonicalSubsector,
   canonicalTipoAlerta,
-} = require('../shared/preferenceCanonical');
+} = require('../../../shared/preferenceCanonical');
 
 function norm(str) {
   return (str || '')

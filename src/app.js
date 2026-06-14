@@ -23,25 +23,25 @@ const { requireAdmin } = require('./middleware/requireAdmin');
 
 
 // Rutas
-const usersRoutes = require('./routes/users');
-const alertasRoutes = require('./routes/alertas');
-const alertasFreeRoutes = require('./routes/alertasFree');
+const usersRoutes = require('./modules/usuarios/usuarios.routes');
+const alertasRoutes = require('./modules/alertas/alertas.routes');
+const alertasFreeRoutes = require('./modules/alertas/alertasFree.routes');
 const boeRoutes = require('./modules/boletines/rutas/boe');
 const boaRoutes = require('./modules/boletines/rutas/boa');
 const tareasRoutes = require('./routes/tareas');
-const authRoutes = require('./routes/auth');
+const authRoutes = require('./modules/usuarios/auth.routes');
 const adminRoutes = require('./routes/admin');
-const preferencesRoutes = require('./routes/preferences');
+const preferencesRoutes = require('./modules/usuarios/preferences.routes');
 const taxonomyRoutes = require('./routes/taxonomy');
-const userAuthRoutes = require('./routes/userAuth');
-const revisarAlertasRoutes = require("./routes/revisarAlertas");
+const userAuthRoutes = require('./modules/usuarios/userAuth.routes');
+const revisarAlertasRoutes = require("./modules/alertas/revisarAlertas.routes");
 const bocylRoutes = require('./modules/boletines/rutas/bocyl');
 const bojaRoutes = require('./modules/boletines/rutas/boja');
 const doeRoutes = require('./modules/boletines/rutas/doe');
 const docmRoutes = require('./modules/boletines/rutas/docm');
 const bormRoutes = require('./modules/boletines/rutas/borm');
 const digestRoutes = require('./routes/digest');
-const deduplicarRoutes = require('./routes/deduplicar');
+const deduplicarRoutes = require('./modules/alertas/deduplicar.routes');
 const feedbackRoutes = require('./modules/feedback/feedback.routes');
 const dogcRoutes       = require('./modules/boletines/rutas/dogc');
 const dogvRoutes       = require('./modules/boletines/rutas/dogv');

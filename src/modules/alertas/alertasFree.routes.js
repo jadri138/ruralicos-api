@@ -1,9 +1,9 @@
 // src/routes/alertasFree.js
 
-const { checkCronToken } = require('../middleware/cronToken');
-const { llamarIA, parsearJSON } = require('../platform/ia/llamarIA');
-const { enviarWhatsAppFree } = require('../platform/whatsapp');
-const { getFechaMadridISO } = require('../shared/fechaMadrid');
+const { checkCronToken } = require('../../middleware/cronToken');
+const { llamarIA, parsearJSON } = require('../../platform/ia/llamarIA');
+const { enviarWhatsAppFree } = require('../../platform/whatsapp');
+const { getFechaMadridISO } = require('../../shared/fechaMadrid');
 
 module.exports = function alertasFreeRoutes(app, supabase) {
   // ================================================

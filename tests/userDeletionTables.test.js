@@ -5,7 +5,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 
-const { __testing } = require('../src/routes/users');
+const { __testing } = require('../src/modules/usuarios/usuarios.routes');
 
 function test(name, fn) {
   try {
@@ -52,7 +52,7 @@ test('detecta ids UUID de Supabase Auth sin asumir que todos los ids lo son', ()
 });
 
 test('borrado admin y borrado propio usan la misma limpieza', () => {
-  const source = fs.readFileSync(path.join(__dirname, '..', 'src/routes/users.js'), 'utf8');
+  const source = fs.readFileSync(path.join(__dirname, '..', 'src/modules/usuarios/usuarios.routes.js'), 'utf8');
   assert(source.includes('const tablasLimpiadas = await deleteUserOwnedRows(id);'));
   assert(source.includes('const tablasLimpiadas = await deleteUserOwnedRows(userId);'));
 });

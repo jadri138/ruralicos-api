@@ -21,13 +21,13 @@ const { checkCronToken }           = require('../middleware/cronToken');
 const { llamarIA }                 = require('../platform/ia/llamarIA');
 const { enviarDigestPro }          = require('../platform/whatsapp');
 const { getPlan }                  = require('../config/planes');
-const { alertaCoincideConUsuario, diagnosticarAlertaUsuario } = require('../utils/alertaMatcher');
-const { fusionarAlertasUnicas }     = require('../utils/alertCandidateMerge');
+const { alertaCoincideConUsuario, diagnosticarAlertaUsuario } = require('../modules/alertas/seleccion/alertaMatcher');
+const { fusionarAlertasUnicas }     = require('../modules/alertas/seleccion/alertCandidateMerge');
 const {
   decidirAlertaParaDigest,
   filtrarAlertasParaDigest,
   seleccionarAlertasParaDigest,
-} = require('../utils/alertSelectionGate');
+} = require('../modules/alertas/seleccion/alertSelectionGate');
 const { getFechaMadridISO, getRangoDiaMadridUTC } = require('../shared/fechaMadrid');
 const { leerPerfilIntereses, ordenarAlertasPorPerfil, clasificarPrioridadAlerta, pesoPrioridad } = require('../modules/aprendizaje');
 const { similitudCoseno }          = require('../platform/ia/embeddings');

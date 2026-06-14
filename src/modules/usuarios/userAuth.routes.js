@@ -2,8 +2,8 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const rateLimit = require('express-rate-limit');
-const { requireAuth } = require('../middleware/requireAdmin');
-const { normalizePhone, LONGITUD_TELEFONO } = require('../shared/phoneNormalizer');
+const { requireAuth } = require('../../middleware/requireAdmin');
+const { normalizePhone, LONGITUD_TELEFONO } = require('../../shared/phoneNormalizer');
 
 module.exports = (app, supabase) => {
   const loginLimiter = rateLimit({

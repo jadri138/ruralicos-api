@@ -1,9 +1,9 @@
 // src/routes/alertas.js
-const { checkCronToken, hasCronToken } = require('../middleware/cronToken');
-const { llamarIA, parsearJSON } = require('../platform/ia/llamarIA');
-const { enviarWhatsAppResumen } = require('../platform/whatsapp');
-const { getFechaMadridISO } = require('../shared/fechaMadrid');
-const { requireAdmin } = require('../middleware/requireAdmin');
+const { checkCronToken, hasCronToken } = require('../../middleware/cronToken');
+const { llamarIA, parsearJSON } = require('../../platform/ia/llamarIA');
+const { enviarWhatsAppResumen } = require('../../platform/whatsapp');
+const { getFechaMadridISO } = require('../../shared/fechaMadrid');
+const { requireAdmin } = require('../../middleware/requireAdmin');
 const DIGEST_ONLY_MODE = (process.env.DIGEST_ONLY_MODE || 'true').toLowerCase() !== 'false';
 const CLASIFICAR_BATCH_SIZE = Number(process.env.CLASIFICAR_BATCH_SIZE || 8);
 const RESUMIR_BATCH_SIZE = Number(process.env.RESUMIR_BATCH_SIZE || 5);

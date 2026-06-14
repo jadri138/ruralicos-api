@@ -10,7 +10,7 @@ const {
   generarContextoNarrativo,
   generarPreguntaExploracion,
 } = require('./cerebro');
-const { diagnosticarAlertaUsuario } = require('../../utils/alertaMatcher');
+const { diagnosticarAlertaUsuario } = require('../alertas/seleccion/alertaMatcher');
 const { enviarDigestPro } = require('../../platform/whatsapp');
 const {
   actualizarPerfilUsuarioMIA,

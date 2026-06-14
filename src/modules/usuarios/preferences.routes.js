@@ -8,10 +8,10 @@
 //   - GET devuelve también el plan y los límites aplicables (útil para el frontend)
 // ══════════════════════════════════════════════════════════════════════
 
-const { requireAuth } = require('../middleware/requireAdmin');
-const { getPlan, validarPreferencias } = require('../config/planes');
-const { extraerPreferenciasBody, prepararPreferenciasExtra } = require('../shared/preferenciasRequest');
-const { normalizarPreferenciasUsuario } = require('../shared/preferenceCanonical');
+const { requireAuth } = require('../../middleware/requireAdmin');
+const { getPlan, validarPreferencias } = require('../../config/planes');
+const { extraerPreferenciasBody, prepararPreferenciasExtra } = require('../../shared/preferenciasRequest');
+const { normalizarPreferenciasUsuario } = require('../../shared/preferenceCanonical');
 
 module.exports = (app, supabase) => {
 

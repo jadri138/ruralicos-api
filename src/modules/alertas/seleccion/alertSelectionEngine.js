@@ -1,12 +1,12 @@
 const { diagnosticarAlertaUsuario } = require('./alertaMatcher');
-const { evaluarCalidadAlerta } = require('../modules/mia/alertQuality');
-const { extraerFeaturesAlerta, textoAlerta: textoFeaturesAlerta } = require('../modules/aprendizaje/alertFeatures');
-const { clasificarPrioridadAlerta, pesoPrioridad } = require('../modules/aprendizaje/alertPriority');
+const { evaluarCalidadAlerta } = require('../../mia/alertQuality');
+const { extraerFeaturesAlerta, textoAlerta: textoFeaturesAlerta } = require('../../aprendizaje/alertFeatures');
+const { clasificarPrioridadAlerta, pesoPrioridad } = require('../../aprendizaje/alertPriority');
 const {
   canonicalSector,
   canonicalSubsector,
   canonicalTipoAlerta,
-} = require('../shared/preferenceCanonical');
+} = require('../../../shared/preferenceCanonical');
 
 const DEFAULT_POLICY = {
   minIncludeScore: 64,

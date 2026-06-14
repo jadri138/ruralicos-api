@@ -1,5 +1,5 @@
 const assert = require('assert');
-const { fusionarAlertasUnicas, obtenerIdAlerta } = require('../src/utils/alertCandidateMerge');
+const { fusionarAlertasUnicas, obtenerIdAlerta } = require('../src/modules/alertas/seleccion/alertCandidateMerge');
 
 let passed = 0;
 let failed = 0;

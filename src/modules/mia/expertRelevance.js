@@ -1,4 +1,4 @@
-const { diagnosticarAlertaUsuario } = require('../../utils/alertaMatcher');
+const { diagnosticarAlertaUsuario } = require('../alertas/seleccion/alertaMatcher');
 const { extraerFeaturesAlerta } = require('../aprendizaje/alertFeatures');
 const { evaluarCalidadAlerta } = require('./alertQuality');
 

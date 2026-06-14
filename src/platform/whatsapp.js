@@ -7,7 +7,7 @@ const {
   canonicalSubsector,
   canonicalTipoAlerta,
 } = require('../shared/preferenceCanonical');
-const { alertaCoincideConUsuario } = require('../utils/alertaMatcher');
+const { alertaCoincideConUsuario } = require('../modules/alertas/seleccion/alertaMatcher');
 
 
 // Credenciales UltraMsg desde .env

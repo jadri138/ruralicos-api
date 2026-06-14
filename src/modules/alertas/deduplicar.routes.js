@@ -9,9 +9,9 @@
 //
 // Uso en pipeline: llamar despues de /alertas/revisar y antes de /alertas/preparar-digest.
 
-const { checkCronToken }  = require('../middleware/cronToken');
-const { similitudTitulos } = require('../shared/similitud');
-const { getFechaMadridISO } = require('../shared/fechaMadrid');
+const { checkCronToken }  = require('../../middleware/cronToken');
+const { similitudTitulos } = require('../../shared/similitud');
+const { getFechaMadridISO } = require('../../shared/fechaMadrid');
 
 const UMBRAL_DEFAULT = 0.65;
 

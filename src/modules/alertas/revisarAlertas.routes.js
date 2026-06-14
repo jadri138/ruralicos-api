@@ -1,6 +1,6 @@
 // src/routes/revisarAlertas.js
-const { checkCronToken } = require("../middleware/cronToken");
-const { llamarIA, parsearJSON } = require("../platform/ia/llamarIA");
+const { checkCronToken } = require("../../middleware/cronToken");
+const { llamarIA, parsearJSON } = require("../../platform/ia/llamarIA");
 
 // Limpieza defensiva por si la IA mete metatexto/instrucciones internas
 function sanitizeResumen(resumen) {

@@ -5,7 +5,7 @@ const path = require('path');
 
 const { getPlan, fuentePermitida, validarPreferencias } = require('../src/config/planes');
 const { extraerPreferenciasBody, prepararPreferenciasExtra } = require('../src/shared/preferenciasRequest');
-const { alertaCoincideConUsuario, diagnosticarAlertaUsuario } = require('../src/utils/alertaMatcher');
+const { alertaCoincideConUsuario, diagnosticarAlertaUsuario } = require('../src/modules/alertas/seleccion/alertaMatcher');
 const { parsearVotosDigest, clasificarPrioridadAlerta, extraerFeaturesAlerta } = require('../src/modules/aprendizaje');
 
 assert.strictEqual(getPlan('corral').nombre, 'Corral');
@@ -207,7 +207,7 @@ assert.ok(
   'clicksRoutes debe registrarse antes que usersRoutes para que /?a=token no lo capture la ruta raiz'
 );
 
-const alertasRoutes = fs.readFileSync(path.join(__dirname, '..', 'src/routes/alertas.js'), 'utf8');
+const alertasRoutes = fs.readFileSync(path.join(__dirname, '..', 'src/modules/alertas/alertas.routes.js'), 'utf8');
 assert.ok(
   alertasRoutes.includes("app.post('/alertas', requireAdminOrCron"),
   'POST /alertas debe requerir admin o token de cron'
@@ -231,7 +231,7 @@ assert.ok(
   'Las fichas IA deben generar resumenes faciles para WhatsApp'
 );
 
-const usersRoutes = fs.readFileSync(path.join(__dirname, '..', 'src/routes/users.js'), 'utf8');
+const usersRoutes = fs.readFileSync(path.join(__dirname, '..', 'src/modules/usuarios/usuarios.routes.js'), 'utf8');
 assert.ok(
   usersRoutes.includes("phone_verification_required"),
   'PUT /me debe indicar cuando un cambio de telefono requiere verificacion'
