@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 const rateLimit = require('express-rate-limit');
 const { requireAuth } = require('../../middleware/requireAdmin');
 const { normalizePhone, LONGITUD_TELEFONO } = require('../../shared/phoneNormalizer');
+const { validarPassword } = require('../../shared/passwordPolicy');
 
 module.exports = (app, supabase) => {
   const loginLimiter = rateLimit({
@@ -133,8 +134,13 @@ module.exports = (app, supabase) => {
       if (!password) return res.status(400).json({ error: 'Falta la nueva contraseña' });
 
       const pass = String(password).trim();
-      if (pass.length < 6) {
-        return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres' });
+      const passwordValidation = validarPassword(pass);
+      if (!passwordValidation.ok) {
+        return res.status(400).json({
+          error: passwordValidation.error,
+          code: 'password_policy',
+          requirements: passwordValidation.requirements,
+        });
       }
 
       const userId = req.user.sub;

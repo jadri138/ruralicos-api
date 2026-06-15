@@ -158,7 +158,7 @@ async function enviarWhatsAppResumen(alerta, supabase) {
     try {
       await enviarMensajeUltraMsg(telefono, resumen);
       enviados++;
-      console.log('[WHATSAPP PRO] ENVIADO A', telefono);
+      console.log('[WHATSAPP PRO] ENVIADO A', maskPhone(telefono));
 
       await guardarLogWhatsApp({
         phone: telefono,
@@ -167,8 +167,8 @@ async function enviarWhatsAppResumen(alerta, supabase) {
         error_msg: null,
       });
     } catch (err) {
-      console.error('[WHATSAPP PRO] Error enviando a', telefono, err.message);
-      errores.push({ userId: user.id, telefono, error: err.message });
+      console.error('[WHATSAPP PRO] Error enviando a', maskPhone(telefono), err.message);
+      errores.push({ userId: user.id, phone: maskPhone(telefono), error: err.message });
 
       await guardarLogWhatsApp({
         phone: telefono,
@@ -240,7 +240,7 @@ async function enviarWhatsAppFree(supabase, mensajeFree) {
         error_msg: null,
       });
     } catch (err) {
-      console.error(`[FREE] Error enviando a ${telefono}:`, err.message);
+      console.error(`[FREE] Error enviando a ${maskPhone(telefono)}:`, err.message);
       errores.push({ userId: user.id, error: err.message });
 
       await guardarLogWhatsApp({
@@ -282,7 +282,7 @@ async function enviarWhatsAppRegistro(telefono, mensajeTexto) {
       error_msg: null,
     });
 
-    console.log('[REGISTRO] WhatsApp enviado a', telefono);
+    console.log('[REGISTRO] WhatsApp enviado a', maskPhone(telefono));
   } catch (err) {
     console.error('[REGISTRO] Error enviando WhatsApp:', err.message);
 
@@ -345,7 +345,7 @@ async function enviarWhatsAppTodos(supabase, mensaje) {
         phone: telefono ? `****${telefono.slice(-4)}` : null,
         error: err.message,
       });
-      console.error(`Error enviando a ${telefono}:`, err.message);
+      console.error(`Error enviando a ${maskPhone(telefono)}:`, err.message);
     }
   }
 
@@ -379,7 +379,7 @@ async function enviarWhatsAppVerificacion(telefono, codigo) {
       error_msg: null,
     });
 
-    console.log('[VERIFICACION] WhatsApp enviado a', telefono);
+    console.log('[VERIFICACION] WhatsApp enviado a', maskPhone(telefono));
   } catch (err) {
     console.error('[VERIFICACION] Error enviando WhatsApp:', err.message);
 
@@ -483,7 +483,7 @@ async function enviarWhatsAppResetPassword(telefono, codigo) {
       error_msg: null,
     });
 
-    console.log('[PASSWORD RESET] WhatsApp enviado a', telefono);
+    console.log('[PASSWORD RESET] WhatsApp enviado a', maskPhone(telefono));
   } catch (err) {
     console.error('[PASSWORD RESET] Error enviando WhatsApp:', err.message);
 

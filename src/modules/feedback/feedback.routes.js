@@ -907,7 +907,7 @@ function feedbackRoutes(app, supabase) {
       const enviarConfirmacion = (process.env.FEEDBACK_CONFIRMATION_ENABLED || 'false').toLowerCase() === 'true';
 
       if (enviarConfirmacion && result.ok && result.feedbacks_guardados > 0 && !interpretacion.requiere_respuesta) {
-        enviarDigestPro(telefono, 'Gracias. He guardado tu respuesta y afinare las proximas alertas.')
+        enviarDigestPro(telefono, 'Gracias, he guardado tu respuesta. La tendré en cuenta para ajustar próximas alertas.')
           .catch((err) => console.error('[feedback] Error enviando confirmacion:', err.message));
       }
 
@@ -932,4 +932,3 @@ module.exports.__testing = {
   fechaMadridConversacionMIA,
   getExpiracionFinDiaMadridISO,
 };
-

@@ -87,9 +87,11 @@ function formatearRespuestaWhatsAppMIA(texto, {
   const internal = limpiarTerminosInternosMIA(original);
   if (internal.changed) flags.push(...internal.flags);
 
-  const header = `*${assistant} de ${sender}*`;
-  const disclaimer = `_Respuesta autom\u00e1tica basada en la informaci\u00f3n disponible en ${sender}. Si requiere confirmaci\u00f3n, la revisar\u00e1 ${support}._`;
-  const alreadyWrapped = new RegExp(`^\\*\\s*${assistant.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(internal.text);
+  const header = `*${sender}*`;
+  const disclaimer = `_Respuesta autom\u00e1tica con la informaci\u00f3n disponible. Si hace falta confirmarlo, lo revisar\u00e1 ${support}._`;
+  const escapedAssistant = assistant.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const escapedSender = sender.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const alreadyWrapped = new RegExp(`^\\*\\s*(?:${escapedSender}|${escapedAssistant}\\s+de\\s+${escapedSender})\\b`, 'i').test(internal.text);
   let body = internal.text.trim();
 
   if (alreadyWrapped) {
@@ -150,6 +152,8 @@ function limpiarRespuestaMIA(texto, {
   }
 
   cleaned = cleaned
+    .replace(/\bMIA ha encontrado\b/gi, 'He encontrado')
+    .replace(/\bMIA ha revisado\b/gi, 'He revisado')
     .replace(/\bmi pareja y yo\b/gi, safeSupportLabel)
     .replace(/\byo personalmente\b/gi, safeSender)
     .replace(/\s+\n/g, '\n')

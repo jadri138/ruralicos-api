@@ -294,8 +294,8 @@ assert.ok(
   digestRoutes.includes("app.get('/alertas/preview-digest'") &&
   digestRoutes.includes('Preview seguro: no inserta digests') &&
   digestRoutes.includes('En sencillo:') &&
-  digestRoutes.includes('Qué miraría') &&
-  digestRoutes.includes('Por qué te la dejo') &&
+  digestRoutes.includes('Qué revisar') &&
+  digestRoutes.includes('Por qué aparece') &&
   digestRoutes.includes('registrarDigestAttempt'),
   'El digest debe auditar no-envios y rescatar usuarios con silencio prolongado'
 );

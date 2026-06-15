@@ -64,8 +64,8 @@ lanzar el pipeline de digest.
 
 ### Cron recomendado (pipeline completo)
 
-Todas las rutas de cron validan `?token=CRON_TOKEN` por compatibilidad.
-Para llamadas internas o scripts propios, preferir el header `x-cron-token`.
+Todas las rutas de cron validan el header `x-cron-token` o `Authorization: Bearer`.
+El query `?token=CRON_TOKEN` queda solo como compatibilidad local/opt-in con `ALLOW_CRON_TOKEN_QUERY=true`.
 
 El cron recomendado es un unico golpe diario al pipeline completo:
 
@@ -162,7 +162,9 @@ Las imprescindibles para arrancar:
 | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | Acceso a la base de datos (backend) |
 | `OPENAI_API_KEY` | Resúmenes, clasificación y embeddings |
 | `JWT_SECRET` | Firma de tokens de sesión |
-| `CRON_TOKEN` | Autoriza las rutas de cron (`?token=` o header `x-cron-token`) |
+| `CRON_TOKEN` | Autoriza las rutas de cron por header `x-cron-token` o Bearer |
+| `VERIFICATION_CODE_PEPPER` | Pepper opcional para hashear códigos temporales |
+| `ALLOW_CRON_TOKEN_QUERY` | Compatibilidad temporal para aceptar `?token=` en producción; recomendado `false` |
 | `ULTRAMSG_INSTANCE_ID`, `ULTRAMSG_TOKEN` | Envío de WhatsApp vía UltraMsg |
 | `ULTRAMSG_WEBHOOK_TOKEN` | Valida el webhook entrante `/webhooks/ultramsg/feedback` |
 | `PUBLIC_BASE_URL` | URL pública (enlaces de tracking, cron internos) |

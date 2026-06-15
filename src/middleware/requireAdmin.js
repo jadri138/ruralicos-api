@@ -47,4 +47,29 @@ function requireAdmin(req, res, next) {
   next();
 }
 
-module.exports = { requireAuth, requireAdmin };
+// 🏢 Solo personal de cooperativa (panel partner).
+// El token lleva organization_id; todo lo que cuelgue de aqui se filtra por esa org.
+// Un admin de Ruralicos que impersona recibe tambien role 'org' (con impersonated_by).
+function requireOrg(req, res, next) {
+  const payload = verifyToken(req, res);
+  if (!payload) return;
+
+  if (payload.role !== 'org') {
+    return res.status(403).json({ error: 'No tienes permisos' });
+  }
+
+  const organizationId = Number(payload.organization_id);
+  if (!Number.isSafeInteger(organizationId) || organizationId <= 0) {
+    return res.status(403).json({ error: 'Token sin organizacion valida' });
+  }
+
+  req.org = {
+    staffId: payload.sub,
+    organizationId,
+    memberRole: payload.member_role || 'viewer',
+    impersonatedBy: payload.impersonated_by || null,
+  };
+  next();
+}
+
+module.exports = { requireAuth, requireAdmin, requireOrg };

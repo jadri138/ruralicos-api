@@ -16,6 +16,7 @@ module.exports = {
   enviarDigestPro: mensajes.enviarDigestPro,
   enviarWhatsAppDirecto: mensajes.enviarWhatsAppDirecto,
   enviarWhatsAppAdmin: mensajes.enviarWhatsAppAdmin,
+  maskPhone,
 };
 module.exports.__testing = {
   getAdminAlertPhones,

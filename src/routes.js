@@ -59,6 +59,11 @@ const embeddingsRoutes = require('./modules/embeddings/embeddings.routes');
 const cerebroRoutes = require('./modules/aprendizaje/cerebro.routes');
 const adminRoutes = require('./modules/admin/admin.routes');
 
+// ── Panel partner (cooperativas) ──
+const partnerAuthRoutes = require('./modules/partner/partner.auth.routes');
+const partnerStaffRoutes = require('./modules/partner/partner.staff.routes');
+const partnerDataRoutes = require('./modules/partner/partner.data.routes');
+
 // IMPORTANTE: se conserva el orden de registro original del monolito index.js
 // para no alterar la resolucion de rutas (algunas comparten prefijo y Express
 // resuelve por orden de registro).
@@ -103,4 +108,7 @@ module.exports = function registrarRutas(app, supabase) {
   bocceRoutes(app, supabase);
   embeddingsRoutes(app, supabase);
   cerebroRoutes(app, supabase);
+  partnerAuthRoutes(app, supabase);
+  partnerStaffRoutes(app, supabase);
+  partnerDataRoutes(app, supabase);
 };

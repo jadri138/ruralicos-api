@@ -87,7 +87,7 @@ console.log('\n=== TESTS: mia outbox ===\n');
   assert(outbox.status === 'queued', 'Crea outbox en estado queued');
   assert(outbox.to_phone === '34644899647', 'Conserva telefono destino');
   assert(outbox.organization_id === 12, 'Propaga organization_id al outbox');
-  assert(outbox.body.startsWith('*MIA de Ruralicos*'), 'Aplica cabecera profesional de MIA');
+  assert(outbox.body.startsWith('*Ruralicos*'), 'Aplica cabecera profesional de marca');
   assert(outbox.body.includes('_Respuesta autom'), 'Incluye descargo breve en cursiva');
   assert(outbox.body.includes('fecha clara'), 'Conserva cuerpo de respuesta');
   assert(outbox.metadata_json.intent === 'pregunta_usuario', 'Guarda metadata de decision');

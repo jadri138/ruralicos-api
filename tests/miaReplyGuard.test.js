@@ -50,7 +50,7 @@ const whatsapp = formatearRespuestaWhatsAppMIA('No hay novedades en el digest.',
   senderName: 'Ruralicos',
   supportLabel: 'un agente de Ruralicos',
 });
-assert(whatsapp.text.startsWith('*MIA de Ruralicos*'), 'Anade cabecera de MIA en negrita');
+assert(whatsapp.text.startsWith('*Ruralicos*'), 'Anade cabecera de marca en negrita');
 assert(whatsapp.text.includes('_Respuesta autom'), 'Anade descargo en cursiva');
 assert(!/\bdigest\b/i.test(whatsapp.text), 'No deja digest en la respuesta final');
 
@@ -85,9 +85,10 @@ const outbox = construirOutboxDesdeDecision({
     knowledge_context: { answered: true },
   },
 });
-assert(outbox.body.startsWith('*MIA de Ruralicos*'), 'Outbox aplica cabecera final antes de enviar');
+assert(outbox.body.startsWith('*Ruralicos*'), 'Outbox aplica cabecera final antes de enviar');
 assert(outbox.body.includes('_Respuesta autom'), 'Outbox aplica descargo antes de enviar');
-assert(outbox.body.includes('MIA ha encontrado'), 'Outbox conserva el cuerpo limpio de respuesta');
+assert(outbox.body.includes('He encontrado'), 'Outbox conserva el cuerpo limpio de respuesta');
+assert(!outbox.body.includes('MIA ha encontrado'), 'Outbox evita autorreferencias poco naturales');
 assert(outbox.metadata_json.reply_guard.flags.includes('removed_personal_greeting'), 'Outbox guarda flags del guard');
 
 console.log(`\nResultados: ${passed} aprobados, ${failed} fallidos`);

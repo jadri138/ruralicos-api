@@ -13,7 +13,7 @@
 
 const cheerio = require('cheerio');
 const { PDFParse } = require('pdf-parse');
-const { axiosGetWithRetry } = require('../../../../platform/httpClient');
+const { axiosGetWithRetry, cabecerasNavegador } = require('../../../../platform/httpClient');
 
 const BASE = 'https://www.ceuta.es';
 const BOCCE_URL = `${BASE}/ceuta/bocce`;
@@ -61,9 +61,9 @@ function fechaTituloAISO(titulo) {
 async function getHtml(url) {
   const { data } = await axiosGetWithRetry(url, {
     timeout: Number(process.env.BOCCE_HTML_TIMEOUT_MS || 45000),
-    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Ruralicos/1.0)' },
+    headers: cabecerasNavegador({ Referer: BOCCE_URL }),
   }, {
-    attempts: Number(process.env.BOCCE_HTML_ATTEMPTS || 2),
+    attempts: Number(process.env.BOCCE_HTML_ATTEMPTS || 3),
   });
   return data;
 }
@@ -135,7 +135,7 @@ async function obtenerTextoPdf(url) {
     const { data } = await axiosGetWithRetry(url, {
       responseType: 'arraybuffer',
       timeout: Number(process.env.BOCCE_PDF_TIMEOUT_MS || 60000),
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Ruralicos/1.0)' },
+      headers: cabecerasNavegador({ Accept: 'application/pdf,*/*', Referer: BOCCE_URL }),
     }, {
       attempts: Number(process.env.BOCCE_PDF_ATTEMPTS || 2),
     });
