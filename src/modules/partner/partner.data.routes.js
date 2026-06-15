@@ -22,7 +22,8 @@ function puedeEscribir(req) {
   return ROLES_ESCRITURA.has(req.org?.memberRole);
 }
 
-function socioPublico(user, member) {
+function socioPublico(user, member, zone) {
+  const zoneId = member?.zone_id ?? null;
   return {
     id: user.id,
     name: user.legal_name || user.name || `Socio ${user.id}`,
@@ -31,6 +32,8 @@ function socioPublico(user, member) {
     subscription: user.subscription || 'free',
     member_role: member?.role || null,
     member_status: member?.status || null,
+    zone_id: zoneId,
+    zone: zone || null, // { id, name, color } | null
     created_at: user.created_at || null,
   };
 }
@@ -91,12 +94,22 @@ module.exports = (app, supabase) => {
 
   // ──────────────────────────────────────────────────────────────────
   // GET /partner/members — socios de la cooperativa
+  // Filtros opcionales: ?q=&status=&subscription=&zone_id=
+  // (status: active|inactive|none · zone_id: id numerico o "none"/"null")
   // ──────────────────────────────────────────────────────────────────
   app.get('/partner/members', requireOrg, async (req, res) => {
     try {
       const orgId = req.org.organizationId;
 
-      const [{ data: users, error }, membersResult] = await Promise.all([
+      // organization_members: rol/estado y, por separado, la asignacion de zona.
+      // La consulta de zona puede fallar si la columna no existe todavia (pre-migracion)
+      // sin afectar a rol/estado, que se siguen mostrando.
+      const [
+        { data: users, error },
+        membersResult,
+        zoneAssignResult,
+        zonesResult,
+      ] = await Promise.all([
         supabase
           .from('users')
           .select('id, name, legal_name, phone, email, subscription, organization_id, created_at')
@@ -105,6 +118,14 @@ module.exports = (app, supabase) => {
         supabase
           .from('organization_members')
           .select('user_id, role, status')
+          .eq('organization_id', orgId),
+        supabase
+          .from('organization_members')
+          .select('user_id, zone_id')
+          .eq('organization_id', orgId),
+        supabase
+          .from('organization_zones')
+          .select('id, name, color')
           .eq('organization_id', orgId),
       ]);
 
@@ -116,11 +137,54 @@ module.exports = (app, supabase) => {
       const byId = new Map(
         (membersResult.error ? [] : membersResult.data || []).map((m) => [Number(m.user_id), m])
       );
+      const zoneByUser = new Map(
+        (zoneAssignResult.error ? [] : zoneAssignResult.data || [])
+          .filter((m) => m.zone_id != null)
+          .map((m) => [Number(m.user_id), Number(m.zone_id)])
+      );
+      const zonesById = new Map(
+        (zonesResult.error ? [] : zonesResult.data || []).map((z) => [Number(z.id), z])
+      );
 
-      return res.json({
-        ok: true,
-        items: (users || []).map((u) => socioPublico(u, byId.get(Number(u.id)))),
-      });
+      // Filtros (en memoria: el universo es el de socios de una cooperativa).
+      const q = String(req.query.q || '').trim().toLowerCase();
+      const statusFilter = String(req.query.status || '').trim();
+      const subscriptionFilter = String(req.query.subscription || '').trim();
+      const zoneFilterRaw = String(req.query.zone_id || '').trim();
+      const sinZona = ['none', 'null', '0', 'sin'].includes(zoneFilterRaw.toLowerCase());
+      const zoneFilterId = sinZona ? null : Number(zoneFilterRaw);
+      const hasZoneFilter = zoneFilterRaw !== '';
+
+      const items = (users || [])
+        .map((u) => {
+          const uid = Number(u.id);
+          const member = byId.get(uid) || null;
+          const zoneId = zoneByUser.has(uid) ? zoneByUser.get(uid) : null;
+          const zone = zoneId != null ? zonesById.get(zoneId) || null : null;
+          const memberWithZone = member || zoneId != null ? { ...(member || {}), zone_id: zoneId } : null;
+          return socioPublico(u, memberWithZone, zone);
+        })
+        .filter((socio) => {
+          if (q) {
+            const haystack = [socio.name, socio.phone, socio.email].filter(Boolean).join(' ').toLowerCase();
+            if (!haystack.includes(q)) return false;
+          }
+          if (subscriptionFilter && (socio.subscription || 'free') !== subscriptionFilter) return false;
+          if (statusFilter) {
+            const estado = socio.member_status || 'none';
+            if (estado !== statusFilter) return false;
+          }
+          if (hasZoneFilter) {
+            if (sinZona) {
+              if (socio.zone_id != null) return false;
+            } else if (Number.isSafeInteger(zoneFilterId) && socio.zone_id !== zoneFilterId) {
+              return false;
+            }
+          }
+          return true;
+        });
+
+      return res.json({ ok: true, items });
     } catch (err) {
       console.error('Error en GET /partner/members:', err);
       return res.status(500).json({ error: err.message });
@@ -191,7 +255,8 @@ module.exports = (app, supabase) => {
   });
 
   // ──────────────────────────────────────────────────────────────────
-  // PATCH /partner/members/:userId — cambia el rol del socio
+  // PATCH /partner/members/:userId — cambia rol y/o zona del socio
+  // body: { role?, zone_id? }  (zone_id null = quitar de zona)
   // ──────────────────────────────────────────────────────────────────
   app.patch('/partner/members/:userId', requireOrg, async (req, res) => {
     try {
@@ -199,9 +264,25 @@ module.exports = (app, supabase) => {
 
       const orgId = req.org.organizationId;
       const userId = Number(req.params.userId);
-      const role = req.body?.role;
       if (!Number.isSafeInteger(userId) || userId <= 0) return res.status(400).json({ error: 'user id invalido' });
-      if (!ROLES_SOCIO.has(role)) return res.status(400).json({ error: 'role invalido' });
+
+      const hasRole = Object.prototype.hasOwnProperty.call(req.body || {}, 'role');
+      const hasZone = Object.prototype.hasOwnProperty.call(req.body || {}, 'zone_id');
+      if (!hasRole && !hasZone) return res.status(400).json({ error: 'Nada que actualizar' });
+
+      const role = req.body?.role;
+      if (hasRole && !ROLES_SOCIO.has(role)) return res.status(400).json({ error: 'role invalido' });
+
+      // Normaliza zone_id: null/''/0 → sin zona; numero → id de zona.
+      let zoneId;
+      if (hasZone) {
+        const raw = req.body.zone_id;
+        if (raw === null || raw === '' || raw === 0 || raw === '0') zoneId = null;
+        else {
+          zoneId = Number(raw);
+          if (!Number.isSafeInteger(zoneId) || zoneId <= 0) return res.status(400).json({ error: 'zone_id invalido' });
+        }
+      }
 
       // El socio debe pertenecer a esta org.
       const { data: user, error: findError } = await supabase
@@ -213,20 +294,52 @@ module.exports = (app, supabase) => {
       if (findError) throw findError;
       if (!user) return res.status(404).json({ error: 'Socio no pertenece a esta cooperativa' });
 
+      // La zona (si se asigna una) debe ser de esta cooperativa.
+      if (hasZone && zoneId != null) {
+        const { data: zone, error: zoneError } = await supabase
+          .from('organization_zones')
+          .select('id')
+          .eq('id', zoneId)
+          .eq('organization_id', orgId)
+          .maybeSingle();
+        if (zoneError) {
+          if (esTablaNoDisponible(zoneError)) return res.json({ ok: true, available: false });
+          throw zoneError;
+        }
+        if (!zone) return res.status(400).json({ error: 'La zona no pertenece a la cooperativa' });
+      }
+
+      // Construye la fila a upsertar. Si solo cambia la zona, conserva el rol actual.
+      const upsertRow = {
+        organization_id: orgId,
+        user_id: userId,
+        status: 'active',
+        updated_at: new Date().toISOString(),
+      };
+      if (hasRole) upsertRow.role = role;
+      if (hasZone) upsertRow.zone_id = zoneId;
+      if (!hasRole) {
+        const { data: current } = await supabase
+          .from('organization_members')
+          .select('role')
+          .eq('organization_id', orgId)
+          .eq('user_id', userId)
+          .maybeSingle();
+        upsertRow.role = current?.role || 'member';
+      }
+
       const { data, error } = await supabase
         .from('organization_members')
-        .upsert({
-          organization_id: orgId,
-          user_id: userId,
-          role,
-          status: 'active',
-          updated_at: new Date().toISOString(),
-        }, { onConflict: 'organization_id,user_id' })
-        .select('user_id, role, status')
+        .upsert(upsertRow, { onConflict: 'organization_id,user_id' })
+        .select('user_id, role, status, zone_id')
         .maybeSingle();
-      if (error && !esTablaNoDisponible(error)) throw error;
+      if (error) {
+        // Si la columna zone_id aun no existe, la asignacion de zona no esta disponible.
+        if (esTablaNoDisponible(error)) return res.json({ ok: true, available: false });
+        throw error;
+      }
 
-      return res.json({ ok: true, member: data || { user_id: userId, role, status: 'active' } });
+      return res.json({ ok: true, member: data || { user_id: userId, ...upsertRow } });
     } catch (err) {
       console.error('Error en PATCH /partner/members/:userId:', err);
       return res.status(500).json({ error: err.message });

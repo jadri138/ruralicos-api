@@ -63,6 +63,7 @@ const adminRoutes = require('./modules/admin/admin.routes');
 const partnerAuthRoutes = require('./modules/partner/partner.auth.routes');
 const partnerStaffRoutes = require('./modules/partner/partner.staff.routes');
 const partnerDataRoutes = require('./modules/partner/partner.data.routes');
+const partnerZonesRoutes = require('./modules/partner/partner.zones.routes');
 
 // IMPORTANTE: se conserva el orden de registro original del monolito index.js
 // para no alterar la resolucion de rutas (algunas comparten prefijo y Express
@@ -111,4 +112,5 @@ module.exports = function registrarRutas(app, supabase) {
   partnerAuthRoutes(app, supabase);
   partnerStaffRoutes(app, supabase);
   partnerDataRoutes(app, supabase);
+  partnerZonesRoutes(app, supabase);
 };

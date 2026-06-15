@@ -1,0 +1,205 @@
+// src/modules/partner/partner.zones.routes.js
+//
+// Zonas geograficas de la cooperativa (panel PARTNER). Todo se filtra por
+// req.org.organizationId (requireOrg): una cooperativa solo ve y toca sus zonas.
+// Escritura (crear/editar/borrar) limitada a roles owner/admin (puedeEscribir).
+//
+// Si aun no existe la tabla organization_zones, responde { ok:true, available:false }
+// en vez de 500 (mismo patron MISSING_TABLE_CODES que partner.data.routes.js).
+
+const { requireOrg } = require('../../middleware/requireAdmin');
+
+const MISSING_TABLE_CODES = new Set(['42P01', '42703', 'PGRST205']);
+const UNIQUE_VIOLATION = '23505';
+const ROLES_ESCRITURA = new Set(['owner', 'admin']);
+
+function esTablaNoDisponible(error) {
+  return MISSING_TABLE_CODES.has(error?.code);
+}
+
+function puedeEscribir(req) {
+  return ROLES_ESCRITURA.has(req.org?.memberRole);
+}
+
+function normalizarNombre(value) {
+  return String(value || '').trim().slice(0, 120);
+}
+
+function normalizarColor(value) {
+  const color = String(value || '').trim();
+  return /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(color) ? color : null;
+}
+
+function normalizarNotas(value) {
+  return value ? String(value).slice(0, 500) : null;
+}
+
+function zonaPublica(zone, memberCount = 0) {
+  return {
+    id: zone.id,
+    name: zone.name,
+    color: zone.color || null,
+    notes: zone.notes || null,
+    member_count: memberCount,
+  };
+}
+
+module.exports = (app, supabase) => {
+  // ──────────────────────────────────────────────────────────────────
+  // GET /partner/zones — zonas de la cooperativa con nº de socios
+  // ──────────────────────────────────────────────────────────────────
+  app.get('/partner/zones', requireOrg, async (req, res) => {
+    try {
+      const orgId = req.org.organizationId;
+
+      const { data: zones, error } = await supabase
+        .from('organization_zones')
+        .select('id, name, color, notes')
+        .eq('organization_id', orgId)
+        .order('name', { ascending: true });
+
+      if (error) {
+        if (esTablaNoDisponible(error)) return res.json({ ok: true, available: false, items: [] });
+        throw error;
+      }
+
+      // Conteo de socios por zona (la columna zone_id puede no existir todavia).
+      const counts = new Map();
+      const { data: members, error: mErr } = await supabase
+        .from('organization_members')
+        .select('zone_id')
+        .eq('organization_id', orgId);
+      if (!mErr) {
+        for (const member of members || []) {
+          if (member.zone_id != null) {
+            const key = Number(member.zone_id);
+            counts.set(key, (counts.get(key) || 0) + 1);
+          }
+        }
+      }
+
+      return res.json({
+        ok: true,
+        available: true,
+        items: (zones || []).map((z) => zonaPublica(z, counts.get(Number(z.id)) || 0)),
+      });
+    } catch (err) {
+      console.error('Error en GET /partner/zones:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ──────────────────────────────────────────────────────────────────
+  // POST /partner/zones — crear zona  body: { name, color?, notes? }
+  // ──────────────────────────────────────────────────────────────────
+  app.post('/partner/zones', requireOrg, async (req, res) => {
+    try {
+      if (!puedeEscribir(req)) return res.status(403).json({ error: 'Tu rol no permite crear zonas' });
+
+      const orgId = req.org.organizationId;
+      const name = normalizarNombre(req.body?.name);
+      if (!name) return res.status(400).json({ error: 'Nombre de zona requerido' });
+
+      const { data, error } = await supabase
+        .from('organization_zones')
+        .insert({
+          organization_id: orgId,
+          name,
+          color: normalizarColor(req.body?.color),
+          notes: normalizarNotas(req.body?.notes),
+        })
+        .select('id, name, color, notes')
+        .maybeSingle();
+
+      if (error) {
+        if (esTablaNoDisponible(error)) return res.json({ ok: true, available: false });
+        if (error.code === UNIQUE_VIOLATION) return res.status(409).json({ error: 'Ya existe una zona con ese nombre' });
+        throw error;
+      }
+
+      return res.status(201).json({ ok: true, item: zonaPublica(data, 0) });
+    } catch (err) {
+      console.error('Error en POST /partner/zones:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ──────────────────────────────────────────────────────────────────
+  // PATCH /partner/zones/:id — editar zona  body: { name?, color?, notes? }
+  // ──────────────────────────────────────────────────────────────────
+  app.patch('/partner/zones/:id', requireOrg, async (req, res) => {
+    try {
+      if (!puedeEscribir(req)) return res.status(403).json({ error: 'Tu rol no permite editar zonas' });
+
+      const orgId = req.org.organizationId;
+      const zoneId = Number(req.params.id);
+      if (!Number.isSafeInteger(zoneId) || zoneId <= 0) return res.status(400).json({ error: 'zone id invalido' });
+
+      const updates = { updated_at: new Date().toISOString() };
+      if (Object.prototype.hasOwnProperty.call(req.body || {}, 'name')) {
+        const name = normalizarNombre(req.body.name);
+        if (!name) return res.status(400).json({ error: 'Nombre de zona requerido' });
+        updates.name = name;
+      }
+      if (Object.prototype.hasOwnProperty.call(req.body || {}, 'color')) {
+        updates.color = normalizarColor(req.body.color);
+      }
+      if (Object.prototype.hasOwnProperty.call(req.body || {}, 'notes')) {
+        updates.notes = normalizarNotas(req.body.notes);
+      }
+
+      const { data, error } = await supabase
+        .from('organization_zones')
+        .update(updates)
+        .eq('id', zoneId)
+        .eq('organization_id', orgId)
+        .select('id, name, color, notes')
+        .maybeSingle();
+
+      if (error) {
+        if (esTablaNoDisponible(error)) return res.json({ ok: true, available: false });
+        if (error.code === UNIQUE_VIOLATION) return res.status(409).json({ error: 'Ya existe una zona con ese nombre' });
+        throw error;
+      }
+      if (!data) return res.status(404).json({ error: 'Zona no encontrada' });
+
+      return res.json({ ok: true, item: zonaPublica(data) });
+    } catch (err) {
+      console.error('Error en PATCH /partner/zones/:id:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ──────────────────────────────────────────────────────────────────
+  // DELETE /partner/zones/:id — borrar zona (los socios quedan sin zona)
+  // ──────────────────────────────────────────────────────────────────
+  app.delete('/partner/zones/:id', requireOrg, async (req, res) => {
+    try {
+      if (!puedeEscribir(req)) return res.status(403).json({ error: 'Tu rol no permite borrar zonas' });
+
+      const orgId = req.org.organizationId;
+      const zoneId = Number(req.params.id);
+      if (!Number.isSafeInteger(zoneId) || zoneId <= 0) return res.status(400).json({ error: 'zone id invalido' });
+
+      // El FK `on delete set null` deja a los socios de la zona sin zona automaticamente.
+      const { data, error } = await supabase
+        .from('organization_zones')
+        .delete()
+        .eq('id', zoneId)
+        .eq('organization_id', orgId)
+        .select('id')
+        .maybeSingle();
+
+      if (error) {
+        if (esTablaNoDisponible(error)) return res.json({ ok: true, available: false });
+        throw error;
+      }
+      if (!data) return res.status(404).json({ error: 'Zona no encontrada' });
+
+      return res.json({ ok: true });
+    } catch (err) {
+      console.error('Error en DELETE /partner/zones/:id:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+};
