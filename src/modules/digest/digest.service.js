@@ -523,8 +523,48 @@ function construirTextoAlertaDigest(alerta = {}, extra = '') {
   ].filter(Boolean).join(' '));
 }
 
+function construirTextoOriginalAlertaDigest(alerta = {}, extra = '') {
+  return [
+    alerta.titulo,
+    alerta.resumen_final,
+    alerta.resumen,
+    alerta.contenido,
+    extra,
+    ...(Array.isArray(alerta.provincias) ? alerta.provincias : []),
+  ].filter(Boolean).join(' ');
+}
+
+function esAguaRiegoDigest(texto) {
+  return /\baguas?\b|\baguas?\s+subterraneas?\b|riego|regadio|regantes|hidrografica|concesion.*\baguas?\b|aprovechamiento.*\baguas?\b/i.test(texto || '');
+}
+
+function extraerLocalizacionDigest(alerta = {}, extra = '') {
+  const texto = construirTextoOriginalAlertaDigest(alerta, extra);
+  const provincias = Array.isArray(alerta.provincias) ? alerta.provincias.filter(Boolean) : [];
+  const patrones = [
+    /\bt[eé]rmino municipal de\s+([^.,;\n()]{3,80})(?:\s*\(([^)]{3,60})\))?/gi,
+    /\bmunicipio de\s+([^.,;\n()]{3,80})(?:\s*\(([^)]{3,60})\))?/gi,
+    /\ben\s+([^.,;\n()]{3,80})\s*\(([^)]{3,60})\)/gi,
+  ];
+  const candidatas = [];
+
+  for (const patron of patrones) {
+    for (const match of texto.matchAll(patron)) {
+      const localidad = limpiarLineaDigest(match[1], 80)
+        .replace(/\b(publicado|relacionado|afecta|solicitud|expediente)\b.*$/i, '')
+        .trim();
+      const provincia = limpiarLineaDigest(match[2] || provincias[0] || '', 60);
+      if (!localidad || /^(el|la|los|las|un|una)\b/i.test(localidad)) continue;
+      candidatas.push(provincia ? `${localidad} (${provincia})` : localidad);
+    }
+  }
+
+  return candidatas.length ? candidatas[candidatas.length - 1] : '';
+}
+
 function construirTituloFacilDigest(alerta = {}, max = 120) {
   const texto = construirTextoAlertaDigest(alerta);
+  const localizacion = extraerLocalizacionDigest(alerta);
 
   if (/tramite administrativo.*concesion|concesion.*ayudas|conceden.*ayudas/.test(texto)) {
     return 'Ayudas: trámite de concesión o listado del expediente';
@@ -535,11 +575,17 @@ function construirTituloFacilDigest(alerta = {}, max = 120) {
   if (/bases reguladoras|concesion directa|de minimis/.test(texto)) {
     return 'Nuevas bases para ayudas directas';
   }
-  if (/informacion publica|exposicion publica|alegaciones/.test(texto)) {
-    return 'Expediente abierto a consulta o alegaciones';
+  if (esAguaRiegoDigest(texto)) {
+    return recortarTextoRescate(
+      localizacion ? `Concesión de agua en ${localizacion}` : 'Expediente de agua o riego',
+      max
+    );
   }
-  if (/concesion.*agua|aprovechamiento.*agua|regantes|riego/.test(texto)) {
-    return 'Expediente de agua o riego';
+  if (/informacion publica|exposicion publica|alegaciones/.test(texto)) {
+    return recortarTextoRescate(
+      localizacion ? `Alegaciones abiertas en ${localizacion}` : 'Expediente abierto a consulta o alegaciones',
+      max
+    );
   }
   if (/subsanacion|requerimiento|notificacion/.test(texto)) {
     return 'Aviso oficial para revisar documentación';
@@ -550,6 +596,7 @@ function construirTituloFacilDigest(alerta = {}, max = 120) {
 
 function construirResumenPorPatronDigest(alerta = {}, raw = '') {
   const texto = construirTextoAlertaDigest(alerta, raw);
+  const localizacion = extraerLocalizacionDigest(alerta, raw);
 
   if (/tramite administrativo.*concesion|concesion.*ayudas|conceden.*ayudas/.test(texto)) {
     return 'Es un paso de una ayuda ya tramitada: publican información sobre la concesión. Te interesa sobre todo si pediste esa ayuda o puedes aparecer en el expediente.';
@@ -563,11 +610,12 @@ function construirResumenPorPatronDigest(alerta = {}, raw = '') {
   if (/subsanacion|requerimiento/.test(texto)) {
     return 'Es un aviso para corregir o aportar documentación. Te interesa si solicitaste esa ayuda o apareces como titular en el expediente.';
   }
-  if (/informacion publica|exposicion publica|alegaciones/.test(texto)) {
-    return 'Abre un periodo para consultar un expediente y presentar alegaciones. Te afecta si la zona, parcela o actividad tiene relación contigo.';
+  if (esAguaRiegoDigest(texto)) {
+    const zona = localizacion ? ` en ${localizacion}` : '';
+    return `Abre consulta o alegaciones sobre una concesión de aguas${zona}. Conviene revisarlo solo si tienes parcelas, derechos de agua o una comunidad de regantes relacionada con esa zona.`;
   }
-  if (/concesion.*agua|aprovechamiento.*agua|regantes|riego/.test(texto)) {
-    return 'Es un expediente relacionado con agua o riego. Revísalo solo si tienes parcelas, derechos de agua o comunidad de regantes en esa zona.';
+  if (/informacion publica|exposicion publica|alegaciones/.test(texto)) {
+    return 'Abre un periodo para consultar un expediente y presentar alegaciones. Conviene revisarlo solo si la zona, parcela o actividad tiene relación contigo.';
   }
   if (/sancion|expediente sancionador/.test(texto)) {
     return 'Es un expediente sancionador o aviso administrativo. Solo suele importar si tú, tu explotación o tu expediente aparecéis en el anuncio.';
@@ -600,14 +648,14 @@ function grupoDigestAlerta(alerta = {}) {
   const texto = construirTextoAlertaDigest(alerta);
   const tipos = Array.isArray(alerta.tipos_alerta) ? alerta.tipos_alerta.map(norm) : [];
 
+  if (tipos.includes('agua_infraestructuras') || esAguaRiegoDigest(texto)) {
+    return { key: 'agua_riego', label: 'Agua y riego', order: 30 };
+  }
   if (/curso|formacion|jornada|seminario|webinar|inscripcion.*curso/.test(texto) || tipos.includes('formacion')) {
     return { key: 'cursos', label: 'Cursos y jornadas', order: 20 };
   }
   if (tipos.includes('ayudas_subvenciones') || /ayuda|subvencion|pac|fega|de minimis|convocatoria|concesion directa/.test(texto)) {
     return { key: 'ayudas', label: 'Ayudas', order: 10 };
-  }
-  if (tipos.includes('agua_infraestructuras') || /agua|riego|regadio|regantes|concesion.*agua|aprovechamiento.*agua/.test(texto)) {
-    return { key: 'agua_riego', label: 'Agua y riego', order: 30 };
   }
   if (tipos.includes('fiscalidad') || /irpf|iva|modulos|impuesto|fiscal/.test(texto)) {
     return { key: 'fiscalidad', label: 'Fiscalidad', order: 40 };
@@ -937,9 +985,27 @@ function generarMensajeDigestFallback({ user, alertas, fecha, organizationContex
   ].join('\n').slice(0, 1600).trim();
 }
 
+function naturalizarAccionDigest(texto) {
+  const limpio = limpiarLineaDigest(texto, 260)
+    .replace(/\s+publicad[oa]\s+el\s+\d{4}-\d{2}-\d{2}\.?$/i, '')
+    .replace(/\s+del\s+\d{4}-\d{2}-\d{2}\.?$/i, '')
+    .trim();
+
+  if (!limpio) return '';
+  return limpio
+    .replace(/^revisar\s+si\b/i, 'Comprueba si')
+    .replace(/^revisa\s+si\b/i, 'Comprueba si')
+    .replace(/^mirar\s+si\b/i, 'Comprueba si')
+    .replace(/^comprobar\s+si\b/i, 'Comprueba si')
+    .replace(/^revisar\b/i, 'Revisa')
+    .replace(/^mirar\b/i, 'Comprueba')
+    .replace(/^ver\b/i, 'Comprueba')
+    .replace(/^\w/, (char) => char.toUpperCase());
+}
+
 function construirAccionRescate(alerta = {}, tipo = 'suave') {
   const ficha = parsearFichaDigest(alerta.resumen_final || alerta.resumen || '');
-  if (campoDigestUtil(ficha.accion)) return limpiarLineaDigest(ficha.accion, 220);
+  if (campoDigestUtil(ficha.accion)) return naturalizarAccionDigest(ficha.accion);
   if (campoDigestUtil(ficha.plazo)) return `Revisa el plazo y comprueba si encaja con tu explotación: ${limpiarLineaDigest(ficha.plazo, 160)}`;
 
   const bolsa = norm([
@@ -949,6 +1015,7 @@ function construirAccionRescate(alerta = {}, tipo = 'suave') {
     ...(Array.isArray(alerta.tipos_alerta) ? alerta.tipos_alerta : []),
     ...(Array.isArray(alerta.sectores) ? alerta.sectores : []),
   ].filter(Boolean).join(' '));
+  const localizacion = extraerLocalizacionDigest(alerta);
 
   if (/tramite administrativo.*concesion|concesion.*ayudas|conceden.*ayudas/.test(bolsa)) {
     return 'Comprueba si tú o tu explotación aparecéis en el listado, anexo o expediente.';
@@ -962,8 +1029,13 @@ function construirAccionRescate(alerta = {}, tipo = 'suave') {
   if (/pac|ayuda|subvencion|convocatoria|solicitud|subsanacion/.test(bolsa)) {
     return 'Mira requisitos y plazo antes de descartarla.';
   }
-  if (/agua|concesion|aprovechamiento|expediente|parcela|municipio/.test(bolsa)) {
-    return 'Solo te afecta si tienes relación con esa zona, parcela o expediente.';
+  if (esAguaRiegoDigest(bolsa)) {
+    return localizacion
+      ? `Comprueba si el expediente o la zona de ${localizacion} tiene relación contigo.`
+      : 'Comprueba municipio, expediente y plazo; solo aplica si tienes relación con esa zona o solicitud.';
+  }
+  if (/concesion|aprovechamiento|expediente|parcela|municipio/.test(bolsa)) {
+    return 'Comprueba si tienes relación con esa zona, parcela o expediente.';
   }
 
   return tipo === 'directo'
