@@ -352,14 +352,16 @@ function anadirInstruccionFeedback(mensaje, alertas) {
   if (total === 0) return mensaje;
 
   const linea = total >= 2
-    ? '_¿Cuáles te interesan? Responde con los números: *1*, *2*... o *ninguna*._'
-    : '_¿Te interesa? Responde con *1* o *ninguna*._';
+    ? '_Si alguna te interesa, responde con su número (*1*, *2*...) o con *ninguna*._'
+    : '_Si te interesa, responde con *1*. Si no, responde *ninguna*._';
 
   const limpio = mensaje
     .replace(/_?¿?Cuales te han interesado\? Responde: 1, 2, ambas o ninguna\._?/gi, '')
     .replace(/_?¿?Te ha interesado\? Responde: 1 o ninguna\._?/gi, '')
     .replace(/_?¿?Cu[aá]les te interesan\? Responde con los n[uú]meros:[\s\S]*?ninguna\._?/gi, '')
     .replace(/_?¿?Te interesa\? Responde con \*1\* o \*ninguna\*\._?/gi, '')
+    .replace(/_?Si alguna te interesa,\s*responde con su n[uú]mero[\s\S]*?\*ninguna\*\._?/gi, '')
+    .replace(/_?Si te interesa,\s*responde con \*1\*\.\s*Si no,\s*responde \*ninguna\*\._?/gi, '')
     .trim();
 
   return `${limpio}\n\n${linea}`;
@@ -914,7 +916,7 @@ function generarMensajeDigestFallback({ user, alertas, fecha, organizationContex
       return [
         `*${itemNumero}. ${prioridad.prioridad.toUpperCase()} - ${titulo}*`,
         `En sencillo: ${resumen}`,
-        `Qué miraría: ${recortarTextoRescate(construirAccionRescate(alerta, 'directo'), 170)}`,
+        `Qué revisar: ${recortarTextoRescate(construirAccionRescate(alerta, 'directo'), 170)}`,
         url,
       ].filter(Boolean).join('\n');
     });
@@ -1024,8 +1026,8 @@ function construirMotivoRescate(alerta = {}, tipo = 'suave') {
   }
 
   return pistas.length
-    ? `No la veo directa al 100%, pero la dejo por ${pistas.join('; ')}.`
-    : 'No la veo directa al 100%, pero la dejo como aviso secundario.';
+    ? `No parece una coincidencia directa, pero puede merecer revisión por ${pistas.join('; ')}.`
+    : 'No parece una coincidencia directa, pero puede merecer una revisión rápida.';
 }
 
 function construirBloqueRescate(alerta = {}, index, tipo = 'suave') {
@@ -1037,9 +1039,9 @@ function construirBloqueRescate(alerta = {}, index, tipo = 'suave') {
 
   return [
     `*${index + 1}. ${titulo}*`,
-    `Por qué te la dejo: ${motivo}`,
+    `Por qué aparece: ${motivo}`,
     `En sencillo: ${resumen}`,
-    `Qué miraría: ${accion}`,
+    `Qué revisar: ${accion}`,
     url,
   ].filter(Boolean).join('\n');
 }
@@ -1057,8 +1059,8 @@ function generarMensajeDigestRescate({
   const seleccion = (alertas || []).slice(0, DIGEST_RESCUE_MAX_ALERTAS);
   const dias = Math.max(1, (diasEntreFechas(desde, fecha) || DIGEST_RESCUE_LOOKBACK_DAYS - 1) + 1);
   const intro = tipo === 'directo'
-    ? `He revisado los últimos ${dias} días y te dejo estos avisos porque pueden encajar con tu perfil.`
-    : `No he visto nada claramente directo para tu perfil esta semana. Para que no te quedes a ciegas, te dejo estos avisos secundarios.`;
+    ? `He revisado los últimos ${dias} días y estos avisos pueden encajar con tu perfil.`
+    : `No he encontrado avisos claramente directos esta semana. Aun así, estos avisos secundarios pueden merecer una revisión rápida.`;
   const cierre = branding.website
     ? `_Cualquier duda, visita ${branding.website}_`
     : `_Cualquier duda, contacta con ${branding.reply_sender}_`;
@@ -1070,7 +1072,7 @@ function generarMensajeDigestRescate({
     '',
     seleccion.length > 0
       ? 'No son urgentes: revísalos solo si encajan contigo.'
-      : 'No te mando enlaces de relleno: prefiero avisarte cuando haya algo con un mínimo de sentido.',
+      : 'Prefiero no enviarte enlaces sin utilidad: te avisaré cuando haya algo con sentido para tu perfil.',
   ].filter((linea) => linea !== '').join('\n');
 
   const bloques = [];
@@ -1613,7 +1615,7 @@ Tienes *N alerta${alertas.length !== 1 ? 's' : ''}* relevante${alertas.length !=
 [Agrupa por "Grupo sugerido". Usa una cabecera por grupo, por ejemplo *Ayudas*, *Cursos y jornadas*, *Agua y riego*. Dentro de cada grupo, usa este bloque numerado:]
 *N. [Urgente / Normal / Para revisar] - [Titulo breve y descriptivo de la alerta]*
 En sencillo: [Explicación fácil. ${nivelDetalle}]
-[Qué miraría: acción concreta si hay plazo, listado, requisitos, expediente, zona o anexo que comprobar]
+[Qué revisar: acción concreta si hay plazo, listado, requisitos, expediente, zona o anexo que comprobar]
 [URL exacta de la alerta]
 
 ${cierreDigest}
@@ -1631,7 +1633,7 @@ REGLAS:
 - Escribe cada alerta como si se la explicaras a alguien que no sabe leer boletines: "es una ayuda", "cambia una norma", "abre alegaciones", "publican un listado", etc.
 - Cada resumen debe explicar que significa en la practica: acto, destinatario/territorio, tramite, plazo o dato concreto si aparece. No basta con decir que es "relevante".
 - Evita empezar con "El boletin publica". Traduce a lenguaje claro y usa "En sencillo:".
-- La linea "Qué miraría" debe decir qué comprobar: requisitos, plazo, anexo/listado, expediente, municipio/parcela, beneficiarios o documentación.
+- La linea "Qué revisar" debe decir qué comprobar: requisitos, plazo, anexo/listado, expediente, municipio/parcela, beneficiarios o documentación.
 - Si la ficha trae RESUMEN_DIGEST, usalo como base principal y solo recortalo si hace falta por longitud.
 - Usa primero "Lectura obligatoria del boletin" y "Extracto oficial"; si contradicen la ficha IA, manda el contenido oficial.
 - NO inventes datos que no esten en la ficha IA, la lectura obligatoria o el extracto oficial.
@@ -1642,6 +1644,7 @@ REGLAS:
 - Si IMPACTO o DETALLE dicen que es un expediente individual, concesion concreta o exposicion publica limitada, presentalo como "para revisar" y sin exagerar.
 - Si el contexto narrativo encaja con una alerta, usalo solo para elegir que dato destacar, no para saludar ni adornar.
 - No uses frases como "que tengas buen dia", "en tu granja", "con tus vacas", "en tu finca", "animo con la jornada", "buena cosecha" o similares, salvo que sea un dato literal de la alerta.
+- Evita expresiones coloquiales o paternalistas. Usa verbos neutros como "aparece", "encaja", "revisar" o "comprobar".
 - No hagas chistes, deseos de buen dia, despedidas creativas, cumplidos ni comentarios sobre la vida diaria del usuario.
 - No digas "memoria", "MIA", "perfil vectorial" ni nada tecnico al usuario.
 - No preguntes por feedback dentro del mensaje. El sistema anadira una linea fija de feedback despues.

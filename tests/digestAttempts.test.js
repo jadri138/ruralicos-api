@@ -130,9 +130,10 @@ test('digest implementa rescate semanal y auditoria de no-envios', () => {
   assert(source.includes("app.post('/alertas/preview-digest'"), 'Debe existir endpoint POST de preview seguro');
   assert(source.includes('Preview seguro: no inserta digests'), 'El preview debe declarar que no escribe ni envia');
   assert(source.includes('En sencillo:'), 'El digest debe marcar la explicacion facil de cada alerta');
-  assert(source.includes('Qué miraría'), 'El digest debe decir que comprobar en cada alerta');
-  assert(source.includes('Por qué te la dejo'), 'El rescate debe explicar por que se manda');
+  assert(source.includes('Qué revisar'), 'El digest debe decir que comprobar en cada alerta');
+  assert(source.includes('Por qué aparece'), 'El rescate debe explicar por que se manda');
   assert(source.includes('No son urgentes: revísalos solo si encajan contigo.'), 'El rescate debe sonar preventivo, no urgente');
+  assert(!source.includes('Para que no te quedes a ciegas'), 'El rescate debe evitar lenguaje coloquial raro');
   assert(source.includes('if (candidato.length > DIGEST_RESCUE_MESSAGE_MAX_CHARS'), 'El rescate no debe cortar alertas a medias');
   assert(!source.includes('Que haria ahora'), 'El rescate no debe usar textos roboticos antiguos');
   assert(source.includes('necesitaRescateSemanal'), 'Debe decidir rescate por ultimo envio');
