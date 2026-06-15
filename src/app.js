@@ -38,7 +38,9 @@ const allowedOrigins = [
   'https://ruralicos.es',
   'https://www.ruralicos.es',
   'https://app.ruralicos.es',
+  'https://cooperativas.ruralicos.es',
   'https://ruralicos-app.vercel.app',
+  'https://ruralicos-partner.vercel.app',
   'http://localhost:3000',
   'http://127.0.0.1:3000',
   'http://localhost:5173',
@@ -52,7 +54,12 @@ const allowedOrigins = [
 
 function isAllowedOrigin(origin) {
   if (allowedOrigins.includes(origin)) return true;
-  return /^https:\/\/ruralicos-app(?:-[a-z0-9-]+)?\.vercel\.app$/i.test(origin);
+  // Previews de Vercel de la app (ruralicos-app) y del panel partner (ruralicos-partner).
+  if (/^https:\/\/ruralicos-app(?:-[a-z0-9-]+)?\.vercel\.app$/i.test(origin)) return true;
+  if (/^https:\/\/ruralicos-partner(?:-[a-z0-9-]+)?\.vercel\.app$/i.test(origin)) return true;
+  // Subdominios de cooperativa para el panel partner (<slug>.ruralicos.es).
+  if (/^https:\/\/[a-z0-9-]+\.ruralicos\.es$/i.test(origin)) return true;
+  return false;
 }
 
 function timingSafeTokenEqual(expected, received) {
