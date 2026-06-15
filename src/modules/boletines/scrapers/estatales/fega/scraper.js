@@ -1,6 +1,7 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
 const zlib = require('zlib');
+const crypto = require('crypto');
 
 const { cabecerasNavegador } = require('../../../../../platform/httpClient');
 const cache = require('./fegaCache');
@@ -258,7 +259,9 @@ async function obtenerTextosBeneficiariosConCache(fichero, options = {}) {
   const urlDescarga = fichero.urlDescarga;
   const forzar = Boolean(options.forzar);
 
-  const firmaRemota = await obtenerFirmaRemota(urlDescarga);
+  const firmaRemota = options.firma !== undefined
+    ? options.firma
+    : await obtenerFirmaRemota(urlDescarga);
   const meta = cache.leerMeta(ejercicio);
 
   if (!forzar && cache.cacheVigente(meta, firmaRemota, ejercicio)) {
@@ -355,6 +358,16 @@ function buscarCoincidenciasEnTextos(textos, users) {
   return coincidencias;
 }
 
+// Firma determinista del conjunto de usuarios "buscables". Si no cambia (y el
+// fichero tampoco), el resultado del cruce seria identico, asi que podemos
+// saltarnos la extraccion + matching diario.
+function firmaUsuarios(users = []) {
+  const buscables = prepararUsuariosParaBusqueda(users)
+    .map((u) => `${u.id}:${u.nombreNormalizado}`)
+    .sort();
+  return crypto.createHash('sha256').update(buscables.join('|')).digest('hex');
+}
+
 module.exports = {
   BENEFICIARIOS_URL,
   DESCARGA_URL,
@@ -363,5 +376,6 @@ module.exports = {
   descargarTextosBeneficiarios,
   obtenerTextosBeneficiariosConCache,
   obtenerFirmaRemota,
+  firmaUsuarios,
   buscarCoincidenciasEnTextos,
 };

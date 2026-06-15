@@ -7,8 +7,11 @@ const {
   BENEFICIARIOS_URL,
   obtenerFicheroBeneficiarios,
   obtenerTextosBeneficiariosConCache,
+  obtenerFirmaRemota,
+  firmaUsuarios,
   buscarCoincidenciasEnTextos,
 } = require('../../scrapers/estatales/fega/scraper');
+const cache = require('../../scrapers/estatales/fega/fegaCache');
 
 function isMissingTableError(error) {
   return error && ['42P01', '42703', 'PGRST205'].includes(error.code);
@@ -167,7 +170,35 @@ module.exports = function fegaRoutes(app, supabase) {
       }
 
       const forzar = String(req.query.forzar_descarga || 'false').toLowerCase() === 'true';
-      const { textos, actualizado, desdeCache } = await obtenerTextosBeneficiariosConCache(fichero, { forzar });
+
+      // Gate de menor coste: si ni el fichero (firma HEAD) ni el conjunto de
+      // usuarios han cambiado desde la ultima deteccion, el resultado seria
+      // identico -> omitimos descarga, extraccion y cruce.
+      const firma = await obtenerFirmaRemota(fichero.urlDescarga);
+      const usersHash = firmaUsuarios(users);
+      const metaPrevia = cache.leerMeta(fichero.ejercicio);
+      const sinCambios = !forzar
+        && firma?.etag
+        && metaPrevia?.etag === firma.etag
+        && metaPrevia?.usersHash === usersHash
+        && cache.datosExisten(fichero.ejercicio);
+
+      if (sinCambios) {
+        return res.json({
+          success: true,
+          ejercicio: fichero.ejercicio,
+          fichero,
+          alerta,
+          fichero_actualizado: false,
+          desde_cache: true,
+          deteccion: 'omitida_sin_cambios',
+          usuarios_revisados: users.length,
+          coincidencias: metaPrevia.ultimasCoincidencias ?? null,
+          mensaje: 'Sin cambios en fichero FEGA ni en usuarios; deteccion omitida.',
+        });
+      }
+
+      const { textos, actualizado, desdeCache } = await obtenerTextosBeneficiariosConCache(fichero, { forzar, firma });
       const matches = buscarCoincidenciasEnTextos(textos, users);
 
       const resultados = [];
@@ -187,6 +218,14 @@ module.exports = function fegaRoutes(app, supabase) {
         if (resultado.alreadySent) yaEnviados++;
         resultados.push({ user_id: match.user_id, user_name: match.user_name, ...resultado });
       }
+
+      // Registramos la huella de esta deteccion para poder omitir las proximas
+      // ejecuciones si nada cambia.
+      cache.actualizarMeta(fichero.ejercicio, {
+        usersHash,
+        ultimasCoincidencias: matches.length,
+        ultimaDeteccionAt: new Date().toISOString(),
+      });
 
       return res.json({
         success: true,

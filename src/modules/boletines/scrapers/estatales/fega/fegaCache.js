@@ -35,6 +35,12 @@ function guardarMeta(ejercicio, meta) {
   fs.writeFileSync(rutaMeta(ejercicio), JSON.stringify(meta, null, 2));
 }
 
+// Fusiona campos en la meta existente sin perder la firma ya guardada.
+function actualizarMeta(ejercicio, patch) {
+  const meta = leerMeta(ejercicio) || { ejercicio };
+  guardarMeta(ejercicio, { ...meta, ...patch });
+}
+
 function guardarDatos(ejercicio, buffer) {
   fs.mkdirSync(cacheDir(), { recursive: true });
   fs.writeFileSync(rutaDatos(ejercicio), buffer);
@@ -90,6 +96,7 @@ module.exports = {
   rutaMeta,
   leerMeta,
   guardarMeta,
+  actualizarMeta,
   guardarDatos,
   leerDatos,
   datosExisten,

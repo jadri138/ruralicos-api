@@ -36,6 +36,7 @@ const USER_OWNED_TABLES = [
   'mia_decisions',
   'mia_inbound_messages',
   'webhook_events',
+  'verification_codes',
   'organization_members',
   'preferences',
   'alertas_vistas',

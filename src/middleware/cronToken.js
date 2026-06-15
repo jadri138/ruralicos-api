@@ -17,8 +17,11 @@ function extractCronToken(req) {
   const bearerToken = authHeader.toLowerCase().startsWith('bearer ')
     ? authHeader.slice(7).trim()
     : '';
+  const allowQueryToken =
+    process.env.NODE_ENV !== 'production' ||
+    String(process.env.ALLOW_CRON_TOKEN_QUERY || '').toLowerCase() === 'true';
 
-  return req.get('x-cron-token') || bearerToken || req.query.token;
+  return req.get('x-cron-token') || bearerToken || (allowQueryToken ? req.query.token : null);
 }
 
 function hasCronToken(req) {

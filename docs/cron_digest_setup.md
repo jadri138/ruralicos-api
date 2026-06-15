@@ -3,7 +3,7 @@
 El camino recomendado es un unico cron diario contra el pipeline completo:
 
 ```bash
-curl -fsS "$BASE_URL/tareas/pipeline-diario?token=$CRON_TOKEN"
+curl -fsS -H "x-cron-token: $CRON_TOKEN" "$BASE_URL/tareas/pipeline-diario"
 ```
 
 Ese endpoint ejecuta, en orden:
@@ -24,8 +24,8 @@ Ese endpoint ejecuta, en orden:
 - `CRON_TOKEN` (debe coincidir con el del backend)
 - `PUBLIC_BASE_URL` en la API, apuntando al mismo servicio publico
 
-El backend valida token en query string (`?token=...`), header `x-cron-token`
-o Bearer token.
+El backend valida token por header `x-cron-token` o Bearer token.
+El query string (`?token=...`) queda como compatibilidad local/opt-in.
 
 ## Boletines provinciales
 
@@ -58,7 +58,7 @@ FEGA_ENVIAR_MATCHES=false
 Tambien puedes lanzarlo puntualmente:
 
 ```bash
-curl -fsS "$BASE_URL/tareas/pipeline-diario?token=$CRON_TOKEN&fega=true&ejercicio=2024"
+curl -fsS -H "x-cron-token: $CRON_TOKEN" "$BASE_URL/tareas/pipeline-diario?fega=true&ejercicio=2024"
 ```
 
 Antes de activar envios individuales de coincidencias nominales, comprueba que
@@ -72,7 +72,7 @@ Una vez al dia, despues de que los boletines del dia suelan estar disponibles.
 Ejemplo UTC:
 
 ```cron
-0 6 * * * curl -fsS "$BASE_URL/tareas/pipeline-diario?token=$CRON_TOKEN"
+0 6 * * * curl -fsS -H "x-cron-token: $CRON_TOKEN" "$BASE_URL/tareas/pipeline-diario"
 ```
 
 En hora peninsular, ajusta segun invierno/verano y segun la hora real de
@@ -83,16 +83,16 @@ publicacion de las fuentes que mas te importen.
 Estos siguen disponibles para pruebas o relanzar partes concretas:
 
 ```bash
-curl -fsS "$BASE_URL/tareas/scrapers-diario?token=$CRON_TOKEN"
-curl -fsS "$BASE_URL/tareas/complementarios-diario?token=$CRON_TOKEN"
-curl -fsS "$BASE_URL/tareas/cotejar-listados-oficiales?token=$CRON_TOKEN&enviar=false"
+curl -fsS -H "x-cron-token: $CRON_TOKEN" "$BASE_URL/tareas/scrapers-diario"
+curl -fsS -H "x-cron-token: $CRON_TOKEN" "$BASE_URL/tareas/complementarios-diario"
+curl -fsS -H "x-cron-token: $CRON_TOKEN" "$BASE_URL/tareas/cotejar-listados-oficiales?enviar=false"
 ```
 
 Para diagnosticar por que un usuario recibiria o no recibiria una alerta:
 
 ```bash
-curl -fsS "$BASE_URL/alertas/diagnosticar-digest?phone=600000000&token=$CRON_TOKEN"
-curl -fsS "$BASE_URL/alertas/diagnosticar-digest?user_id=123&fecha=2026-04-29&token=$CRON_TOKEN"
+curl -fsS -H "x-cron-token: $CRON_TOKEN" "$BASE_URL/alertas/diagnosticar-digest?phone=600000000"
+curl -fsS -H "x-cron-token: $CRON_TOKEN" "$BASE_URL/alertas/diagnosticar-digest?user_id=123&fecha=2026-04-29"
 ```
 
 Mantener desactivado el flujo legacy por alerta individual

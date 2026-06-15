@@ -15,6 +15,11 @@ const { normalizarPreferenciasUsuario } = require('../../shared/preferenceCanoni
 const { actualizarPerfilUsuarioMIASafe } = require('../aprendizaje/miaProfile');
 const { notificarCambioPlan } = require('../../services/planChangeNotifier');
 const { validarPassword } = require('../../shared/passwordPolicy');
+const { maskPhone } = require('../../shared/pii');
+const {
+  storeVerificationCodeOrLegacy,
+  verifyStoredCodeOrLegacy,
+} = require('./verificationCodes');
 
 module.exports = (app, supabase, ctx) => {
   const {
@@ -205,8 +210,8 @@ module.exports = (app, supabase, ctx) => {
             subscription: subscriptionNormalizada,
             password_hash: passwordHash,
             phone_verified: false,
-            phone_verification_code: codigoVerificacion,
-            phone_verification_expires_at: verificacionCaducaEn
+            phone_verification_code: null,
+            phone_verification_expires_at: null
           }
         ])
         .select('id, phone, name, first_name, last_name_1, last_name_2, legal_name, email, subscription, preferences, preferencias_extra, phone_verified');
@@ -225,6 +230,15 @@ module.exports = (app, supabase, ctx) => {
 
       const user = data[0];
 
+      await storeVerificationCodeOrLegacy(supabase, {
+        userId: user.id,
+        phone: telefonoNormalizado,
+        purpose: 'phone_verification',
+        code: codigoVerificacion,
+        expiresAt: verificacionCaducaEn,
+        markPhoneUnverified: true,
+      });
+
       // 5) Respuesta al cliente
       res.json({ success: true, user });
 
@@ -235,7 +249,7 @@ module.exports = (app, supabase, ctx) => {
 
       // 7) Log
       await supabase.from('logs').insert([
-        { action: 'register', details: `phone: ${telefonoNormalizado}` }
+        { action: 'register', details: `phone_masked: ${maskPhone(telefonoNormalizado)}` }
       ]);
 
       // 8) Crear perfil MIA inicial sin bloquear el registro.
@@ -287,16 +301,15 @@ module.exports = (app, supabase, ctx) => {
         return res.json({ success: true, message: 'Teléfono ya verificado' });
       }
 
-      if (user.phone_verification_code !== String(code).trim()) {
-        return res.status(400).json({ error: 'Codigo incorrecto o caducado' });
-      }
+      const verification = await verifyStoredCodeOrLegacy(supabase, {
+        user,
+        phone: telefonoNormalizado,
+        purpose: 'phone_verification',
+        code,
+      });
 
-      if (user.phone_verification_expires_at) {
-        const ahora = new Date();
-        const caduca = new Date(user.phone_verification_expires_at);
-        if (caduca < ahora) {
-          return res.status(400).json({ error: 'Codigo incorrecto o caducado' });
-        }
+      if (!verification.ok) {
+        return res.status(400).json({ error: 'Codigo incorrecto o caducado' });
       }
 
       // Actualizar como verificado
@@ -379,19 +392,14 @@ module.exports = (app, supabase, ctx) => {
       const codigoVerificacion = generarCodigoVerificacion();
       const verificacionCaducaEn = nuevaCaducidadVerificacion();
 
-      const { error: updateError } = await supabase
-        .from('users')
-        .update({
-          phone_verified: false,
-          phone_verification_code: codigoVerificacion,
-          phone_verification_expires_at: verificacionCaducaEn,
-        })
-        .eq('id', user.id);
-
-      if (updateError) {
-        console.error('Error guardando codigo en /verify-phone/request:', updateError.message);
-        return res.status(500).json({ error: 'Error preparando verificacion' });
-      }
+      await storeVerificationCodeOrLegacy(supabase, {
+        userId: user.id,
+        phone: telefonoNormalizado,
+        purpose: 'phone_verification',
+        code: codigoVerificacion,
+        expiresAt: verificacionCaducaEn,
+        markPhoneUnverified: true,
+      });
 
       res.json({ success: true });
 
@@ -445,19 +453,14 @@ module.exports = (app, supabase, ctx) => {
         return res.json({ success: true });
       }
 
-      // 2) Guardar código y caducidad en el usuario (reutilizamos columnas existentes)
-      const { error: updateError } = await supabase
-        .from('users')
-        .update({
-          phone_verification_code: codigoReset,
-          phone_verification_expires_at: caducaEn
-        })
-        .eq('id', user.id);
-
-      if (updateError) {
-        console.error('Error guardando código reset:', updateError);
-        return res.status(500).json({ error: 'Error guardando código' });
-      }
+      // 2) Guardar código temporal hasheado (fallback legacy si la migración aún no existe)
+      await storeVerificationCodeOrLegacy(supabase, {
+        userId: user.id,
+        phone: telefonoNormalizado,
+        purpose: 'password_reset',
+        code: codigoReset,
+        expiresAt: caducaEn,
+      });
 
       // 3) Responder rápido al cliente
       res.json({ success: true });
@@ -469,7 +472,7 @@ module.exports = (app, supabase, ctx) => {
 
       // 5) Log opcional
       await supabase.from('logs').insert([
-        { action: 'password_reset_request', details: `phone: ${telefonoNormalizado}` }
+        { action: 'password_reset_request', details: `phone_masked: ${maskPhone(telefonoNormalizado)}` }
       ]);
 
     } catch (err) {
@@ -524,17 +527,15 @@ module.exports = (app, supabase, ctx) => {
       }
 
       // 2) Validar código
-      if (String(user.phone_verification_code || '') !== String(code).trim()) {
-        return res.status(400).json({ error: 'Codigo incorrecto o caducado' });
-      }
+      const verification = await verifyStoredCodeOrLegacy(supabase, {
+        user,
+        phone: telefonoNormalizado,
+        purpose: 'password_reset',
+        code,
+      });
 
-      // 3) Validar caducidad
-      if (user.phone_verification_expires_at) {
-        const ahora = new Date();
-        const caduca = new Date(user.phone_verification_expires_at);
-        if (caduca < ahora) {
-          return res.status(400).json({ error: 'Codigo incorrecto o caducado' });
-        }
+      if (!verification.ok) {
+        return res.status(400).json({ error: 'Codigo incorrecto o caducado' });
       }
 
       // 4) Hash y update password (igual que /set-password)
@@ -557,7 +558,7 @@ module.exports = (app, supabase, ctx) => {
 
       // 5) Log opcional
       await supabase.from('logs').insert([
-        { action: 'password_reset_done', details: `phone: ${telefonoNormalizado}` }
+        { action: 'password_reset_done', details: `phone_masked: ${maskPhone(telefonoNormalizado)}` }
       ]);
 
       return res.json({ success: true });

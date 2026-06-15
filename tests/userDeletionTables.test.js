@@ -32,6 +32,7 @@ test('limpia tablas personales nuevas y legacy', () => {
     'mia_structured_memory',
     'mia_inbound_messages',
     'webhook_events',
+    'verification_codes',
     'organization_members',
     'digests',
     'alerta_feedback',

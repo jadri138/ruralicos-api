@@ -7,6 +7,7 @@
 const qs = require('querystring');
 const https = require('https');
 const { supabase } = require('../supabase');
+const { maskPhone } = require('../../shared/pii');
 
 const ULTRAMSG_INSTANCE_ID = process.env.ULTRAMSG_INSTANCE_ID;
 const ULTRAMSG_TOKEN = process.env.ULTRAMSG_TOKEN;
@@ -24,11 +25,6 @@ function getAdminAlertPhones(env = process.env) {
     ...parsePhoneList(env.ADMIN_ALERT_PHONE),
     ...parsePhoneList(env.ADMIN_ALERT_PHONES),
   ]));
-}
-
-function maskPhone(phone) {
-  const value = String(phone || '').trim();
-  return value ? `****${value.slice(-4)}` : null;
 }
 
 function summarizeUltraMsgResponse(body) {

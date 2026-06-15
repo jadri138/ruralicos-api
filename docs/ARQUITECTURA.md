@@ -96,7 +96,8 @@ Un solo cron diario encadena:
    preferencias) y `enviar-digest` (con delay anti-ban).
 6. **Resumen free** para el plan gratuito.
 
-Las rutas de cron aceptan `?token=CRON_TOKEN` o el header `x-cron-token`.
+Las rutas de cron aceptan el header `x-cron-token` o `Authorization: Bearer`.
+El query `?token=CRON_TOKEN` queda como compatibilidad local/opt-in, no como patrón recomendado de producción.
 
 ## Frontera `aprendizaje` (brain) ↔ `mia`
 

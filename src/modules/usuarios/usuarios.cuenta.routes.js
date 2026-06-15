@@ -12,6 +12,10 @@ const { requireAuth, requireAdmin } = require('../../middleware/requireAdmin');
 const { getPlan, validarPreferencias, truncarPreferencias } = require('../../config/planes');
 const { extraerPreferenciasBody, prepararPreferenciasExtra } = require('../../shared/preferenciasRequest');
 const { normalizarPreferenciasUsuario } = require('../../shared/preferenceCanonical');
+const {
+  storeVerificationCodeOrLegacy,
+  verifyStoredCodeOrLegacy,
+} = require('./verificationCodes');
 const { actualizarPerfilUsuarioMIASafe } = require('../aprendizaje/miaProfile');
 const { notificarCambioPlan } = require('../../services/planChangeNotifier');
 
@@ -91,6 +95,7 @@ module.exports = (app, supabase, ctx) => {
       const updates = {};
       let codigoVerificacion = null;
       let telefonoParaVerificar = null;
+      let verificacionCaducaEn = null;
 
       const { data: userActual, error: userActualError } = await supabase
         .from('users')
@@ -191,9 +196,10 @@ module.exports = (app, supabase, ctx) => {
         ) {
           codigoVerificacion = generarCodigoVerificacion();
           telefonoParaVerificar = telefonoNormalizado;
+          verificacionCaducaEn = nuevaCaducidadVerificacion();
           updates.phone_verified = false;
-          updates.phone_verification_code = codigoVerificacion;
-          updates.phone_verification_expires_at = nuevaCaducidadVerificacion();
+          updates.phone_verification_code = null;
+          updates.phone_verification_expires_at = null;
         }
       }
 
@@ -215,6 +221,17 @@ module.exports = (app, supabase, ctx) => {
       if (error) {
         console.error('Error actualizando usuario:', error.message);
         return res.status(500).json({ error: 'Error al actualizar los datos' });
+      }
+
+      if (codigoVerificacion && telefonoParaVerificar) {
+        await storeVerificationCodeOrLegacy(supabase, {
+          userId,
+          phone: telefonoParaVerificar,
+          purpose: 'phone_verification',
+          code: codigoVerificacion,
+          expiresAt: verificacionCaducaEn,
+          markPhoneUnverified: true,
+        });
       }
 
       res.json({
@@ -278,11 +295,14 @@ module.exports = (app, supabase, ctx) => {
         });
       }
 
-      if (String(user.phone_verification_code || '') !== code) {
-        return res.status(400).json({ error: 'Codigo incorrecto o caducado' });
-      }
+      const verification = await verifyStoredCodeOrLegacy(supabase, {
+        user,
+        phone: user.phone,
+        purpose: 'phone_verification',
+        code,
+      });
 
-      if (codigoVerificacionCaducado(user.phone_verification_expires_at)) {
+      if (!verification.ok) {
         return res.status(400).json({ error: 'Codigo incorrecto o caducado' });
       }
 
