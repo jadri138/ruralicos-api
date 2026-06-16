@@ -34,13 +34,17 @@ function normalizarNotas(value) {
   return value ? String(value).slice(0, 500) : null;
 }
 
-function zonaPublica(zone, memberCount = 0) {
+function zonaPublica(zone, counts = {}) {
+  const clientCount = Number(counts.clientCount || 0);
+  const memberCount = Number(counts.memberCount || 0);
   return {
     id: zone.id,
     name: zone.name,
     color: zone.color || null,
     notes: zone.notes || null,
+    client_count: clientCount,
     member_count: memberCount,
+    assigned_count: clientCount || memberCount,
   };
 }
 
@@ -63,25 +67,46 @@ module.exports = (app, supabase) => {
         throw error;
       }
 
-      // Conteo de socios por zona (la columna zone_id puede no existir todavia).
-      const counts = new Map();
-      const { data: members, error: mErr } = await supabase
+      const clientCounts = new Map();
+      const memberCounts = new Map();
+
+      const { data: clients, error: clientsError } = await supabase
+        .from('organization_clients')
+        .select('zone_id, status')
+        .eq('organization_id', orgId);
+      if (!clientsError) {
+        for (const client of clients || []) {
+          if (client.zone_id != null && client.status !== 'inactive') {
+            const key = Number(client.zone_id);
+            clientCounts.set(key, (clientCounts.get(key) || 0) + 1);
+          }
+        }
+      } else if (!esTablaNoDisponible(clientsError)) {
+        throw clientsError;
+      }
+
+      const { data: members, error: membersError } = await supabase
         .from('organization_members')
         .select('zone_id')
         .eq('organization_id', orgId);
-      if (!mErr) {
+      if (!membersError) {
         for (const member of members || []) {
           if (member.zone_id != null) {
             const key = Number(member.zone_id);
-            counts.set(key, (counts.get(key) || 0) + 1);
+            memberCounts.set(key, (memberCounts.get(key) || 0) + 1);
           }
         }
+      } else if (!esTablaNoDisponible(membersError)) {
+        throw membersError;
       }
 
       return res.json({
         ok: true,
         available: true,
-        items: (zones || []).map((z) => zonaPublica(z, counts.get(Number(z.id)) || 0)),
+        items: (zones || []).map((zone) => zonaPublica(zone, {
+          clientCount: clientCounts.get(Number(zone.id)) || 0,
+          memberCount: memberCounts.get(Number(zone.id)) || 0,
+        })),
       });
     } catch (err) {
       console.error('Error en GET /partner/zones:', err);
@@ -117,7 +142,7 @@ module.exports = (app, supabase) => {
         throw error;
       }
 
-      return res.status(201).json({ ok: true, item: zonaPublica(data, 0) });
+      return res.status(201).json({ ok: true, item: zonaPublica(data) });
     } catch (err) {
       console.error('Error en POST /partner/zones:', err);
       return res.status(500).json({ error: err.message });

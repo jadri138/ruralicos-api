@@ -148,7 +148,7 @@ function sortByCreatedAtDesc(items) {
 }
 
 function toStringList(value) {
-  const source = Array.isArray(value) ? value : [];
+  const source = Array.isArray(value) ? value : String(value || '').split(',');
   return source.map((item) => String(item || '').trim()).filter(Boolean);
 }
 

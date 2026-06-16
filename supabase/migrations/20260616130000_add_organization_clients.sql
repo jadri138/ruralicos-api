@@ -50,6 +50,27 @@ create index if not exists idx_organization_clients_org_zone
 create index if not exists idx_organization_clients_org_type
   on public.organization_clients (organization_id, client_type);
 
+alter table public.digests
+  add column if not exists organization_client_id bigint references public.organization_clients (id) on delete set null;
+
+alter table public.alerta_click_links
+  add column if not exists organization_client_id bigint references public.organization_clients (id) on delete set null;
+
+alter table public.alerta_clicks
+  add column if not exists organization_client_id bigint references public.organization_clients (id) on delete set null;
+
+create index if not exists idx_digests_org_client_created
+  on public.digests (organization_client_id, created_at desc)
+  where organization_client_id is not null;
+
+create index if not exists idx_alerta_click_links_org_client_created
+  on public.alerta_click_links (organization_client_id, created_at desc)
+  where organization_client_id is not null;
+
+create index if not exists idx_alerta_clicks_org_client_created
+  on public.alerta_clicks (organization_client_id, created_at desc)
+  where organization_client_id is not null;
+
 alter table public.organization_clients enable row level security;
 
 grant select, insert, update, delete on table public.organization_clients to service_role;
@@ -63,3 +84,12 @@ comment on column public.organization_clients.preferences_json is
 
 comment on column public.organization_clients.profile_json is
   'Perfil operativo del cliente: municipio, provincia, actividad, cultivos, ganado, explotacion y otros datos editables por la cooperativa.';
+
+comment on column public.digests.organization_client_id is
+  'Cliente propio de cooperativa receptor del digest. Nullable para mantener compatibilidad con users.';
+
+comment on column public.alerta_click_links.organization_client_id is
+  'Cliente propio de cooperativa asociado al enlace de tracking cuando el receptor no es un user de Ruralicos.';
+
+comment on column public.alerta_clicks.organization_client_id is
+  'Cliente propio de cooperativa que hizo click cuando el receptor no es un user de Ruralicos.';
