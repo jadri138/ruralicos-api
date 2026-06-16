@@ -9,6 +9,7 @@ const registrarAdminUsuarios = require('./admin.usuarios.routes');
 const registrarAdminAlertas = require('./admin.alertas.routes');
 const registrarAdminOperaciones = require('./admin.operaciones.routes');
 const registrarAdminMia = require('./admin.mia.routes');
+const registrarAdminCerebro = require('./admin.cerebro.routes');
 
 module.exports = (app, supabase) => {
   registrarAdminPanel(app, supabase);
@@ -16,4 +17,5 @@ module.exports = (app, supabase) => {
   registrarAdminAlertas(app, supabase);
   registrarAdminOperaciones(app, supabase);
   registrarAdminMia(app, supabase);
+  registrarAdminCerebro(app, supabase);
 };
