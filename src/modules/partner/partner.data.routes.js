@@ -357,6 +357,24 @@ module.exports = (app, supabase) => {
       const userId = Number(req.params.userId);
       if (!Number.isSafeInteger(userId) || userId <= 0) return res.status(400).json({ error: 'user id invalido' });
 
+      const { data: existingUser, error: findError } = await supabase
+        .from('users')
+        .select('id')
+        .eq('id', userId)
+        .eq('organization_id', orgId)
+        .maybeSingle();
+      if (findError) throw findError;
+      if (!existingUser) return res.status(404).json({ error: 'Socio no pertenece a esta cooperativa' });
+
+      const memberResult = await supabase
+        .from('organization_members')
+        .update({ status: 'inactive', updated_at: new Date().toISOString() })
+        .eq('organization_id', orgId)
+        .eq('user_id', userId)
+        .select('user_id, role, status, zone_id')
+        .maybeSingle();
+      if (memberResult.error && !esTablaNoDisponible(memberResult.error)) throw memberResult.error;
+
       const { data: user, error: updError } = await supabase
         .from('users')
         .update({ organization_id: null })
@@ -367,13 +385,11 @@ module.exports = (app, supabase) => {
       if (updError) throw updError;
       if (!user) return res.status(404).json({ error: 'Socio no pertenece a esta cooperativa' });
 
-      await supabase
-        .from('organization_members')
-        .update({ status: 'inactive', updated_at: new Date().toISOString() })
-        .eq('organization_id', orgId)
-        .eq('user_id', userId);
-
-      return res.json({ ok: true });
+      return res.json({
+        ok: true,
+        member: memberResult.data || null,
+        member_available: !memberResult.error,
+      });
     } catch (err) {
       console.error('Error en DELETE /partner/members/:userId:', err);
       return res.status(500).json({ error: err.message });

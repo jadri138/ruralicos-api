@@ -350,16 +350,15 @@ module.exports = (app, supabase) => {
       if (!organizationId) return res.status(400).json({ error: 'organization id invalido' });
       if (!Number.isSafeInteger(userId) || userId <= 0) return res.status(400).json({ error: 'user id invalido' });
 
-      const { data: user, error: userError } = await supabase
+      const { data: existingUser, error: findError } = await supabase
         .from('users')
-        .update({ organization_id: null })
+        .select('id')
         .eq('id', userId)
         .eq('organization_id', organizationId)
-        .select(USER_SELECT_ADMIN)
         .maybeSingle();
 
-      if (userError) throw userError;
-      if (!user) return res.status(404).json({ error: 'Usuario no pertenece a esta organizacion' });
+      if (findError) throw findError;
+      if (!existingUser) return res.status(404).json({ error: 'Usuario no pertenece a esta organizacion' });
 
       const memberResult = await supabase
         .from('organization_members')
@@ -373,8 +372,19 @@ module.exports = (app, supabase) => {
         .maybeSingle();
 
       if (memberResult.error && !isMissingTableError(memberResult.error)) {
-        console.warn('[admin:organizations] No se pudo marcar baja en organization_members:', memberResult.error.message);
+        throw memberResult.error;
       }
+
+      const { data: user, error: userError } = await supabase
+        .from('users')
+        .update({ organization_id: null })
+        .eq('id', userId)
+        .eq('organization_id', organizationId)
+        .select(USER_SELECT_ADMIN)
+        .maybeSingle();
+
+      if (userError) throw userError;
+      if (!user) return res.status(404).json({ error: 'Usuario no pertenece a esta organizacion' });
 
       await auditarAdmin(supabase, req, 'organization.user.remove', 'user', userId, organizationId, {
         user_id: userId,
