@@ -157,6 +157,10 @@ function buildDestinations(clicks) {
     .map(([host, clicksCount]) => ({ host, clicks: clicksCount }));
 }
 
+function sortByCreatedAtDesc(items) {
+  return [...items].sort((left, right) => String(right.created_at || '').localeCompare(String(left.created_at || '')));
+}
+
 function buildPanelUsage(events) {
   const byRoute = new Map();
   const byTarget = new Map();
@@ -227,25 +231,36 @@ function buildMemberInsights({ members, memberRows, zones, clicks, feedbacks, di
 
 async function fetchOrgClicks(supabase, orgId, memberIds, since, limit) {
   const baseSelect = 'id, user_id, digest_id, alerta_id, url_destino, created_at, users(id, name, legal_name, phone, email, subscription), alertas(id, titulo, fuente)';
-  let query = supabase
+  const byOrg = await supabase
     .from('alerta_clicks')
     .select(baseSelect)
     .eq('organization_id', orgId)
     .gte('created_at', since)
     .order('created_at', { ascending: false })
     .limit(limit);
-  let result = await query;
-  if (!result.error) return result;
-  if (!esTablaNoDisponible(result.error) || !memberIds.length) return result;
 
-  result = await supabase
+  if (byOrg.error && !esTablaNoDisponible(byOrg.error)) return byOrg;
+  if (!memberIds.length) return byOrg.error ? { data: [], error: byOrg.error } : byOrg;
+
+  const byMembers = await supabase
     .from('alerta_clicks')
     .select(baseSelect)
     .in('user_id', memberIds)
     .gte('created_at', since)
     .order('created_at', { ascending: false })
     .limit(limit);
-  return result;
+
+  if (byMembers.error && byOrg.error) return byMembers;
+  if (byMembers.error && !byOrg.error) return byOrg;
+
+  const byId = new Map();
+  for (const click of byOrg.error ? [] : byOrg.data || []) byId.set(String(click.id), click);
+  for (const click of byMembers.data || []) byId.set(String(click.id), click);
+
+  return {
+    data: sortByCreatedAtDesc([...byId.values()]).slice(0, limit),
+    error: null,
+  };
 }
 
 async function fetchOrgRowsByUserIds(supabase, table, select, memberIds, since, limit, dateColumn = 'created_at') {
