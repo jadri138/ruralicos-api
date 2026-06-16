@@ -39,7 +39,6 @@ function crearSerieDiaria(days) {
       clicks: 0,
       digests: 0,
       feedbacks: 0,
-      panel_events: 0,
     };
   });
 }
@@ -98,19 +97,6 @@ function publicClick(click = {}) {
   };
 }
 
-function publicPanelEvent(event = {}) {
-  return {
-    id: event.id,
-    event_type: event.event_type,
-    route: event.route || null,
-    target_type: event.target_type || null,
-    target_label: event.target_label || null,
-    target_href: event.target_href || null,
-    staff_id: event.staff_id || null,
-    created_at: event.created_at || null,
-  };
-}
-
 function buildTopAlerts(clicks) {
   const byKey = new Map();
   for (const click of clicks) {
@@ -161,26 +147,112 @@ function sortByCreatedAtDesc(items) {
   return [...items].sort((left, right) => String(right.created_at || '').localeCompare(String(left.created_at || '')));
 }
 
-function buildPanelUsage(events) {
-  const byRoute = new Map();
-  const byTarget = new Map();
-  for (const event of events) {
-    increment(byRoute, event.route || 'sin-ruta');
-    if (event.event_type === 'panel_click') {
-      const label = event.target_label || event.target_href || event.target_type || 'click';
-      increment(byTarget, label);
-    }
+function toStringList(value) {
+  const source = Array.isArray(value) ? value : [];
+  return source.map((item) => String(item || '').trim()).filter(Boolean);
+}
+
+function countList(map, labelKey = 'label', valueKey = 'count') {
+  return [...map.entries()]
+    .sort((left, right) => right[1] - left[1])
+    .slice(0, 12)
+    .map(([label, count]) => ({ [labelKey]: label, [valueKey]: count }));
+}
+
+function publicClientInsight(client = {}, zonesById = new Map()) {
+  const profile = safeObject(client.profile_json);
+  const preferences = safeObject(client.preferences_json);
+  const zone = client.zone_id ? zonesById.get(Number(client.zone_id)) : null;
+
+  return {
+    id: client.id,
+    display_name: client.display_name || 'Cliente',
+    status: client.status || 'active',
+    client_type: client.client_type || 'cliente',
+    zone: zone ? { id: zone.id, name: zone.name, color: zone.color || null } : null,
+    profile: {
+      province: profile.province || null,
+      municipality: profile.municipality || null,
+      activity_type: profile.activity_type || null,
+      crops: toStringList(profile.crops),
+      livestock: toStringList(profile.livestock),
+      farm_size: profile.farm_size || null,
+    },
+    preferences: {
+      digest_enabled: preferences.digest_enabled !== false,
+      whatsapp_enabled: preferences.whatsapp_enabled !== false,
+      email_enabled: Boolean(preferences.email_enabled),
+      frequency: preferences.frequency || 'daily',
+      topics: toStringList(preferences.topics),
+      provinces: toStringList(preferences.provinces),
+      lonja_products: toStringList(preferences.lonja_products),
+    },
+    last_digest_at: client.last_digest_at || null,
+    last_interaction_at: client.last_interaction_at || null,
+    created_at: client.created_at || null,
+  };
+}
+
+function buildClientInsights(clients = [], zones = []) {
+  const zonesById = new Map((zones || []).map((zone) => [Number(zone.id), zone]));
+  const topTopics = new Map();
+  const lonjaProducts = new Map();
+  const byActivity = new Map();
+  const byType = new Map();
+  const byStatus = new Map();
+  const byZone = new Map();
+  const recentlyAdded = sortByCreatedAtDesc(clients)
+    .slice(0, 8)
+    .map((client) => publicClientInsight(client, zonesById));
+
+  const metrics = {
+    total: clients.length,
+    active: 0,
+    prospects: 0,
+    inactive: 0,
+    with_digest: 0,
+    with_whatsapp: 0,
+    with_email: 0,
+    with_lonja_products: 0,
+    without_zone: 0,
+    without_preferences: 0,
+  };
+
+  for (const client of clients) {
+    const status = client.status || 'active';
+    const profile = safeObject(client.profile_json);
+    const preferences = safeObject(client.preferences_json);
+    const topics = toStringList(preferences.topics);
+    const lonjas = toStringList(preferences.lonja_products);
+
+    if (status === 'active') metrics.active += 1;
+    else if (status === 'prospect') metrics.prospects += 1;
+    else if (status === 'inactive') metrics.inactive += 1;
+
+    if (preferences.digest_enabled !== false) metrics.with_digest += 1;
+    if (preferences.whatsapp_enabled !== false) metrics.with_whatsapp += 1;
+    if (preferences.email_enabled) metrics.with_email += 1;
+    if (lonjas.length) metrics.with_lonja_products += 1;
+    if (!client.zone_id) metrics.without_zone += 1;
+    if (!topics.length) metrics.without_preferences += 1;
+
+    increment(byStatus, status);
+    increment(byType, client.client_type || 'cliente');
+    increment(byActivity, profile.activity_type || 'sin-actividad');
+    increment(byZone, client.zone_id ? (zonesById.get(Number(client.zone_id))?.name || `Zona ${client.zone_id}`) : 'Sin zona');
+    for (const topic of topics) increment(topTopics, topic);
+    for (const product of lonjas) increment(lonjaProducts, product);
   }
 
   return {
-    by_route: [...byRoute.entries()]
-      .sort((left, right) => right[1] - left[1])
-      .slice(0, 10)
-      .map(([route, eventsCount]) => ({ route, events: eventsCount })),
-    top_clicks: [...byTarget.entries()]
-      .sort((left, right) => right[1] - left[1])
-      .slice(0, 10)
-      .map(([label, clicks]) => ({ label, clicks })),
+    metrics,
+    top_topics: countList(topTopics, 'topic', 'clients'),
+    lonja_products: countList(lonjaProducts, 'product', 'clients'),
+    by_activity: countList(byActivity, 'activity_type', 'clients'),
+    by_type: countList(byType, 'client_type', 'clients'),
+    by_status: countList(byStatus, 'status', 'clients'),
+    by_zone: countList(byZone, 'zone', 'clients'),
+    recently_added: recentlyAdded,
   };
 }
 
@@ -317,7 +389,7 @@ module.exports = (app, supabase) => {
       const limit = clampNumber(req.query.limit, 20, 500, 120);
       const since = isoDesdeDias(days);
 
-      const [{ data: members, error: membersError }, { data: memberRows, error: memberRowsError }, zonesResult] = await Promise.all([
+      const [{ data: members, error: membersError }, { data: memberRows, error: memberRowsError }, zonesResult, clientsResult] = await Promise.all([
         supabase
           .from('users')
           .select('id, name, legal_name, phone, email, subscription, created_at')
@@ -331,16 +403,25 @@ module.exports = (app, supabase) => {
           .from('organization_zones')
           .select('id, name, color')
           .eq('organization_id', orgId),
+        supabase
+          .from('organization_clients')
+          .select('id, zone_id, display_name, status, client_type, profile_json, preferences_json, last_digest_at, last_interaction_at, created_at')
+          .eq('organization_id', orgId)
+          .order('created_at', { ascending: false })
+          .limit(1000),
       ]);
 
       if (membersError) throw membersError;
       if (memberRowsError && !esTablaNoDisponible(memberRowsError)) throw memberRowsError;
       if (zonesResult.error && !esTablaNoDisponible(zonesResult.error)) throw zonesResult.error;
+      if (clientsResult.error && !esTablaNoDisponible(clientsResult.error)) throw clientsResult.error;
 
       const safeMembers = members || [];
+      const safeClients = clientsResult.error ? [] : clientsResult.data || [];
+      const clientInsights = buildClientInsights(safeClients, zonesResult.data || []);
       const memberIds = safeMembers.map((member) => Number(member.id)).filter(Number.isSafeInteger);
 
-      const [clicksResult, feedbacksResult, digestsResult, panelEventsResult] = await Promise.all([
+      const [clicksResult, feedbacksResult, digestsResult] = await Promise.all([
         fetchOrgClicks(supabase, orgId, memberIds, since, limit * 4),
         fetchOrgRowsByUserIds(
           supabase,
@@ -358,23 +439,15 @@ module.exports = (app, supabase) => {
           since,
           limit * 3
         ),
-        supabase
-          .from('organization_panel_events')
-          .select('id, staff_id, event_type, route, target_type, target_label, target_href, created_at')
-          .eq('organization_id', orgId)
-          .gte('created_at', since)
-          .order('created_at', { ascending: false })
-          .limit(limit * 4),
       ]);
 
-      for (const result of [clicksResult, feedbacksResult, digestsResult, panelEventsResult]) {
+      for (const result of [clicksResult, feedbacksResult, digestsResult]) {
         if (result.error && !esTablaNoDisponible(result.error)) throw result.error;
       }
 
       const clicks = clicksResult.error ? [] : clicksResult.data || [];
       const feedbacks = feedbacksResult.error ? [] : feedbacksResult.data || [];
       const digests = digestsResult.error ? [] : digestsResult.data || [];
-      const panelEvents = panelEventsResult.error ? [] : panelEventsResult.data || [];
       const daily = crearSerieDiaria(days);
       const dailyByDate = new Map(daily.map((item) => [item.date, item]));
 
@@ -390,10 +463,6 @@ module.exports = (app, supabase) => {
         const date = fechaKey(digest.enviado_at || digest.created_at);
         if (dailyByDate.has(date)) dailyByDate.get(date).digests += 1;
       }
-      for (const event of panelEvents) {
-        const date = fechaKey(event.created_at);
-        if (dailyByDate.has(date)) dailyByDate.get(date).panel_events += 1;
-      }
 
       const uniqueClickers = new Set(clicks.map((click) => Number(click.user_id)).filter(Number.isSafeInteger));
       const activeMembers = (memberRows || []).filter((member) => member.status === 'active').length || safeMembers.length;
@@ -405,7 +474,7 @@ module.exports = (app, supabase) => {
           clicks: !clicksResult.error,
           feedbacks: !feedbacksResult.error,
           digests: !digestsResult.error,
-          panel_events: !panelEventsResult.error,
+          clients: !clientsResult.error,
           zones: !zonesResult.error,
         },
         range: {
@@ -417,12 +486,16 @@ module.exports = (app, supabase) => {
           members_active: activeMembers,
           members_with_clicks: uniqueClickers.size,
           click_rate: safeMembers.length ? uniqueClickers.size / safeMembers.length : 0,
+          clients_total: clientInsights.metrics.total,
+          clients_active: clientInsights.metrics.active,
+          clients_with_digest: clientInsights.metrics.with_digest,
+          clients_with_whatsapp: clientInsights.metrics.with_whatsapp,
+          clients_without_preferences: clientInsights.metrics.without_preferences,
           clicks_total: clicks.length,
           feedback_total: feedbacks.length,
           digests_sent: sentDigests,
-          panel_events_total: panelEvents.length,
-          panel_clicks_total: panelEvents.filter((event) => event.event_type === 'panel_click').length,
         },
+        clients: clientInsights,
         daily,
         top_alerts: buildTopAlerts(clicks),
         top_destinations: buildDestinations(clicks),
@@ -435,8 +508,6 @@ module.exports = (app, supabase) => {
           digests,
         }),
         recent_clicks: clicks.slice(0, limit).map(publicClick),
-        panel_usage: buildPanelUsage(panelEvents),
-        recent_panel_events: panelEvents.slice(0, limit).map(publicPanelEvent),
       });
     } catch (err) {
       console.error('Error en GET /partner/insights:', err);
