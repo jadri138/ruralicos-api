@@ -3,8 +3,8 @@
 Las fuentes complementarias ya no necesitan un cron diario separado. El pipeline
 principal las ejecuta antes de la IA y del digest:
 
-```text
-GET /tareas/pipeline-diario?token=CRON_TOKEN
+```bash
+curl -fsS -H "x-cron-token: $CRON_TOKEN" "$BASE_URL/tareas/pipeline-diario"
 ```
 
 Por defecto se incluyen los endpoints definidos en `COMPLEMENTARY_SCRAPE_PATHS`.
@@ -32,15 +32,15 @@ FEGA_ENVIAR_MATCHES=false
 
 Tambien puede lanzarse puntualmente:
 
-```text
-GET /tareas/pipeline-diario?token=CRON_TOKEN&fega=true&ejercicio=2024
+```bash
+curl -fsS -H "x-cron-token: $CRON_TOKEN" "$BASE_URL/tareas/pipeline-diario?fega=true&ejercicio=2024"
 ```
 
 El endpoint antiguo queda como herramienta manual:
 
-```text
-GET /tareas/complementarios-diario?token=CRON_TOKEN
-GET /tareas/complementarios-diario?token=CRON_TOKEN&fega=true&ejercicio=2024&enviar_fega=true
+```bash
+curl -fsS -H "x-cron-token: $CRON_TOKEN" "$BASE_URL/tareas/complementarios-diario"
+curl -fsS -H "x-cron-token: $CRON_TOKEN" "$BASE_URL/tareas/complementarios-diario?fega=true&ejercicio=2024&enviar_fega=true"
 ```
 
 Antes de activar envios individuales hay que comprobar que existen en Supabase
@@ -49,8 +49,8 @@ Ya no se mantienen SQL sueltos en `docs`; usa la migracion operativa vigente.
 
 Tambien se puede lanzar solo el cotejo nominal sobre alertas ya guardadas:
 
-```text
-GET /tareas/cotejar-listados-oficiales?token=CRON_TOKEN&fecha=2026-05-13&enviar=false
+```bash
+curl -fsS -H "x-cron-token: $CRON_TOKEN" "$BASE_URL/tareas/cotejar-listados-oficiales?fecha=2026-05-13&enviar=false"
 ```
 
 Este cotejo revisa las alertas del dia que parezcan listados nominativos con
