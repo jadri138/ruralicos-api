@@ -397,32 +397,79 @@ module.exports = (app, supabase) => {
   });
 
   // ──────────────────────────────────────────────────────────────────
-  // GET /partner/digests — ultimos digests enviados a los socios
+  // GET /partner/digests — ultimos mensajes (digests) enviados a los socios
+  // Cada item incluye el destinatario resuelto (nombre/telefono) y el texto
+  // del mensaje, para que el panel muestre a quien fue y poder abrirlo.
+  // Filtros opcionales: ?limit= y rango por fecha ?from=&to= (ISO, sobre created_at).
   // ──────────────────────────────────────────────────────────────────
   app.get('/partner/digests', requireOrg, async (req, res) => {
     try {
       const orgId = req.org.organizationId;
       const limit = Math.max(1, Math.min(200, Number(req.query.limit || 50)));
+      const from = String(req.query.from || '').trim();
+      const to = String(req.query.to || '').trim();
 
       const ids = await idsSociosDeOrg(orgId);
       if (!ids.length) return res.json({ ok: true, items: [] });
 
-      const { data, error } = await supabase
+      let query = supabase
         .from('digests')
-        .select('id, user_id, fecha, enviado, enviado_at, created_at, alerta_ids')
-        .in('user_id', ids)
-        .order('created_at', { ascending: false })
-        .limit(limit);
+        .select('id, user_id, organization_client_id, fecha, mensaje, enviado, enviado_at, created_at, alerta_ids')
+        .in('user_id', ids);
+      if (from) query = query.gte('created_at', from);
+      if (to) query = query.lte('created_at', to);
+
+      const { data, error } = await query.order('created_at', { ascending: false }).limit(limit);
 
       if (error) {
         if (esTablaNoDisponible(error)) return res.json({ ok: true, items: [] });
         throw error;
       }
 
-      const items = (data || []).map((d) => ({
+      const rows = data || [];
+
+      // Resolver destinatarios: usuarios Ruralicos (user_id) y clientes propios
+      // de la cooperativa (organization_client_id), en lote.
+      const userIds = [...new Set(rows.map((d) => Number(d.user_id)).filter(Number.isSafeInteger))];
+      const clientIds = [...new Set(rows.map((d) => Number(d.organization_client_id)).filter(Number.isSafeInteger))];
+
+      const [usersResult, clientsResult] = await Promise.all([
+        userIds.length
+          ? supabase.from('users').select('id, name, legal_name, phone').in('id', userIds)
+          : Promise.resolve({ data: [], error: null }),
+        clientIds.length
+          ? supabase.from('organization_clients').select('id, display_name, phone').eq('organization_id', orgId).in('id', clientIds)
+          : Promise.resolve({ data: [], error: null }),
+      ]);
+      if (usersResult.error) throw usersResult.error;
+      if (clientsResult.error && !esTablaNoDisponible(clientsResult.error)) throw clientsResult.error;
+
+      const userById = new Map((usersResult.data || []).map((u) => [Number(u.id), u]));
+      const clientById = new Map((clientsResult.error ? [] : clientsResult.data || []).map((c) => [Number(c.id), c]));
+
+      function resolveRecipient(d) {
+        const clientId = Number(d.organization_client_id);
+        if (Number.isSafeInteger(clientId) && clientById.has(clientId)) {
+          const c = clientById.get(clientId);
+          return { kind: 'cliente', id: c.id, name: c.display_name || `Cliente ${c.id}`, phone: c.phone || null };
+        }
+        const userId = Number(d.user_id);
+        const u = userById.get(userId);
+        return {
+          kind: 'usuario',
+          id: userId || null,
+          name: (u && (u.legal_name || u.name)) || (userId ? `Socio ${userId}` : 'Destinatario'),
+          phone: (u && u.phone) || null,
+        };
+      }
+
+      const items = rows.map((d) => ({
         id: d.id,
         user_id: d.user_id,
+        organization_client_id: d.organization_client_id || null,
+        recipient: resolveRecipient(d),
         fecha: d.fecha,
+        mensaje: d.mensaje || null,
         enviado: d.enviado,
         enviado_at: d.enviado_at,
         created_at: d.created_at,
