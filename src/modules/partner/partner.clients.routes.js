@@ -163,6 +163,10 @@ function filterClient(client, filters) {
     if (!haystack.includes(filters.q)) return false;
   }
 
+  // Por defecto (sin filtro de estado) los dados de baja no se muestran: asi el
+  // boton "Dar de baja" hace que el cliente desaparezca de la lista. Siguen
+  // accesibles eligiendo el estado "Inactivos".
+  if (!filters.status && client.status === 'inactive') return false;
   if (filters.status && client.status !== filters.status) return false;
   if (filters.client_type && client.client_type !== filters.client_type) return false;
   if (filters.topic && !client.preferences_json?.topics?.includes(filters.topic)) return false;
