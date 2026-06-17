@@ -2,6 +2,7 @@
 
 const { requireOrg } = require('../../middleware/requireAdmin');
 const { normalizePhone } = require('../../shared/phoneNormalizer');
+const { enviarWhatsAppDirecto } = require('../../platform/whatsapp');
 
 const MISSING_TABLE_CODES = new Set(['42P01', '42703', 'PGRST205']);
 const UNIQUE_VIOLATION = '23505';
@@ -108,6 +109,43 @@ function publicClient(row, zone = null) {
     created_at: row.created_at || null,
     updated_at: row.updated_at || null,
   };
+}
+
+function brandNameFromOrg(org) {
+  const branding = org?.branding_json && typeof org.branding_json === 'object' ? org.branding_json : {};
+  return branding.brand_name || org?.name || 'tu cooperativa';
+}
+
+// Mensaje de bienvenida que recibe el cliente al darse de alta en la cooperativa.
+function mensajeBienvenida(nombre, brand) {
+  const saludo = nombre ? `Hola ${nombre}` : 'Hola';
+  return (
+    `${saludo}, te damos la bienvenida a ${brand} 🌱\n\n` +
+    `A partir de ahora te avisaremos por WhatsApp de las ayudas, subvenciones y novedades ` +
+    `que afecten a tu explotacion. Si en algun momento no quieres recibirlas, avisanos.\n\n` +
+    `— ${brand}`
+  );
+}
+
+// Envia (best-effort, no bloqueante) el WhatsApp de bienvenida si el cliente tiene
+// telefono y no ha desactivado WhatsApp. Nunca rompe el alta si el envio falla.
+async function enviarBienvenidaCliente(supabase, orgId, client) {
+  try {
+    const prefs = client.preferences_json && typeof client.preferences_json === 'object' ? client.preferences_json : {};
+    if (!client.phone_normalized || prefs.whatsapp_enabled === false) return;
+
+    const { data: org } = await supabase
+      .from('organizations')
+      .select('name, branding_json')
+      .eq('id', orgId)
+      .maybeSingle();
+
+    const brand = brandNameFromOrg(org);
+    const nombre = client.first_name || (client.display_name ? String(client.display_name).split(' ')[0] : '');
+    await enviarWhatsAppDirecto(client.phone_normalized, mensajeBienvenida(nombre, brand), 'partner_bienvenida');
+  } catch (err) {
+    console.warn('[partner] no se pudo enviar la bienvenida al cliente:', err.message);
+  }
 }
 
 function filterClient(client, filters) {
@@ -289,6 +327,9 @@ module.exports = (app, supabase) => {
         if (error.code === UNIQUE_VIOLATION) return res.status(409).json({ error: 'Ya existe un cliente con ese telefono o email en esta cooperativa' });
         throw error;
       }
+
+      // Bienvenida por WhatsApp (best-effort, no bloquea la respuesta del alta).
+      enviarBienvenidaCliente(supabase, req.org.organizationId, data);
 
       return res.status(201).json({ ok: true, item: publicClient(data) });
     } catch (err) {

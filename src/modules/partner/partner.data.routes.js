@@ -64,17 +64,22 @@ module.exports = (app, supabase) => {
       if (errSocios) throw errSocios;
 
       const ids = (socios || []).map((u) => Number(u.id));
-      let digestsEnviados7d = 0;
-      if (ids.length) {
-        const { count, error: errDig } = await supabase
-          .from('digests')
-          .select('id', { count: 'exact', head: true })
-          .in('user_id', ids)
-          .eq('enviado', true)
-          .gte('created_at', hace7dias);
-        if (errDig && !esTablaNoDisponible(errDig)) throw errDig;
-        digestsEnviados7d = count || 0;
+
+      // Mensajes enviados en 7 dias: a clientes propios (organization_id) o a usuarios
+      // vinculados (user_id). Se mezclan ids para no duplicar ni exigir usuarios B2C.
+      const [digByOrg, digByUsers] = await Promise.all([
+        supabase.from('digests').select('id').eq('organization_id', orgId).eq('enviado', true).gte('created_at', hace7dias),
+        ids.length
+          ? supabase.from('digests').select('id').in('user_id', ids).eq('enviado', true).gte('created_at', hace7dias)
+          : Promise.resolve({ data: [], error: null }),
+      ]);
+      for (const result of [digByOrg, digByUsers]) {
+        if (result.error && !esTablaNoDisponible(result.error)) throw result.error;
       }
+      const digestIds = new Set();
+      for (const d of digByOrg.error ? [] : digByOrg.data || []) digestIds.add(Number(d.id));
+      for (const d of digByUsers.error ? [] : digByUsers.data || []) digestIds.add(Number(d.id));
+      const digestsEnviados7d = digestIds.size;
 
       const nuevos7d = (socios || []).filter((u) => u.created_at && u.created_at >= hace7dias).length;
 
@@ -410,23 +415,38 @@ module.exports = (app, supabase) => {
       const to = String(req.query.to || '').trim();
 
       const ids = await idsSociosDeOrg(orgId);
-      if (!ids.length) return res.json({ ok: true, items: [] });
 
-      let query = supabase
-        .from('digests')
-        .select('id, user_id, organization_client_id, fecha, mensaje, enviado, enviado_at, created_at, alerta_ids')
-        .in('user_id', ids);
-      if (from) query = query.gte('created_at', from);
-      if (to) query = query.lte('created_at', to);
+      const baseSelect = 'id, user_id, organization_client_id, fecha, mensaje, enviado, enviado_at, created_at, alerta_ids';
+      const applyRange = (q) => {
+        let next = q;
+        if (from) next = next.gte('created_at', from);
+        if (to) next = next.lte('created_at', to);
+        return next.order('created_at', { ascending: false }).limit(limit);
+      };
 
-      const { data, error } = await query.order('created_at', { ascending: false }).limit(limit);
+      // Los mensajes de la cooperativa pueden ir a clientes propios (organization_id)
+      // o a usuarios Ruralicos vinculados (user_id). Se consultan por ambas vias y se
+      // mezclan por id para no exigir que el cliente sea ademas usuario B2C.
+      const [byOrg, byUsers] = await Promise.all([
+        applyRange(supabase.from('digests').select(baseSelect).eq('organization_id', orgId)),
+        ids.length
+          ? applyRange(supabase.from('digests').select(baseSelect).in('user_id', ids))
+          : Promise.resolve({ data: [], error: null }),
+      ]);
 
-      if (error) {
-        if (esTablaNoDisponible(error)) return res.json({ ok: true, items: [] });
-        throw error;
+      for (const result of [byOrg, byUsers]) {
+        if (result.error) {
+          if (esTablaNoDisponible(result.error)) return res.json({ ok: true, items: [] });
+          throw result.error;
+        }
       }
 
-      const rows = data || [];
+      const byDigestId = new Map();
+      for (const d of byOrg.data || []) byDigestId.set(String(d.id), d);
+      for (const d of byUsers.data || []) byDigestId.set(String(d.id), d);
+      const rows = [...byDigestId.values()]
+        .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))
+        .slice(0, limit);
 
       // Resolver destinatarios: usuarios Ruralicos (user_id) y clientes propios
       // de la cooperativa (organization_client_id), en lote.
