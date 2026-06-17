@@ -1,11 +1,204 @@
 // src/routes/boe.js
+//
+// Scraper BOE. Captura bruta: se registran en raw_documents TODOS los items del
+// sumario con título y alguna URL, ANTES de filtrar por departamento. El filtro
+// por ministerio/departamento pasa a ser una preclasificación barata: lo que no
+// pasa queda como skipped_by_rule (no se borra). Solo se descarga el HTML y se
+// inserta en alertas para los departamentos relevantes (sin cambios de coste).
+
 const { XMLParser } = require('fast-xml-parser');
 const { checkCronToken } = require('../../../middleware/cronToken');
 const { htmlATexto } = require('../../../shared/htmlParser');
+const {
+  CAPTURE_STATUS,
+  registrarRawDocuments,
+  marcarRawDocumentInsertado,
+  marcarRawDocumentSaltado,
+} = require('../rawDocuments/rawDocuments.service');
 
 const xmlParser = new XMLParser({ ignoreAttributes: false });
 
-module.exports = function boeRoutes(app, supabase) {
+// Ministerios / departamentos "del campo".
+const DEPT_RELEVANTE_REGEX =
+  /(AGRICULTURA|GANADER[ÍI]A|DESARROLLO RURAL|MEDIO AMBIENTE|TRANSICI[ÓO]N ECOL[ÓO]GICA|ALIMENTACI[ÓO]N|PESCA|SANIDAD)/i;
+
+function esDepartamentoRelevante(nombre) {
+  return DEPT_RELEVANTE_REGEX.test(nombre || '');
+}
+
+function extraerUrl(campo) {
+  if (typeof campo === 'string') return campo;
+  if (campo && typeof campo === 'object') return campo['#text'] || campo.text || null;
+  return null;
+}
+
+// Recorre TODO el sumario (sin filtrar por departamento) y devuelve los items con
+// título y alguna URL, con su departamento (region) para preclasificar después.
+function extraerItemsSumario(sumario, fechaISO) {
+  const toArray = (x) => (Array.isArray(x) ? x : x ? [x] : []);
+  const items = [];
+  const vistos = new Set();
+
+  for (const diario of toArray(sumario.diario)) {
+    for (const seccion of toArray(diario.seccion)) {
+      for (const dept of toArray(seccion.departamento)) {
+        const nombreDept = dept['@_nombre'] || dept.nombre || 'NACIONAL';
+
+        const gruposItems = [];
+        for (const epi of toArray(dept.epigrafe)) {
+          const itemsEpi = toArray(epi.item);
+          if (itemsEpi.length) gruposItems.push(itemsEpi);
+          const itemsDispo = toArray(epi.disposicion);
+          if (itemsDispo.length) gruposItems.push(itemsDispo);
+        }
+        const itemsDept = toArray(dept.item);
+        if (itemsDept.length) gruposItems.push(itemsDept);
+
+        for (const grupo of gruposItems) {
+          for (const item of grupo) {
+            if (!item) continue;
+            const titulo = item.titulo;
+            const urlPdf = extraerUrl(item.url_pdf);
+            const urlHtml = extraerUrl(item.url_html);
+
+            // Captura bruta: basta con título + alguna URL (PDF o HTML).
+            if (!titulo || (!urlPdf && !urlHtml)) continue;
+
+            const clave = urlPdf || urlHtml;
+            if (vistos.has(clave)) continue;
+            vistos.add(clave);
+
+            items.push({
+              titulo,
+              url: urlPdf || urlHtml,
+              url_pdf: urlPdf || null,
+              url_html: urlHtml || null,
+              fecha: fechaISO,
+              region: nombreDept,
+            });
+          }
+        }
+      }
+    }
+  }
+
+  return items;
+}
+
+async function fetchHtmlPorDefecto(url_html) {
+  try {
+    const resp = await fetch(url_html);
+    if (!resp.ok) {
+      console.error('Error HTTP al descargar HTML del BOE', resp.status, url_html);
+      return null;
+    }
+    const html = await resp.text();
+    return htmlATexto(html);
+  } catch (e) {
+    console.error('Error descargando/parsing HTML del BOE', url_html, e.message);
+    return null;
+  }
+}
+
+// Núcleo: registrar (bruto) → preclasificar por departamento → insertar (alertas).
+// Separado de la ruta para testearlo con un supabase falso y sin red.
+async function procesarItemsBoe(supabase, items, opciones = {}) {
+  const fechaISO = opciones.fechaISO || null;
+  const deptRelevante = opciones.deptRelevante || esDepartamentoRelevante;
+  const fetchHtml = opciones.fetchHtml || fetchHtmlPorDefecto;
+
+  // 1) Registrar TODOS los items en raw_documents (nada se pierde).
+  const itemsConRaw = await registrarRawDocuments(supabase, items, { fuente: 'BOE' });
+
+  let nuevas = 0;
+  let duplicadas = 0;
+  let saltadasFiltro = 0;
+  let errores = 0;
+
+  for (const item of itemsConRaw) {
+    const region = item.region || 'NACIONAL';
+
+    // 2) Preclasificación barata por departamento (no se borra: se marca).
+    if (!deptRelevante(region)) {
+      saltadasFiltro++;
+      await marcarRawDocumentSaltado(supabase, item.raw_document_id, 'departamento_no_relevante');
+      continue;
+    }
+
+    // La alerta usa la URL del PDF como clave; sin PDF queda registrado pero no
+    // insertable (auditable, no perdido).
+    if (!item.url_pdf) {
+      await marcarRawDocumentSaltado(supabase, item.raw_document_id, 'sin_url_pdf');
+      continue;
+    }
+
+    // 3) Duplicado por URL + título en BD.
+    const { data: existe, error: errorExiste } = await supabase
+      .from('alertas')
+      .select('id')
+      .eq('url', item.url_pdf)
+      .eq('titulo', item.titulo)
+      .limit(1);
+
+    if (errorExiste) {
+      console.error('Error comprobando alerta existente', errorExiste.message);
+      errores++;
+      await marcarRawDocumentSaltado(supabase, item.raw_document_id, errorExiste.message || 'dup_check_error', {
+        status: CAPTURE_STATUS.ERROR,
+      });
+      continue;
+    }
+
+    if (existe && existe.length > 0) {
+      duplicadas++;
+      await marcarRawDocumentSaltado(supabase, item.raw_document_id, 'duplicate_url', {
+        status: CAPTURE_STATUS.DUPLICATE,
+      });
+      continue;
+    }
+
+    // 4) Descargar contenido HTML del BOE (solo departamentos relevantes).
+    let contenidoPlano = item.titulo;
+    if (item.url_html) {
+      const texto = await fetchHtml(item.url_html);
+      if (texto) contenidoPlano = texto.slice(0, 8000);
+    }
+
+    // 5) Insertar alerta y enlazar el raw document.
+    const { data, error: errorInsert } = await supabase
+      .from('alertas')
+      .insert([
+        {
+          titulo: item.titulo,
+          resumen: 'Procesando con IA...',
+          estado_ia: 'pendiente_clasificar',
+          url: item.url_pdf,
+          fecha: fechaISO,
+          region,
+          fuente: 'BOE',
+          contenido: contenidoPlano,
+        },
+      ])
+      .select('id');
+
+    if (errorInsert) {
+      console.error('Error insertando alerta', errorInsert.message);
+      errores++;
+      await marcarRawDocumentSaltado(supabase, item.raw_document_id, errorInsert.message || 'insert_error', {
+        status: CAPTURE_STATUS.ERROR,
+      });
+      continue;
+    }
+
+    nuevas++;
+    const alertaId = Array.isArray(data) && data[0] ? data[0].id : null;
+    await marcarRawDocumentInsertado(supabase, item.raw_document_id, alertaId);
+  }
+
+  return { nuevas, duplicadas, errores, saltadasFiltro };
+}
+
+function boeRoutes(app, supabase) {
   // Scraper BOE por ministerios relacionados con el medio rural
   app.get('/scrape-boe-oficial', async (req, res) => {
     if (!checkCronToken(req, res)) return;
@@ -28,10 +221,7 @@ module.exports = function boeRoutes(app, supabase) {
         });
       }
 
-      const fechaISO = `${fecha.slice(0, 4)}-${fecha.slice(
-        4,
-        6
-      )}-${fecha.slice(6, 8)}`;
+      const fechaISO = `${fecha.slice(0, 4)}-${fecha.slice(4, 6)}-${fecha.slice(6, 8)}`;
 
       // 2) URL BOE
       const url = `https://boe.es/datosabiertos/api/boe/sumario/${fecha}`;
@@ -70,171 +260,19 @@ module.exports = function boeRoutes(app, supabase) {
         });
       }
 
-      const toArray = (x) => (Array.isArray(x) ? x : x ? [x] : []);
+      // 4) Recolectar TODOS los items del sumario (sin filtrar) y procesar.
+      const items = extraerItemsSumario(sumario, fechaISO);
+      const stats = await procesarItemsBoe(supabase, items, { fechaISO });
 
-      const diarios = toArray(sumario.diario);
-      let nuevas = 0;
-
-      // 4) MINISTERIOS / DEPARTAMENTOS “del campo”
-     const deptRelevanteRegex =
-  /(AGRICULTURA|GANADER[ÍI]A|DESARROLLO RURAL|MEDIO AMBIENTE|TRANSICI[ÓO]N ECOL[ÓO]GICA|ALIMENTACI[ÓO]N|PESCA|SANIDAD)/i;
-
-
-      // 5) COSAS QUE INTERESAN
-     // const keywordsInteres =
-      //  /(ayudas?|subvenci[oó]n|subvenciones|convocatoria|bases reguladoras|extracto de la Orden|extracto|real decreto|ley\b|leyes\b|reglamento|reglamentos|modificaci[oó]n|modifica la|corrige errores|correcci[oó]n de errores|plazo|plazos|pr[oó]rroga|prorroga|autoriza|programa|acuerdo|establece|informe|plan|publica)/i;
-
-      // 6) Evitar duplicados internos por URL PDF en el mismo scrape
-      const vistosInternos = new Set();
-
-      // 7) Recorrer todo el BOE
-      for (const diario of diarios) {
-        const secciones = toArray(diario.seccion);
-
-        for (const seccion of secciones) {
-          const departamentos = toArray(seccion.departamento);
-
-          for (const dept of departamentos) {
-            const nombreDept =
-              dept['@_nombre'] || dept.nombre || 'NACIONAL';
-
-            // FILTRO POR MINISTERIO/DEPARTAMENTO
-            if (!deptRelevanteRegex.test(nombreDept)) {
-              continue;
-            }
-
-            const epigrafes = toArray(dept.epigrafe);
-            const gruposItems = [];
-
-            // Items dentro de epígrafes
-            for (const epi of epigrafes) {
-              const itemsEpi = toArray(epi.item);
-              if (itemsEpi.length) gruposItems.push(itemsEpi);
-
-              // También disposiciones dentro del epígrafe
-              const itemsDispo = toArray(epi.disposicion);
-              if (itemsDispo.length) gruposItems.push(itemsDispo);
-            }
-
-            // Items colgando directamente del departamento
-            const itemsDept = toArray(dept.item);
-            if (itemsDept.length) gruposItems.push(itemsDept);
-
-            // Procesar cada ítem
-            for (const grupo of gruposItems) {
-              for (const item of grupo) {
-                if (!item) continue;
-
-                const titulo = item.titulo;
-
-                // URL del PDF
-                let url_pdf = null;
-                if (typeof item.url_pdf === 'string') {
-                  url_pdf = item.url_pdf;
-                } else if (item.url_pdf && typeof item.url_pdf === 'object') {
-                  url_pdf =
-                    item.url_pdf['#text'] || item.url_pdf.text || null;
-                }
-
-                // URL HTML (texto “legible” del BOE)
-                let url_html = null;
-                if (typeof item.url_html === 'string') {
-                  url_html = item.url_html;
-                } else if (item.url_html && typeof item.url_html === 'object') {
-                  url_html =
-                    item.url_html['#text'] || item.url_html.text || null;
-                }
-
-                if (!titulo || !url_pdf) continue;
-
-                // Evitar duplicados internos por URL PDF en este scrape
-                if (vistosInternos.has(url_pdf)) continue;
-                vistosInternos.add(url_pdf);
-
-                // 8) FILTRO DE INTERÉS (solo positivas)
-               // if (!keywordsInteres.test(titulo)) continue;
-
-                // Evitar duplicados por URL + título en BD
-                const { data: existe, error: errorExiste } = await supabase
-                  .from('alertas')
-                  .select('id')
-                  .eq('url', url_pdf)
-                  .eq('titulo', titulo)
-                  .limit(1);
-
-                if (errorExiste) {
-                  console.error(
-                    'Error comprobando alerta existente',
-                    errorExiste.message
-                  );
-                  continue;
-                }
-
-                if (existe && existe.length > 0) {
-                  continue;
-                }
-
-                // 9) Descargar contenido HTML del BOE (si hay url_html)
-                let contenidoPlano = titulo;
-                if (url_html) {
-                  try {
-                    const respHtml = await fetch(url_html);
-                    if (respHtml.ok) {
-                      const html = await respHtml.text();
-                      const texto = htmlATexto(html);
-                      // Recortamos para no petar tokens (ajusta si quieres)
-                      contenidoPlano = texto.slice(0, 8000);
-                    } else {
-                      console.error(
-                        'Error HTTP al descargar HTML del BOE',
-                        respHtml.status,
-                        url_html
-                      );
-                    }
-                  } catch (e) {
-                    console.error(
-                      'Error descargando/parsing HTML del BOE',
-                      url_html,
-                      e.message
-                    );
-                  }
-                }
-
-                // 10) Insertar alerta con contenido
-                const { error: errorInsert } = await supabase
-                  .from('alertas')
-                  .insert([
-                    {
-                      titulo,
-                      resumen: 'Procesando con IA...', // EXACTO
-                      estado_ia: 'pendiente_clasificar',
-                      url: url_pdf,
-                      fecha: fechaISO,
-                      region: nombreDept,
-                      fuente: 'BOE',
-                      contenido: contenidoPlano, // texto extraído del BOE
-                    },
-                  ]);
-
-                if (errorInsert) {
-                  console.error(
-                    'Error insertando alerta',
-                    errorInsert.message
-                  );
-                  continue;
-                }
-
-                nuevas++;
-              }
-            }
-          }
-        }
-      }
-
-      res.json({ success: true, nuevas, fecha: fechaISO });
+      res.json({ success: true, fecha: fechaISO, totales: items.length, ...stats });
     } catch (err) {
       console.error('Error en /scrape-boe-oficial', err);
       res.status(500).json({ error: err.message });
     }
   });
-};
+}
+
+module.exports = boeRoutes;
+module.exports.procesarItemsBoe = procesarItemsBoe;
+module.exports.extraerItemsSumario = extraerItemsSumario;
+module.exports.esDepartamentoRelevante = esDepartamentoRelevante;

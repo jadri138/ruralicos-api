@@ -19,46 +19,85 @@ async function test(name, fn) {
   }
 }
 
+// thenable que ademas soporta .select(): replica `insert(rows).select('id, url')`
+// y `await insert(rows)` de supabase-js.
+function resultadoEscritura(result) {
+  return {
+    select() {
+      return Promise.resolve(result);
+    },
+    then(resolve, reject) {
+      return Promise.resolve(result).then(resolve, reject);
+    },
+  };
+}
+
 function crearSupabaseFake({ existentes = [], batchInsertError = false, failedUrls = [] } = {}) {
   const existentesSet = new Set(existentes.map(String));
   const failedSet = new Set(failedUrls.map(String));
   const inserted = [];
-  const calls = { selects: 0, inserts: 0 };
+  const rawUpdates = [];
+  const calls = { selects: 0, inserts: 0, rawUpdates: 0 };
+  let nextAlertaId = 1;
+
+  function alertas() {
+    return {
+      select(columns) {
+        assert.strictEqual(columns, 'url');
+        return {
+          async in(column, urls) {
+            assert.strictEqual(column, 'url');
+            calls.selects += 1;
+            return {
+              data: urls
+                .filter((url) => existentesSet.has(String(url)))
+                .map((url) => ({ url })),
+              error: null,
+            };
+          },
+        };
+      },
+      insert(rows) {
+        const list = Array.isArray(rows) ? rows : [rows];
+        calls.inserts += 1;
+        if (batchInsertError && list.length > 1) {
+          return resultadoEscritura({ data: null, error: { message: 'batch failed' } });
+        }
+        if (list.some((row) => failedSet.has(String(row.url)))) {
+          return resultadoEscritura({ data: null, error: { message: 'single failed' } });
+        }
+        inserted.push(...list);
+        return resultadoEscritura({
+          data: list.map((row) => ({ id: nextAlertaId++, url: row.url })),
+          error: null,
+        });
+      },
+    };
+  }
+
+  function rawDocuments() {
+    return {
+      update(patch) {
+        return {
+          async eq(column, value) {
+            assert.strictEqual(column, 'id');
+            calls.rawUpdates += 1;
+            rawUpdates.push({ id: value, patch });
+            return { data: null, error: null };
+          },
+        };
+      },
+    };
+  }
 
   return {
     inserted,
+    rawUpdates,
     calls,
     from(table) {
-      assert.strictEqual(table, 'alertas');
-      return {
-        select(columns) {
-          assert.strictEqual(columns, 'url');
-          return {
-            async in(column, urls) {
-              assert.strictEqual(column, 'url');
-              calls.selects += 1;
-              return {
-                data: urls
-                  .filter((url) => existentesSet.has(String(url)))
-                  .map((url) => ({ url })),
-                error: null,
-              };
-            },
-          };
-        },
-        async insert(rows) {
-          const list = Array.isArray(rows) ? rows : [rows];
-          calls.inserts += 1;
-          if (batchInsertError && list.length > 1) {
-            return { error: { message: 'batch failed' } };
-          }
-          if (list.some((row) => failedSet.has(String(row.url)))) {
-            return { error: { message: 'single failed' } };
-          }
-          inserted.push(...list);
-          return { data: null, error: null };
-        },
-      };
+      if (table === 'alertas') return alertas();
+      if (table === 'raw_documents') return rawDocuments();
+      throw new Error(`tabla inesperada en el fake: ${table}`);
     },
   };
 }
@@ -95,6 +134,8 @@ async function main() {
     assert.strictEqual(supabase.inserted[0].contenido, 'Texto nuevo');
     assert.strictEqual(supabase.calls.selects, 1);
     assert.strictEqual(supabase.calls.inserts, 1);
+    // Sin raw_document_id no se toca raw_documents (compatibilidad con scrapers actuales).
+    assert.strictEqual(supabase.calls.rawUpdates, 0);
   });
 
   await test('recupera inserciones validas si falla el batch', async () => {
@@ -126,6 +167,60 @@ async function main() {
     assert.ok(contenido.includes('--- metadatos ---'));
     assert.ok(contenido.includes('"organismo":"Organismo"'));
     assert.ok(contenido.includes('"urlPdf":"https://example.com/doc.pdf"'));
+  });
+
+  await test('documento sin URL con raw_document_id queda como missing_url', async () => {
+    const supabase = crearSupabaseFake();
+    const result = await insertarAlertasBoletin(supabase, [
+      { raw_document_id: 10, titulo: 'Sin URL', fecha: '2026-06-17', texto: 'X' },
+    ], { fuente: 'TEST', region: 'T', contenido: (doc) => doc.texto });
+
+    assert.deepStrictEqual(result, { nuevas: 0, duplicadas: 0, errores: 1 });
+    assert.strictEqual(supabase.inserted.length, 0);
+    const upd = supabase.rawUpdates.find((u) => u.id === 10);
+    assert.ok(upd, 'se actualizo el raw document');
+    assert.strictEqual(upd.patch.capture_status, 'missing_url');
+  });
+
+  await test('documento duplicado en BD con raw_document_id queda como duplicate', async () => {
+    const supabase = crearSupabaseFake({ existentes: ['u-dup'] });
+    const result = await insertarAlertasBoletin(supabase, [
+      { raw_document_id: 20, url: 'u-dup', titulo: 'Dup', fecha: '2026-06-17', texto: 'X' },
+    ], { fuente: 'TEST', region: 'T', contenido: (doc) => doc.texto });
+
+    assert.deepStrictEqual(result, { nuevas: 0, duplicadas: 1, errores: 0 });
+    assert.strictEqual(supabase.inserted.length, 0);
+    const upd = supabase.rawUpdates.find((u) => u.id === 20);
+    assert.ok(upd);
+    assert.strictEqual(upd.patch.capture_status, 'duplicate');
+  });
+
+  await test('duplicado interno marca el segundo raw como duplicate y enlaza el primero', async () => {
+    const supabase = crearSupabaseFake();
+    const result = await insertarAlertasBoletin(supabase, [
+      { raw_document_id: 30, url: 'u-x', titulo: 'A', fecha: '2026-06-17', texto: 'A' },
+      { raw_document_id: 31, url: 'u-x', titulo: 'A bis', fecha: '2026-06-17', texto: 'A' },
+    ], { fuente: 'TEST', region: 'T', contenido: (doc) => doc.texto });
+
+    assert.deepStrictEqual(result, { nuevas: 1, duplicadas: 1, errores: 0 });
+    const u31 = supabase.rawUpdates.find((u) => u.id === 31);
+    assert.strictEqual(u31.patch.capture_status, 'duplicate');
+    const u30 = supabase.rawUpdates.find((u) => u.id === 30);
+    assert.strictEqual(u30.patch.capture_status, 'inserted');
+  });
+
+  await test('documento insertado enlaza inserted_alerta_id con la alerta creada', async () => {
+    const supabase = crearSupabaseFake();
+    const result = await insertarAlertasBoletin(supabase, [
+      { raw_document_id: 40, url: 'u-ok', titulo: 'OK', fecha: '2026-06-17', texto: 'T' },
+    ], { fuente: 'TEST', region: 'T', contenido: (doc) => doc.texto });
+
+    assert.deepStrictEqual(result, { nuevas: 1, duplicadas: 0, errores: 0 });
+    assert.strictEqual(supabase.inserted[0].url, 'u-ok');
+    const upd = supabase.rawUpdates.find((u) => u.id === 40);
+    assert.ok(upd);
+    assert.strictEqual(upd.patch.capture_status, 'inserted');
+    assert.strictEqual(typeof upd.patch.inserted_alerta_id, 'number');
   });
 
   console.log(`\nResultados insertarAlertasBoletin: ${passed} aprobados, ${failed} fallidos`);
