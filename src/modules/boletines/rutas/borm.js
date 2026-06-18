@@ -1,6 +1,6 @@
 const { checkCronToken } = require('../../../middleware/cronToken');
 const { getFechaHoyYYYYMMDD, obtenerDocumentosBormPorFecha } = require('../scrapers/BORM/bormScraper');
-const { insertarAlertasBoletin } = require('./shared/insertarAlertasBoletin');
+const { procesarConFiltroRural } = require('./shared/procesarConFiltroRural');
 
 function normalizar(s) {
   return (s || '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
@@ -29,8 +29,6 @@ module.exports = function bormRoutes(app, supabase) {
   app.get('/scrape-borm-oficial', async (req, res) => {
     if (!checkCronToken(req, res)) return;
 
-    let saltadasFiltro = 0;
-
     try {
       const fechaHoy = getFechaHoyYYYYMMDD();
       const docs = await obtenerDocumentosBormPorFecha(fechaHoy);
@@ -48,32 +46,17 @@ module.exports = function bormRoutes(app, supabase) {
         });
       }
 
-      const docsInsertables = [];
-      for (const doc of docs) {
-        const bolsa = [doc.texto.slice(0, 3500), doc.titulo, doc.seccion, doc.organismo].join(' ');
-        if (!esRuralRelevante(bolsa)) {
-          saltadasFiltro++;
-          continue;
-        }
-
-        docsInsertables.push(doc);
-      }
-
-      const { nuevas, duplicadas, errores } = await insertarAlertasBoletin(supabase, docsInsertables, {
+      const stats = await procesarConFiltroRural(supabase, docs, {
         fuente: 'BORM',
         region: 'Murcia',
+        esRuralRelevante,
         contenido: (doc) => doc.texto,
       });
 
       return res.json({
         success: true,
-        totales: docs.length,
-        documentos_insertables: docs.length - saltadasFiltro,
-        nuevas,
-        duplicadas,
-        errores,
-        saltadasFiltro,
-        mensaje: 'BORM procesado (API REST + filtro rural)',
+        ...stats,
+        mensaje: 'BORM procesado (API REST + captura bruta + filtro rural)',
       });
     } catch (e) {
       console.error('Error en /scrape-borm-oficial', e);
