@@ -6,10 +6,20 @@
 //
 // Cron recomendado: días laborables a las 10:00–11:00h (el BOJA
 // se publica normalmente entre las 08:00 y las 10:00h de lunes a viernes).
+//
+// Captura bruta: TODOS los documentos devueltos por la API se registran en
+// raw_documents ANTES del filtro rural. Los descartados por el filtro quedan
+// como skipped_by_rule (no se pierden); los insertados enlazan con su alerta.
 
 const { checkCronToken } = require('../../../middleware/cronToken');
 const { getFechaHoyYYYYMMDD, obtenerDocumentosBojaPorFecha } = require('../scrapers/BOJA/bojaScraper');
 const { insertarAlertasBoletin } = require('./shared/insertarAlertasBoletin');
+const {
+  registrarRawDocuments,
+  marcarRawDocumentSaltado,
+} = require('../rawDocuments/rawDocuments.service');
+
+const REGION = 'Andalucía';
 
 // ─────────────────────────────────────────────
 // Filtro de relevancia rural
@@ -42,13 +52,58 @@ function esRuralRelevante(texto) {
 }
 
 // ─────────────────────────────────────────────
+// Núcleo: registrar (bruto) → filtrar (rural) → insertar (alertas).
+// Separado de la ruta para poder testearlo con un supabase falso.
+// ─────────────────────────────────────────────
+async function procesarDocumentosBoja(supabase, docs) {
+  const docsConRaw = await registrarRawDocuments(supabase, docs, {
+    fuente: 'BOJA',
+    region: REGION,
+  });
+
+  let saltadasFiltro = 0;
+  const docsInsertables = [];
+
+  for (const doc of docsConRaw) {
+    // Filtro rural: texto + título + sección + organismo
+    const bolsa = [
+      String(doc.texto || '').slice(0, 3500),
+      doc.titulo,
+      doc.seccion,
+      doc.organismo,
+    ].join(' ');
+
+    if (!esRuralRelevante(bolsa)) {
+      saltadasFiltro++;
+      await marcarRawDocumentSaltado(supabase, doc.raw_document_id, 'rural_filter_no_match');
+      continue;
+    }
+
+    docsInsertables.push(doc);
+  }
+
+  const { nuevas, duplicadas, errores } = await insertarAlertasBoletin(supabase, docsInsertables, {
+    fuente: 'BOJA',
+    region: REGION,
+    contenido: (doc) => doc.texto,
+  });
+
+  return {
+    totales: docs.length,
+    documentos_insertables: docs.length - saltadasFiltro,
+    nuevas,
+    duplicadas,
+    errores,
+    saltadasFiltro,
+  };
+}
+
+// ─────────────────────────────────────────────
 // Ruta
 // ─────────────────────────────────────────────
-module.exports = function bojaRoutes(app, supabase) {
+function bojaRoutes(app, supabase) {
   app.get('/scrape-boja-oficial', async (req, res) => {
     if (!checkCronToken(req, res)) return;
-
-    let saltadasFiltro = 0;
 
     try {
       const fechaHoy = getFechaHoyYYYYMMDD();
@@ -63,37 +118,20 @@ module.exports = function bojaRoutes(app, supabase) {
         });
       }
 
-      const docsInsertables = [];
-      for (const doc of docs) {
-        // Filtro rural: texto + título + sección + organismo
-        const bolsa = [doc.texto.slice(0, 3500), doc.titulo, doc.seccion, doc.organismo].join(' ');
-        if (!esRuralRelevante(bolsa)) {
-          saltadasFiltro++;
-          continue;
-        }
-
-        docsInsertables.push(doc);
-      }
-
-      const { nuevas, duplicadas, errores } = await insertarAlertasBoletin(supabase, docsInsertables, {
-        fuente: 'BOJA',
-        region: 'Andalucía',
-        contenido: (doc) => doc.texto,
-      });
+      const stats = await procesarDocumentosBoja(supabase, docs);
 
       return res.json({
         success: true,
-        totales:                docs.length,
-        documentos_insertables: docs.length - saltadasFiltro,
-        nuevas,
-        duplicadas,
-        errores,
-        saltadasFiltro,
-        mensaje: 'BOJA procesado (API oficial Junta de Andalucía + filtro rural)',
+        ...stats,
+        mensaje: 'BOJA procesado (API oficial Junta de Andalucía + captura bruta + filtro rural)',
       });
     } catch (e) {
       console.error('Error en /scrape-boja-oficial', e);
       return res.status(500).json({ error: e.message });
     }
   });
-};
+}
+
+module.exports = bojaRoutes;
+module.exports.procesarDocumentosBoja = procesarDocumentosBoja;
+module.exports.esRuralRelevante = esRuralRelevante;
