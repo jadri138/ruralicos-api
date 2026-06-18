@@ -9,7 +9,7 @@
 
 const { checkCronToken }                          = require('../../../middleware/cronToken');
 const { getFechaHoyYYYYMMDD, obtenerDocumentosBocylPorFecha } = require('../scrapers/BOCYL/bocylScraper');
-const { insertarAlertasBoletin } = require('./shared/insertarAlertasBoletin');
+const { procesarConFiltroRural } = require('./shared/procesarConFiltroRural');
 
 // ─────────────────────────────────────────────
 // Filtro de relevancia rural
@@ -46,8 +46,6 @@ module.exports = function bocylRoutes(app, supabase) {
   app.get('/scrape-bocyl-oficial', async (req, res) => {
     if (!checkCronToken(req, res)) return;
 
-    let saltadasFiltro = 0;
-
     try {
       const fechaHoy = getFechaHoyYYYYMMDD();
       const docs     = await obtenerDocumentosBocylPorFecha(fechaHoy);
@@ -61,33 +59,17 @@ module.exports = function bocylRoutes(app, supabase) {
         });
       }
 
-      const docsInsertables = [];
-      for (const doc of docs) {
-        // Filtro rural: texto + título + sección + organismo
-        const bolsa = [doc.texto.slice(0, 3500), doc.titulo, doc.seccion, doc.organismo].join(' ');
-        if (!esRuralRelevante(bolsa)) {
-          saltadasFiltro++;
-          continue;
-        }
-
-        docsInsertables.push(doc);
-      }
-
-      const { nuevas, duplicadas, errores } = await insertarAlertasBoletin(supabase, docsInsertables, {
+      const stats = await procesarConFiltroRural(supabase, docs, {
         fuente: 'BOCYL',
         region: 'Castilla y León',
+        esRuralRelevante,
         contenido: (doc) => doc.texto,
       });
 
       return res.json({
         success: true,
-        totales:              docs.length,
-        documentos_insertables: docs.length - saltadasFiltro,
-        nuevas,
-        duplicadas,
-        errores,
-        saltadasFiltro,
-        mensaje: 'BOCYL procesado (API OpenDataSoft + filtro rural)',
+        ...stats,
+        mensaje: 'BOCYL procesado (API OpenDataSoft + captura bruta + filtro rural)',
       });
     } catch (e) {
       console.error('Error en /scrape-bocyl-oficial', e);
