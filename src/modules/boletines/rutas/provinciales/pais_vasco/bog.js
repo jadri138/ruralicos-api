@@ -3,7 +3,7 @@ const {
   getFechaMadridISO,
   obtenerDocumentosBogConTexto,
 } = require('../../../scrapers/provinciales/pais_vasco/bog/scraper');
-const { insertarAlertasBoletin } = require('../../shared/insertarAlertasBoletin');
+const { procesarBoletinPreclasificado } = require('../../shared/procesarBoletinPreclasificado');
 
 module.exports = function bogRoutes(app, supabase) {
   app.get('/scrape-bog-oficial', async (req, res) => {
@@ -14,8 +14,9 @@ module.exports = function bogRoutes(app, supabase) {
       : getFechaMadridISO();
 
     try {
+      // docs incluye TODOS los detectados, anotados con `_relevante` (captura bruta).
       const docs = await obtenerDocumentosBogConTexto(fecha);
-      const insertadas = await insertarAlertasBoletin(supabase, docs, {
+      const stats = await procesarBoletinPreclasificado(supabase, docs, {
         fuente: 'BOG',
         region: 'Gipuzkoa',
       });
@@ -23,9 +24,8 @@ module.exports = function bogRoutes(app, supabase) {
       return res.json({
         success: true,
         fecha,
-        relevantes: docs.length,
-        ...insertadas,
-        mensaje: 'BOG procesado',
+        ...stats,
+        mensaje: 'BOG procesado (captura bruta + filtro provincial)',
       });
     } catch (err) {
       console.error('Error en /scrape-bog-oficial', err);

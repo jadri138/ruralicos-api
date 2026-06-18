@@ -175,15 +175,20 @@ async function obtenerDocumentosBoibConTexto(fechaISO, esRuralRelevante) {
   const todos = await obtenerDocumentosSumario(boletin);
   const resultado = [];
 
+  // Captura bruta: se devuelven TODOS los detectados anotados con `_relevante`; el
+  // texto solo se descarga para los relevantes (coste idéntico al de antes).
   for (const doc of todos) {
-    if (!esRuralRelevante(doc.titulo)) continue;
+    if (!esRuralRelevante(doc.titulo)) {
+      resultado.push({ ...doc, _relevante: false });
+      continue;
+    }
 
     await sleep(DELAY_MS);
     const texto = await obtenerTextoDocumento(doc.url);
-    resultado.push({ ...doc, texto: texto || doc.titulo });
+    resultado.push({ ...doc, texto: texto || doc.titulo, _relevante: true });
   }
 
-  console.log(`[BOIB] ${resultado.length} documentos relevantes de ${todos.length} totales`);
+  console.log(`[BOIB] ${resultado.length} documentos detectados (captura bruta) de ${todos.length}`);
   return resultado;
 }
 

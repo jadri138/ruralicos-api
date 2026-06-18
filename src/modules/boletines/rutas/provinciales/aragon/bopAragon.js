@@ -5,7 +5,7 @@ const {
   obtenerDocumentosBophConTexto,
   obtenerDocumentosBoptConTexto,
 } = require('../../../scrapers/provinciales/aragon/scraper');
-const { insertarAlertasBoletin } = require('../../shared/insertarAlertasBoletin');
+const { procesarBoletinPreclasificado } = require('../../shared/procesarBoletinPreclasificado');
 
 function fechaObjetivo(req) {
   return /^\d{4}-\d{2}-\d{2}$/.test(req.query.fecha || '')
@@ -19,8 +19,9 @@ function registrarScraper(app, supabase, config) {
 
     const fecha = fechaObjetivo(req);
     try {
+      // docs incluye TODOS los detectados, anotados con `_relevante` (captura bruta).
       const docs = await config.obtener(fecha);
-      const insertadas = await insertarAlertasBoletin(supabase, docs, {
+      const stats = await procesarBoletinPreclasificado(supabase, docs, {
         fuente: config.fuente,
         region: config.region,
       });
@@ -28,9 +29,8 @@ function registrarScraper(app, supabase, config) {
       return res.json({
         success: true,
         fecha,
-        relevantes: docs.length,
-        ...insertadas,
-        mensaje: `${config.fuente} procesado`,
+        ...stats,
+        mensaje: `${config.fuente} procesado (captura bruta + filtro provincial)`,
       });
     } catch (err) {
       console.error(`Error en ${config.path}`, err);

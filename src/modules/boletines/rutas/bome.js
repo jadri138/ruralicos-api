@@ -4,7 +4,7 @@
 
 const { checkCronToken } = require('../../../middleware/cronToken');
 const { obtenerDocumentosBomeConTexto, getFechaHoyISO } = require('../scrapers/BOME/bomeScraper');
-const { insertarAlertasBoletin } = require('./shared/insertarAlertasBoletin');
+const { procesarBoletinPreclasificado } = require('./shared/procesarBoletinPreclasificado');
 
 function normalizar(s) {
   return (s || '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
@@ -49,14 +49,17 @@ module.exports = function bomeRoutes(app, supabase) {
         return res.json({
           success: true,
           fecha,
+          totales: 0,
+          documentos_insertables: 0,
           nuevas: 0,
           duplicadas: 0,
           errores: 0,
-          mensaje: 'No hay disposiciones BOME relevantes en esta fecha',
+          saltadasFiltro: 0,
+          mensaje: 'No hay disposiciones BOME en esta fecha',
         });
       }
 
-      const { nuevas, duplicadas, errores } = await insertarAlertasBoletin(supabase, docs, {
+      const stats = await procesarBoletinPreclasificado(supabase, docs, {
         fuente: 'BOME',
         region: 'Melilla',
         contenido: (doc) => doc.texto,
@@ -65,11 +68,8 @@ module.exports = function bomeRoutes(app, supabase) {
       return res.json({
         success: true,
         fecha,
-        relevantes: docs.length,
-        nuevas,
-        duplicadas,
-        errores,
-        mensaje: 'BOME procesado',
+        ...stats,
+        mensaje: 'BOME procesado (captura bruta + filtro rural)',
       });
     } catch (e) {
       console.error('Error en /scrape-bome', e);

@@ -5,7 +5,7 @@
 
 const { checkCronToken } = require('../../../middleware/cronToken');
 const { obtenerDocumentosBopaConTexto, getFechaHoyISO } = require('../scrapers/BOPA/bopaScraper');
-const { insertarAlertasBoletin } = require('./shared/insertarAlertasBoletin');
+const { procesarBoletinPreclasificado } = require('./shared/procesarBoletinPreclasificado');
 
 function normalizar(s) {
   return (s || '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
@@ -54,14 +54,17 @@ module.exports = function bopaRoutes(app, supabase) {
         return res.json({
           success: true,
           fecha: fecha || getFechaHoyISO(),
+          totales: 0,
+          documentos_insertables: 0,
           nuevas: 0,
           duplicadas: 0,
           errores: 0,
-          mensaje: 'No hay disposiciones BOPA relevantes en el último boletín',
+          saltadasFiltro: 0,
+          mensaje: 'No hay disposiciones BOPA en el último boletín',
         });
       }
 
-      const { nuevas, duplicadas, errores } = await insertarAlertasBoletin(supabase, docs, {
+      const stats = await procesarBoletinPreclasificado(supabase, docs, {
         fuente: 'BOPA',
         region: 'Asturias',
         contenido: (doc) => doc.texto,
@@ -70,11 +73,8 @@ module.exports = function bopaRoutes(app, supabase) {
       return res.json({
         success: true,
         fecha: docs[0]?.fecha || fecha,
-        relevantes: docs.length,
-        nuevas,
-        duplicadas,
-        errores,
-        mensaje: 'BOPA procesado',
+        ...stats,
+        mensaje: 'BOPA procesado (captura bruta + filtro rural)',
       });
     } catch (e) {
       console.error('Error en /scrape-bopa', e);

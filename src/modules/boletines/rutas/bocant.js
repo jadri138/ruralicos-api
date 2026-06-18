@@ -5,7 +5,7 @@
 
 const { checkCronToken } = require('../../../middleware/cronToken');
 const { obtenerDocumentosBocantConTexto, getFechaHoyISO } = require('../scrapers/BOCANT/bocantScraper');
-const { insertarAlertasBoletin } = require('./shared/insertarAlertasBoletin');
+const { procesarBoletinPreclasificado } = require('./shared/procesarBoletinPreclasificado');
 
 function normalizar(s) {
   return (s || '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
@@ -55,14 +55,17 @@ module.exports = function bocantRoutes(app, supabase) {
         return res.json({
           success: true,
           fecha: fecha || getFechaHoyISO(),
+          totales: 0,
+          documentos_insertables: 0,
           nuevas: 0,
           duplicadas: 0,
           errores: 0,
-          mensaje: 'No hay disposiciones BOC Cantabria relevantes en esta fecha',
+          saltadasFiltro: 0,
+          mensaje: 'No hay disposiciones BOC Cantabria en esta fecha',
         });
       }
 
-      const { nuevas, duplicadas, errores } = await insertarAlertasBoletin(supabase, docs, {
+      const stats = await procesarBoletinPreclasificado(supabase, docs, {
         fuente: 'BOCANT',
         region: 'Cantabria',
         contenido: (doc) => doc.texto,
@@ -71,11 +74,8 @@ module.exports = function bocantRoutes(app, supabase) {
       return res.json({
         success: true,
         fecha: docs[0]?.fecha || fecha,
-        relevantes: docs.length,
-        nuevas,
-        duplicadas,
-        errores,
-        mensaje: 'BOC Cantabria procesado',
+        ...stats,
+        mensaje: 'BOC Cantabria procesado (captura bruta + filtro rural)',
       });
     } catch (e) {
       console.error('Error en /scrape-bocant', e);

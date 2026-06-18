@@ -125,16 +125,21 @@ async function obtenerDocumentosBomeConTexto(fechaISO, esRuralRelevante) {
   }
 
   const resultado = [];
+  // Captura bruta: se devuelven TODOS los detectados anotados con `_relevante`; el
+  // texto solo se descarga para los relevantes (coste idéntico al de antes).
   for (const doc of todos) {
     const textoBase = `${doc.organismo} ${doc.titulo}`;
-    if (!esRuralRelevante(textoBase)) continue;
+    if (!esRuralRelevante(textoBase)) {
+      resultado.push({ ...doc, _relevante: false });
+      continue;
+    }
 
     await sleep(DELAY_MS);
     const texto = await obtenerTextoArticulo(doc.url);
-    resultado.push({ ...doc, texto: texto || textoBase });
+    resultado.push({ ...doc, texto: texto || textoBase, _relevante: true });
   }
 
-  console.log(`[BOME] ${resultado.length} documentos relevantes de ${todos.length} totales`);
+  console.log(`[BOME] ${resultado.length} documentos detectados (captura bruta) de ${todos.length}`);
   return resultado;
 }
 

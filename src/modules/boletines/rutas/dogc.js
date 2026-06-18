@@ -5,7 +5,7 @@
 
 const { checkCronToken } = require('../../../middleware/cronToken');
 const { obtenerDocumentosDogcConTexto, getFechaHoyISO } = require('../scrapers/DOGC/dogcScraper');
-const { insertarAlertasBoletin } = require('./shared/insertarAlertasBoletin');
+const { procesarBoletinPreclasificado } = require('./shared/procesarBoletinPreclasificado');
 
 // ─────────────────────────────────────────────
 // Filtro de relevancia rural
@@ -48,26 +48,22 @@ module.exports = function dogcRoutes(app, supabase) {
   app.get('/scrape-dogc', async (req, res) => {
     if (!checkCronToken(req, res)) return;
 
-    let saltadasFiltro = 0;
-
     try {
       const fechaHoy = getFechaHoyISO();
+      // docs incluye TODOS los detectados, anotados con `_relevante` (captura bruta).
       const docs     = await obtenerDocumentosDogcConTexto(fechaHoy, esRuralRelevante);
-
-      // docs ya llegan pre-filtrados por esRuralRelevante
-      // saltadasFiltro se calcula en el scraper implícitamente
-      // aquí solo gestionamos inserción
 
       if (!docs.length) {
         return res.json({
           success: true,
           fecha: fechaHoy,
-          nuevas: 0, duplicadas: 0, errores: 0,
-          mensaje: 'No hay disposiciones DOGC relevantes hoy',
+          totales: 0, documentos_insertables: 0,
+          nuevas: 0, duplicadas: 0, errores: 0, saltadasFiltro: 0,
+          mensaje: 'No hay disposiciones DOGC hoy (festivo o fin de semana)',
         });
       }
 
-      const { nuevas, duplicadas, errores } = await insertarAlertasBoletin(supabase, docs, {
+      const stats = await procesarBoletinPreclasificado(supabase, docs, {
         fuente: 'DOGC',
         region: 'Catalunya',
         contenido: (doc) => doc.texto,
@@ -76,11 +72,8 @@ module.exports = function dogcRoutes(app, supabase) {
       return res.json({
         success: true,
         fecha: fechaHoy,
-        relevantes: docs.length,
-        nuevas,
-        duplicadas,
-        errores,
-        mensaje: 'DOGC procesado (Socrata + texto HTML)',
+        ...stats,
+        mensaje: 'DOGC procesado (Socrata + captura bruta + filtro rural)',
       });
     } catch (e) {
       console.error('Error en /scrape-dogc', e);
