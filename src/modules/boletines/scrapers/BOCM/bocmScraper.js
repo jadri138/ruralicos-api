@@ -113,22 +113,35 @@ async function obtenerDocumentosBocmConTexto(fechaISO, esRuralRelevante) {
   const { data: xml } = await axios.get(xmlUrl, { timeout: 20000, headers: HEADERS });
   const todos = parsearSumarioXml(xml, fechaBoletin);
 
-  // Filtrar por relevancia usando título + nombre del organismo
-  const relevantes = todos.filter((d) => esRuralRelevante(`${d.titulo} ${d.organismo}`));
-
+  // Captura bruta: se devuelven TODOS los detectados anotados con `_relevante`
+  // (filtro por título + nombre del organismo). El texto solo se descarga para los
+  // relevantes (coste idéntico al de antes).
   const resultado = [];
-  for (const doc of relevantes) {
+  for (const doc of todos) {
+    if (!esRuralRelevante(`${doc.titulo} ${doc.organismo}`)) {
+      resultado.push({
+        titulo: doc.titulo,
+        url: doc.urlHtml,
+        organismo: doc.organismo,
+        fecha: doc.fecha,
+        _relevante: false,
+      });
+      continue;
+    }
+
     await sleep(DELAY_MS);
     const texto = await obtenerTextoDisposicion(doc.urlXml, doc.urlHtml);
     resultado.push({
       titulo: doc.titulo,
       url: doc.urlHtml,
+      organismo: doc.organismo,
       fecha: doc.fecha,
       texto: texto || doc.titulo,
+      _relevante: true,
     });
   }
 
-  console.log(`[BOCM] ${resultado.length} documentos relevantes de ${todos.length} totales`);
+  console.log(`[BOCM] ${resultado.length} documentos detectados (captura bruta) de ${todos.length}`);
   return resultado;
 }
 

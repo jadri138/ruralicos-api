@@ -107,8 +107,8 @@ function parsearSumario(html, esRuralRelevante) {
       $(el).parent().nextAll().slice(0, 4).text(),
     ].join(' '));
 
-    if (!esRuralRelevante(`${titulo} ${contexto}`)) return;
-
+    // Captura bruta: NO se descarta por filtro; se anota `_relevante` para que la
+    // ruta registre todo en raw_documents (los no relevantes -> skipped_by_rule).
     const idOficial = extraerIdOficial(href, contexto);
     const key = idOficial || url || titulo;
     if (vistos.has(key)) return;
@@ -125,6 +125,7 @@ function parsearSumario(html, esRuralRelevante) {
       organismo: detectarOrganismo(contexto),
       seccion: detectarSeccion(contexto),
       texto: contexto || titulo,
+      _relevante: esRuralRelevante(`${titulo} ${contexto}`),
     });
   });
 
@@ -206,13 +207,19 @@ async function obtenerDocumentosBothaConTexto(fechaISO, esRuralRelevante) {
     return [];
   }
 
+  // El texto solo se descarga para los relevantes (coste idéntico al de antes); los
+  // no relevantes se devuelven tal cual para que la ruta los registre como skipped.
   const resultado = [];
   for (const doc of docs) {
+    if (doc._relevante === false) {
+      resultado.push(doc);
+      continue;
+    }
     const texto = await obtenerTextoDocumento(doc);
     resultado.push({ ...doc, texto });
   }
 
-  console.log(`[BOTHA] ${resultado.length} documentos relevantes`);
+  console.log(`[BOTHA] ${resultado.length} documentos detectados (captura bruta)`);
   return resultado;
 }
 

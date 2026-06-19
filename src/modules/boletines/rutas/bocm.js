@@ -5,7 +5,7 @@
 
 const { checkCronToken } = require('../../../middleware/cronToken');
 const { obtenerDocumentosBocmConTexto, getFechaHoyISO } = require('../scrapers/BOCM/bocmScraper');
-const { insertarAlertasBoletin } = require('./shared/insertarAlertasBoletin');
+const { procesarBoletinPreclasificado } = require('./shared/procesarBoletinPreclasificado');
 
 function normalizar(s) {
   return (s || '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
@@ -58,14 +58,17 @@ module.exports = function bocmRoutes(app, supabase) {
         return res.json({
           success: true,
           fecha: fecha || getFechaHoyISO(),
+          totales: 0,
+          documentos_insertables: 0,
           nuevas: 0,
           duplicadas: 0,
           errores: 0,
-          mensaje: 'No hay disposiciones BOCM relevantes en el último boletín',
+          saltadasFiltro: 0,
+          mensaje: 'No hay disposiciones BOCM en el último boletín',
         });
       }
 
-      const { nuevas, duplicadas, errores } = await insertarAlertasBoletin(supabase, docs, {
+      const stats = await procesarBoletinPreclasificado(supabase, docs, {
         fuente: 'BOCM',
         region: 'Comunidad de Madrid',
         contenido: (doc) => doc.texto,
@@ -74,11 +77,8 @@ module.exports = function bocmRoutes(app, supabase) {
       return res.json({
         success: true,
         fecha: docs[0]?.fecha || fecha,
-        relevantes: docs.length,
-        nuevas,
-        duplicadas,
-        errores,
-        mensaje: 'BOCM procesado',
+        ...stats,
+        mensaje: 'BOCM procesado (captura bruta + filtro rural)',
       });
     } catch (e) {
       console.error('Error en /scrape-bocm', e);

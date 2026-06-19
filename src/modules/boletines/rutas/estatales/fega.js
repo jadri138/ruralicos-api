@@ -12,6 +12,12 @@ const {
   buscarCoincidenciasEnTextos,
 } = require('../../scrapers/estatales/fega/scraper');
 const cache = require('../../scrapers/estatales/fega/fegaCache');
+const {
+  CAPTURE_STATUS,
+  registrarRawDocuments,
+  marcarRawDocumentInsertado,
+  marcarRawDocumentSaltado,
+} = require('../../rawDocuments/rawDocuments.service');
 
 function isMissingTableError(error) {
   return error && ['42P01', '42703', 'PGRST205'].includes(error.code);
@@ -19,6 +25,20 @@ function isMissingTableError(error) {
 
 async function insertarAlertaFega(supabase, fichero) {
   const titulo = `FEGA - Beneficiarios ayudas PAC ${fichero.ejercicio}`;
+  const hoy = new Date().toISOString().slice(0, 10);
+
+  // Captura bruta: la publicacion FEGA detectada queda registrada en raw_documents
+  // ANTES de comprobar duplicados o insertar la alerta (no se pierde).
+  const [raw] = await registrarRawDocuments(supabase, [{
+    titulo,
+    url: fichero.paginaDetalle,
+    url_pdf: fichero.urlDescarga,
+    fecha: hoy,
+    organismo: 'FEGA',
+    boletin: String(fichero.ejercicio),
+    metadata_json: { ejercicio: fichero.ejercicio, urlDescarga: fichero.urlDescarga },
+  }], { fuente: 'FEGA', region: 'España' });
+  const rawId = raw?.raw_document_id || null;
 
   const { data: existente, error: errExiste } = await supabase
     .from('alertas')
@@ -27,7 +47,12 @@ async function insertarAlertaFega(supabase, fichero) {
     .limit(1);
 
   if (errExiste) throw errExiste;
-  if (existente && existente.length > 0) return { inserted: false, id: existente[0].id };
+  if (existente && existente.length > 0) {
+    await marcarRawDocumentSaltado(supabase, rawId, 'duplicate_url', {
+      status: CAPTURE_STATUS.DUPLICATE,
+    });
+    return { inserted: false, id: existente[0].id };
+  }
 
   const { data, error } = await supabase
     .from('alertas')
@@ -36,7 +61,7 @@ async function insertarAlertaFega(supabase, fichero) {
       resumen: 'Procesando con IA...',
       estado_ia: 'pendiente_clasificar',
       url: fichero.paginaDetalle,
-      fecha: new Date().toISOString().slice(0, 10),
+      fecha: hoy,
       region: 'España',
       fuente: 'FEGA',
       contenido: [
@@ -50,7 +75,9 @@ async function insertarAlertaFega(supabase, fichero) {
     .single();
 
   if (error) throw error;
-  return { inserted: true, id: data?.id || null };
+  const alertaId = data?.id || null;
+  await marcarRawDocumentInsertado(supabase, rawId, alertaId);
+  return { inserted: true, id: alertaId };
 }
 
 async function usuariosBuscables(supabase) {
@@ -248,3 +275,5 @@ module.exports = function fegaRoutes(app, supabase) {
     }
   });
 };
+
+module.exports.insertarAlertaFega = insertarAlertaFega;

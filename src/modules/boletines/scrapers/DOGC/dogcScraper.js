@@ -133,27 +133,36 @@ async function obtenerDocumentosDogcPorNumero(numDOGC) {
 // ─────────────────────────────────────────────
 // Función principal exportada
 // ─────────────────────────────────────────────
-async function obtenerDocumentosDogcConTexto(fechaISO, esRuralRelevante) {
-  const numDOGC = await obtenerNumDogcHoy();
-  const todos   = await obtenerDocumentosDogcPorNumero(numDOGC);
+async function obtenerDocumentosDogcConTexto(fechaISO, esRuralRelevante, deps = {}) {
+  const obtenerNum = deps.obtenerNumDogcHoy || obtenerNumDogcHoy;
+  const obtenerDocs = deps.obtenerDocumentosDogcPorNumero || obtenerDocumentosDogcPorNumero;
+  const traerTexto = deps.fetchTextoHtml || fetchTextoHtml;
+
+  const numDOGC = await obtenerNum();
+  const todos   = await obtenerDocs(numDOGC);
 
   const resultado = [];
 
+  // Captura bruta: se devuelven TODOS los documentos detectados (incluidos los que
+  // no tienen URL, que antes se descartaban en silencio) anotados con `_relevante`.
+  // El texto solo se descarga para los relevantes (coste idéntico al de antes).
   for (const doc of todos) {
-    if (!doc.url) continue;
-    if (!esRuralRelevante(doc.titulo)) continue;
+    if (!esRuralRelevante(doc.titulo)) {
+      resultado.push({ ...doc, fecha: fechaISO, _relevante: false });
+      continue;
+    }
 
     let texto = doc.titulo;
     if (doc._urlHtml) {
       await sleep(DELAY_MS);
-      const contenidoHtml = await fetchTextoHtml(doc._urlHtml);
+      const contenidoHtml = await traerTexto(doc._urlHtml);
       if (contenidoHtml.length > 100) texto = contenidoHtml;
     }
 
-    resultado.push({ ...doc, fecha: fechaISO, texto });
+    resultado.push({ ...doc, fecha: fechaISO, texto, _relevante: true });
   }
 
-  console.log(`[DOGC] ${resultado.length} documentos relevantes para insertar`);
+  console.log(`[DOGC] ${resultado.length} documentos detectados (captura bruta)`);
   return resultado;
 }
 

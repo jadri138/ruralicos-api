@@ -5,7 +5,7 @@
 
 const { checkCronToken } = require('../../../middleware/cronToken');
 const { obtenerDocumentosDogvConTexto, getFechaHoyISO } = require('../scrapers/DOGV/dogvScraper');
-const { insertarAlertasBoletin } = require('./shared/insertarAlertasBoletin');
+const { procesarBoletinPreclasificado } = require('./shared/procesarBoletinPreclasificado');
 
 // ─────────────────────────────────────────────
 // Filtro de relevancia rural
@@ -59,12 +59,13 @@ module.exports = function dogvRoutes(app, supabase) {
         return res.json({
           success: true,
           fecha: fechaHoy,
-          nuevas: 0, duplicadas: 0, errores: 0,
-          mensaje: 'No hay disposiciones DOGV relevantes hoy',
+          totales: 0, documentos_insertables: 0,
+          nuevas: 0, duplicadas: 0, errores: 0, saltadasFiltro: 0,
+          mensaje: 'No hay disposiciones DOGV hoy (festivo o fin de semana)',
         });
       }
 
-      const { nuevas, duplicadas, errores } = await insertarAlertasBoletin(supabase, docs, {
+      const stats = await procesarBoletinPreclasificado(supabase, docs, {
         fuente: 'DOGV',
         region: 'Comunitat Valenciana',
         contenido: (doc) => doc.texto,
@@ -73,11 +74,8 @@ module.exports = function dogvRoutes(app, supabase) {
       return res.json({
         success: true,
         fecha: fechaHoy,
-        relevantes: docs.length,
-        nuevas,
-        duplicadas,
-        errores,
-        mensaje: 'DOGV procesado',
+        ...stats,
+        mensaje: 'DOGV procesado (captura bruta + filtro rural)',
       });
     } catch (e) {
       console.error('Error en /scrape-dogv', e);

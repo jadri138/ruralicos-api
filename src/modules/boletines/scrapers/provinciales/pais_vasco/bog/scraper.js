@@ -115,9 +115,14 @@ async function obtenerDocumentosBogConTexto(fechaISO) {
   const html = await getHtml(url);
   const candidatos = parsearSumarioBog(html, url);
 
+  // Captura bruta: se devuelven TODOS los detectados anotados con `_relevante`; el
+  // texto solo se descarga para los relevantes (coste idéntico al de antes).
   const docs = [];
   for (const doc of candidatos) {
-    if (!esProvincialRelevante(doc.contexto)) continue;
+    if (!esProvincialRelevante(doc.contexto)) {
+      docs.push({ ...doc, _relevante: false });
+      continue;
+    }
 
     let texto = doc.contexto;
     try {
@@ -130,10 +135,11 @@ async function obtenerDocumentosBogConTexto(fechaISO) {
       ...doc,
       titulo: `BOG - ${doc.titulo.slice(0, 180)} (${doc.fecha})`,
       texto,
+      _relevante: true,
     });
   }
 
-  console.log(`[BOG] ${docs.length} documentos relevantes`);
+  console.log(`[BOG] ${docs.length} documentos detectados (captura bruta)`);
   return docs;
 }
 

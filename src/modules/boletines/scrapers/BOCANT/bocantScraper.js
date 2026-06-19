@@ -191,16 +191,21 @@ async function obtenerDocumentosBocantConTexto(fechaISO, esRuralRelevante) {
   const todos = await obtenerDocumentosSumario(boletin);
   const resultado = [];
 
+  // Captura bruta: se devuelven TODOS los detectados anotados con `_relevante`; el
+  // PDF solo se descarga para los relevantes (coste idéntico al de antes).
   for (const doc of todos) {
     const textoFiltro = `${doc.organo} ${doc.titulo}`;
-    if (!esRuralRelevante(textoFiltro)) continue;
+    if (!esRuralRelevante(textoFiltro)) {
+      resultado.push({ ...doc, _relevante: false });
+      continue;
+    }
 
     await sleep(DELAY_MS);
     const texto = await obtenerTextoPdf(doc.url);
-    resultado.push({ ...doc, texto: texto || textoFiltro });
+    resultado.push({ ...doc, texto: texto || textoFiltro, _relevante: true });
   }
 
-  console.log(`[BOCANT] ${resultado.length} documentos relevantes de ${todos.length} totales`);
+  console.log(`[BOCANT] ${resultado.length} documentos detectados (captura bruta) de ${todos.length}`);
   return resultado;
 }
 

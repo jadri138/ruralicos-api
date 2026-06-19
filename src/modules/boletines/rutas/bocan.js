@@ -5,7 +5,7 @@
 
 const { checkCronToken } = require('../../../middleware/cronToken');
 const { obtenerDocumentosBocanConTexto, getFechaHoyISO } = require('../scrapers/BOCAN/bocanScraper');
-const { insertarAlertasBoletin } = require('./shared/insertarAlertasBoletin');
+const { procesarBoletinPreclasificado } = require('./shared/procesarBoletinPreclasificado');
 
 function normalizar(s) {
   return (s || '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
@@ -54,14 +54,17 @@ module.exports = function bocanRoutes(app, supabase) {
         return res.json({
           success: true,
           fecha: fecha || getFechaHoyISO(),
+          totales: 0,
+          documentos_insertables: 0,
           nuevas: 0,
           duplicadas: 0,
           errores: 0,
-          mensaje: 'No hay disposiciones BOC Canarias relevantes en el último boletín',
+          saltadasFiltro: 0,
+          mensaje: 'No hay disposiciones BOC Canarias en el último boletín',
         });
       }
 
-      const { nuevas, duplicadas, errores } = await insertarAlertasBoletin(supabase, docs, {
+      const stats = await procesarBoletinPreclasificado(supabase, docs, {
         fuente: 'BOCAN',
         region: 'Canarias',
         contenido: (doc) => doc.texto,
@@ -70,11 +73,8 @@ module.exports = function bocanRoutes(app, supabase) {
       return res.json({
         success: true,
         fecha: docs[0]?.fecha || fecha,
-        relevantes: docs.length,
-        nuevas,
-        duplicadas,
-        errores,
-        mensaje: 'BOC Canarias procesado',
+        ...stats,
+        mensaje: 'BOC Canarias procesado (captura bruta + filtro rural)',
       });
     } catch (e) {
       console.error('Error en /scrape-bocan', e);

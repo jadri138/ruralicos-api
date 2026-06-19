@@ -5,7 +5,7 @@
 
 const { checkCronToken } = require('../../../middleware/cronToken');
 const { obtenerDocumentosDogConTexto, getFechaHoyISO } = require('../scrapers/DOG/dogScraper');
-const { insertarAlertasBoletin } = require('./shared/insertarAlertasBoletin');
+const { procesarBoletinPreclasificado } = require('./shared/procesarBoletinPreclasificado');
 
 // ─────────────────────────────────────────────
 // Filtro de relevancia rural
@@ -61,12 +61,13 @@ module.exports = function dogRoutes(app, supabase) {
         return res.json({
           success: true,
           fecha: fechaHoy,
-          nuevas: 0, duplicadas: 0, errores: 0,
-          mensaje: 'No hay disposiciones DOG relevantes hoy',
+          totales: 0, documentos_insertables: 0,
+          nuevas: 0, duplicadas: 0, errores: 0, saltadasFiltro: 0,
+          mensaje: 'No hay disposiciones DOG hoy (festivo o fin de semana)',
         });
       }
 
-      const { nuevas, duplicadas, errores } = await insertarAlertasBoletin(supabase, docs, {
+      const stats = await procesarBoletinPreclasificado(supabase, docs, {
         fuente: 'DOG',
         region: 'Galicia',
         contenido: (doc) => doc.texto,
@@ -75,11 +76,8 @@ module.exports = function dogRoutes(app, supabase) {
       return res.json({
         success: true,
         fecha: fechaHoy,
-        relevantes: docs.length,
-        nuevas,
-        duplicadas,
-        errores,
-        mensaje: 'DOG procesado',
+        ...stats,
+        mensaje: 'DOG procesado (captura bruta + filtro rural)',
       });
     } catch (e) {
       console.error('Error en /scrape-dog', e);

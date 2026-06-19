@@ -4,7 +4,7 @@
 
 const { checkCronToken } = require('../../../middleware/cronToken');
 const { obtenerDocumentosBocceConTexto, getFechaHoyISO } = require('../scrapers/BOCCE/bocceScraper');
-const { insertarAlertasBoletin } = require('./shared/insertarAlertasBoletin');
+const { procesarBoletinPreclasificado } = require('./shared/procesarBoletinPreclasificado');
 
 function normalizar(s) {
   return (s || '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
@@ -51,14 +51,17 @@ module.exports = function bocceRoutes(app, supabase) {
         return res.json({
           success: true,
           fecha,
+          totales: 0,
+          documentos_insertables: 0,
           nuevas: 0,
           duplicadas: 0,
           errores: 0,
-          mensaje: 'No hay boletines BOCCE relevantes en esta fecha',
+          saltadasFiltro: 0,
+          mensaje: 'No hay boletines BOCCE en esta fecha',
         });
       }
 
-      const { nuevas, duplicadas, errores } = await insertarAlertasBoletin(supabase, docs, {
+      const stats = await procesarBoletinPreclasificado(supabase, docs, {
         fuente: 'BOCCE',
         region: 'Ceuta',
         contenido: (doc) => doc.texto,
@@ -67,11 +70,8 @@ module.exports = function bocceRoutes(app, supabase) {
       return res.json({
         success: true,
         fecha,
-        relevantes: docs.length,
-        nuevas,
-        duplicadas,
-        errores,
-        mensaje: 'BOCCE procesado',
+        ...stats,
+        mensaje: 'BOCCE procesado (captura bruta + filtro rural)',
       });
     } catch (e) {
       console.error('Error en /scrape-bocce', e);

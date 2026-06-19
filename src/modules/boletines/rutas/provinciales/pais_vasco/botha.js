@@ -4,7 +4,7 @@ const {
   getFechaHoyISO,
   obtenerDocumentosBothaConTexto,
 } = require('../../../scrapers/provinciales/pais_vasco/botha/scraper');
-const { insertarAlertasBoletin } = require('../../shared/insertarAlertasBoletin');
+const { procesarBoletinPreclasificado } = require('../../shared/procesarBoletinPreclasificado');
 
 module.exports = function bothaRoutes(app, supabase) {
   async function scrapeBotha(req, res) {
@@ -15,8 +15,9 @@ module.exports = function bothaRoutes(app, supabase) {
         ? req.query.fecha
         : getFechaHoyISO();
 
+      // docs incluye TODOS los detectados, anotados con `_relevante` (captura bruta).
       const docs = await obtenerDocumentosBothaConTexto(fecha, esRuralRelevante);
-      const insertadas = await insertarAlertasBoletin(supabase, docs, {
+      const stats = await procesarBoletinPreclasificado(supabase, docs, {
         fuente: 'BOTHA',
         region: 'Álava',
       });
@@ -24,9 +25,8 @@ module.exports = function bothaRoutes(app, supabase) {
       return res.json({
         success: true,
         fecha,
-        relevantes: docs.length,
-        ...insertadas,
-        mensaje: 'BOTHA procesado',
+        ...stats,
+        mensaje: 'BOTHA procesado (captura bruta + filtro rural)',
       });
     } catch (err) {
       console.error('Error en /scrape-botha-oficial', err);

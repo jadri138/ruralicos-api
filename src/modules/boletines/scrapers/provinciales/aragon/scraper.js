@@ -150,6 +150,8 @@ async function obtenerDocumentosBopzConTexto(fechaISO) {
 
   if (fechaISO && candidatos[0]?.fecha && candidatos[0].fecha !== fechaISO) return [];
 
+  // Captura bruta: se devuelven TODOS los detectados anotados con `_relevante`. Si
+  // no se puede leer el detalle, el documento se registra igual (no se pierde).
   const docs = [];
   for (const doc of candidatos) {
     let htmlDetalle = '';
@@ -163,20 +165,25 @@ async function obtenerDocumentosBopzConTexto(fechaISO) {
       });
     } catch (error) {
       console.warn(`[BOPZ] No se pudo leer detalle ${doc.id}: ${error.message}`);
+      docs.push({ ...doc, _relevante: false });
       continue;
     }
 
     const texto = htmlATexto(htmlDetalle).slice(0, 15000);
-    if (!esProvincialRelevante(`${doc.contexto} ${texto}`)) continue;
+    if (!esProvincialRelevante(`${doc.contexto} ${texto}`)) {
+      docs.push({ ...doc, texto, _relevante: false });
+      continue;
+    }
 
     docs.push({
       ...doc,
       titulo: generarTitulo('BOPZ', doc.titulo, doc.fecha),
       texto,
+      _relevante: true,
     });
   }
 
-  console.log(`[BOPZ] ${docs.length} documentos relevantes`);
+  console.log(`[BOPZ] ${docs.length} documentos detectados (captura bruta)`);
   return docs;
 }
 
@@ -223,9 +230,14 @@ async function obtenerDocumentosBophConTexto(fechaISO) {
 
   if (fechaISO && candidatos[0]?.fecha && candidatos[0].fecha !== fechaISO) return [];
 
+  // Captura bruta: se devuelven TODOS los detectados anotados con `_relevante`; el
+  // PDF solo se descarga para los relevantes (coste idéntico al de antes).
   const docs = [];
   for (const doc of candidatos) {
-    if (!esProvincialRelevante(doc.contexto)) continue;
+    if (!esProvincialRelevante(doc.contexto)) {
+      docs.push({ ...doc, _relevante: false });
+      continue;
+    }
 
     let texto = doc.contexto;
     try {
@@ -238,10 +250,11 @@ async function obtenerDocumentosBophConTexto(fechaISO) {
       ...doc,
       titulo: generarTitulo('BOPH', doc.titulo, doc.fecha),
       texto,
+      _relevante: true,
     });
   }
 
-  console.log(`[BOPH] ${docs.length} documentos relevantes`);
+  console.log(`[BOPH] ${docs.length} documentos detectados (captura bruta)`);
   return docs;
 }
 
@@ -280,22 +293,27 @@ async function obtenerDocumentosBoptConTexto(fechaISO) {
 
   if (fechaISO && candidatos[0]?.fecha && candidatos[0].fecha !== fechaISO) return [];
 
+  // Captura bruta: se devuelven TODOS los detectados anotados con `_relevante`.
   const docs = [];
   for (const doc of candidatos) {
     const htmlDetalle = await getHtml(doc.urlHtml, { referer: BOPT_DIA });
     const $ = cheerio.load(htmlDetalle);
     $('script,style,noscript').remove();
     const texto = normalizarEspacios($('body').text()).slice(0, 15000);
-    if (!esProvincialRelevante(`${doc.contexto} ${texto}`)) continue;
+    if (!esProvincialRelevante(`${doc.contexto} ${texto}`)) {
+      docs.push({ ...doc, texto, _relevante: false });
+      continue;
+    }
 
     docs.push({
       ...doc,
       titulo: generarTitulo('BOPT', doc.titulo, doc.fecha),
       texto,
+      _relevante: true,
     });
   }
 
-  console.log(`[BOPT] ${docs.length} documentos relevantes`);
+  console.log(`[BOPT] ${docs.length} documentos detectados (captura bruta)`);
   return docs;
 }
 

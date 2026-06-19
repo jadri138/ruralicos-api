@@ -65,18 +65,27 @@ async function obtenerTextoDisposicion(id) {
 // ─────────────────────────────────────────────
 // Función principal exportada
 // ─────────────────────────────────────────────
-async function obtenerDocumentosDogvConTexto(fechaISO, esRuralRelevante) {
-  const disposiciones = await obtenerDocumentosHoy();
+// Devuelve TODOS los documentos detectados (captura bruta auditable), cada uno
+// anotado con `_relevante`. El texto completo solo se descarga para los relevantes
+// (coste idéntico al de antes); los no relevantes se devuelven sin texto para que
+// la ruta los registre como skipped_by_rule sin perderlos.
+async function obtenerDocumentosDogvConTexto(fechaISO, esRuralRelevante, deps = {}) {
+  const listar = deps.obtenerDocumentosHoy || obtenerDocumentosHoy;
+  const traerTexto = deps.obtenerTextoDisposicion || obtenerTextoDisposicion;
+  const disposiciones = await listar();
   const resultado = [];
 
   for (const doc of disposiciones) {
     const titulo = (doc.titulo || '').replace(/\s+/g, ' ').trim().slice(0, 250);
-    if (!esRuralRelevante(titulo)) continue;
+    const urlPdf = doc.urlPdf ? `${DATOS}${doc.urlPdf}` : '';
+
+    if (!esRuralRelevante(titulo)) {
+      resultado.push({ titulo, url: urlPdf, urlPdf, fecha: fechaISO, _relevante: false });
+      continue;
+    }
 
     await sleep(DELAY_MS);
-    const texto = await obtenerTextoDisposicion(doc.id);
-
-    const urlPdf = doc.urlPdf ? `${DATOS}${doc.urlPdf}` : '';
+    const texto = await traerTexto(doc.id);
 
     resultado.push({
       titulo,
@@ -84,10 +93,11 @@ async function obtenerDocumentosDogvConTexto(fechaISO, esRuralRelevante) {
       urlPdf: urlPdf,
       fecha:  fechaISO,
       texto:  texto || titulo,
+      _relevante: true,
     });
   }
 
-  console.log(`[DOGV] ${resultado.length} documentos relevantes para insertar`);
+  console.log(`[DOGV] ${resultado.length} documentos detectados (captura bruta)`);
   return resultado;
 }
 

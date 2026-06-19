@@ -5,7 +5,7 @@
 
 const { checkCronToken } = require('../../../middleware/cronToken');
 const { obtenerDocumentosBorConTexto, getFechaHoyISO } = require('../scrapers/BOR/borScraper');
-const { insertarAlertasBoletin } = require('./shared/insertarAlertasBoletin');
+const { procesarBoletinPreclasificado } = require('./shared/procesarBoletinPreclasificado');
 
 function normalizar(s) {
   return (s || '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
@@ -52,14 +52,17 @@ module.exports = function borRoutes(app, supabase) {
         return res.json({
           success: true,
           fecha,
+          totales: 0,
+          documentos_insertables: 0,
           nuevas: 0,
           duplicadas: 0,
           errores: 0,
-          mensaje: 'No hay disposiciones BOR relevantes en esta fecha',
+          saltadasFiltro: 0,
+          mensaje: 'No hay disposiciones BOR en esta fecha',
         });
       }
 
-      const { nuevas, duplicadas, errores } = await insertarAlertasBoletin(supabase, docs, {
+      const stats = await procesarBoletinPreclasificado(supabase, docs, {
         fuente: 'BOR',
         region: 'La Rioja',
         contenido: (doc) => doc.texto,
@@ -68,11 +71,8 @@ module.exports = function borRoutes(app, supabase) {
       return res.json({
         success: true,
         fecha: docs[0]?.fecha || fecha,
-        relevantes: docs.length,
-        nuevas,
-        duplicadas,
-        errores,
-        mensaje: 'BOR procesado',
+        ...stats,
+        mensaje: 'BOR procesado (captura bruta + filtro rural)',
       });
     } catch (e) {
       console.error('Error en /scrape-bor', e);

@@ -167,16 +167,21 @@ async function obtenerDocumentosBocceConTexto(fechaISO, esRuralRelevante) {
   const boletines = await obtenerBoletinesDelDia(fecha);
   const resultado = [];
 
+  // Captura bruta: el texto del PDF ya se descargaba para TODOS (lo necesita el
+  // filtro por sumario), así que se devuelven todos anotados con `_relevante`.
   for (const boletin of boletines) {
     await sleep(DELAY_MS);
     const texto = await obtenerTextoPdf(boletin.url);
     const textoFiltro = `${boletin.titulo} ${extraerSumario(texto)}`;
 
-    if (!esRuralRelevante(textoFiltro)) continue;
-    resultado.push({ ...boletin, texto: texto || textoFiltro });
+    resultado.push({
+      ...boletin,
+      texto: texto || textoFiltro,
+      _relevante: esRuralRelevante(textoFiltro),
+    });
   }
 
-  console.log(`[BOCCE] ${resultado.length} boletines relevantes de ${boletines.length} totales`);
+  console.log(`[BOCCE] ${resultado.length} boletines detectados (captura bruta) de ${boletines.length}`);
   return resultado;
 }
 
