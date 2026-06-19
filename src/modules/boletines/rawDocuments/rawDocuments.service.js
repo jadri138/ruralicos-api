@@ -179,12 +179,32 @@ async function marcarRawDocumentInsertado(supabase, rawDocumentId, alertaId) {
 
 // Marca un raw document como no insertado. Por defecto 'skipped_by_rule'; con
 // `opciones.status` se reutiliza para 'duplicate', 'missing_url' o 'error'.
+//
+// Salvaguarda de auditoría: si el documento YA originó una alerta en una ejecución
+// previa (inserted_alerta_id != null), NO lo degradamos a 'duplicate'. En reruns la
+// alerta existe en BD y se detectaría como duplicada, pero eso no debe borrar la
+// constancia de que ese documento creó la alerta -> conservamos 'inserted' y su
+// enlace. (Evita el estado contradictorio inserted_alerta_id + capture_status=duplicate.)
 async function marcarRawDocumentSaltado(supabase, rawDocumentId, reason, opciones = {}) {
   if (!rawDocumentId) return;
+  const status = opciones.status || CAPTURE_STATUS.SKIPPED;
+
+  if (status === CAPTURE_STATUS.DUPLICATE) {
+    const { data: actual, error: errSel } = await supabase
+      .from('raw_documents')
+      .select('inserted_alerta_id')
+      .eq('id', rawDocumentId)
+      .limit(1);
+    if (!errSel && Array.isArray(actual) && actual[0] && actual[0].inserted_alerta_id) {
+      // Ya insertado antes: mantener 'inserted' + enlace; no sobreescribir con duplicate.
+      return;
+    }
+  }
+
   const { error } = await supabase
     .from('raw_documents')
     .update({
-      capture_status: opciones.status || CAPTURE_STATUS.SKIPPED,
+      capture_status: status,
       capture_reason: reason ?? null,
       updated_at: new Date().toISOString(),
     })

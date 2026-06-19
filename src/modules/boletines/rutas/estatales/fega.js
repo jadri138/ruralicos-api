@@ -39,6 +39,7 @@ async function insertarAlertaFega(supabase, fichero) {
     metadata_json: { ejercicio: fichero.ejercicio, urlDescarga: fichero.urlDescarga },
   }], { fuente: 'FEGA', region: 'España' });
   const rawId = raw?.raw_document_id || null;
+  console.log(`[FEGA] raw_document ${rawId ? `registrado id=${rawId}` : 'NO registrado (revisar raw_documents)'} ejercicio=${fichero.ejercicio} url=${fichero.paginaDetalle}`);
 
   const { data: existente, error: errExiste } = await supabase
     .from('alertas')
@@ -51,6 +52,7 @@ async function insertarAlertaFega(supabase, fichero) {
     await marcarRawDocumentSaltado(supabase, rawId, 'duplicate_url', {
       status: CAPTURE_STATUS.DUPLICATE,
     });
+    console.log(`[FEGA] alerta ya existente (id=${existente[0].id}) -> raw_document ${rawId} marcado duplicate (conserva inserted si ya originó alerta)`);
     return { inserted: false, id: existente[0].id };
   }
 
@@ -77,6 +79,7 @@ async function insertarAlertaFega(supabase, fichero) {
   if (error) throw error;
   const alertaId = data?.id || null;
   await marcarRawDocumentInsertado(supabase, rawId, alertaId);
+  console.log(`[FEGA] alerta nueva creada (id=${alertaId}) -> raw_document ${rawId} marcado inserted`);
   return { inserted: true, id: alertaId };
 }
 
