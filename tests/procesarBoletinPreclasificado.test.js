@@ -11,6 +11,14 @@ const {
 const {
   obtenerDocumentosDogcConTexto,
 } = require('../src/modules/boletines/scrapers/DOGC/dogcScraper');
+const {
+  insertarAlertasBoletin,
+} = require('../src/modules/boletines/rutas/shared/insertarAlertasBoletin');
+const {
+  CAPTURE_STATUS,
+  registrarRawDocuments,
+  marcarRawDocumentSaltado,
+} = require('../src/modules/boletines/rawDocuments/rawDocuments.service');
 const fega = require('../src/modules/boletines/rutas/estatales/fega');
 
 let passed = 0;
@@ -332,6 +340,117 @@ async function main() {
     assert.strictEqual(raws.length, 1, 'la publicación duplicada también queda registrada');
     assert.strictEqual(raws[0].capture_status, 'duplicate');
     assert.strictEqual(supabase._stores.alertas.length, 1, 'no se crea alerta nueva');
+  });
+
+  // ── Semántica inserted/duplicate: rerun no degrada la auditoría ──
+  await test('marcarRawDocumentSaltado(duplicate) NO degrada un raw que ya originó alerta', async () => {
+    const supabase = crearSupabaseMemoria();
+    // Raw ya insertado en una ejecución previa.
+    supabase._stores.raw_documents.push({
+      id: 1, fuente: 'TEST', url: 'u', capture_status: CAPTURE_STATUS.INSERTED,
+      capture_reason: null, inserted_alerta_id: 42,
+    });
+
+    await silenciarConsoleError(() =>
+      marcarRawDocumentSaltado(supabase, 1, 'duplicate_url', { status: CAPTURE_STATUS.DUPLICATE })
+    );
+
+    const raw = supabase._stores.raw_documents[0];
+    assert.strictEqual(raw.capture_status, 'inserted', 'conserva inserted, no pasa a duplicate');
+    assert.strictEqual(raw.inserted_alerta_id, 42, 'conserva el enlace con la alerta');
+  });
+
+  await test('marcarRawDocumentSaltado(duplicate) SÍ marca duplicate si nunca originó alerta', async () => {
+    const supabase = crearSupabaseMemoria();
+    supabase._stores.raw_documents.push({
+      id: 1, fuente: 'TEST', url: 'u', capture_status: CAPTURE_STATUS.DETECTED,
+      capture_reason: null, inserted_alerta_id: null,
+    });
+
+    await silenciarConsoleError(() =>
+      marcarRawDocumentSaltado(supabase, 1, 'duplicate_url', { status: CAPTURE_STATUS.DUPLICATE })
+    );
+
+    assert.strictEqual(supabase._stores.raw_documents[0].capture_status, 'duplicate');
+  });
+
+  await test('rerun de insertarAlertasBoletin: el raw insertado NO acaba como duplicate confuso', async () => {
+    const supabase = crearSupabaseMemoria();
+    const doc = () => ({ titulo: 'Ayuda agraria', url: 'u-rerun', texto: 't', raw_document_id: null });
+
+    // Registramos el raw una vez (idempotente por fuente+url_hash en reruns).
+    const [r1] = await registrarRawDocuments(supabase, [doc()], { fuente: 'TEST', region: 'R' });
+    const rawId = r1.raw_document_id;
+
+    // Run 1: inserta alerta -> raw inserted + enlazado.
+    await silenciarConsoleError(() =>
+      insertarAlertasBoletin(supabase, [{ ...doc(), raw_document_id: rawId }], {
+        fuente: 'TEST', region: 'R', contenido: (d) => d.texto,
+      })
+    );
+    let raw = supabase._stores.raw_documents.find((x) => x.id === rawId);
+    assert.strictEqual(raw.capture_status, 'inserted');
+    assert.ok(raw.inserted_alerta_id);
+    const alertaIdRun1 = raw.inserted_alerta_id;
+
+    // Run 2: misma URL, la alerta ya existe -> detectado como duplicado.
+    const run2 = await silenciarConsoleError(() =>
+      insertarAlertasBoletin(supabase, [{ ...doc(), raw_document_id: rawId }], {
+        fuente: 'TEST', region: 'R', contenido: (d) => d.texto,
+      })
+    );
+    assert.strictEqual(run2.duplicadas, 1);
+    raw = supabase._stores.raw_documents.find((x) => x.id === rawId);
+    assert.strictEqual(raw.capture_status, 'inserted', 'sigue inserted tras el rerun (sin contradicción)');
+    assert.strictEqual(raw.inserted_alerta_id, alertaIdRun1, 'conserva el enlace original');
+    assert.strictEqual(supabase._stores.alertas.length, 1, 'no se crea una segunda alerta');
+  });
+
+  await test('FEGA rerun: 2ª ejecución mantiene raw_document inserted + enlace (no duplicate confuso)', async () => {
+    const supabase = crearSupabaseMemoria();
+    const fichero = { ejercicio: 2025, paginaDetalle: 'https://fega/2025', urlDescarga: 'https://fega/2025.zip' };
+
+    const r1 = await silenciarConsoleError(() => fega.insertarAlertaFega(supabase, fichero));
+    assert.strictEqual(r1.inserted, true);
+
+    const r2 = await silenciarConsoleError(() => fega.insertarAlertaFega(supabase, fichero));
+    assert.strictEqual(r2.inserted, false, 'la 2ª vez detecta la alerta existente');
+
+    const raws = supabase._stores.raw_documents;
+    assert.strictEqual(raws.length, 1, 'el rerun reutiliza el mismo raw_document (no duplica fila)');
+    assert.strictEqual(raws[0].capture_status, 'inserted', 'conserva inserted, no lo degrada a duplicate');
+    assert.strictEqual(raws[0].inserted_alerta_id, r1.id, 'conserva el enlace con la alerta original');
+    assert.strictEqual(supabase._stores.alertas.length, 1);
+  });
+
+  // ── BOCCE/BOPZ: los documentos detectados pasan por raw_documents (no desaparecen) ──
+  await test('BOCCE/BOPZ (preclasificados): todo lo detectado queda en raw_documents', async () => {
+    const supabase = crearSupabaseMemoria();
+    // Forma típica de lo que devuelven los scrapers BOCCE/BOPZ tras la captura bruta:
+    // todos los detectados, con `_relevante` ya decidido por el scraper.
+    const detectados = [
+      { titulo: 'BOPZ - Ayudas regadío', url: 'https://bopz/1', texto: 'subvenciones agrarias', _relevante: true },
+      { titulo: 'BOPZ - Anuncio urbanístico', url: 'https://bopz/2', texto: 'licencia obra', _relevante: false },
+      { titulo: 'BOCCE_06-2026', url: 'https://bocce/06', texto: 'sumario sin nada rural', _relevante: false },
+    ];
+
+    const stats = await silenciarConsoleError(() =>
+      procesarBoletinPreclasificado(supabase, detectados, {
+        fuente: 'BOPZ', region: 'Zaragoza', contenido: (d) => d.texto,
+      })
+    );
+
+    assert.strictEqual(stats.totales, 3);
+    assert.strictEqual(
+      supabase._stores.raw_documents.length, 3,
+      'ningún documento detectado por BOCCE/BOPZ desaparece sin registro'
+    );
+    assert.strictEqual(stats.nuevas, 1);
+    assert.strictEqual(stats.saltadasFiltro, 2);
+    const inserted = supabase._stores.raw_documents.filter((r) => r.capture_status === 'inserted');
+    const skipped = supabase._stores.raw_documents.filter((r) => r.capture_status === 'skipped_by_rule');
+    assert.strictEqual(inserted.length, 1);
+    assert.strictEqual(skipped.length, 2);
   });
 
   console.log(`\nResultados procesarBoletinPreclasificado: ${passed} aprobados, ${failed} fallidos`);

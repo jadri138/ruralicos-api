@@ -140,13 +140,22 @@ function extraerBopzSumario(html) {
 }
 
 async function obtenerDocumentosBopzConTexto(fechaISO) {
-  const html = await getHtml(BOPZ_PORTADA, {
-    insecure: true,
-    latin1: true,
-    timeout: Number(process.env.BOPZ_HTML_TIMEOUT_MS || 40000),
-    attempts: Number(process.env.BOPZ_HTML_ATTEMPTS || 3),
-  });
+  let html;
+  try {
+    html = await getHtml(BOPZ_PORTADA, {
+      insecure: true,
+      latin1: true,
+      timeout: Number(process.env.BOPZ_HTML_TIMEOUT_MS || 40000),
+      attempts: Number(process.env.BOPZ_HTML_ATTEMPTS || 3),
+    });
+  } catch (error) {
+    // Fuente del BOPZ caida o timeout (boletin.dpz.es): log operativo claro y se
+    // propaga para que la ejecucion quede marcada como error diagnosticable.
+    console.error(`[BOPZ] Error operativo obteniendo el sumario/portada (timeout o fuente no disponible): ${error.message}`);
+    throw error;
+  }
   const candidatos = extraerBopzSumario(html);
+  console.log(`[BOPZ] ${candidatos.length} documentos detectados en el sumario`);
 
   if (fechaISO && candidatos[0]?.fecha && candidatos[0].fecha !== fechaISO) return [];
 

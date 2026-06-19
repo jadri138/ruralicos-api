@@ -77,6 +77,20 @@ function crearSupabaseFake({ existentes = [], batchInsertError = false, failedUr
 
   function rawDocuments() {
     return {
+      // Lectura usada por la salvaguarda de marcarRawDocumentSaltado(duplicate):
+      // estos raw son frescos (nunca insertados) -> inserted_alerta_id null, así que
+      // el guard procede a marcarlos duplicate como espera el test.
+      select() {
+        return {
+          eq() {
+            return {
+              async limit() {
+                return { data: [{ inserted_alerta_id: null }], error: null };
+              },
+            };
+          },
+        };
+      },
       update(patch) {
         return {
           async eq(column, value) {

@@ -90,7 +90,12 @@ async function obtenerCategoriaMes(fechaISO) {
 
   const categoriasAnio = await obtenerCategoriasAnio();
   const urlAnio = categoriasAnio.get(year);
-  if (!urlAnio) throw new Error(`No se encontro categoria BOCCE para el anio ${year}`);
+  // "Sin categoria" = no hay boletines (o cambio de layout), NO un error de red:
+  // devolvemos '' para que la ruta no marque la ejecucion como error y registre 0.
+  if (!urlAnio) {
+    console.warn(`[BOCCE] Sin categoria para el anio ${year} (sin boletines o cambio en la web)`);
+    return '';
+  }
 
   const html = await getHtml(urlAnio);
   const $ = cheerio.load(html);
@@ -101,12 +106,16 @@ async function obtenerCategoriaMes(fechaISO) {
     if (texto === mes) urlMes = absoluteUrl($(el).attr('href'));
   });
 
-  if (!urlMes) throw new Error(`No se encontro categoria BOCCE para ${mes} ${year}`);
+  if (!urlMes) {
+    console.warn(`[BOCCE] Sin categoria para ${mes} ${year} (sin boletines ese mes)`);
+    return '';
+  }
   return urlMes;
 }
 
 async function obtenerBoletinesDelDia(fechaISO = getFechaHoyISO()) {
   const urlMes = await obtenerCategoriaMes(fechaISO);
+  if (!urlMes) return [];
   const html = await getHtml(urlMes);
   const $ = cheerio.load(html);
   const boletines = [];
@@ -164,7 +173,18 @@ function extraerSumario(texto) {
 
 async function obtenerDocumentosBocceConTexto(fechaISO, esRuralRelevante) {
   const fecha = fechaISO || getFechaHoyISO();
-  const boletines = await obtenerBoletinesDelDia(fecha);
+
+  let boletines;
+  try {
+    boletines = await obtenerBoletinesDelDia(fecha);
+  } catch (error) {
+    // Error operativo real (timeout/fuente caida): log claro y se propaga para que
+    // la ejecucion quede marcada como error (no como "0 sin explicar").
+    console.error(`[BOCCE] Error operativo accediendo a la fuente (${fecha}): ${error.message}`);
+    throw error;
+  }
+
+  console.log(`[BOCCE] ${boletines.length} boletines detectados en la fuente (${fecha})`);
   const resultado = [];
 
   // Captura bruta: el texto del PDF ya se descargaba para TODOS (lo necesita el
