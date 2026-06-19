@@ -1,6 +1,6 @@
 const { checkCronToken } = require('../../../middleware/cronToken');
 const { getFechaHoyYYYYMMDD, obtenerDocumentosDocmPorFecha } = require('../scrapers/DOCM/docmScraper');
-const { insertarAlertasBoletin } = require('./shared/insertarAlertasBoletin');
+const { procesarConFiltroRural } = require('./shared/procesarConFiltroRural');
 
 function normalizar(s) {
   return (s || '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
@@ -28,8 +28,6 @@ module.exports = function docmRoutes(app, supabase) {
   app.get('/scrape-docm-oficial', async (req, res) => {
     if (!checkCronToken(req, res)) return;
 
-    let saltadasFiltro = 0;
-
     try {
       const fechaHoy = getFechaHoyYYYYMMDD();
       const docs = await obtenerDocumentosDocmPorFecha(fechaHoy);
@@ -47,32 +45,18 @@ module.exports = function docmRoutes(app, supabase) {
         });
       }
 
-      const docsInsertables = [];
-      for (const doc of docs) {
-        const bolsa = [doc.texto.slice(0, 3500), doc.titulo, doc.seccion].join(' ');
-        if (!esRuralRelevante(bolsa)) {
-          saltadasFiltro++;
-          continue;
-        }
-
-        docsInsertables.push(doc);
-      }
-
-      const { nuevas, duplicadas, errores } = await insertarAlertasBoletin(supabase, docsInsertables, {
+      const stats = await procesarConFiltroRural(supabase, docs, {
         fuente: 'DOCM',
         region: 'Castilla-La Mancha',
+        esRuralRelevante,
+        construirBolsa: (doc) => [String(doc.texto || '').slice(0, 3500), doc.titulo, doc.seccion].join(' '),
         contenido: (doc) => doc.texto,
       });
 
       return res.json({
         success: true,
-        totales: docs.length,
-        documentos_insertables: docs.length - saltadasFiltro,
-        nuevas,
-        duplicadas,
-        errores,
-        saltadasFiltro,
-        mensaje: 'DOCM procesado (HTML scraping + filtro rural)',
+        ...stats,
+        mensaje: 'DOCM procesado (HTML scraping + captura bruta + filtro rural)',
       });
     } catch (e) {
       console.error('Error en /scrape-docm-oficial', e);

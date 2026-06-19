@@ -6,7 +6,11 @@ const {
   procesarBoaPorMlkob,
 } = require('../scrapers/boa/boaPdf');
 const { getFechaMadridISO, getFechaMadridYYYYMMDD } = require('../../../shared/fechaMadrid');
-const { insertarAlertasBoletin } = require('./shared/insertarAlertasBoletin');
+const { procesarConFiltroRural } = require('./shared/procesarConFiltroRural');
+const {
+  registrarRawDocuments,
+  marcarRawDocumentSaltado,
+} = require('../rawDocuments/rawDocuments.service');
 
 // Convierte AAAAMMDD → AAAA-MM-DD
 function formatearFecha(fecha) {
@@ -86,10 +90,6 @@ module.exports = function boaRoutes(app, supabase) {
   app.get('/scrape-boa-oficial', async (req, res) => {
     if (!checkCronToken(req, res)) return;
 
-    let documentos = 0;
-    let saltadasNoPdf = 0;
-    let saltadasFiltro = 0;
-
     try {
       const fechaParam = /^\d{4}-\d{2}-\d{2}$/.test(req.query.fecha || '')
         ? req.query.fecha
@@ -113,58 +113,61 @@ module.exports = function boaRoutes(app, supabase) {
         });
       }
 
-      const docsInsertables = [];
+      // Captura bruta: recolectamos TODO lo detectado. La descarga del PDF ya
+      // ocurría antes (no añade coste). Lo que no tiene PDF antes se perdía en
+      // silencio; ahora se registra como skipped_by_rule / sin_pdf.
+      const docsConTexto = [];
+      const docsSinPdf = [];
+
       for (const mlkob of mlkobs) {
+        const urlOficial = `https://www.boa.aragon.es/cgi-bin/EBOA/BRSCGI?CMD=VEROBJ&MLKOB=${mlkob}`;
         const resultado = await procesarBoaPorMlkob(mlkob);
 
         if (!resultado) {
-          saltadasNoPdf++;
+          docsSinPdf.push({
+            titulo: null,
+            url: urlOficial,
+            fecha: fechaParam || getFechaMadridISO(),
+          });
           continue;
         }
 
         const { texto, fechaBoletin } = resultado;
-
-        // Filtro rápido usando solo el inicio del texto (barato)
-        const check = texto.slice(0, 3500);
-        if (!esRuralRelevante(check)) {
-          saltadasFiltro++;
-          continue;
-        }
-
-        documentos++;
-
-        const fechaSQL =
-          formatearFecha(fechaBoletin) ||
-          fechaParam ||
-          getFechaMadridISO();
-
-        const urlOficial = `https://www.boa.aragon.es/cgi-bin/EBOA/BRSCGI?CMD=VEROBJ&MLKOB=${mlkob}`;
-
+        const fechaSQL = formatearFecha(fechaBoletin) || fechaParam || getFechaMadridISO();
         const titulo = generarTituloBoa(texto, fechaSQL);
-        docsInsertables.push({
-          titulo,
-          url: urlOficial,
-          fecha: fechaSQL,
-          texto,
-        });
+        docsConTexto.push({ titulo, url: urlOficial, fecha: fechaSQL, texto });
       }
 
-      const { nuevas, duplicadas, errores } = await insertarAlertasBoletin(supabase, docsInsertables, {
+      // Registrar los detectados sin PDF (auditables, no perdidos).
+      if (docsSinPdf.length) {
+        const sinPdfConRaw = await registrarRawDocuments(supabase, docsSinPdf, {
+          fuente: 'BOA',
+          region: 'Aragón',
+        });
+        for (const d of sinPdfConRaw) {
+          await marcarRawDocumentSaltado(supabase, d.raw_document_id, 'sin_pdf');
+        }
+      }
+
+      // El filtro rural usa solo el inicio del texto (igual que antes).
+      const stats = await procesarConFiltroRural(supabase, docsConTexto, {
         fuente: 'BOA',
         region: 'Aragón',
+        esRuralRelevante,
+        construirBolsa: (doc) => String(doc.texto || '').slice(0, 3500),
         contenido: (doc) => doc.texto,
       });
 
       return res.json({
         success: true,
         mlkobs_totales: mlkobs.length,
-        documentos_insertables: documentos,
-        nuevas,
-        duplicadas,
-        errores,
-        saltadasNoPdf,
-        saltadasFiltro,
-        mensaje: 'BOA procesado (1 MLKOB = 1 alerta + filtro + título dinámico)',
+        documentos_insertables: stats.documentos_insertables,
+        nuevas: stats.nuevas,
+        duplicadas: stats.duplicadas,
+        errores: stats.errores,
+        saltadasNoPdf: docsSinPdf.length,
+        saltadasFiltro: stats.saltadasFiltro,
+        mensaje: 'BOA procesado (captura bruta + 1 MLKOB = 1 alerta + filtro)',
       });
     } catch (e) {
       console.error('Error en /scrape-boa-oficial', e);

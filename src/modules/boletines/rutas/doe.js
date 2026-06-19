@@ -7,7 +7,11 @@ const {
   extraerFechaBoletin,
 } = require('../scrapers/DOE/doeScraper');
 const { getFechaMadridISO, getFechaMadridYYYYMMDD } = require('../../../shared/fechaMadrid');
-const { insertarAlertasBoletin } = require('./shared/insertarAlertasBoletin');
+const { procesarConFiltroRural } = require('./shared/procesarConFiltroRural');
+const {
+  registrarRawDocuments,
+  marcarRawDocumentSaltado,
+} = require('../rawDocuments/rawDocuments.service');
 
 function formatearFecha(fecha) {
   if (!fecha || fecha.length !== 8) return null;
@@ -55,10 +59,6 @@ module.exports = function doeRoutes(app, supabase) {
   app.get('/scrape-doe-oficial', async (req, res) => {
     if (!checkCronToken(req, res)) return;
 
-    let documentos = 0;
-    let saltadasNoPdf = 0;
-    let saltadasFiltro = 0;
-
     try {
       const fechaParam = /^\d{4}-\d{2}-\d{2}$/.test(req.query.fecha || '')
         ? req.query.fecha
@@ -80,50 +80,59 @@ module.exports = function doeRoutes(app, supabase) {
         });
       }
 
-      const docsInsertables = [];
+      // Captura bruta: recolectamos TODO lo detectado. La descarga del PDF ya
+      // ocurría antes (no añade coste). Lo que no tiene PDF antes se perdía en
+      // silencio; ahora se registra como skipped_by_rule / sin_pdf.
+      const docsConTexto = [];
+      const docsSinPdf = [];
+
       for (const url of urls) {
         const texto = await procesarDoePdf(url);
         if (!texto) {
-          saltadasNoPdf++;
+          docsSinPdf.push({
+            titulo: null,
+            url,
+            fecha: formatearFecha(fechaHoy) || fechaParam || getFechaMadridISO(),
+          });
           continue;
         }
 
-        const check = texto.slice(0, 3500);
-        if (!esRuralRelevante(check)) {
-          saltadasFiltro++;
-          continue;
-        }
-
-        documentos++;
         const fechaDoc = extraerFechaBoletin(texto) || fechaHoy;
-        const fechaSQL =
-          formatearFecha(fechaDoc) || fechaParam || getFechaMadridISO();
-
+        const fechaSQL = formatearFecha(fechaDoc) || fechaParam || getFechaMadridISO();
         const titulo = generarTituloDoe(texto, fechaSQL);
-        docsInsertables.push({
-          titulo,
-          url,
-          fecha: fechaSQL,
-          texto,
-        });
+        docsConTexto.push({ titulo, url, fecha: fechaSQL, texto });
       }
 
-      const { nuevas, duplicadas, errores } = await insertarAlertasBoletin(supabase, docsInsertables, {
+      // Registrar los detectados sin PDF (auditables, no perdidos).
+      if (docsSinPdf.length) {
+        const sinPdfConRaw = await registrarRawDocuments(supabase, docsSinPdf, {
+          fuente: 'DOE',
+          region: 'Extremadura',
+        });
+        for (const d of sinPdfConRaw) {
+          await marcarRawDocumentSaltado(supabase, d.raw_document_id, 'sin_pdf');
+        }
+      }
+
+      // El filtro rural usa solo el inicio del texto (igual que antes).
+      const stats = await procesarConFiltroRural(supabase, docsConTexto, {
         fuente: 'DOE',
         region: 'Extremadura',
+        esRuralRelevante,
+        construirBolsa: (doc) => String(doc.texto || '').slice(0, 3500),
         contenido: (doc) => doc.texto,
       });
 
       return res.json({
         success: true,
         totales: urls.length,
-        documentos_insertables: documentos,
-        nuevas,
-        duplicadas,
-        errores,
-        saltadasNoPdf,
-        saltadasFiltro,
-        mensaje: 'DOE procesado (1 documento = 1 alerta + filtro + título dinámico)',
+        documentos_insertables: stats.documentos_insertables,
+        nuevas: stats.nuevas,
+        duplicadas: stats.duplicadas,
+        errores: stats.errores,
+        saltadasNoPdf: docsSinPdf.length,
+        saltadasFiltro: stats.saltadasFiltro,
+        mensaje: 'DOE procesado (captura bruta + 1 documento = 1 alerta + filtro)',
       });
     } catch (e) {
       console.error('Error en /scrape-doe-oficial', e);
