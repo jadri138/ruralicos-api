@@ -226,6 +226,89 @@ test('usuario con preferencias incompletas queda en revision, no envio automatic
   assert(decision.diagnostico.policy.riesgo_de_ruido.reasons.some((reason) => reason.code === 'perfil_incompleto'));
 });
 
+// Ayuda que coincide con el perfil pero con contenido debil (score por debajo de 100).
+// Con minIncludeScore=100 queda como review_only de revision segura (riesgo no alto).
+function ayudaRevisionSegura(id, overrides = {}) {
+  return {
+    id,
+    fuente: 'BOA',
+    titulo: `Ayudas para agricultura en Teruel ${id}`,
+    url: `https://example.com/${id}`,
+    fecha: '2026-06-04',
+    estado_ia: 'listo',
+    resumen_final: [
+      'FICHA_IA',
+      'TIPO: ayudas_subvenciones',
+      'PRIORIDAD: baja',
+      'RESUMEN_DIGEST: Se publican ayudas para explotaciones agrarias.',
+      'HECHO: ayudas para agricultura',
+    ].join('\n'),
+    contenido: 'Se publican ayudas para explotaciones agrarias de Teruel.',
+    provincias: ['Teruel'],
+    sectores: ['agricultura'],
+    subsectores: [],
+    tipos_alerta: ['ayudas_subvenciones'],
+    embedding_generated_at: '2026-06-04T08:00:00Z',
+    similitud: 0.0,
+    ...overrides,
+  };
+}
+
+const POLICY_FILL = { minIncludeScore: 100, minReviewScore: 50, minReviewQualityScore: 60, minItems: 1, targetItems: 2, maxItems: 2 };
+
+test('con allowReview=true un review_only seguro entra como relleno tras los include', () => {
+  const result = seleccionarAlertasParaDigest([ayudaRevisionSegura(300)], user, { ...POLICY_FILL, allowReview: true });
+  assert.strictEqual(result.alertas.length, 1);
+  assert.strictEqual(result.alertas[0].id, 300);
+  assert.strictEqual(result.alertas[0].decision_digest.action, 'review_only');
+  assert.strictEqual(result.alertas[0].decision_digest.motivo, 'relleno_revision_segura');
+});
+
+test('con allowReview=false ese mismo review_only queda fuera', () => {
+  const result = seleccionarAlertasParaDigest([ayudaRevisionSegura(301)], user, { ...POLICY_FILL, allowReview: false });
+  assert.strictEqual(result.alertas.length, 0);
+});
+
+test('un review_only de expediente individual no entra como relleno aunque allowReview=true', () => {
+  const indiv = alerta(302, {
+    titulo: 'Solicitud de concesion de aguas para riego en Teruel 302',
+    contenido: 'Solicitud de concesion de aguas para riego agricola en Teruel con plazo de alegaciones.',
+    tipos_alerta: ['agua_infraestructuras'],
+  });
+  const decision = decidirAlertaParaDigest(indiv, user, { ...POLICY_FILL, allowReview: true });
+  assert.strictEqual(decision.action, 'review_only');
+  assert.strictEqual(decision.review_safe_fill, false);
+
+  const result = seleccionarAlertasParaDigest([indiv], user, { ...POLICY_FILL, allowReview: true });
+  assert.strictEqual(result.alertas.length, 0);
+});
+
+test('un review_only generico no entra como relleno aunque allowReview=true', () => {
+  const generico = alerta(303, {
+    titulo: 'Publicacion oficial relevante',
+    resumen_final: 'FICHA_IA\nRESUMEN_DIGEST: Publicacion oficial relevante, revisar si afecta.',
+    contenido: 'Publicacion oficial relevante. Revisar si afecta.',
+    tipos_alerta: ['normativa_general'],
+  });
+  const decision = decidirAlertaParaDigest(generico, user, { ...POLICY_FILL, allowReview: true });
+  assert.strictEqual(decision.review_safe_fill, false);
+
+  const result = seleccionarAlertasParaDigest([generico], user, { ...POLICY_FILL, allowReview: true });
+  assert.strictEqual(result.alertas.length, 0);
+});
+
+test('un include siempre tiene prioridad sobre un review_only seguro', () => {
+  const result = seleccionarAlertasParaDigest([ayudaRevisionSegura(304), alerta(305)], user, {
+    ...POLICY_FILL,
+    targetItems: 1,
+    maxItems: 1,
+    allowReview: true,
+  });
+  assert.strictEqual(result.alertas.length, 1);
+  assert.strictEqual(result.alertas[0].id, 305);
+  assert.strictEqual(result.alertas[0].decision_digest.action, 'include');
+});
+
 test('selecciona con diversidad y conserva minimo cuando hay candidatas', () => {
   const result = seleccionarAlertasParaDigest([
     alerta(10, { fuente: 'BOA', tipos_alerta: ['ayudas_subvenciones'] }),
