@@ -138,5 +138,43 @@ test('evita falsos positivos rurales frecuentes', () => {
   assert(!features.includes('subsector:vinedo'));
 });
 
+test('reconoce el vocabulario ampliado de sectores y morfologia', () => {
+  const agro = construirPreferenciasDesdeTexto('Soy agricultor y tambien tengo ganado, me interesan ayudas');
+  assert(agro.preferencias.sectores.includes('agricultura'));
+  assert(agro.preferencias.sectores.includes('ganaderia'));
+
+  const features = extraerFeatureTagsDeTexto(
+    'Instalacion fotovoltaica de autoconsumo, gestion de purines y dano por pedrisco en el almendro'
+  );
+  assert(features.includes('concepto:energia'));
+  assert(features.includes('concepto:purines_estiercoles'));
+  assert(features.includes('concepto:dano_climatico'));
+  assert(features.includes('subsector:almendro'));
+});
+
+test('detecta subsectores nuevos y los deja en forma canonica', () => {
+  const equino = extraerTaxonomiaDeTexto('Tengo caballos y yeguas en mi explotacion equina');
+  assert(equino.matches.some((m) => m.id === 'subsector:equino'));
+
+  const industriales = construirPreferenciasDesdeTexto('Me interesa el girasol y la colza');
+  assert(industriales.preferencias.subsectores.includes('cultivos_industriales'));
+
+  const secos = construirPreferenciasDesdeTexto('Cultivo nueces y pistachos');
+  assert(secos.preferencias.subsectores.includes('frutos_secos'));
+
+  const flor = construirPreferenciasDesdeTexto('Tengo un vivero de plantas ornamentales');
+  assert(flor.preferencias.subsectores.includes('floricultura'));
+});
+
+test('amplia vocabulario sin romper exclusiones existentes', () => {
+  const resultado = extraerTaxonomiaDeTexto(
+    'contrato de obras del ayuntamiento. ley general. pago de tasas. curso fluvial. vino de honor.'
+  );
+  assert(!resultado.matches.some((m) => m.id === 'tramite:licitacion'));
+  assert(!resultado.matches.some((m) => m.id === 'concepto:normativa'));
+  assert(!resultado.matches.some((m) => m.id === 'concepto:ayuda_directa'));
+  assert(!resultado.matches.some((m) => m.id === 'subsector:vinedo'));
+});
+
 console.log(`\nResultados taxonomiaRuralicos: ${passed} aprobados, ${failed} fallidos`);
 if (failed > 0) process.exit(1);

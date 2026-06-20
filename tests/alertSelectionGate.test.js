@@ -111,7 +111,7 @@ test('bloquea expediente individual aunque coincida por provincia si no hay muni
   assert.strictEqual(decision.motivo, 'expediente_individual_sin_municipio');
 });
 
-test('permite expediente individual provincial cuando el digest activa coincidencia fuerte', () => {
+test('manda a revision expediente individual provincial aunque haya coincidencia fuerte', () => {
   const decision = decidirAlertaParaDigest({
     ...alertaBuena,
     id: 7,
@@ -127,8 +127,9 @@ test('permite expediente individual provincial cuando el digest activa coinciden
     allowIndividualWithoutMunicipio: true,
   });
 
-  assert.strictEqual(decision.incluir, true);
-  assert.strictEqual(decision.motivo, 'incluida');
+  assert.strictEqual(decision.incluir, false);
+  assert.strictEqual(decision.action, 'review_only');
+  assert.strictEqual(decision.motivo, 'expediente_individual_requiere_revision');
   assert(decision.diagnostico.ranking.reasons.some((reason) => reason.code === 'expediente_provincial_fuerte'));
 });
 

@@ -16,6 +16,7 @@ function tagsAlerta(alerta = {}) {
   const decision = alerta.decision_digest || null;
   const similitud = normalizarNumero(alerta.similitud);
   const selectionScore = scoreSeleccion(alerta);
+  const finalValidation = alerta.final_validation || alerta.validacion_final_digest || {};
 
   return {
     provincias: Array.isArray(alerta.provincias) ? alerta.provincias : [],
@@ -43,6 +44,19 @@ function tagsAlerta(alerta = {}) {
     relevancia_digest: alerta.relevancia_digest || null,
     relevancia_digest_key: alerta.relevancia_digest_key || null,
     contexto_mia_digest: alerta.contexto_mia_digest || null,
+    fact_sheet_status: alerta.fact_sheet_status || alerta.fact_sheet?.status || null,
+    truth_score: normalizarNumero(alerta.truth_score ?? alerta.fact_sheet?.truth_score),
+    risk_score: normalizarNumero(alerta.risk_score ?? alerta.fact_sheet?.risk_score),
+    evidence_coverage: normalizarNumero(alerta.evidence_coverage ?? alerta.fact_sheet?.evidence_coverage),
+    final_validation_status: alerta.final_validation_status || finalValidation.status || null,
+    final_validation_flags: Array.isArray(alerta.final_validation_flags)
+      ? alerta.final_validation_flags
+      : (Array.isArray(finalValidation.flags) ? finalValidation.flags : []),
+    final_validation_reasons: Array.isArray(alerta.final_validation_reasons)
+      ? alerta.final_validation_reasons
+      : (Array.isArray(finalValidation.reasons) ? finalValidation.reasons : []),
+    critical_double_check: alerta.critical_double_check || finalValidation.critical_double_check || null,
+    shadow_decision: alerta.shadow_decision || null,
   };
 }
 

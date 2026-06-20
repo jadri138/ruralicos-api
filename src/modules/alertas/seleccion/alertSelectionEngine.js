@@ -109,11 +109,13 @@ function construirSignals(alerta = {}, calidad = {}) {
   const features = extraerFeaturesAlerta(alerta);
   const flags = Array.isArray(calidad.flags) ? calidad.flags : [];
   const texto = textoAlerta(alerta);
+  const plazoNoVerificado = /\b(sin plazo claro|sin plazo verificable|sin plazo demostrado|sin plazo demostrable|no permite confirmar plazo|no consta plazo|plazo no (consta|confirmado|verificado)|pendiente de confirmar plazo)\b/.test(texto);
 
   return {
     features,
     flags,
-    tiene_plazo: features.includes('concepto:plazo') || /\b(plazo|hasta el|dias habiles|alegaciones)\b/.test(texto),
+    tiene_plazo: !plazoNoVerificado && (features.includes('concepto:plazo') || /\b(plazo|hasta el|dias habiles|alegaciones)\b/.test(texto)),
+    plazo_no_verificado: plazoNoVerificado,
     tiene_solicitud: features.includes('accion:solicitar'),
     tiene_subsanacion: features.includes('accion:subsanar'),
     tiene_alegaciones: features.includes('accion:alegar'),
@@ -169,6 +171,14 @@ function tieneInteresProvincialFuerte({ signals, matches }) {
   return Boolean(matches.tipo_expreso || matches.subsector_expreso);
 }
 
+function preferenciasIncompletas(user = {}) {
+  const prefs = user.preferences || {};
+  return lista(prefs.provincias).length === 0 &&
+    lista(prefs.sectores, canonicalSector).length === 0 &&
+    lista(prefs.subsectores, canonicalSubsector).length === 0 &&
+    tiposActivosUsuario(user).length === 0;
+}
+
 function sumar(score, reasons, delta, code, detail) {
   const value = Number(delta || 0);
   reasons.push({ code, delta: value, detail });
@@ -217,6 +227,52 @@ function aplicarBloqueosDuros({ base, calidad, signals, exclusion, matches, user
     municipio,
     interesProvincial,
   };
+}
+
+function calcularRiesgoRuido({ alerta = {}, user = {}, calidad = {}, signals = {}, matches = {}, bloqueo = {}, policy = {} }) {
+  const reasons = [];
+  const tiposAlerta = lista(alerta.tipos_alerta, canonicalTipoAlerta);
+  const sectoresAlerta = lista(alerta.sectores, canonicalSector);
+  const subsectoresAlerta = lista(alerta.subsectores, canonicalSubsector);
+  const factSheet = calidad?.metadata?.fact_sheet || {};
+
+  if (signals.generico) reasons.push({ code: 'resumen_generico', level: 'alto', detail: 'Resumen generico o poco accionable.' });
+  if (signals.es_licitacion) reasons.push({ code: 'posible_licitacion', level: 'alto', detail: 'Posible licitacion o contrato.' });
+  if (signals.es_individual && !bloqueo.municipio) {
+    reasons.push({
+      code: bloqueo.interesProvincial ? 'expediente_individual_revision' : 'expediente_individual_sin_municipio',
+      level: 'alto',
+      detail: bloqueo.interesProvincial
+        ? 'Expediente individual con coincidencia provincial: requiere revision manual.'
+        : 'Expediente individual sin municipio declarado.',
+    });
+  }
+  if (signals.es_ayuda && signals.plazo_no_verificado) {
+    reasons.push({ code: 'plazo_no_verificado', level: 'alto', detail: 'Ayuda o subvencion sin plazo verificable.' });
+  }
+  if (Number(calidad.score || 0) < policy.minReviewQualityScore) {
+    reasons.push({ code: 'calidad_baja', level: 'alto', detail: `Calidad ${calidad.score}.` });
+  }
+  if (tiposAlerta.length === 0) reasons.push({ code: 'tipo_alerta_vacio', level: 'alto', detail: 'No hay tipo de alerta normalizado.' });
+  if (sectoresAlerta.length === 0 && subsectoresAlerta.length === 0) {
+    reasons.push({ code: 'sector_subsector_no_expresos', level: 'alto', detail: 'No hay sector ni subsector expreso.' });
+  }
+  if (!matches.sector_expreso && !matches.subsector_expreso) {
+    reasons.push({ code: 'sector_usuario_no_expreso', level: 'medio', detail: 'No hay match expreso de sector o subsector.' });
+  }
+  if (!matches.tipo_expreso) {
+    reasons.push({ code: 'tipo_usuario_no_expreso', level: 'medio', detail: 'No hay match expreso de tipo de alerta.' });
+  }
+  if (preferenciasIncompletas(user)) {
+    reasons.push({ code: 'perfil_incompleto', level: 'alto', detail: 'Usuario sin preferencias declaradas suficientes.' });
+  }
+  if (factSheet.status === 'review_only' || factSheet.status === 'blocked') {
+    reasons.push({ code: `fact_sheet_${factSheet.status}`, level: 'alto', detail: `Fact sheet en estado ${factSheet.status}.` });
+  }
+
+  if (reasons.some((reason) => reason.level === 'alto')) return { nivel: 'alto', reasons };
+  if (reasons.some((reason) => reason.level === 'medio')) return { nivel: 'medio', reasons };
+  return { nivel: 'bajo', reasons };
 }
 
 function calcularScore({ alerta, base, calidad, signals, matches, municipio, interesProvincial }) {
@@ -287,6 +343,7 @@ function puedeSerRevisionSegura({ score, calidad, signals, policy }) {
   }
 
   return Boolean(
+    signals.es_ayuda ||
     signals.tiene_solicitud ||
     signals.tiene_plazo ||
     signals.tiene_subsanacion ||
@@ -298,10 +355,24 @@ function puedeSerRevisionSegura({ score, calidad, signals, policy }) {
   );
 }
 
-function clasificarDecision({ score, blocks, signals, calidad, policy }) {
+function clasificarDecision({ score, blocks, signals, calidad, policy, riesgoRuido, bloqueo }) {
   if (blocks.length > 0) return { action: 'exclude', motivo: blocks[0].code, riesgo: 'alto' };
-  if (score >= policy.minIncludeScore) return { action: 'include', motivo: 'incluida', riesgo: signals.es_individual ? 'medio' : 'bajo' };
-  if (puedeSerRevisionSegura({ score, calidad, signals, policy })) return { action: 'review', motivo: 'revision_segura', riesgo: 'medio' };
+  if (signals.es_individual && !bloqueo?.municipio) {
+    if (policy.allowReview && score >= policy.minReviewScore) {
+      return { action: 'review_only', motivo: 'expediente_individual_requiere_revision', riesgo: 'alto' };
+    }
+    return { action: 'exclude', motivo: 'expediente_individual_sin_municipio', riesgo: 'alto' };
+  }
+  if (riesgoRuido?.nivel === 'alto') {
+    if (puedeSerRevisionSegura({ score, calidad, signals, policy }) || calidad?.metadata?.fact_sheet?.status === 'review_only') {
+      return { action: 'review_only', motivo: 'revision_riesgo_alto', riesgo: 'alto' };
+    }
+    return { action: 'exclude', motivo: riesgoRuido.reasons[0]?.code || 'riesgo_ruido_alto', riesgo: 'alto' };
+  }
+  if (score >= policy.minIncludeScore) {
+    return { action: 'include', motivo: 'incluida', riesgo: signals.es_individual || riesgoRuido?.nivel === 'medio' ? 'medio' : 'bajo' };
+  }
+  if (puedeSerRevisionSegura({ score, calidad, signals, policy })) return { action: 'review_only', motivo: 'revision_segura', riesgo: 'medio' };
   return { action: 'exclude', motivo: 'score_insuficiente', riesgo: 'medio' };
 }
 
@@ -342,14 +413,19 @@ function evaluarAlertaParaDigest(alerta, user, options = {}) {
     municipio: bloqueo.municipio,
     interesProvincial: bloqueo.interesProvincial,
   });
-  const verdict = clasificarDecision({ score: scoring.score, blocks: bloqueo.blocks, signals, calidad, policy });
-  const incluir = verdict.action === 'include' || verdict.action === 'review';
+  const riesgoRuido = calcularRiesgoRuido({ alerta, user, calidad, signals, matches, bloqueo, policy });
+  const verdict = clasificarDecision({ score: scoring.score, blocks: bloqueo.blocks, signals, calidad, policy, riesgoRuido, bloqueo });
+  const incluir = verdict.action === 'include';
+  const reviewRequired = verdict.action === 'review_only';
 
   return {
     incluir,
+    sendable: incluir,
+    review_required: reviewRequired,
     action: verdict.action,
     motivo: verdict.motivo,
     riesgo: verdict.riesgo,
+    riesgo_de_ruido: riesgoRuido.nivel,
     score: scoring.score,
     detalle: exclusion || base.detalle || null,
     diagnostico: {
@@ -369,8 +445,13 @@ function evaluarAlertaParaDigest(alerta, user, options = {}) {
           es_licitacion: signals.es_licitacion,
           es_nombramiento: signals.es_nombramiento,
           generico: signals.generico,
+          plazo_no_verificado: signals.plazo_no_verificado,
           municipio_declarado: bloqueo.municipio,
           interes_provincial_fuerte: bloqueo.interesProvincial,
+        },
+        riesgo_de_ruido: {
+          nivel: riesgoRuido.nivel,
+          reasons: riesgoRuido.reasons,
         },
       },
       ranking: {
@@ -573,7 +654,7 @@ function puedeIncluirRevisionSegura(decision = {}, calidad = {}, options = {}) {
     return false;
   }
 
-  return Boolean(signals.tiene_solicitud || signals.tiene_plazo || signals.es_pac || signals.es_agua || signals.es_sanidad_animal || signals.es_medio_ambiente);
+  return Boolean(signals.es_ayuda || signals.tiene_solicitud || signals.tiene_plazo || signals.es_pac || signals.es_agua || signals.es_sanidad_animal || signals.es_medio_ambiente);
 }
 
 module.exports = {

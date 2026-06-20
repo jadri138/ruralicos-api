@@ -72,6 +72,7 @@ const {
   DIGEST_RESCUE_MAX_ALERTAS,
   DIGEST_RESCUE_MESSAGE_MAX_CHARS,
   DIGEST_VECTOR_BACKFILL_MIN,
+  DIGEST_FINAL_VALIDATION_ENFORCEMENT,
   norm,
   intersecta,
   ALERTA_DIGEST_SELECT,
@@ -112,6 +113,10 @@ const {
   explicarCoincidenciasDigest,
   construirContextoInternoDigest,
   prepararAlertasFinalesDigest,
+  resumirValidacionFinalDigest,
+  prepararValidacionFinalDigestShadow,
+  guardarFactSheetsDigestShadow,
+  filtrarAlertasPorValidacionFinalDigest,
   agruparAlertasDigest,
   obtenerNombreCortoDigest,
   construirSaludoDigest,
@@ -629,6 +634,187 @@ module.exports = function digestRoutes(app, supabase) {
             alertasFinales
           );
 
+          let finalValidationShadow = null;
+          try {
+            const shadow = await prepararValidacionFinalDigestShadow({
+              supabase,
+              mensaje: mensaje.trim(),
+              alertas: alertasFinales,
+              user: userConPerfilMIA,
+              organizationId,
+            });
+            alertasFinales = shadow.alertas;
+            finalValidationShadow = shadow.validation;
+            for (const warning of shadow.warnings || []) {
+              errores.push({
+                userId: user.id,
+                warning: warning.warning,
+                alertaId: warning.alerta_id,
+                error: warning.error,
+              });
+            }
+            const initialFactSheetStore = await guardarFactSheetsDigestShadow({
+              supabase,
+              alertas: alertasFinales,
+              validation: finalValidationShadow,
+              organizationId,
+            });
+            if (!initialFactSheetStore.ok) {
+              errores.push({
+                userId: user.id,
+                warning: 'fact_sheet_shadow_inicial_no_registrado',
+              });
+            }
+          } catch (errShadow) {
+            console.warn(`[digest:shadow] No se pudo validar digest final user ${user.id}:`, errShadow.message);
+            errores.push({ userId: user.id, warning: 'final_validation_shadow_error', error: errShadow.message });
+          }
+
+          let finalValidationEnforcement = null;
+          if (DIGEST_FINAL_VALIDATION_ENFORCEMENT) {
+            if (!finalValidationShadow) {
+              await registrarDigestAttempt(supabase, {
+                userId: user.id,
+                fecha: hoy,
+                kind: modoRescate ? 'rescue' : 'daily',
+                status: 'no_send',
+                totalAlertasDia,
+                totalAlertasVentana: modoRescate?.totalAlertasVentana || 0,
+                trasQualityGate: modoRescate?.alertasVentanaTrasCalidad || alertas.length,
+                trasFiltroUsuario: modoRescate?.trasFiltroUsuario || alertasUsuario.length,
+                trasScoring: modoRescate?.trasScoring || alertasOrdenadas.length,
+                alertasFinales: alertasFinales.length,
+                motivoNoEnvio: 'final_validation_error',
+                metadata: { plan: plan.nombre, origen: origenDigest, rescate: modoRescate },
+              });
+              sinAlertas++;
+              continue;
+            }
+
+            finalValidationEnforcement = filtrarAlertasPorValidacionFinalDigest(alertasFinales, finalValidationShadow);
+            if (finalValidationEnforcement.aceptadas.length === 0) {
+              await registrarDigestAttempt(supabase, {
+                userId: user.id,
+                fecha: hoy,
+                kind: modoRescate ? 'rescue' : 'daily',
+                status: 'no_send',
+                totalAlertasDia,
+                totalAlertasVentana: modoRescate?.totalAlertasVentana || 0,
+                trasQualityGate: modoRescate?.alertasVentanaTrasCalidad || alertas.length,
+                trasFiltroUsuario: modoRescate?.trasFiltroUsuario || alertasUsuario.length,
+                trasScoring: modoRescate?.trasScoring || alertasOrdenadas.length,
+                alertasFinales: 0,
+                motivoNoEnvio: finalValidationEnforcement.motivo_no_envio || 'final_validation_no_send',
+                metadata: {
+                  plan: plan.nombre,
+                  origen: origenDigest,
+                  rescate: modoRescate,
+                  final_validation: resumirValidacionFinalDigest(finalValidationShadow),
+                  final_validation_enforcement: finalValidationEnforcement.summary,
+                },
+              });
+              sinAlertas++;
+              console.log(`[digest] User ${user.id} -> validacion final sin items enviables -> sin digest`);
+              continue;
+            }
+
+            if (finalValidationEnforcement.rechazadas.length > 0) {
+              alertasFinales = finalValidationEnforcement.aceptadas;
+              mensajeRaw = modoRescate
+                ? generarMensajeDigestRescate({
+                  user: userConPerfilMIA,
+                  alertas: alertasFinales,
+                  fecha: hoy,
+                  desde: modoRescate.desde,
+                  tipo: modoRescate.tipo,
+                  organizationContext,
+                })
+                : generarMensajeDigestFallback({
+                  user: userConPerfilMIA,
+                  alertas: alertasFinales,
+                  fecha: hoy,
+                  organizationContext,
+                });
+              mensaje = anadirInstruccionFeedback(
+                aplicarTextoObligatorio(mensajeRaw, user.preferencias_extra),
+                alertasFinales
+              );
+
+              const shadow = await prepararValidacionFinalDigestShadow({
+                supabase,
+                mensaje: mensaje.trim(),
+                alertas: alertasFinales,
+                user: userConPerfilMIA,
+                organizationId,
+              });
+              alertasFinales = shadow.alertas;
+              finalValidationShadow = shadow.validation;
+              for (const warning of shadow.warnings || []) {
+                errores.push({
+                  userId: user.id,
+                  warning: warning.warning,
+                  alertaId: warning.alerta_id,
+                  error: warning.error,
+                });
+              }
+
+              finalValidationEnforcement = filtrarAlertasPorValidacionFinalDigest(alertasFinales, finalValidationShadow);
+              if (finalValidationEnforcement.aceptadas.length === 0) {
+                await registrarDigestAttempt(supabase, {
+                  userId: user.id,
+                  fecha: hoy,
+                  kind: modoRescate ? 'rescue' : 'daily',
+                  status: 'no_send',
+                  totalAlertasDia,
+                  totalAlertasVentana: modoRescate?.totalAlertasVentana || 0,
+                  trasQualityGate: modoRescate?.alertasVentanaTrasCalidad || alertas.length,
+                  trasFiltroUsuario: modoRescate?.trasFiltroUsuario || alertasUsuario.length,
+                  trasScoring: modoRescate?.trasScoring || alertasOrdenadas.length,
+                  alertasFinales: 0,
+                  motivoNoEnvio: finalValidationEnforcement.motivo_no_envio || 'final_validation_no_send',
+                  metadata: {
+                    plan: plan.nombre,
+                    origen: origenDigest,
+                    rescate: modoRescate,
+                    final_validation: resumirValidacionFinalDigest(finalValidationShadow),
+                    final_validation_enforcement: finalValidationEnforcement.summary,
+                  },
+                });
+                sinAlertas++;
+                console.log(`[digest] User ${user.id} -> validacion final filtro todos tras regenerar -> sin digest`);
+                continue;
+              }
+
+              if (finalValidationEnforcement.rechazadas.length > 0) {
+                await registrarDigestAttempt(supabase, {
+                  userId: user.id,
+                  fecha: hoy,
+                  kind: modoRescate ? 'rescue' : 'daily',
+                  status: 'no_send',
+                  totalAlertasDia,
+                  totalAlertasVentana: modoRescate?.totalAlertasVentana || 0,
+                  trasQualityGate: modoRescate?.alertasVentanaTrasCalidad || alertas.length,
+                  trasFiltroUsuario: modoRescate?.trasFiltroUsuario || alertasUsuario.length,
+                  trasScoring: modoRescate?.trasScoring || alertasOrdenadas.length,
+                  alertasFinales: 0,
+                  motivoNoEnvio: 'final_validation_unstable_after_regeneration',
+                  metadata: {
+                    plan: plan.nombre,
+                    origen: origenDigest,
+                    rescate: modoRescate,
+                    final_validation: resumirValidacionFinalDigest(finalValidationShadow),
+                    final_validation_enforcement: finalValidationEnforcement.summary,
+                  },
+                });
+                sinAlertas++;
+                console.log(`[digest] User ${user.id} -> validacion final inestable tras regenerar -> sin digest`);
+                continue;
+              }
+
+              alertasFinales = finalValidationEnforcement.aceptadas;
+            }
+          }
+
           const alertaIdsDigest = alertasFinales.map((a) => a.id);
           let digestInsertado = null;
           let writeError = null;
@@ -731,6 +917,8 @@ module.exports = function digestRoutes(app, supabase) {
                 plan: plan.nombre,
                 origen: origenDigest,
                 rescate: modoRescate,
+                final_validation: resumirValidacionFinalDigest(finalValidationShadow),
+                final_validation_enforcement: finalValidationEnforcement?.summary || null,
               },
             });
 
@@ -764,6 +952,22 @@ module.exports = function digestRoutes(app, supabase) {
               origen: origenDigest,
               organizationId,
             });
+
+            const factSheetStore = await guardarFactSheetsDigestShadow({
+              supabase,
+              alertas: alertasFinales,
+              validation: finalValidationShadow,
+              organizationId,
+              digestId: digestInsertado.id,
+            });
+
+            if (!factSheetStore.ok) {
+              errores.push({
+                userId: user.id,
+                digestId: digestInsertado.id,
+                warning: 'fact_sheet_shadow_no_registrado',
+              });
+            }
 
             if (!digestItems.ok) {
               errores.push({
