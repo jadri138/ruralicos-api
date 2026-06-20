@@ -417,11 +417,18 @@ function evaluarAlertaParaDigest(alerta, user, options = {}) {
   const verdict = clasificarDecision({ score: scoring.score, blocks: bloqueo.blocks, signals, calidad, policy, riesgoRuido, bloqueo });
   const incluir = verdict.action === 'include';
   const reviewRequired = verdict.action === 'review_only';
+  // Relleno seguro: solo review_only de baja-media incertidumbre, nunca de riesgo alto.
+  // Reutiliza exactamente el contrato de puedeSerRevisionSegura (allowReview, score,
+  // calidad, sin critical/individual/licitacion/nombramiento/generico, con senal util).
+  const reviewSafeFill = reviewRequired
+    && riesgoRuido.nivel !== 'alto'
+    && puedeSerRevisionSegura({ score: scoring.score, calidad, signals, policy });
 
   return {
     incluir,
     sendable: incluir,
     review_required: reviewRequired,
+    review_safe_fill: reviewSafeFill,
     action: verdict.action,
     motivo: verdict.motivo,
     riesgo: verdict.riesgo,
@@ -574,10 +581,33 @@ function seleccionarAlertasParaDigest(alertas = [], user, options = {}) {
     .filter((item) => item.decision.incluir)
     .sort((a, b) => b.decision.score - a.decision.score || Number(a.alerta.id || 0) - Number(b.alerta.id || 0));
 
+  // 1) Primero los include (con diversidad). Nunca se desplazan por un review_only.
   const seleccionadas = pickDiversificado(candidatas, policy);
-  const selectedIds = new Set(seleccionadas.map((item) => Number(item.alerta.id)).filter(Number.isFinite));
+
+  // 2) Despues, relleno con review_only SEGURO hasta targetItems (solo si allowReview).
+  const rellenoRevision = [];
+  if (policy.allowReview && seleccionadas.length < policy.targetItems) {
+    const usados = new Set(seleccionadas.map((item) => Number(item.alerta.id)).filter(Number.isFinite));
+    const reviewCandidatas = evaluadas
+      .filter((item) => item.decision.review_safe_fill && !usados.has(Number(item.alerta.id)))
+      .sort((a, b) => b.decision.score - a.decision.score || Number(a.alerta.id || 0) - Number(b.alerta.id || 0));
+    for (const item of reviewCandidatas) {
+      if (seleccionadas.length + rellenoRevision.length >= policy.targetItems) break;
+      rellenoRevision.push(item);
+      usados.add(Number(item.alerta.id));
+    }
+  }
+
+  const finales = [...seleccionadas, ...rellenoRevision];
+  const selectedIds = new Set(finales.map((item) => Number(item.alerta.id)).filter(Number.isFinite));
+  const rellenoIds = new Set(rellenoRevision.map((item) => Number(item.alerta.id)).filter(Number.isFinite));
+
   const decisiones = evaluadas.map((item) => {
-    if (!selectedIds.has(Number(item.alerta.id)) && item.decision.incluir) {
+    const id = Number(item.alerta.id);
+    if (rellenoIds.has(id)) {
+      return { ...item.item, incluir: true, motivo: 'relleno_revision_segura' };
+    }
+    if (!selectedIds.has(id) && item.decision.incluir) {
       return {
         ...item.item,
         incluir: false,
@@ -589,7 +619,13 @@ function seleccionarAlertasParaDigest(alertas = [], user, options = {}) {
   });
 
   return {
-    alertas: seleccionadas.map((item) => crearAnotacion(item.alerta, item.decision, policy.origen || 'selection_engine_v2')),
+    alertas: finales.map((item) => crearAnotacion(
+      item.alerta,
+      rellenoIds.has(Number(item.alerta.id))
+        ? { ...item.decision, incluir: true, motivo: 'relleno_revision_segura' }
+        : item.decision,
+      policy.origen || 'selection_engine_v2'
+    )),
     decisiones,
     excluidas: decisiones.filter((item) => !item.incluir),
     resumen: resumenDecisiones(decisiones),
@@ -604,14 +640,20 @@ function filtrarAlertasParaDigest(alertas = [], user, options = {}) {
 
   for (const alerta of alertas || []) {
     const decision = evaluarAlertaParaDigest(alerta, user, policy);
+    // Los review_only seguros pasan al pool como candidatos de relleno; el pick final
+    // (seleccionarAlertasParaDigest) decide si entran y prioriza siempre los include.
+    const esRellenoSeguro = policy.allowReview && !decision.incluir && decision.review_safe_fill;
+    const decisionPool = esRellenoSeguro
+      ? { ...decision, incluir: true, motivo: 'candidato_revision_segura' }
+      : decision;
     const item = {
       id: alerta.id,
       titulo: alerta.titulo,
       fuente: alerta.fuente || 'BOE',
-      ...decision,
+      ...decisionPool,
     };
     decisiones.push(item);
-    if (decision.incluir) incluidas.push(crearAnotacion(alerta, decision, policy.origen || 'selection_engine_v2'));
+    if (decision.incluir || esRellenoSeguro) incluidas.push(crearAnotacion(alerta, decisionPool, policy.origen || 'selection_engine_v2'));
     else excluidas.push(item);
   }
 
