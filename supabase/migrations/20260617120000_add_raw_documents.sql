@@ -1,6 +1,14 @@
 -- Captura bruta/auditable de documentos detectados por los scrapers, ANTES de
 -- filtrar o insertar en alertas. Garantiza que ningun documento oficial
 -- desaparezca en silencio (sin URL, duplicado o descartado por una regla).
+--
+-- IDEMPOTENTE: usa `create table/index if not exists`. Si la tabla ya existe en un
+-- entorno (p. ej. se creo a mano en el panel de Supabase) pero esta migracion NO
+-- aparece en `supabase_migrations.schema_migrations`, reconcilia el historial SIN
+-- recrear la tabla con:
+--     supabase migration repair --status applied 20260617120000
+-- (o re-ejecuta este fichero: al ser IF NOT EXISTS no duplica nada). Ver
+-- supabase/migrations/README.md.
 
 create table if not exists public.raw_documents (
   id bigserial primary key,
