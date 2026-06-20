@@ -1,5 +1,6 @@
 const MISSING_TABLE_CODES = new Set(['42P01', '42703', 'PGRST205']);
 const { conOrganizationId } = require('./organizationContext');
+const { clasificarFeedbackDigest } = require('./feedbackClassifier');
 const HANDOFF_RISK_FLAGS = new Set([
   'low_confidence',
   'feedback_digest_without_executable_actions',
@@ -58,6 +59,7 @@ function construirFeedbackRows({
     .map((feedback) => {
       const alerta = alertasPorItem.get(Number(feedback.item_numero));
       if (!alerta?.id) return null;
+      const classification = clasificarFeedbackDigest({ texto, feedback, alerta });
 
       return conOrganizationId({
         user_id: user.id,
@@ -67,10 +69,28 @@ function construirFeedbackRows({
         valor: Number(feedback.valor),
         canal: 'whatsapp',
         raw_text: texto,
+        feedback_category: classification.category,
+        feedback_confidence: classification.confidence,
+        feedback_detail: {
+          reasons: classification.reasons,
+          evidence: classification.evidence,
+        },
         updated_at: ahora,
       }, orgId);
     })
     .filter(Boolean);
+}
+
+function limpiarFeedbackRowsLegacy(rows = []) {
+  return rows.map((row) => {
+    const {
+      feedback_category,
+      feedback_confidence,
+      feedback_detail,
+      ...legacy
+    } = row;
+    return legacy;
+  });
 }
 
 function construirMemoriaLegacyRows({
@@ -150,7 +170,13 @@ async function ejecutarAccionesMIA(supabase, {
     const { error } = await supabase
       .from('alerta_feedback')
       .upsert(feedbackRows, { onConflict: 'user_id,digest_id,alerta_id' });
-    if (error) throw error;
+    if (error) {
+      if (error.code !== '42703') throw error;
+      const { error: legacyError } = await supabase
+        .from('alerta_feedback')
+        .upsert(limpiarFeedbackRowsLegacy(feedbackRows), { onConflict: 'user_id,digest_id,alerta_id' });
+      if (legacyError) throw legacyError;
+    }
 
     if (typeof aplicarFeedbackAlPerfil === 'function') {
       for (const row of feedbackRows) {
@@ -406,6 +432,7 @@ async function abrirConversacionAgenteMIA(supabase, {
 
 module.exports = {
   construirFeedbackRows,
+  limpiarFeedbackRowsLegacy,
   construirMemoriaLegacyRows,
   construirCasoAgenteDesdeDecision,
   buscarCasoAgenteAbiertoMIA,

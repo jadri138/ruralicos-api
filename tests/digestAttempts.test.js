@@ -124,6 +124,8 @@ test('digest implementa rescate semanal y auditoria de no-envios', () => {
   assert(source.includes('construirResumenFacilDigest'), 'El digest debe traducir alertas a explicacion facil');
   assert(source.includes('prepararAlertasFinalesDigest'), 'El digest debe enriquecer alertas con contexto interno');
   assert(source.includes('contexto_mia_digest'), 'El digest debe guardar explicacion interna por alerta');
+  assert(source.includes('final_validation_no_send'), 'El digest debe auditar no-envios por validacion final');
+  assert(source.includes('final_validation_enforcement'), 'El digest debe guardar resumen de enforcement final');
   assert(source.includes('agruparAlertasDigest'), 'El digest debe agrupar alertas por tipo');
   assert(source.includes('construirPreviewDigestUsuario'), 'Debe existir preview de digest sin escrituras');
   assert(source.includes("app.get('/alertas/preview-digest'"), 'Debe existir endpoint GET de preview seguro');

@@ -1,311 +1,400 @@
 const {
-  DOCUMENT_TYPES,
-  EVIDENCE_COVERAGE,
-  FACT_SHEET_STATUS,
-  NO_VERIFICADO,
+  compactarTexto,
   normalizarTexto,
-  limpiarTexto,
-  crearFact,
-  crearArrayFact,
-  crearEvidence,
-  calcularEvidenceScore,
-  coverageFromScore,
+  normalizarLista,
+  crearCampo,
   crearFactSheetBase,
 } = require('./factSheetSchema');
+const {
+  crearTraceDesdeRawDocument,
+  resolverDocumentTrace,
+} = require('./documentTrace');
+const { validarFactSheet } = require('./factSheetValidator');
 
-const TIPO_TERMS = [
-  { value: DOCUMENT_TYPES.AYUDA_SUBVENCION, terms: ['subvencion', 'subvenciones', 'ayuda', 'ayudas', 'bases reguladoras', 'convocatoria'] },
-  { value: DOCUMENT_TYPES.CONCESION, terms: ['concesion', 'aprovechamiento de aguas', 'comisaria de aguas'] },
-  { value: DOCUMENT_TYPES.SANCION, terms: ['sancion', 'expediente sancionador', 'procedimiento sancionador'] },
-  { value: DOCUMENT_TYPES.FORMACION, terms: ['curso', 'jornada', 'formacion', 'taller', 'seminario'] },
-  { value: DOCUMENT_TYPES.ANUNCIO_PUBLICO, terms: ['informacion publica', 'exposicion publica', 'alegaciones', 'tramite de audiencia'] },
-  { value: DOCUMENT_TYPES.NORMATIVA, terms: ['orden', 'resolucion', 'decreto', 'reglamento', 'ley'] },
+const PROVINCE_ALIASES = {
+  huesca: ['huesca'],
+  zaragoza: ['zaragoza'],
+  teruel: ['teruel'],
+  nacional: ['nacional', 'espana', 'todo el territorio nacional', 'ambito estatal'],
+  todas: ['nacional', 'espana', 'todo el territorio nacional', 'ambito estatal'],
+};
+
+const SECTOR_ALIASES = {
+  agricultura: [
+    'agricultura', 'agricola', 'agricolas', 'agrario', 'agraria', 'agrarios', 'agrarias',
+    'agricultor', 'agricultores', 'agricultora', 'agricultoras',
+    'agroalimentario', 'agroalimentaria', 'agropecuario', 'agropecuaria',
+    'cultivo', 'cultivos', 'explotacion agraria', 'explotaciones agrarias',
+    'explotacion agricola', 'explotaciones agricolas', 'cereal',
+  ],
+  ganaderia: [
+    'ganaderia', 'ganadero', 'ganadera', 'ganaderas', 'ganaderos',
+    'vacuno', 'ovino', 'caprino', 'porcino', 'avicola', 'apicola', 'apicultura',
+    'bienestar animal', 'sanidad animal', 'cabaña ganadera',
+  ],
+  pesca: ['pesca', 'pesquero', 'pesquera', 'acuicultura', 'maritimo', 'maritima'],
+};
+
+const SUBSECTOR_ALIASES = {
+  agua: ['agua', 'riego', 'regadio', 'regadios', 'regante', 'regantes', 'concesion de aguas', 'comunidad de regantes', 'goteo', 'aspersion'],
+  vacuno: ['vacuno', 'bovino', 'bovinos', 'vaca', 'vacas', 'ternero', 'terneros'],
+  ovino: ['ovino', 'oveja', 'ovejas', 'cordero', 'corderos'],
+  caprino: ['caprino', 'cabra', 'cabras', 'cabrito'],
+  porcino: ['porcino', 'cerdo', 'cerdos', 'lechon', 'cebo'],
+  avicultura: ['avicultura', 'avicola', 'pollo', 'pollos', 'gallina', 'gallinas', 'huevo', 'huevos'],
+  apicultura: ['apicultura', 'apicola', 'abeja', 'abejas', 'miel', 'colmena', 'colmenas'],
+  equino: ['equino', 'equinos', 'caballo', 'caballos', 'yegua', 'yeguas'],
+  cereal: ['cereal', 'cereales', 'trigo', 'cebada', 'maiz', 'avena', 'centeno'],
+  olivar: ['olivar', 'olivares', 'olivo', 'olivos', 'aceituna', 'aceitunas', 'aceite de oliva', 'almazara'],
+  vinedo: ['vinedo', 'vinedos', 'vina', 'vinas', 'vid', 'vides', 'uva', 'uvas', 'viticultura', 'bodega'],
+  almendro: ['almendro', 'almendros', 'almendra', 'almendras'],
+  frutos_secos: ['frutos secos', 'nuez', 'nueces', 'avellana', 'avellanas', 'pistacho', 'pistachos'],
+  citricos: ['citricos', 'citrico', 'naranja', 'naranjas', 'mandarina', 'limon', 'limones'],
+  hortalizas: ['hortaliza', 'hortalizas', 'huerta', 'horticola', 'horticolas', 'tomate', 'pimiento', 'lechuga', 'cebolla', 'ajo'],
+  frutal: ['frutal', 'frutales', 'fruta', 'frutas', 'manzana', 'pera', 'melocoton', 'cereza', 'ciruela'],
+  forestal: ['forestal', 'forestales', 'monte', 'montes', 'bosque', 'bosques', 'madera'],
+  energia: ['energia', 'fotovoltaica', 'placas solares', 'autoconsumo', 'biogas', 'biomasa'],
+  medio_ambiente: ['medio ambiente', 'ambiental', 'biodiversidad', 'nitratos', 'residuos', 'natura 2000'],
+};
+
+const GENERIC_PATTERNS = [
+  /publicacion oficial relevante/i,
+  /revisar si (afecta|aplica)/i,
+  /determinar su aplicabilidad/i,
+  /consulta(r)? el documento completo/i,
 ];
 
-const TEMA_TERMS = [
-  { value: 'agua_riego', terms: ['agua', 'aguas', 'riego', 'regadio', 'regantes', 'hidraulica'] },
-  { value: 'agricultura', terms: ['agricultura', 'agraria', 'agrario', 'cultivo', 'explotaciones agrarias', 'olivar', 'vinedo'] },
-  { value: 'ganaderia', terms: ['ganaderia', 'ganadera', 'ganadero', 'bovino', 'ovino', 'caprino', 'sanidad animal'] },
-  { value: 'medio_ambiente', terms: ['medio ambiente', 'impacto ambiental', 'evaluacion ambiental', 'biodiversidad'] },
-  { value: 'forestal', terms: ['forestal', 'monte', 'montes', 'incendios forestales'] },
-  { value: 'formacion', terms: ['curso', 'jornada', 'formacion', 'taller'] },
-];
-
-const ACCION_TERMS = [
-  { value: 'presentar_solicitud', terms: ['presentar solicitud', 'plazo de solicitud', 'solicitar la ayuda', 'solicitar subvencion'] },
-  { value: 'presentar_alegaciones', terms: ['presentar alegaciones', 'alegaciones', 'informacion publica', 'tramite de audiencia'] },
-  { value: 'inscribirse', terms: ['inscripcion', 'inscribirse', 'matricula'] },
-  { value: 'subsanar', terms: ['subsanacion', 'subsanar'] },
-];
-
-const BENEFICIARIO_TERMS = [
-  'beneficiarios',
-  'destinatarios',
-  'titulares de explotaciones',
-  'agricultores',
-  'ganaderos',
-  'jovenes agricultores',
-  'comunidades de regantes',
-  'personas fisicas o juridicas',
-];
-
-const REQUISITO_TERMS = [
-  'requisitos',
-  'estar al corriente',
-  'acreditar',
-  'cumplir',
-  'inscritos en el registro',
-];
-
-const EXPEDIENTE_TERMS = [
-  'expediente',
-  'a favor de',
-  'solicitado por',
-  'a instancia de',
-  'poligono',
-  'parcela',
-];
-
-const TERRITORIOS = [
-  'Andalucia', 'Aragon', 'Asturias', 'Cantabria', 'Castilla-La Mancha', 'Castilla y Leon',
-  'Cataluna', 'Comunidad de Madrid', 'Comunidad Valenciana', 'Extremadura', 'Galicia',
-  'Illes Balears', 'Canarias', 'La Rioja', 'Navarra', 'Pais Vasco', 'Murcia', 'Ceuta', 'Melilla',
-  'Almeria', 'Cadiz', 'Cordoba', 'Granada', 'Huelva', 'Jaen', 'Malaga', 'Sevilla',
-  'Huesca', 'Teruel', 'Zaragoza', 'Avila', 'Burgos', 'Leon', 'Palencia', 'Salamanca',
-  'Segovia', 'Soria', 'Valladolid', 'Zamora', 'Albacete', 'Ciudad Real', 'Cuenca',
-  'Guadalajara', 'Toledo', 'Barcelona', 'Girona', 'Lleida', 'Tarragona', 'Alicante',
-  'Castellon', 'Valencia', 'Badajoz', 'Caceres', 'A Coruna', 'Lugo', 'Ourense',
-  'Pontevedra', 'Bizkaia', 'Gipuzkoa', 'Alava',
-];
-
-function crearChunksFuente({ rawDocument = null, textoFuente = null } = {}) {
-  const chunks = [];
-  const add = (source, text) => {
-    const clean = limpiarTexto(text, 12000);
-    if (clean) chunks.push({ source, text: clean, normalized: normalizarTexto(clean) });
-  };
-
-  if (textoFuente) add('textoFuente', textoFuente);
-
-  if (rawDocument) {
-    add('rawDocument.titulo', rawDocument.titulo || rawDocument.title);
-    add('rawDocument.texto_raw', rawDocument.texto_raw || rawDocument.texto || rawDocument.contenido);
-    add('rawDocument.organismo', rawDocument.organismo);
-    add('rawDocument.seccion', rawDocument.seccion);
-    add('rawDocument.boletin', rawDocument.boletin);
-  }
-
-  return chunks;
-}
-
-function dividirFrases(text) {
-  return String(text || '')
-    .split(/(?<=[.!?])\s+|\n+/g)
-    .map((item) => item.trim())
+function partirFrases(texto) {
+  return String(texto || '')
+    .replace(/\r/g, '\n')
+    .split(/\n+|(?<=[.!?])\s+/g)
+    .map((line) => line.trim())
     .filter(Boolean);
 }
 
-function quoteForTerm(chunk, normalizedNeedle) {
-  const sentences = dividirFrases(chunk.text);
-  const needle = normalizarTexto(normalizedNeedle);
-  const found = sentences.find((sentence) => normalizarTexto(sentence).includes(needle));
-  return found || chunk.text.slice(0, 500);
+function crearBloquesFuente(alerta = {}, trace = null) {
+  const rawDocument = trace?.rawDocument || null;
+  const blocks = [];
+
+  if (rawDocument?.texto_raw) {
+    blocks.push({ source: 'raw_document.texto_raw', text: rawDocument.texto_raw, official: true });
+  }
+
+  if (trace?.text_excerpt && !rawDocument?.texto_raw) {
+    blocks.push({ source: 'document_trace.text_excerpt', text: trace.text_excerpt, official: true });
+  }
+
+  for (const [source, text] of [
+    ['alerta.contenido', alerta.contenido],
+    ['alerta.resumen_final', alerta.resumen_final],
+    ['alerta.resumen_borrador', alerta.resumen_borrador],
+    ['alerta.resumen', alerta.resumen || alerta.resumenfree],
+    ['alerta.titulo', alerta.titulo],
+  ]) {
+    if (text) blocks.push({ source, text, official: false });
+  }
+
+  return blocks.flatMap((block) =>
+    partirFrases(block.text).map((sentence) => ({
+      ...block,
+      sentence,
+      normalized: normalizarTexto(sentence),
+    }))
+  );
 }
 
-function buscarTermino(chunks, terms = []) {
-  for (const chunk of chunks) {
-    for (const term of terms) {
-      const normalizedTerm = normalizarTexto(term);
-      if (normalizedTerm && chunk.normalized.includes(normalizedTerm)) {
-        return {
-          source: chunk.source,
-          value: term,
-          quote: quoteForTerm(chunk, normalizedTerm),
-        };
+function buscarEvidencia(blocks, patterns = []) {
+  for (const block of blocks) {
+    for (const pattern of patterns) {
+      if (typeof pattern === 'string') {
+        if (block.normalized.includes(normalizarTexto(pattern))) return block;
+      } else if (pattern.test(block.sentence) || pattern.test(block.normalized)) {
+        return block;
       }
     }
   }
   return null;
 }
 
-function buscarGrupo(chunks, groups = []) {
-  for (const group of groups) {
-    const hit = buscarTermino(chunks, group.terms);
-    if (hit) return { ...hit, value: group.value };
-  }
-  return null;
-}
-
-function buscarRegexNormalizado(chunks, regex) {
-  for (const chunk of chunks) {
-    const match = chunk.normalized.match(regex);
-    if (!match) continue;
-    return {
-      source: chunk.source,
-      value: match[0],
-      quote: quoteForTerm(chunk, match[0]),
-      match,
-    };
-  }
-  return null;
-}
-
-function addEvidenceFact(sheet, field, value, hit) {
-  if (!hit || value === null || value === undefined || value === NO_VERIFICADO) return;
-  const evidenceId = `E${sheet.evidences.length + 1}`;
-  const evidence = crearEvidence({
-    id: evidenceId,
-    source: hit.source,
-    quote: hit.quote,
-    field,
-    value,
+function campoDesdeBloque(valor, block, confidence = 0.75) {
+  if (!block) return crearCampo();
+  return crearCampo(valor, block.sentence, {
+    source: block.source,
+    confidence: block.official ? Math.max(confidence, 0.9) : confidence,
   });
-  if (!evidence) return;
-  sheet.evidences.push(evidence);
-  sheet.facts[field] = crearFact(value, [evidenceId]);
 }
 
-function addArrayEvidenceFact(sheet, field, values = [], hits = []) {
-  const cleanValues = [];
-  const evidenceRefs = [];
-  for (const hit of hits) {
-    const value = hit.value;
-    if (!value || cleanValues.includes(value)) continue;
-    const evidenceId = `E${sheet.evidences.length + 1}`;
-    const evidence = crearEvidence({
-      id: evidenceId,
-      source: hit.source,
-      quote: hit.quote,
-      field,
-      value,
+function extraerValorEtiqueta(sentence, label) {
+  const regex = new RegExp(`^\\s*${label}\\s*:\\s*(.+)$`, 'i');
+  const match = String(sentence || '').match(regex);
+  return match ? compactarTexto(match[1], 240) : null;
+}
+
+function valorNoGenerico(value) {
+  const text = String(value || '').trim();
+  return text && !GENERIC_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+function extraerTipoDocumento(alerta = {}, blocks = []) {
+  const tipos = normalizarLista(alerta.tipos_alerta, normalizarTexto);
+  const candidates = [
+    {
+      valor: 'ayuda_subvencion',
+      patterns: [/ayudas?/i, /subvenciones?/i, /convocatoria/i, /bases reguladoras/i],
+      tipos: ['ayudas_subvenciones', 'ayuda', 'subvencion'],
+    },
+    {
+      valor: 'curso_formacion',
+      patterns: [/curso/i, /jornada/i, /formacion/i],
+      tipos: ['cursos_formacion', 'formacion'],
+    },
+    {
+      valor: 'pac',
+      patterns: [/\bpac\b/i, /\bfega\b/i, /\bsigpac\b/i],
+      tipos: ['pac', 'plazos'],
+    },
+    {
+      valor: 'agua_riego',
+      patterns: [/agua/i, /riego/i, /regadio/i, /regantes/i],
+      tipos: ['agua_infraestructuras'],
+    },
+    {
+      valor: 'sancion_notificacion',
+      patterns: [/sancion/i, /procedimiento sancionador/i, /notificacion/i],
+      tipos: ['sanciones'],
+    },
+    {
+      valor: 'licitacion',
+      patterns: [/licitacion/i, /contrato/i, /adjudicacion/i, /formalizacion/i],
+      tipos: ['licitaciones'],
+    },
+    {
+      valor: 'normativa_general',
+      patterns: [/orden\b/i, /decreto/i, /resolucion/i, /normativa/i, /informacion publica/i],
+      tipos: ['normativa_general', 'medio_ambiente'],
+    },
+  ];
+
+  for (const candidate of candidates) {
+    const block = buscarEvidencia(blocks, candidate.patterns);
+    if (block && (!tipos.length || candidate.tipos.some((tipo) => tipos.includes(tipo)) || candidate.valor === 'normativa_general')) {
+      return campoDesdeBloque(candidate.valor, block, 0.82);
+    }
+  }
+
+  return crearCampo();
+}
+
+function extraerTemaPrincipal(alerta = {}, blocks = []) {
+  const title = compactarTexto(alerta.titulo, 180);
+  if (!valorNoGenerico(title)) return crearCampo();
+  const block = buscarEvidencia(blocks, [title]) || blocks.find((item) => item.source === 'alerta.titulo');
+  return campoDesdeBloque(title, block, 0.78);
+}
+
+function extraerResumenNeutro(alerta = {}, blocks = []) {
+  const labels = ['RESUMEN_DIGEST', 'HECHO', 'OBJETO'];
+  for (const block of blocks) {
+    for (const label of labels) {
+      const value = extraerValorEtiqueta(block.sentence, label);
+      if (valorNoGenerico(value)) return campoDesdeBloque(value, block, 0.78);
+    }
+  }
+
+  const fallback = compactarTexto(alerta.resumen_final || alerta.resumen || alerta.contenido, 320);
+  if (!valorNoGenerico(fallback)) return crearCampo();
+  const block = buscarEvidencia(blocks, [fallback]) || blocks.find((item) => item.sentence.includes(fallback.slice(0, 30)));
+  return campoDesdeBloque(fallback, block, 0.62);
+}
+
+function extraerValoresConEvidencia(values, aliasMap, blocks) {
+  const result = [];
+  const seen = new Set();
+
+  for (const value of values) {
+    const normalized = normalizarTexto(value);
+    if (!normalized || seen.has(normalized)) continue;
+    const aliases = aliasMap[normalized] || [normalized];
+    const block = buscarEvidencia(blocks, aliases);
+    if (!block) continue;
+    result.push(campoDesdeBloque(normalized, block, 0.78));
+    seen.add(normalized);
+  }
+
+  return result;
+}
+
+function extraerTerritorio(alerta = {}, blocks = []) {
+  const declared = [
+    ...normalizarLista(alerta.provincias, normalizarTexto),
+    ...normalizarLista(alerta.region, normalizarTexto),
+  ];
+  return extraerValoresConEvidencia(declared, PROVINCE_ALIASES, blocks);
+}
+
+function extraerSectores(alerta = {}, blocks = []) {
+  return extraerValoresConEvidencia(normalizarLista(alerta.sectores, normalizarTexto), SECTOR_ALIASES, blocks);
+}
+
+function extraerSubsectores(alerta = {}, blocks = []) {
+  return extraerValoresConEvidencia(normalizarLista(alerta.subsectores, normalizarTexto), SUBSECTOR_ALIASES, blocks);
+}
+
+function extraerAccion(blocks = []) {
+  const actionPatterns = [
+    /presentar solicitud/i,
+    /solicitud/i,
+    /inscrip/i,
+    /alegaciones?/i,
+    /subsan/i,
+    /revisar (requisitos|convocatoria|anexo|listado|obligaciones|inscripcion)/i,
+    /comprobar (requisitos|plazo|listado|anexo)/i,
+  ];
+  const block = buscarEvidencia(blocks, actionPatterns);
+  if (!block) return crearCampo();
+  const labelValue = extraerValorEtiqueta(block.sentence, 'ACCION');
+  return campoDesdeBloque(labelValue || compactarTexto(block.sentence, 220), block, 0.74);
+}
+
+function extraerPlazo(blocks = []) {
+  const negativePattern = /\b(no\s+(aparece|consta|hay|permite confirmar)|sin)\s+(un\s+)?plazo\b|\bplazo\s+(no\s+)?claro\b/i;
+
+  for (const block of blocks) {
+    if (negativePattern.test(block.sentence)) continue;
+    const labelValue = extraerValorEtiqueta(block.sentence, 'PLAZO');
+    if (labelValue) return campoDesdeBloque(labelValue, block, 0.84);
+  }
+
+  const block = blocks.find((item) => {
+    if (negativePattern.test(item.sentence)) return false;
+    return Boolean(buscarEvidencia([item], [
+      /\bplazo\b/i,
+      /\bhasta el\b/i,
+      /\bfinaliza\b/i,
+      /\b\d{1,2}\s+dias?\s+(habiles|naturales)?\b/i,
+      /\balegaciones?\s+durante\b/i,
+      /\b\d{1,2}\s+de\s+[a-z]+(\s+de\s+\d{4})?\b/i,
+    ]));
+  });
+
+  return campoDesdeBloque(block ? compactarTexto(block.sentence, 220) : null, block, 0.76);
+}
+
+function extraerBeneficiarios(blocks = []) {
+  for (const block of blocks) {
+    const labelValue = extraerValorEtiqueta(block.sentence, 'BENEFICIARIOS');
+    if (labelValue) return campoDesdeBloque(labelValue, block, 0.84);
+  }
+
+  const block = buscarEvidencia(blocks, [
+    /beneficiarios?/i,
+    /dirigid[ao]s?\s+a/i,
+    /titulares?\s+de/i,
+    /explotaciones?\s+(agrarias|ganaderas|agricolas)/i,
+    /comunidades?\s+de\s+regantes/i,
+  ]);
+
+  return campoDesdeBloque(block ? compactarTexto(block.sentence, 220) : null, block, 0.75);
+}
+
+function extraerImporte(blocks = []) {
+  for (const block of blocks) {
+    const labelValue = extraerValorEtiqueta(block.sentence, 'IMPORTE');
+    if (labelValue) return campoDesdeBloque(labelValue, block, 0.84);
+  }
+
+  const block = buscarEvidencia(blocks, [
+    /\b\d{1,3}(?:[.,]\d{3})*(?:,\d{2})?\s*euros?\b/i,
+    /\bimporte\b/i,
+    /\bcuantia\b/i,
+  ]);
+
+  return campoDesdeBloque(block ? compactarTexto(block.sentence, 180) : null, block, 0.76);
+}
+
+function extraerRequisitos(blocks = []) {
+  const block = buscarEvidencia(blocks, [
+    /requisitos?/i,
+    /documentacion/i,
+    /deberan/i,
+    /anexo/i,
+  ]);
+  return block ? [campoDesdeBloque(compactarTexto(block.sentence, 220), block, 0.68)] : [];
+}
+
+function extraerUrl(alerta = {}, trace = null) {
+  const url = String(trace?.source_url || alerta.url || '').trim();
+  if (!/^https?:\/\//i.test(url)) return crearCampo();
+  return crearCampo(url, url, {
+    source: trace?.source_url ? 'document_trace.source_url' : 'alerta.url',
+    confidence: trace?.source_url ? 0.95 : 0.82,
+  });
+}
+
+function crearTraceLocal(alerta, options = {}) {
+  if (options.documentTrace) return options.documentTrace;
+  if (options.rawDocument) {
+    return crearTraceDesdeRawDocument({
+      alerta,
+      rawDocument: options.rawDocument,
+      organizationId: options.organizationId,
     });
-    if (!evidence) continue;
-    sheet.evidences.push(evidence);
-    cleanValues.push(value);
-    evidenceRefs.push(evidenceId);
   }
-  sheet.facts[field] = crearArrayFact(values.length ? values : cleanValues, evidenceRefs);
+  return {
+    ok: true,
+    found: false,
+    available: false,
+    status: 'not_loaded',
+    reason: 'not_loaded',
+    rawDocument: null,
+    evidence_available: false,
+    source_url: null,
+    raw_document_id: null,
+    content_hash: null,
+    warnings: [],
+  };
 }
 
-function detectarTitulo(chunks, rawDocument) {
-  const rawTitle = limpiarTexto(rawDocument?.titulo || rawDocument?.title, 300);
-  if (rawTitle) return { value: rawTitle, source: 'rawDocument.titulo', quote: rawTitle };
+function construirFactSheetDesdeTrace(alerta = {}, trace = null, options = {}) {
+  const sheet = crearFactSheetBase({ alerta, trace, now: options.now || new Date() });
+  const blocks = crearBloquesFuente(alerta, trace);
 
-  const textChunk = chunks.find((chunk) => chunk.source === 'textoFuente') || chunks[0];
-  if (!textChunk) return null;
-  const firstLine = String(textChunk.text).split(/\r?\n/).map((line) => line.trim()).find(Boolean);
-  if (!firstLine) return null;
-  return { value: firstLine.slice(0, 220), source: textChunk.source, quote: firstLine };
+  sheet.tipo_documento = extraerTipoDocumento(alerta, blocks);
+  sheet.tema_principal = extraerTemaPrincipal(alerta, blocks);
+  sheet.resumen_neutro = extraerResumenNeutro(alerta, blocks);
+  sheet.territorio = extraerTerritorio(alerta, blocks);
+  sheet.sectores = extraerSectores(alerta, blocks);
+  sheet.subsectores = extraerSubsectores(alerta, blocks);
+  sheet.accion_requerida = extraerAccion(blocks);
+  sheet.plazo = extraerPlazo(blocks);
+  sheet.beneficiarios = extraerBeneficiarios(blocks);
+  sheet.importe = extraerImporte(blocks);
+  sheet.requisitos = extraerRequisitos(blocks);
+  sheet.url_oficial = extraerUrl(alerta, trace);
+
+  return validarFactSheet(sheet, { alerta });
 }
 
-function detectarPlazo(chunks) {
-  const hit = buscarRegexNormalizado(chunks, /\bplazo\s+de\s+\d{1,3}\s+dias(?:\s+habiles|\s+naturales)?\b/);
-  if (hit) return hit;
-  return buscarRegexNormalizado(chunks, /\bhasta\s+el\s+\d{1,2}\s+de\s+[a-z]+\s+de\s+\d{4}\b|\bhasta\s+el\s+\d{1,2}[/-]\d{1,2}[/-]\d{4}\b/);
+function construirFactSheetAlertaSync(alerta = {}, options = {}) {
+  const trace = crearTraceLocal(alerta, options);
+  return construirFactSheetDesdeTrace(alerta, trace, options);
 }
 
-function detectarImporte(chunks) {
-  const importeExplicito = buscarRegexNormalizado(chunks, /\b\d[\d .]*(?:,\d+)?\s*(?:euros|eur)\b/);
-  if (importeExplicito) return importeExplicito;
-  return buscarRegexNormalizado(chunks, /\b(?:importe|cuantia|dotacion)\b[^.]{0,60}?\d[\d .]*(?:,\d+)?\s*(?:euros|eur)?/);
-}
-
-function detectarTerritorio(chunks) {
-  for (const territorio of TERRITORIOS) {
-    const hit = buscarTermino(chunks, [territorio]);
-    if (hit) return { ...hit, value: territorio };
-  }
-  return null;
-}
-
-function detectarRequisitos(chunks) {
-  const hits = [];
-  for (const term of REQUISITO_TERMS) {
-    const hit = buscarTermino(chunks, [term]);
-    if (hit) hits.push({ ...hit, value: term });
-    if (hits.length >= 5) break;
-  }
-  return hits;
-}
-
-function derivarStatus(sheet) {
-  if (!sheet.source.has_raw_document && !sheet.source.has_texto_fuente) return FACT_SHEET_STATUS.REVIEW_ONLY;
-  if (sheet.source.relation_verified === false) return FACT_SHEET_STATUS.REVIEW_ONLY;
-  if (sheet.evidence_coverage === EVIDENCE_COVERAGE.BAJO) return FACT_SHEET_STATUS.REVIEW_ONLY;
-  if (sheet.evidence_coverage === EVIDENCE_COVERAGE.MEDIO) return FACT_SHEET_STATUS.PARTIAL;
-  return FACT_SHEET_STATUS.READY;
-}
-
-function construirFactSheet(input = {}) {
-  const alerta = input.alerta || {};
-  const rawDocument = input.rawDocument || null;
-  const textoFuente = input.textoFuente || null;
-  const sheet = crearFactSheetBase({ alerta, rawDocument, textoFuente });
-  const chunks = crearChunksFuente({ rawDocument, textoFuente });
-
-  if (alerta.raw_document_id !== undefined) {
-    sheet.warnings.push({
-      code: 'alerta_raw_document_id_ignored',
-      detail: 'El builder no depende de alertas.raw_document_id; usa rawDocument opcional o textoFuente.',
-    });
+async function construirFactSheetAlerta(alerta = {}, options = {}) {
+  if (options.documentTrace || options.rawDocument || !options.supabase) {
+    return construirFactSheetAlertaSync(alerta, options);
   }
 
-  if (sheet.source.relation_verified === false) {
-    sheet.warnings.push({
-      code: 'raw_document_alerta_mismatch',
-      detail: 'raw_documents.inserted_alerta_id no coincide con alertas.id.',
-    });
-  }
-
-  if (chunks.length === 0) {
-    sheet.warnings.push({
-      code: 'sin_evidencia_textual',
-      detail: 'No hay rawDocument ni textoFuente; se crea ficha parcial solo para revision.',
-    });
-    return sheet;
-  }
-
-  const titulo = detectarTitulo(chunks, rawDocument);
-  if (titulo) addEvidenceFact(sheet, 'titulo_oficial', titulo.value, titulo);
-
-  const tipo = buscarGrupo(chunks, TIPO_TERMS);
-  if (tipo) addEvidenceFact(sheet, 'tipo_documento', tipo.value, tipo);
-
-  const tema = buscarGrupo(chunks, TEMA_TERMS);
-  if (tema) addEvidenceFact(sheet, 'tema_principal', tema.value, tema);
-
-  const territorio = detectarTerritorio(chunks);
-  if (territorio) addEvidenceFact(sheet, 'territorio', territorio.value, territorio);
-
-  const beneficiarios = buscarTermino(chunks, BENEFICIARIO_TERMS);
-  if (beneficiarios) addEvidenceFact(sheet, 'beneficiarios', normalizarTexto(beneficiarios.value), beneficiarios);
-
-  const accion = buscarGrupo(chunks, ACCION_TERMS);
-  if (accion) addEvidenceFact(sheet, 'accion_requerida', accion.value, accion);
-
-  const plazo = detectarPlazo(chunks);
-  if (plazo) addEvidenceFact(sheet, 'plazo', plazo.value, plazo);
-
-  const importe = detectarImporte(chunks);
-  if (importe) addEvidenceFact(sheet, 'importe', importe.value, importe);
-
-  const expediente = buscarTermino(chunks, EXPEDIENTE_TERMS);
-  if (expediente) addEvidenceFact(sheet, 'expediente', normalizarTexto(expediente.value), expediente);
-
-  const requisitos = detectarRequisitos(chunks);
-  addArrayEvidenceFact(sheet, 'requisitos', requisitos.map((hit) => normalizarTexto(hit.value)), requisitos);
-
-  sheet.evidence_score = calcularEvidenceScore(sheet.facts);
-  sheet.evidence_coverage = coverageFromScore(sheet.evidence_score);
-  sheet.status = derivarStatus(sheet);
-
-  return sheet;
+  const trace = await resolverDocumentTrace(options.supabase, {
+    alerta,
+    organizationId: options.organizationId,
+  }, options.traceOptions || {});
+  return construirFactSheetDesdeTrace(alerta, trace, options);
 }
 
 module.exports = {
-  construirFactSheet,
-  buildFactSheet: construirFactSheet,
-  crearChunksFuente,
-  detectarPlazo,
-  detectarTerritorio,
+  crearBloquesFuente,
+  construirFactSheetAlerta,
+  construirFactSheetAlertaSync,
+  construirFactSheetDesdeTrace,
 };

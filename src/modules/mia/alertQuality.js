@@ -15,6 +15,7 @@ const CRITICAL_ALERT_FLAGS = new Set([
   'notificacion_individual',
   'personal_investigador_beca',
   'resumen_boilerplate_portal',
+  'fact_sheet_blocked',
 ]);
 
 const FUENTES_SCRAPER_ESPERADAS = [
@@ -93,6 +94,68 @@ function parseArray(value) {
     }
   }
   return [];
+}
+
+function numeroOpcional(...values) {
+  for (const value of values) {
+    const number = Number(value);
+    if (Number.isFinite(number)) return number;
+  }
+  return null;
+}
+
+function textoOpcional(...values) {
+  for (const value of values) {
+    const text = limpiarTexto(value);
+    if (text) return text;
+  }
+  return '';
+}
+
+function extraerFactSheetCalidad(alerta = {}) {
+  const factSheet = alerta.fact_sheet || alerta.factSheet || alerta.factSheetJson || alerta.fact_sheet_json || null;
+  const status = textoOpcional(
+    alerta.fact_sheet_status,
+    alerta.factSheetStatus,
+    factSheet?.status,
+    factSheet?.fact_sheet?.status
+  );
+  const truthScore = numeroOpcional(
+    alerta.truth_score,
+    alerta.fact_sheet_truth_score,
+    alerta.factSheetTruthScore,
+    factSheet?.truth_score,
+    factSheet?.fact_sheet?.truth_score
+  );
+  const riskScore = numeroOpcional(
+    alerta.risk_score,
+    alerta.fact_sheet_risk_score,
+    alerta.factSheetRiskScore,
+    factSheet?.risk_score,
+    factSheet?.fact_sheet?.risk_score
+  );
+  const evidenceCoverage = numeroOpcional(
+    alerta.evidence_coverage,
+    alerta.fact_sheet_evidence_coverage,
+    alerta.factSheetEvidenceCoverage,
+    factSheet?.evidence_coverage,
+    factSheet?.fact_sheet?.evidence_coverage
+  );
+  const hasFactSheet = Boolean(
+    status ||
+    truthScore !== null ||
+    riskScore !== null ||
+    evidenceCoverage !== null ||
+    (factSheet && typeof factSheet === 'object')
+  );
+
+  return {
+    has_fact_sheet: hasFactSheet,
+    status: status || null,
+    truth_score: truthScore,
+    risk_score: riskScore,
+    evidence_coverage: evidenceCoverage,
+  };
 }
 
 function contarPor(items = [], fn) {
@@ -419,6 +482,7 @@ function evaluarCalidadAlerta(alerta = {}, { now = new Date(), staleHours = 24 }
   const sectores = parseArray(alerta.sectores);
   const subsectores = parseArray(alerta.subsectores);
   const tiposAlerta = parseArray(alerta.tipos_alerta);
+  const factSheet = extraerFactSheetCalidad(alerta);
   const createdAt = alerta.created_at ? new Date(alerta.created_at) : null;
   const ageHours = createdAt && !Number.isNaN(createdAt.getTime())
     ? (now.getTime() - createdAt.getTime()) / (60 * 60 * 1000)
@@ -545,10 +609,33 @@ function evaluarCalidadAlerta(alerta = {}, { now = new Date(), staleHours = 24 }
     recommendations.push('Bajar prioridad o exigir coincidencia territorial/interes muy fuerte antes de enviarla.');
   }
 
+  if (factSheet.has_fact_sheet) {
+    if (factSheet.status === 'blocked') {
+      penalty += restar(issues, 'fact_sheet_blocked', 45, 'La ficha evidence-first bloquea la alerta.');
+      recommendations.push('Excluirla del digest automatico y enviarla solo a revision interna.');
+    }
+
+    if (factSheet.truth_score !== null && factSheet.truth_score < 85) {
+      penalty += restar(issues, 'truth_score_bajo', 12, `Truth score evidence-first ${factSheet.truth_score}.`);
+      recommendations.push('Revisar evidencias de la ficha antes de usarla en digest.');
+    }
+
+    if (factSheet.risk_score !== null && factSheet.risk_score > 35) {
+      penalty += restar(issues, 'risk_score_alto', 12, `Risk score evidence-first ${factSheet.risk_score}.`);
+      recommendations.push('No afirmar plazos, importes o afectacion sin validacion final.');
+    }
+
+    if (factSheet.evidence_coverage !== null && factSheet.evidence_coverage < 0.6) {
+      penalty += restar(issues, 'evidencia_insuficiente', 14, `Cobertura de evidencia ${factSheet.evidence_coverage}.`);
+      recommendations.push('Completar evidencia documental antes de enviarla automaticamente.');
+    }
+  }
+
   const flags = issues.map((issue) => issue.flag);
   const score = clamp(100 - penalty);
   const critical = flags.some((flag) => CRITICAL_ALERT_FLAGS.has(flag));
-  const readyForDigest = score >= 72 && estado === 'listo' && !critical;
+  const factSheetReady = !factSheet.has_fact_sheet || factSheet.status === 'ready_for_digest';
+  const readyForDigest = score >= 72 && estado === 'listo' && !critical && factSheetReady;
   const readyForMia = score >= 78 && estado === 'listo' && !critical && Boolean(resumenUtil);
 
   return {
@@ -572,6 +659,7 @@ function evaluarCalidadAlerta(alerta = {}, { now = new Date(), staleHours = 24 }
       subsectores_count: subsectores.length,
       tipos_alerta_count: tiposAlerta.length,
       age_hours: ageHours === null ? null : redondear(ageHours, 1),
+      fact_sheet: factSheet,
     },
   };
 }

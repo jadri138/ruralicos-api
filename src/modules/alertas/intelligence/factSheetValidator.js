@@ -1,125 +1,229 @@
 const {
-  FACT_SHEET_VERSION,
   FACT_SHEET_STATUS,
-  EVIDENCE_COVERAGE,
-  FACT_FIELDS,
-  ARRAY_FACT_FIELDS,
-  NO_VERIFICADO,
-  esValorVerificado,
-  calcularEvidenceScore,
-  coverageFromScore,
+  campoVerificado,
+  normalizarTexto,
+  recalcularEvidencias,
 } = require('./factSheetSchema');
 
-function factHasValue(fact) {
-  if (!fact || typeof fact !== 'object') return false;
-  if (Array.isArray(fact.value)) return fact.value.length > 0;
-  return fact.value !== null && fact.value !== undefined && fact.value !== NO_VERIFICADO;
+const FIELD_WEIGHTS = {
+  tipo_documento: 1,
+  tema_principal: 1,
+  resumen_neutro: 1,
+  territorio: 1,
+  sectores: 1,
+  accion_requerida: 1,
+  url_oficial: 1,
+};
+
+const FLAG_SEVERITY = {
+  sin_url_oficial: 40,
+  evidencia_minima_insuficiente: 25,
+  tipo_documento_no_verificado: 15,
+  tema_principal_no_verificado: 12,
+  resumen_generico: 35,
+  territorio_no_verificado: 30,
+  sector_no_verificado: 15,
+  plazo_no_verificado: 18,
+  ayuda_sin_beneficiario_o_convocatoria: 18,
+  expediente_individual: 25,
+  notificacion_individual: 55,
+  sancion_individual: 55,
+  contradiccion_sector_tipo: 45,
+};
+
+function textoFactSheet(sheet = {}) {
+  return normalizarTexto([
+    sheet.tipo_documento?.valor,
+    sheet.tema_principal?.valor,
+    sheet.resumen_neutro?.valor,
+    sheet.accion_requerida?.valor,
+    sheet.plazo?.valor,
+    sheet.beneficiarios?.valor,
+    sheet.importe?.valor,
+    ...(sheet.territorio || []).map((item) => item.valor),
+    ...(sheet.sectores || []).map((item) => item.valor),
+    ...(sheet.subsectores || []).map((item) => item.valor),
+    ...(sheet.requisitos || []).map((item) => item.valor),
+    ...(sheet.evidencias || []).map((item) => item.evidencia),
+  ].filter(Boolean).join(' '));
 }
 
-function validarFactSheet(sheet = {}) {
-  const errores = [];
-  const avisos = [];
-  const addError = (code, detail) => errores.push({ code, detail });
-  const addAviso = (code, detail) => avisos.push({ code, detail });
-
-  if (sheet.version !== FACT_SHEET_VERSION) {
-    addError('version_invalida', `Version esperada: ${FACT_SHEET_VERSION}.`);
-  }
-
-  if (!Object.values(FACT_SHEET_STATUS).includes(sheet.status)) {
-    addError('status_invalido', 'El status no pertenece al contrato fact_sheet_v1.');
-  }
-
-  if (!Object.values(EVIDENCE_COVERAGE).includes(sheet.evidence_coverage)) {
-    addError('coverage_invalida', 'evidence_coverage debe ser alto, medio o bajo.');
-  }
-
-  if (!sheet.facts || typeof sheet.facts !== 'object') {
-    addError('facts_missing', 'Falta el objeto facts.');
-  }
-
-  const evidences = Array.isArray(sheet.evidences) ? sheet.evidences : [];
-  const evidenceById = new Map(evidences.map((evidence) => [evidence.id, evidence]));
-
-  for (const evidence of evidences) {
-    if (!evidence.id || !evidence.quote || !evidence.field) {
-      addError('evidence_incompleta', `Evidencia incompleta: ${evidence.id || 'sin_id'}.`);
-    }
-  }
-
-  for (const field of [...FACT_FIELDS, ...ARRAY_FACT_FIELDS, 'expediente']) {
-    const fact = sheet.facts?.[field];
-    if (!factHasValue(fact)) continue;
-
-    if (!esValorVerificado(fact)) {
-      addError('fact_without_evidence', `${field} tiene valor pero no evidencia textual.`);
-      continue;
-    }
-
-    for (const ref of fact.evidence_refs || []) {
-      const evidence = evidenceById.get(ref);
-      if (!evidence) {
-        addError('evidence_ref_missing', `${field} referencia evidencia inexistente: ${ref}.`);
-      } else if (evidence.field !== field) {
-        addError('evidence_field_mismatch', `${field} referencia evidencia de ${evidence.field}.`);
-      }
-    }
-  }
-
-  const hasTextEvidence = Boolean(sheet.source?.has_raw_document || sheet.source?.has_texto_fuente);
-  if (!hasTextEvidence) {
-    if (sheet.status !== FACT_SHEET_STATUS.REVIEW_ONLY) {
-      addError('sin_evidencia_no_review_only', 'Sin rawDocument ni textoFuente, status debe ser review_only.');
-    }
-    if (sheet.evidence_coverage !== EVIDENCE_COVERAGE.BAJO || Number(sheet.evidence_score || 0) !== 0) {
-      addError('sin_evidencia_coverage_invalida', 'Sin evidencia textual, coverage debe ser bajo y score 0.');
-    }
-    if (evidences.length > 0) {
-      addError('sin_evidencia_con_evidences', 'Sin fuente textual no deben existir evidencias inventadas.');
-    }
-  }
-
-  if (sheet.source?.relation_verified === false) {
-    addError('raw_document_alerta_mismatch', 'raw_documents.inserted_alerta_id no coincide con alertas.id.');
-  }
-
-  if (sheet.source?.uses_alerta_raw_document_id !== false) {
-    addError('depends_on_alertas_raw_document_id', 'El contrato prohibe depender de alertas.raw_document_id.');
-  }
-
-  const expectedScore = calcularEvidenceScore(sheet.facts || {});
-  const expectedCoverage = coverageFromScore(expectedScore);
-  if (Number(sheet.evidence_score || 0) !== expectedScore) {
-    addAviso('evidence_score_desactualizado', `Score esperado ${expectedScore}, recibido ${sheet.evidence_score}.`);
-  }
-  if (sheet.evidence_coverage !== expectedCoverage) {
-    addAviso('evidence_coverage_desactualizada', `Coverage esperada ${expectedCoverage}, recibida ${sheet.evidence_coverage}.`);
-  }
-
-  const statusSugerido = sugerirStatus({ sheet, errores, expectedCoverage });
-  if (sheet.status !== statusSugerido) {
-    addAviso('status_sugerido_distinto', `Status sugerido: ${statusSugerido}.`);
-  }
-
-  const codigos = [...errores, ...avisos].map((item) => item.code);
-  return {
-    ok: errores.length === 0,
-    status_sugerido: statusSugerido,
-    errores,
-    avisos,
-    codigos,
-  };
+function textoAlerta(alerta = {}) {
+  return normalizarTexto([
+    alerta.titulo,
+    alerta.resumen_final,
+    alerta.resumen,
+    alerta.resumen_borrador,
+    alerta.contenido,
+  ].filter(Boolean).join(' '));
 }
 
-function sugerirStatus({ sheet, errores, expectedCoverage }) {
-  if (errores.length > 0) return FACT_SHEET_STATUS.REVIEW_ONLY;
-  if (!sheet.source?.has_raw_document && !sheet.source?.has_texto_fuente) return FACT_SHEET_STATUS.REVIEW_ONLY;
-  if (expectedCoverage === EVIDENCE_COVERAGE.BAJO) return FACT_SHEET_STATUS.REVIEW_ONLY;
-  if (expectedCoverage === EVIDENCE_COVERAGE.MEDIO) return FACT_SHEET_STATUS.PARTIAL;
+function addIssue(issues, flag, reason, severity = FLAG_SEVERITY[flag] || 10) {
+  issues.push({ flag, reason, severity });
+}
+
+function esAyuda(sheet = {}, alerta = {}) {
+  const text = `${textoFactSheet(sheet)} ${textoAlerta(alerta)}`;
+  return /\b(ayuda|ayudas|subvencion|subvenciones|convocatoria|pac|fega)\b/.test(text);
+}
+
+function tieneConvocatoria(sheet = {}, alerta = {}) {
+  const text = `${textoFactSheet(sheet)} ${textoAlerta(alerta)}`;
+  return /\b(convocatoria|se convocan|extracto de la resolucion|bases reguladoras|beneficiarios)\b/.test(text);
+}
+
+function esExpedienteIndividual(sheet = {}, alerta = {}) {
+  const text = `${textoFactSheet(sheet)} ${textoAlerta(alerta)}`;
+  return /\b(expediente individual|parcela concreta|persona interesada|titular concreto|concesion de aguas|aprovechamiento de aguas|procedimiento sancionador|expediente sancionador|notificacion)\b/.test(text);
+}
+
+function esSancionONotificacion(sheet = {}, alerta = {}) {
+  const text = `${textoFactSheet(sheet)} ${textoAlerta(alerta)}`;
+  return /\b(notificacion|procedimiento sancionador|expediente sancionador|resolucion sancionadora|sancion)\b/.test(text);
+}
+
+function esResumenGenerico(sheet = {}, alerta = {}) {
+  const text = normalizarTexto([
+    sheet.resumen_neutro?.valor,
+    sheet.tema_principal?.valor,
+    alerta.resumen_final,
+    alerta.resumen,
+    alerta.titulo,
+  ].filter(Boolean).join(' '));
+  if (!text) return false;
+  return /\b(publicacion oficial relevante|revisar si afecta|revisar si aplica|determinar su aplicabilidad|consulta el documento|documento completo)\b/.test(text);
+}
+
+function hayContradiccionSector(sheet = {}, alerta = {}) {
+  const sheetText = textoFactSheet(sheet);
+  const alertText = textoAlerta(alerta);
+  const sectorValues = (sheet.sectores || []).map((item) => normalizarTexto(item.valor));
+  const agrario = sectorValues.includes('agricultura') || sectorValues.includes('ganaderia');
+  const pescaNoAgraria = /\b(pesca|pesquero|acuicultura|maritima|maritimo)\b/.test(alertText) &&
+    !/\b(agraria|agrario|agricola|ganaderia|explotacion agraria|regadio|riego)\b/.test(alertText);
+
+  return (agrario && pescaNoAgraria) ||
+    (/\bcurso\b/.test(sheetText) && /\b(sancion|procedimiento sancionador)\b/.test(alertText));
+}
+
+function calcularCoverage(sheet = {}) {
+  let total = 0;
+  let covered = 0;
+
+  for (const [field, weight] of Object.entries(FIELD_WEIGHTS)) {
+    total += weight;
+    if (campoVerificado(sheet[field])) covered += weight;
+  }
+
+  return total ? Number((covered / total).toFixed(2)) : 0;
+}
+
+function estadoDesdeIssues(issues, coverage) {
+  const flags = new Set(issues.map((issue) => issue.flag));
+  if (
+    flags.has('sin_url_oficial') ||
+    flags.has('notificacion_individual') ||
+    flags.has('sancion_individual') ||
+    flags.has('resumen_generico') ||
+    flags.has('territorio_no_verificado') ||
+    flags.has('contradiccion_sector_tipo')
+  ) {
+    return FACT_SHEET_STATUS.BLOCKED;
+  }
+
+  if (coverage < 0.4 || flags.has('evidencia_minima_insuficiente')) {
+    return FACT_SHEET_STATUS.INSUFFICIENT_EVIDENCE;
+  }
+
+  if (issues.length > 0 || coverage < 0.7) {
+    return FACT_SHEET_STATUS.REVIEW;
+  }
+
   return FACT_SHEET_STATUS.READY;
 }
 
+function validarFactSheet(input = {}, { alerta = {} } = {}) {
+  const sheet = recalcularEvidencias(input);
+  const issues = [];
+
+  if (!campoVerificado(sheet.url_oficial)) {
+    addIssue(issues, 'sin_url_oficial', 'La ficha no tiene URL oficial verificada.');
+  }
+
+  if (!campoVerificado(sheet.tipo_documento)) {
+    addIssue(issues, 'tipo_documento_no_verificado', 'No hay tipo documental con evidencia textual.');
+  }
+
+  if (!campoVerificado(sheet.tema_principal)) {
+    addIssue(issues, 'tema_principal_no_verificado', 'No hay tema principal verificable.');
+  }
+
+  if (!campoVerificado(sheet.resumen_neutro)) {
+    addIssue(issues, 'evidencia_minima_insuficiente', 'No hay resumen neutro verificable.');
+  }
+
+  if (!campoVerificado(sheet.territorio) && Array.isArray(alerta.provincias) && alerta.provincias.length > 0) {
+    addIssue(issues, 'territorio_no_verificado', 'La alerta declara territorio, pero no aparece evidencia textual clara.');
+  }
+
+  if (!campoVerificado(sheet.sectores) && Array.isArray(alerta.sectores) && alerta.sectores.length > 0) {
+    addIssue(issues, 'sector_no_verificado', 'La alerta declara sector, pero no hay evidencia textual clara.');
+  }
+
+  if (sheet.plazo?.valor && !sheet.plazo?.evidencia) {
+    addIssue(issues, 'plazo_no_verificado', 'La ficha contiene plazo sin evidencia textual.');
+  }
+
+  if (esAyuda(sheet, alerta) && !campoVerificado(sheet.plazo)) {
+    addIssue(issues, 'plazo_no_verificado', 'La ayuda no tiene plazo verificado.');
+  }
+
+  if (esAyuda(sheet, alerta) && !campoVerificado(sheet.beneficiarios) && !tieneConvocatoria(sheet, alerta)) {
+    addIssue(issues, 'ayuda_sin_beneficiario_o_convocatoria', 'La ayuda no demuestra beneficiarios ni convocatoria.');
+  }
+
+  if (esExpedienteIndividual(sheet, alerta)) {
+    addIssue(issues, 'expediente_individual', 'Parece expediente particular o de titular concreto.');
+  }
+
+  if (esSancionONotificacion(sheet, alerta)) {
+    const flag = /\bsancion|sancionador\b/.test(`${textoFactSheet(sheet)} ${textoAlerta(alerta)}`)
+      ? 'sancion_individual'
+      : 'notificacion_individual';
+    addIssue(issues, flag, 'Sancion o notificacion individual no apta para digest automatico.');
+  }
+
+  if (esResumenGenerico(sheet, alerta)) {
+    addIssue(issues, 'resumen_generico', 'El resumen no identifica objeto administrativo concreto.');
+  }
+
+  if (hayContradiccionSector(sheet, alerta)) {
+    addIssue(issues, 'contradiccion_sector_tipo', 'Hay contradiccion entre texto, sector o tipo documental.');
+  }
+
+  const coverage = calcularCoverage(sheet);
+  const risk = Math.min(100, issues.reduce((acc, issue) => acc + Number(issue.severity || 0), 0));
+  const truth = Math.max(0, Math.round((coverage * 100) - Math.min(35, risk * 0.35)));
+  const status = estadoDesdeIssues(issues, coverage);
+
+  return {
+    ...sheet,
+    truth_score: truth,
+    risk_score: risk,
+    evidence_coverage: coverage,
+    status,
+    flags: [...new Set(issues.map((issue) => issue.flag))],
+    reasons: issues.map((issue) => ({
+      code: issue.flag,
+      detail: issue.reason,
+      severity: issue.severity,
+    })),
+  };
+}
+
 module.exports = {
+  FIELD_WEIGHTS,
+  FLAG_SEVERITY,
+  calcularCoverage,
   validarFactSheet,
-  validateFactSheet: validarFactSheet,
 };

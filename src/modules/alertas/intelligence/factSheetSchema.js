@@ -1,42 +1,18 @@
-const FACT_SHEET_VERSION = 'fact_sheet_v1';
-
-const NO_VERIFICADO = 'no_verificado';
+const FACT_SHEET_SCHEMA_VERSION = 'fact_sheet_v1';
+const FACT_SHEET_BUILDER_VERSION = 'fact_sheet_builder_v1';
 
 const FACT_SHEET_STATUS = Object.freeze({
-  READY: 'ready',
-  PARTIAL: 'partial',
-  REVIEW_ONLY: 'review_only',
+  READY: 'ready_for_digest',
+  REVIEW: 'review_only',
+  BLOCKED: 'blocked',
+  INSUFFICIENT_EVIDENCE: 'insufficient_evidence',
 });
 
-const EVIDENCE_COVERAGE = Object.freeze({
-  ALTO: 'alto',
-  MEDIO: 'medio',
-  BAJO: 'bajo',
-});
-
-const FACT_FIELDS = Object.freeze([
-  'titulo_oficial',
-  'tipo_documento',
-  'tema_principal',
-  'territorio',
-  'beneficiarios',
-  'accion_requerida',
-  'plazo',
-  'importe',
-]);
-
-const ARRAY_FACT_FIELDS = Object.freeze([
-  'requisitos',
-]);
-
-const DOCUMENT_TYPES = Object.freeze({
-  AYUDA_SUBVENCION: 'ayuda_subvencion',
-  CONCESION: 'concesion',
-  SANCION: 'sancion',
-  FORMACION: 'formacion',
-  NORMATIVA: 'normativa',
-  ANUNCIO_PUBLICO: 'anuncio_publico',
-});
+function compactarTexto(value, max = 600) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!text) return null;
+  return text.length > max ? text.slice(0, Math.max(0, max - 3)).trim() + '...' : text;
+}
 
 function normalizarTexto(value) {
   return String(value || '')
@@ -47,125 +23,129 @@ function normalizarTexto(value) {
     .trim();
 }
 
-function limpiarTexto(value, max = 600) {
-  const text = String(value || '').replace(/\s+/g, ' ').trim();
-  if (!text) return '';
-  return text.length > max ? text.slice(0, max).trim() : text;
+function normalizarLista(value, normalizer = (item) => item) {
+  if (Array.isArray(value)) return value.map(normalizer).filter(Boolean);
+  if (!value) return [];
+  return String(value)
+    .split(/[,;\n]/g)
+    .map((item) => normalizer(item.trim()))
+    .filter(Boolean);
 }
 
-function crearFact(value = NO_VERIFICADO, evidenceRefs = []) {
-  const known = value !== null && value !== undefined && value !== NO_VERIFICADO;
+function crearCampo(valor = null, evidencia = null, options = {}) {
+  const cleanEvidence = compactarTexto(evidencia, options.maxEvidence || 500);
+  const hasValue = valor !== undefined && valor !== null && String(valor).trim() !== '';
   return {
-    value: known ? value : NO_VERIFICADO,
-    evidence_refs: known ? [...new Set(evidenceRefs.filter(Boolean))] : [],
+    valor: hasValue ? valor : null,
+    evidencia: cleanEvidence,
+    source: options.source || null,
+    confidence: Number.isFinite(Number(options.confidence)) ? Number(options.confidence) : 0,
+    status: hasValue && cleanEvidence ? 'verified' : 'no_verificado',
   };
 }
 
-function crearArrayFact(values = [], evidenceRefs = []) {
-  const cleanValues = [...new Set((Array.isArray(values) ? values : []).filter(Boolean))];
+function crearFactSheetBase({ alerta = {}, trace = null, now = new Date() } = {}) {
   return {
-    value: cleanValues,
-    evidence_refs: cleanValues.length ? [...new Set(evidenceRefs.filter(Boolean))] : [],
+    schema_version: FACT_SHEET_SCHEMA_VERSION,
+    builder_version: FACT_SHEET_BUILDER_VERSION,
+    generated_at: now instanceof Date ? now.toISOString() : new Date(now).toISOString(),
+    alerta_id: alerta.id ?? alerta.alerta_id ?? null,
+    raw_document_id: trace?.raw_document_id ?? null,
+    content_hash: trace?.content_hash ?? null,
+    document_trace: trace ? {
+      status: trace.status || null,
+      reason: trace.reason || null,
+      relation: trace.relation || null,
+      evidence_available: Boolean(trace.evidence_available),
+      source_url: trace.source_url || null,
+      official_id: trace.official_id || null,
+      warnings: Array.isArray(trace.warnings) ? trace.warnings : [],
+    } : null,
+    tipo_documento: crearCampo(),
+    tema_principal: crearCampo(),
+    resumen_neutro: crearCampo(),
+    territorio: [],
+    sectores: [],
+    subsectores: [],
+    accion_requerida: crearCampo(),
+    plazo: crearCampo(),
+    beneficiarios: crearCampo(),
+    importe: crearCampo(),
+    requisitos: [],
+    url_oficial: crearCampo(),
+    evidencias: [],
+    truth_score: 0,
+    risk_score: 100,
+    evidence_coverage: 0,
+    status: FACT_SHEET_STATUS.INSUFFICIENT_EVIDENCE,
+    flags: [],
+    reasons: [],
   };
 }
 
-function crearEvidence({ id, source, quote, field, value }) {
-  const cleanQuote = limpiarTexto(quote, 500);
-  if (!id || !cleanQuote || !field) return null;
-  return {
-    id,
-    source: source || 'desconocido',
-    quote: cleanQuote,
-    field,
-    value: value === undefined ? null : value,
-  };
+function campoVerificado(field) {
+  if (Array.isArray(field)) return field.some(campoVerificado);
+  return Boolean(field && field.valor !== null && field.evidencia);
 }
 
-function esValorVerificado(fact) {
-  if (!fact || typeof fact !== 'object') return false;
-  if (Array.isArray(fact.value)) return fact.value.length > 0 && Array.isArray(fact.evidence_refs) && fact.evidence_refs.length > 0;
-  return fact.value !== null &&
-    fact.value !== undefined &&
-    fact.value !== NO_VERIFICADO &&
-    Array.isArray(fact.evidence_refs) &&
-    fact.evidence_refs.length > 0;
+function agregarEvidencia(sheet, fieldName, field) {
+  if (!sheet || !field) return sheet;
+  const fields = Array.isArray(field) ? field : [field];
+  const existing = new Set((sheet.evidencias || []).map((item) => `${item.field}:${item.evidencia}`));
+
+  for (const entry of fields) {
+    if (!campoVerificado(entry)) continue;
+    const item = {
+      field: fieldName,
+      valor: entry.valor,
+      evidencia: entry.evidencia,
+      source: entry.source || null,
+      confidence: entry.confidence || 0,
+    };
+    const key = `${item.field}:${item.evidencia}`;
+    if (existing.has(key)) continue;
+    sheet.evidencias.push(item);
+    existing.add(key);
+  }
+
+  return sheet;
 }
 
-function calcularEvidenceScore(facts = {}) {
-  const total = FACT_FIELDS.length;
-  const verified = FACT_FIELDS.filter((field) => esValorVerificado(facts[field])).length;
-  return total ? Math.round((verified / total) * 100) / 100 : 0;
-}
+function recalcularEvidencias(sheet) {
+  const next = { ...sheet, evidencias: [] };
+  const fieldNames = [
+    'tipo_documento',
+    'tema_principal',
+    'resumen_neutro',
+    'territorio',
+    'sectores',
+    'subsectores',
+    'accion_requerida',
+    'plazo',
+    'beneficiarios',
+    'importe',
+    'requisitos',
+    'url_oficial',
+  ];
 
-function coverageFromScore(score) {
-  const value = Number(score || 0);
-  if (value >= 0.67) return EVIDENCE_COVERAGE.ALTO;
-  if (value >= 0.34) return EVIDENCE_COVERAGE.MEDIO;
-  return EVIDENCE_COVERAGE.BAJO;
-}
+  for (const fieldName of fieldNames) {
+    agregarEvidencia(next, fieldName, next[fieldName]);
+  }
 
-function crearFactSheetBase({ alerta = {}, rawDocument = null, textoFuente = null } = {}) {
-  const alertaId = alerta?.id ?? alerta?.alerta_id ?? null;
-  const insertedAlertaId = rawDocument?.inserted_alerta_id ?? null;
-  const relationVerified = rawDocument && insertedAlertaId !== null && alertaId !== null
-    ? Number(insertedAlertaId) === Number(alertaId)
-    : null;
-
-  return {
-    version: FACT_SHEET_VERSION,
-    status: FACT_SHEET_STATUS.REVIEW_ONLY,
-    alerta_id: alertaId,
-    evidence_coverage: EVIDENCE_COVERAGE.BAJO,
-    evidence_score: 0,
-    source: {
-      input_contract: '{ alerta, rawDocument?: optional, textoFuente?: optional }',
-      uses_alerta_raw_document_id: false,
-      has_raw_document: Boolean(rawDocument),
-      has_texto_fuente: Boolean(String(textoFuente || '').trim()),
-      raw_document_id: rawDocument?.id ?? null,
-      inserted_alerta_id: insertedAlertaId,
-      relation: rawDocument ? 'raw_documents.inserted_alerta_id -> alertas.id' : null,
-      relation_verified: relationVerified,
-      fuente: rawDocument?.fuente ?? alerta?.fuente ?? null,
-      fecha: rawDocument?.fecha ?? alerta?.fecha ?? null,
-      urls: {
-        oficial: rawDocument?.url ?? alerta?.url ?? null,
-        html: rawDocument?.url_html ?? rawDocument?.urlHtml ?? null,
-        pdf: rawDocument?.url_pdf ?? rawDocument?.urlPdf ?? null,
-      },
-    },
-    facts: {
-      titulo_oficial: crearFact(),
-      tipo_documento: crearFact(),
-      tema_principal: crearFact(),
-      territorio: crearFact(),
-      beneficiarios: crearFact(),
-      accion_requerida: crearFact(),
-      plazo: crearFact(),
-      importe: crearFact(),
-      expediente: crearFact(),
-      requisitos: crearArrayFact(),
-    },
-    evidences: [],
-    warnings: [],
-  };
+  return next;
 }
 
 module.exports = {
-  FACT_SHEET_VERSION,
-  NO_VERIFICADO,
+  FACT_SHEET_SCHEMA_VERSION,
+  FACT_SHEET_BUILDER_VERSION,
   FACT_SHEET_STATUS,
-  EVIDENCE_COVERAGE,
-  FACT_FIELDS,
-  ARRAY_FACT_FIELDS,
-  DOCUMENT_TYPES,
+  compactarTexto,
   normalizarTexto,
-  limpiarTexto,
-  crearFact,
-  crearArrayFact,
-  crearEvidence,
-  esValorVerificado,
-  calcularEvidenceScore,
-  coverageFromScore,
+  normalizarLista,
+  crearCampo,
   crearFactSheetBase,
+  campoVerificado,
+  agregarEvidencia,
+  recalcularEvidencias,
 };
+

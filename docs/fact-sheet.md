@@ -1,64 +1,119 @@
 # Fact sheet evidence-first
 
-La ficha maestra evidence-first es una capa nueva y aislada para describir una
-alerta sin inventar datos. No esta integrada con digest, seleccion ni calidad.
+## Objetivo
 
-## Contrato de entrada
-
-```js
-{
-  alerta,
-  rawDocument: optional,
-  textoFuente: optional
-}
-```
-
-`alertas` no tiene `raw_document_id` en el sistema actual. La relacion existe al
-reves: `raw_documents.inserted_alerta_id -> alertas.id`. Por eso el builder no
-lee ni necesita `alerta.raw_document_id`.
-
-## Regla principal
-
-Cada dato factual debe tener una evidencia textual. Si no aparece en
-`rawDocument` o `textoFuente`, queda como `no_verificado` o lista vacia.
-
-Cuando no hay `rawDocument` ni `textoFuente`, el builder devuelve una ficha de
-revision:
-
-- `status = review_only`
-- `evidence_coverage = bajo`
-- `evidence_score = 0`
-- `evidences = []`
+La ficha maestra convierte una alerta en hechos verificables antes de que la
+alerta pueda alimentar seleccion, digest o mensajes de WhatsApp. Es una capa
+aislada: no envia, no escribe en tablas y no cambia el comportamiento actual del
+digest.
 
 ## Modulos
 
-- `factSheetSchema.js`: contrato, estados, cobertura y helpers puros.
-- `factSheetBuilder.js`: crea la ficha desde entrada flexible sin tocar BD.
-- `factSheetValidator.js`: comprueba que no hay hechos sin evidencia textual.
+- `src/modules/alertas/intelligence/factSheetSchema.js`
+- `src/modules/alertas/intelligence/factSheetBuilder.js`
+- `src/modules/alertas/intelligence/factSheetValidator.js`
+- `src/modules/alertas/intelligence/factSheetStore.js`
 
-## Uso previsto
+## Regla principal
 
-La siguiente fase puede cargar `raw_documents` mediante
-`raw_documents.inserted_alerta_id = alertas.id` y pasar esa fila al builder.
-Hasta entonces tambien se puede usar `textoFuente` en tests o diagnosticos.
+Si un campo no tiene evidencia textual clara, queda vacio:
 
-No se debe integrar aun en `digest.service.js`, `digestItems.js`,
-`alertSelectionEngine.js` ni `alertQuality.js`.
+- campos escalares: `{ valor: null, evidencia: null, status: "no_verificado" }`
+- listas: `[]`
 
-## Tests
+No se completan territorio, plazo, beneficiarios, importe, accion requerida,
+sector ni tipo documental por intuicion.
 
-- `tests/factSheetValidator.test.js`: contrato e integridad de evidencia (relacion
-  inversa `raw_documents.inserted_alerta_id -> alertas.id`, `review_only` sin fuente,
-  rechazo de valores sin evidencia, campos vacios como `no_verificado`/`[]`).
-- `tests/factSheet.test.js`: los 8 escenarios de negocio sobre el contrato
-  `construirFactSheet({ alerta, rawDocument, textoFuente })`:
-  1. curso de bienestar animal (el tipo sale del documento, no de la etiqueta erronea de la alerta);
-  2. ayuda/subvencion con plazo claro (plazo con evidencia);
-  3. ayuda sin plazo (plazo `no_verificado`, no inventado);
-  4. concesion de aguas individual (rasgo de expediente + territorio);
-  5. sancion individual (tipo `sancion` + rasgo de expediente);
-  6. alerta generica sin fuente (`review_only`, sin evidencias inventadas);
-  7. alerta sin URL (`source.urls.oficial = null`, evidencia textual igualmente registrada);
-  8. provincia no demostrada (`territorio = no_verificado`, no se hereda de `alerta.region`).
+## Fuente de evidencia
 
-Ambos se ejecutan dentro de `npm run test:local`.
+El builder puede trabajar de tres formas:
+
+1. con `rawDocument` directo;
+2. con `documentTrace` ya resuelto;
+3. con `supabase`, en cuyo caso llama a `resolverDocumentTrace`.
+
+La relacion correcta entre documento bruto y alerta es:
+
+```text
+raw_documents.inserted_alerta_id -> alertas.id
+```
+
+No se usa `alertas.raw_document_id` porque no existe como contrato fiable.
+
+## Campos principales
+
+- `tipo_documento`
+- `tema_principal`
+- `resumen_neutro`
+- `territorio`
+- `sectores`
+- `subsectores`
+- `accion_requerida`
+- `plazo`
+- `beneficiarios`
+- `importe`
+- `requisitos`
+- `url_oficial`
+- `evidencias`
+- `truth_score`
+- `risk_score`
+- `evidence_coverage`
+- `status`
+- `flags`
+- `reasons`
+
+Cada evidencia guarda campo, valor, fragmento textual, fuente y confianza.
+
+## Estados
+
+- `ready_for_digest`: ficha suficiente para envio automatico.
+- `review_only`: potencialmente util, pero necesita revision o preview.
+- `blocked`: no debe entrar en digest automatico.
+- `insufficient_evidence`: falta materia prima para tomar decision.
+
+## Validaciones actuales
+
+El validador detecta:
+
+- URL oficial ausente;
+- evidencia minima insuficiente;
+- tipo, tema, sector o territorio no verificados;
+- plazo ausente o inventado;
+- ayuda sin beneficiario ni convocatoria;
+- expediente individual;
+- sancion o notificacion individual;
+- resumen generico;
+- contradicciones simples entre texto, tipo y sector.
+
+## Uso
+
+```js
+const { construirFactSheetAlerta } = require('./src/modules/alertas/intelligence/factSheetBuilder');
+
+const factSheet = await construirFactSheetAlerta(alerta, { supabase });
+```
+
+Para tests o procesos sin base de datos:
+
+```js
+const { construirFactSheetAlertaSync } = require('./src/modules/alertas/intelligence/factSheetBuilder');
+
+const factSheet = construirFactSheetAlertaSync(alerta, { rawDocument });
+```
+
+Para persistir en modo sombra:
+
+```js
+const { guardarFactSheetShadow } = require('./src/modules/alertas/intelligence/factSheetStore');
+
+await guardarFactSheetShadow(supabase, {
+  factSheet,
+  organizationId,
+  shadowDecision: { current: 'include', future: factSheet.status },
+});
+```
+
+## Integracion futura
+
+Fases posteriores deben usar esta ficha primero en modo sombra. Solo despues de
+medir falsos positivos y falsos negativos debe usarse para bloquear envios.

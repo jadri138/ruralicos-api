@@ -44,6 +44,48 @@ const goodEval = evaluarCalidadAlerta(goodAlert, { now });
 assert(goodEval.score >= 90, 'Alerta completa recibe score alto');
 assert(goodEval.ready_for_digest === true, 'Alerta completa queda lista para digest');
 assert(goodEval.ready_for_mia === true, 'Alerta completa queda lista para retrieval MIA');
+assert(goodEval.metadata.fact_sheet.has_fact_sheet === false, 'Mantiene compatibilidad con alertas sin fact sheet');
+
+const factSheetReadyAlert = evaluarCalidadAlerta({
+  ...goodAlert,
+  id: 101,
+  fact_sheet: {
+    status: 'ready_for_digest',
+    truth_score: 96,
+    risk_score: 10,
+    evidence_coverage: 0.9,
+  },
+}, { now });
+
+assert(factSheetReadyAlert.ready_for_digest === true, 'Fact sheet ready no bloquea alerta completa');
+
+const factSheetBlockedAlert = evaluarCalidadAlerta({
+  ...goodAlert,
+  id: 102,
+  fact_sheet_status: 'blocked',
+  truth_score: 92,
+  risk_score: 12,
+  evidence_coverage: 0.8,
+}, { now });
+
+assert(factSheetBlockedAlert.flags.includes('fact_sheet_blocked'), 'Fact sheet blocked anade flag critico');
+assert(factSheetBlockedAlert.critical === true, 'Fact sheet blocked marca critical');
+assert(factSheetBlockedAlert.ready_for_digest === false, 'Fact sheet blocked impide digest automatico');
+
+const factSheetWeakAlert = evaluarCalidadAlerta({
+  ...goodAlert,
+  id: 103,
+  fact_sheet_status: 'review_only',
+  truth_score: 80,
+  risk_score: 48,
+  evidence_coverage: 0.45,
+}, { now });
+
+assert(factSheetWeakAlert.flags.includes('truth_score_bajo'), 'Detecta truth_score bajo');
+assert(factSheetWeakAlert.flags.includes('risk_score_alto'), 'Detecta risk_score alto');
+assert(factSheetWeakAlert.flags.includes('evidencia_insuficiente'), 'Detecta cobertura de evidencia baja');
+assert(factSheetWeakAlert.critical === false, 'Umbrales de fact sheet no son criticos por si solos');
+assert(factSheetWeakAlert.ready_for_digest === false, 'Fact sheet review_only no entra automatico aunque no sea critical');
 
 const rawBadAlert = {
   id: 2,

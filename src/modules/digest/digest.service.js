@@ -37,6 +37,13 @@ const { getFechaMadridISO, getRangoDiaMadridUTC } = require('../../shared/fechaM
 const { leerPerfilIntereses, ordenarAlertasPorPerfil, clasificarPrioridadAlerta, pesoPrioridad } = require('../aprendizaje');
 const { similitudCoseno }          = require('../../platform/ia/embeddings');
 const { registrarDigestItemsMIA }  = require('../mia/digestItems');
+const { construirFactSheetAlerta } = require('../alertas/intelligence/factSheetBuilder');
+const {
+  cargarFactSheetActual,
+  guardarFactSheetShadow,
+} = require('../alertas/intelligence/factSheetStore');
+const { ejecutarDobleCheckCritico } = require('../alertas/intelligence/criticalDoubleCheck');
+const { validarDigestFinal }       = require('./finalDigestValidator');
 const {
   actualizarDigestAttemptPorDigest,
   registrarDigestAttempt,
@@ -86,6 +93,13 @@ const DIGEST_VECTOR_BACKFILL_MIN = Math.max(
   1,
   Math.min(DIGEST_MAX_ALERTAS_USUARIO, Number(process.env.DIGEST_VECTOR_BACKFILL_MIN || 3))
 );
+// Despliegue progresivo (shadow-first): por defecto la validacion final corre en
+// modo SOMBRA (audita y registra que habria bloqueado, pero NO suprime envios).
+// El enforcement real, que puede dejar a un usuario sin digest, se activa de forma
+// explicita con DIGEST_FINAL_VALIDATION_ENFORCEMENT=true una vez medido el ratio de
+// falsos positivos sobre datos reales (ver docs/intelligence-engine-roadmap.md).
+const DIGEST_FINAL_VALIDATION_ENFORCEMENT =
+  (process.env.DIGEST_FINAL_VALIDATION_ENFORCEMENT || 'false').toLowerCase() === 'true';
 
 // ─────────────────────────────────────────────
 // Helper: normaliza strings para comparar
@@ -823,6 +837,345 @@ function prepararAlertasFinalesDigest(alertas = [], user = {}, options = {}) {
       __digest_original_index,
       ...alerta
     }) => alerta);
+}
+
+function resumenFactSheetDigest(factSheet = null) {
+  if (!factSheet || typeof factSheet !== 'object') return null;
+  return {
+    status: factSheet.status || null,
+    truth_score: factSheet.truth_score ?? null,
+    risk_score: factSheet.risk_score ?? null,
+    evidence_coverage: factSheet.evidence_coverage ?? null,
+    flags: Array.isArray(factSheet.flags) ? factSheet.flags : [],
+  };
+}
+
+function itemValidationPorAlerta(validation = {}, alerta = {}, index = 0) {
+  const alertaId = Number(alerta.id || alerta.alerta_id);
+  const byId = (validation.item_results || []).find((item) =>
+    Number.isFinite(alertaId) && Number(item.alerta_id) === alertaId
+  );
+  if (byId) return byId;
+  return (validation.item_results || [])[index] || null;
+}
+
+function construirShadowDecisionDigest({ alerta = {}, itemValidation = null, digestId = null } = {}) {
+  const selection = alerta.decision_digest || null;
+  const finalStatus = itemValidation?.status || 'review_only';
+  const futureDecision = finalStatus === 'send'
+    ? 'include'
+    : finalStatus === 'blocked'
+      ? 'blocked'
+      : 'review_only';
+
+  return {
+    version: 'digest_shadow_v1',
+    digest_id: digestId || null,
+    current_decision: {
+      included_in_digest: true,
+      selection_action: selection?.action || null,
+      selection_score: selection?.score ?? null,
+      selection_risk: selection?.riesgo || null,
+      selection_reason: selection?.motivo || null,
+    },
+    future_decision: futureDecision,
+    final_validation: itemValidation ? {
+      status: itemValidation.status,
+      flags: itemValidation.flags || [],
+      reasons: itemValidation.reasons || [],
+    } : null,
+  };
+}
+
+function enriquecerAlertaConValidacionFinal(alerta = {}, factSheet = null, itemValidation = null, digestId = null) {
+  const factSummary = resumenFactSheetDigest(factSheet);
+  const shadowDecision = construirShadowDecisionDigest({ alerta, itemValidation, digestId });
+  return {
+    ...alerta,
+    fact_sheet: factSheet || alerta.fact_sheet || null,
+    fact_sheet_status: factSummary?.status || alerta.fact_sheet_status || null,
+    truth_score: factSummary?.truth_score ?? alerta.truth_score ?? null,
+    risk_score: factSummary?.risk_score ?? alerta.risk_score ?? null,
+    evidence_coverage: factSummary?.evidence_coverage ?? alerta.evidence_coverage ?? null,
+    final_validation_status: itemValidation?.status || null,
+    final_validation_flags: itemValidation?.flags || [],
+    final_validation_reasons: itemValidation?.reasons || [],
+    critical_double_check: itemValidation?.critical_double_check || null,
+    shadow_decision: shadowDecision,
+    contexto_mia_digest: {
+      ...(alerta.contexto_mia_digest || {}),
+      fact_sheet: factSummary,
+      final_validation: itemValidation ? {
+        status: itemValidation.status,
+        flags: itemValidation.flags || [],
+        reasons: itemValidation.reasons || [],
+        critical_double_check: itemValidation.critical_double_check || null,
+      } : null,
+      shadow_decision: shadowDecision,
+    },
+  };
+}
+
+async function resolverFactSheetDigestShadow({
+  supabase,
+  alerta,
+  organizationId = null,
+  factSheets = {},
+  loadFactSheetFn = cargarFactSheetActual,
+  buildFactSheetFn = construirFactSheetAlerta,
+} = {}) {
+  const alertaId = alerta?.id || alerta?.alerta_id;
+  const supplied = Array.isArray(factSheets)
+    ? factSheets.find((sheet) => Number(sheet.alerta_id) === Number(alertaId))
+    : factSheets?.[alertaId] || factSheets?.[String(alertaId)] || alerta?.fact_sheet || null;
+  if (supplied) return { factSheet: supplied, source: 'provided' };
+
+  const current = await loadFactSheetFn(supabase, { alertaId });
+  if (current) return { factSheet: current, source: 'stored' };
+
+  const built = await buildFactSheetFn(alerta, { supabase, organizationId });
+  return { factSheet: built, source: 'built' };
+}
+
+function resumirValidacionFinalDigest(validation = null) {
+  if (!validation) return null;
+  return {
+    status: validation.status || null,
+    ok: Boolean(validation.ok),
+    flags: Array.isArray(validation.flags) ? validation.flags : [],
+    items_total: validation.diagnostics?.items_total ?? validation.item_results?.length ?? 0,
+    items_send: validation.diagnostics?.items_send ?? 0,
+    items_review_only: validation.diagnostics?.items_review_only ?? 0,
+    items_blocked: validation.diagnostics?.items_blocked ?? 0,
+  };
+}
+
+function diagnosticarItemsValidacionFinal(itemResults = []) {
+  const items = Array.isArray(itemResults) ? itemResults : [];
+  return {
+    items_total: items.length,
+    items_send: items.filter((item) => item.status === 'send').length,
+    items_review_only: items.filter((item) => item.status === 'review_only').length,
+    items_blocked: items.filter((item) => item.status === 'blocked').length,
+  };
+}
+
+function aplicarDobleCheckAItemValidation(itemValidation = null, doubleCheck = null) {
+  if (!doubleCheck || ['skipped', 'send', 'review_only'].includes(doubleCheck.status)) {
+    return itemValidation;
+  }
+
+  const next = {
+    ...(itemValidation || {}),
+    status: 'blocked',
+    ok: false,
+    flags: [
+      ...new Set([
+        ...((itemValidation && itemValidation.flags) || []),
+        'critical_double_check_blocked_review',
+      ]),
+    ],
+    reasons: [
+      ...((itemValidation && itemValidation.reasons) || []),
+      {
+        code: 'critical_double_check_blocked_review',
+        status: 'blocked',
+        detail: 'El doble check critico requiere revision antes de enviar.',
+      },
+    ],
+    critical_double_check: doubleCheck,
+  };
+  return next;
+}
+
+async function prepararValidacionFinalDigestShadow({
+  supabase,
+  mensaje = '',
+  alertas = [],
+  user = {},
+  organizationId = null,
+  factSheets = {},
+  loadFactSheetFn = cargarFactSheetActual,
+  buildFactSheetFn = construirFactSheetAlerta,
+  doubleCheckFn = ejecutarDobleCheckCritico,
+} = {}) {
+  const warnings = [];
+  const factSheetMap = {};
+  const resolved = await Promise.all((alertas || []).map(async (alerta) => {
+    try {
+      const result = await resolverFactSheetDigestShadow({
+        supabase,
+        alerta,
+        organizationId,
+        factSheets,
+        loadFactSheetFn,
+        buildFactSheetFn,
+      });
+      if (result.factSheet && alerta.id) factSheetMap[alerta.id] = result.factSheet;
+      return { alerta, factSheet: result.factSheet, source: result.source };
+    } catch (error) {
+      warnings.push({
+        alerta_id: alerta?.id || null,
+        warning: 'fact_sheet_shadow_error',
+        error: error.message,
+      });
+      return { alerta, factSheet: null, source: 'error' };
+    }
+  }));
+
+  const alertasConFactSheet = resolved.map(({ alerta, factSheet }) => ({
+    ...alerta,
+    fact_sheet: factSheet || null,
+    fact_sheet_status: factSheet?.status || alerta.fact_sheet_status || null,
+    truth_score: factSheet?.truth_score ?? alerta.truth_score ?? null,
+    risk_score: factSheet?.risk_score ?? alerta.risk_score ?? null,
+    evidence_coverage: factSheet?.evidence_coverage ?? alerta.evidence_coverage ?? null,
+  }));
+
+  const validation = validarDigestFinal({
+    mensaje,
+    alertas: alertasConFactSheet,
+    factSheets: factSheetMap,
+    user,
+  });
+
+  const doubleChecks = await Promise.all(alertasConFactSheet.map((alerta, index) =>
+    doubleCheckFn({
+      alerta,
+      factSheet: factSheetMap[alerta.id] || alerta.fact_sheet || {},
+      mensaje,
+      itemValidation: itemValidationPorAlerta(validation, alerta, index),
+    }).catch((error) => ({
+      status: 'blocked_review',
+      required: true,
+      ok: false,
+      reason: 'double_check_error',
+      error: error.message,
+    }))
+  ));
+
+  const validationConDobleCheck = {
+    ...validation,
+    item_results: (validation.item_results || []).map((itemValidation, index) =>
+      aplicarDobleCheckAItemValidation(itemValidation, doubleChecks[index])
+    ),
+  };
+  validationConDobleCheck.status = validationConDobleCheck.item_results.some((item) => item.status === 'blocked')
+    ? 'blocked'
+    : validationConDobleCheck.item_results.some((item) => item.status === 'review_only')
+      ? 'review_only'
+      : validation.status;
+  validationConDobleCheck.ok = validationConDobleCheck.status === 'send';
+  validationConDobleCheck.flags = [
+    ...new Set([
+      ...(validation.flags || []),
+      ...validationConDobleCheck.item_results.flatMap((item) => item.flags || []),
+    ]),
+  ];
+  validationConDobleCheck.diagnostics = {
+    ...(validation.diagnostics || {}),
+    ...diagnosticarItemsValidacionFinal(validationConDobleCheck.item_results),
+  };
+
+  const alertasEnriquecidas = alertasConFactSheet.map((alerta, index) =>
+    enriquecerAlertaConValidacionFinal(
+      alerta,
+      factSheetMap[alerta.id] || alerta.fact_sheet || null,
+      itemValidationPorAlerta(validationConDobleCheck, alerta, index)
+    )
+  );
+
+  return {
+    validation: validationConDobleCheck,
+    validation_summary: resumirValidacionFinalDigest(validationConDobleCheck),
+    alertas: alertasEnriquecidas,
+    fact_sheets: factSheetMap,
+    double_checks: doubleChecks,
+    warnings,
+  };
+}
+
+async function guardarFactSheetsDigestShadow({
+  supabase,
+  alertas = [],
+  validation = null,
+  organizationId = null,
+  digestId = null,
+  storeFactSheetFn = guardarFactSheetShadow,
+} = {}) {
+  const results = [];
+
+  for (const [index, alerta] of (alertas || []).entries()) {
+    const factSheet = alerta.fact_sheet || null;
+    if (!factSheet) {
+      results.push({
+        ok: true,
+        available: false,
+        stored: false,
+        alerta_id: alerta.id || null,
+        reason: 'fact_sheet_missing',
+      });
+      continue;
+    }
+
+    const itemValidation = itemValidationPorAlerta(validation, alerta, index);
+    const shadowDecision = construirShadowDecisionDigest({ alerta, itemValidation, digestId });
+    const result = await storeFactSheetFn(supabase, {
+      factSheet,
+      organizationId,
+      shadowDecision,
+      enforcementMode: 'shadow',
+    });
+    results.push({
+      ...result,
+      alerta_id: alerta.id || factSheet.alerta_id || null,
+    });
+  }
+
+  return {
+    ok: results.every((result) => result.ok !== false),
+    results,
+    stored: results.filter((result) => result.stored).length,
+    unavailable: results.filter((result) => result.available === false).length,
+  };
+}
+
+function filtrarAlertasPorValidacionFinalDigest(alertas = [], validation = null) {
+  const aceptadas = [];
+  const rechazadas = [];
+
+  for (const [index, alerta] of (alertas || []).entries()) {
+    const itemValidation = itemValidationPorAlerta(validation, alerta, index);
+    const status = itemValidation?.status || alerta.final_validation_status || 'review_only';
+    if (status === 'send') {
+      aceptadas.push(alerta);
+    } else {
+      rechazadas.push({
+        alerta,
+        status,
+        flags: itemValidation?.flags || alerta.final_validation_flags || [],
+        reasons: itemValidation?.reasons || alerta.final_validation_reasons || [],
+      });
+    }
+  }
+
+  return {
+    aceptadas,
+    rechazadas,
+    enforced: rechazadas.length > 0,
+    motivo_no_envio: aceptadas.length === 0
+      ? rechazadas.some((item) => item.status === 'blocked')
+        ? 'final_validation_blocked'
+        : 'final_validation_review_only'
+      : null,
+    summary: {
+      input: (alertas || []).length,
+      accepted: aceptadas.length,
+      rejected: rechazadas.length,
+      blocked: rechazadas.filter((item) => item.status === 'blocked').length,
+      review_only: rechazadas.filter((item) => item.status === 'review_only').length,
+    },
+  };
 }
 
 function agruparAlertasDigest(alertas = []) {
@@ -1852,7 +2205,7 @@ async function construirPreviewDigestUsuario(supabase, {
     fecha,
   });
 
-  const motivoNoEnvio = alertasFinales.length === 0
+  let motivoNoEnvio = alertasFinales.length === 0
     ? totalAlertasDia === 0
       ? 'no_habia_alertas'
       : alertasDia.length === 0
@@ -1865,6 +2218,9 @@ async function construirPreviewDigestUsuario(supabase, {
   let mensajeRaw = null;
   let mensaje = null;
   let generador = 'sin_mensaje';
+  let finalValidationShadow = null;
+  let finalValidationWarnings = [];
+  let finalValidationEnforcement = null;
 
   if (alertasFinales.length > 0) {
     if (modoRescate) {
@@ -1901,6 +2257,74 @@ async function construirPreviewDigestUsuario(supabase, {
       aplicarTextoObligatorio(mensajeRaw, user.preferencias_extra),
       alertasFinales
     ).trim();
+
+    const shadow = await prepararValidacionFinalDigestShadow({
+      supabase,
+      mensaje,
+      alertas: alertasFinales,
+      user: userConPerfilMIA,
+      organizationId,
+    });
+    alertasFinales = shadow.alertas;
+    finalValidationShadow = shadow.validation;
+    finalValidationWarnings = shadow.warnings;
+
+    if (DIGEST_FINAL_VALIDATION_ENFORCEMENT) {
+      finalValidationEnforcement = filtrarAlertasPorValidacionFinalDigest(alertasFinales, finalValidationShadow);
+      if (finalValidationEnforcement.aceptadas.length === 0) {
+        alertasFinales = [];
+        mensaje = null;
+        motivoNoEnvio = finalValidationEnforcement.motivo_no_envio || 'final_validation_no_send';
+        generador = `${generador}_bloqueado_validacion_final`;
+      } else if (finalValidationEnforcement.rechazadas.length > 0) {
+        alertasFinales = finalValidationEnforcement.aceptadas;
+        mensajeRaw = modoRescate
+          ? generarMensajeDigestRescate({
+            user: userConPerfilMIA,
+            alertas: alertasFinales,
+            fecha,
+            desde: modoRescate.desde,
+            tipo: modoRescate.tipo,
+            organizationContext: organization,
+          })
+          : generarMensajeDigestFallback({
+            user: userConPerfilMIA,
+            alertas: alertasFinales,
+            fecha,
+            organizationContext: organization,
+          });
+        generador = `${generador}_enforced_local`;
+        mensaje = anadirInstruccionFeedback(
+          aplicarTextoObligatorio(mensajeRaw, user.preferencias_extra),
+          alertasFinales
+        ).trim();
+
+        const enforcedShadow = await prepararValidacionFinalDigestShadow({
+          supabase,
+          mensaje,
+          alertas: alertasFinales,
+          user: userConPerfilMIA,
+          organizationId,
+        });
+        alertasFinales = enforcedShadow.alertas;
+        finalValidationShadow = enforcedShadow.validation;
+        finalValidationWarnings = [...finalValidationWarnings, ...enforcedShadow.warnings];
+        finalValidationEnforcement = filtrarAlertasPorValidacionFinalDigest(alertasFinales, finalValidationShadow);
+        if (finalValidationEnforcement.aceptadas.length === 0) {
+          alertasFinales = [];
+          mensaje = null;
+          motivoNoEnvio = finalValidationEnforcement.motivo_no_envio || 'final_validation_no_send';
+          generador = `${generador}_bloqueado_validacion_final`;
+        } else if (finalValidationEnforcement.rechazadas.length > 0) {
+          alertasFinales = [];
+          mensaje = null;
+          motivoNoEnvio = 'final_validation_unstable_after_regeneration';
+          generador = `${generador}_bloqueado_validacion_final`;
+        } else {
+          alertasFinales = finalValidationEnforcement.aceptadas;
+        }
+      }
+    }
   }
 
   return {
@@ -1926,6 +2350,9 @@ async function construirPreviewDigestUsuario(supabase, {
     },
     motivo_no_envio: motivoNoEnvio,
     mensaje,
+    final_validation: resumirValidacionFinalDigest(finalValidationShadow),
+    final_validation_enforcement: finalValidationEnforcement?.summary || null,
+    final_validation_warnings: finalValidationWarnings,
     alertas: alertasFinales.map((alerta, index) => ({
       item_numero: index + 1,
       id: alerta.id,
@@ -1936,6 +2363,9 @@ async function construirPreviewDigestUsuario(supabase, {
       relevancia: alerta.relevancia_digest,
       relevancia_key: alerta.relevancia_digest_key,
       contexto_mia_digest: alerta.contexto_mia_digest,
+      fact_sheet_status: alerta.fact_sheet_status || null,
+      final_validation_status: alerta.final_validation_status || null,
+      final_validation_flags: alerta.final_validation_flags || [],
       url: alerta.url,
     })),
     aviso: 'Preview seguro: no inserta digests, no crea tracking links, no registra digest_items y no envia WhatsApp.',
@@ -1961,6 +2391,7 @@ module.exports = {
   DIGEST_RESCUE_MAX_ALERTAS,
   DIGEST_RESCUE_MESSAGE_MAX_CHARS,
   DIGEST_VECTOR_BACKFILL_MIN,
+  DIGEST_FINAL_VALIDATION_ENFORCEMENT,
   norm,
   intersecta,
   ALERTA_DIGEST_SELECT,
@@ -2001,6 +2432,13 @@ module.exports = {
   explicarCoincidenciasDigest,
   construirContextoInternoDigest,
   prepararAlertasFinalesDigest,
+  resumenFactSheetDigest,
+  construirShadowDecisionDigest,
+  enriquecerAlertaConValidacionFinal,
+  resumirValidacionFinalDigest,
+  prepararValidacionFinalDigestShadow,
+  guardarFactSheetsDigestShadow,
+  filtrarAlertasPorValidacionFinalDigest,
   agruparAlertasDigest,
   obtenerNombreCortoDigest,
   construirSaludoDigest,

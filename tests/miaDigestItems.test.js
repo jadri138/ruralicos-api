@@ -39,6 +39,17 @@ const rows = construirDigestItems({
       grupo_digest_key: 'ayudas',
       relevancia_digest: 'Alta',
       relevancia_digest_key: 'alta',
+      fact_sheet_status: 'ready_for_digest',
+      truth_score: 96,
+      risk_score: 8,
+      evidence_coverage: 0.92,
+      final_validation_status: 'send',
+      final_validation_flags: [],
+      final_validation_reasons: [],
+      shadow_decision: {
+        version: 'digest_shadow_v1',
+        future_decision: 'include',
+      },
       contexto_mia_digest: {
         version: 'digest_context_v1',
         motivo_usuario: 'Coincide con sector: agricultura; tipo: ayudas_subvenciones.',
@@ -73,6 +84,12 @@ assert(rows[0].tags_json.mia_profile_score === 2.5, 'Guarda score de perfil MIA'
 assert(rows[0].tags_json.mia_profile_reasons[0] === 'interest:ayudas_maquinaria:2.50', 'Guarda razones de perfil MIA');
 assert(rows[0].tags_json.grupo_digest === 'Ayudas', 'Guarda grupo visible del digest');
 assert(rows[0].tags_json.relevancia_digest === 'Alta', 'Guarda relevancia visible del digest');
+assert(rows[0].tags_json.fact_sheet_status === 'ready_for_digest', 'Guarda estado de fact sheet en tags_json');
+assert(rows[0].tags_json.truth_score === 96, 'Guarda truth_score de fact sheet');
+assert(rows[0].tags_json.risk_score === 8, 'Guarda risk_score de fact sheet');
+assert(rows[0].tags_json.evidence_coverage === 0.92, 'Guarda cobertura de evidencia');
+assert(rows[0].tags_json.final_validation_status === 'send', 'Guarda estado de validacion final');
+assert(rows[0].tags_json.shadow_decision.future_decision === 'include', 'Guarda decision shadow');
 assert(rows[0].tags_json.contexto_mia_digest.version === 'digest_context_v1', 'Guarda contexto interno para MIA');
 assert(rows[0].tags_json.contexto_mia_digest.mensaje.accion_sugerida.includes('plazo'), 'Guarda accion interna por alerta');
 assert(/tractores/i.test(rows[0].resumen_usado), 'Guarda resumen usado para MIA');

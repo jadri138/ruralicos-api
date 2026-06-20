@@ -140,8 +140,90 @@ test('revision segura exige calidad alta configurada', () => {
   });
 
   assert.strictEqual(decision.incluir, false);
-  assert.strictEqual(decision.motivo, 'score_insuficiente');
+  assert.strictEqual(decision.motivo, 'calidad_baja');
   assert(decision.score >= 50 && decision.score < 80);
+});
+
+test('revision segura queda review_only y no entra en digest automatico', () => {
+  const decision = decidirAlertaParaDigest({
+    id: 103,
+    fuente: 'BOE',
+    titulo: 'Informacion publica sobre explotaciones agrarias',
+    url: 'https://example.com/103',
+    fecha: '2026-06-04',
+    estado_ia: 'listo',
+    resumen_final: [
+      'FICHA_IA',
+      'RESUMEN_DIGEST: Informacion publica con plazo para alegaciones.',
+      'PLAZO: 20 dias habiles',
+    ].join('\n'),
+    contenido: 'Informacion publica con plazo para alegaciones.',
+    provincias: ['nacional'],
+    sectores: ['agricultura'],
+    subsectores: [],
+    tipos_alerta: ['normativa_general'],
+    embedding_generated_at: '2026-06-04T08:00:00Z',
+  }, {
+    subscription: 'cooperativa',
+    preferences: { provincias: [], sectores: ['agricultura'], subsectores: [], tipos_alerta: {} },
+  }, {
+    minIncludeScore: 90,
+    minReviewScore: 50,
+    minReviewQualityScore: 70,
+  });
+
+  assert.strictEqual(decision.action, 'review_only');
+  assert.strictEqual(decision.incluir, false);
+  assert.strictEqual(decision.sendable, false);
+  assert.strictEqual(decision.review_required, true);
+});
+
+test('fact sheet review_only fuerza revision aunque el score sea alto', () => {
+  const decision = decidirAlertaParaDigest(alerta(104, {
+    fact_sheet_status: 'review_only',
+    truth_score: 90,
+    risk_score: 20,
+    evidence_coverage: 0.8,
+  }), user);
+
+  assert.strictEqual(decision.action, 'review_only');
+  assert.strictEqual(decision.incluir, false);
+  assert.strictEqual(decision.riesgo_de_ruido, 'alto');
+  assert(decision.diagnostico.policy.riesgo_de_ruido.reasons.some((reason) => reason.code === 'fact_sheet_review_only'));
+});
+
+test('ayuda sin plazo verificable queda en revision y no se autoenvia', () => {
+  const decision = decidirAlertaParaDigest(alerta(106, {
+    titulo: 'Ayudas para inversiones en explotaciones agrarias',
+    resumen_final: [
+      'FICHA_IA',
+      'TIPO: ayudas_subvenciones',
+      'PRIORIDAD: media',
+      'RESUMEN_DIGEST: Se publican ayudas para inversiones agrarias, sin plazo claro en la ficha.',
+      'HECHO: ayudas para inversiones agrarias',
+      'ACCION: revisar convocatoria',
+    ].join('\n'),
+    contenido: 'Se publican ayudas para inversiones agrarias. El texto disponible no permite confirmar plazo.',
+  }), user);
+
+  assert.strictEqual(decision.action, 'review_only');
+  assert.strictEqual(decision.incluir, false);
+  assert.strictEqual(decision.diagnostico.policy.signals.plazo_no_verificado, true);
+  assert(decision.diagnostico.policy.riesgo_de_ruido.reasons.some((reason) => reason.code === 'plazo_no_verificado'));
+});
+
+test('usuario con preferencias incompletas queda en revision, no envio automatico', () => {
+  const decision = decidirAlertaParaDigest(alerta(105), {
+    subscription: 'cooperativa',
+    preferences: { provincias: [], sectores: [], subsectores: [], tipos_alerta: {} },
+  }, {
+    minReviewQualityScore: 70,
+  });
+
+  assert.strictEqual(decision.action, 'review_only');
+  assert.strictEqual(decision.incluir, false);
+  assert.strictEqual(decision.motivo, 'revision_riesgo_alto');
+  assert(decision.diagnostico.policy.riesgo_de_ruido.reasons.some((reason) => reason.code === 'perfil_incompleto'));
 });
 
 test('selecciona con diversidad y conserva minimo cuando hay candidatas', () => {
@@ -185,7 +267,7 @@ test('rellena con intereses fuertes aunque compartan fuente y tipo', () => {
   assert.strictEqual(result.resumen.incluidas, 5);
 });
 
-test('no sobreexpone expedientes individuales aunque haya pocos avisos', () => {
+test('expedientes individuales provinciales quedan en revision y no se autoenvian', () => {
   const result = seleccionarAlertasParaDigest([
     alerta(30, {
       titulo: 'Solicitud de concesion de aguas para riego en Teruel 30',
@@ -209,8 +291,10 @@ test('no sobreexpone expedientes individuales aunque haya pocos avisos', () => {
     maxIndividualItems: 2,
   });
 
-  assert.strictEqual(result.alertas.length, 2);
-  assert.strictEqual(result.resumen.fuera_por_diversidad, 1);
+  assert.strictEqual(result.alertas.length, 0);
+  assert.strictEqual(result.resumen.expediente_individual_requiere_revision, 3);
+  assert(result.decisiones.every((decision) => decision.action === 'review_only'));
+  assert(result.decisiones.every((decision) => decision.incluir === false));
 });
 
 console.log(`\nResultados alertSelectionEngine: ${passed} aprobados, ${failed} fallidos`);

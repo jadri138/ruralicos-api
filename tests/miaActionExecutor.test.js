@@ -1,5 +1,6 @@
 const {
   construirFeedbackRows,
+  limpiarFeedbackRowsLegacy,
   construirMemoriaLegacyRows,
   construirCasoAgenteDesdeDecision,
   ejecutarAccionesMIA,
@@ -117,6 +118,19 @@ assert(feedbackRows.length === 1, 'Construye feedback solo desde feedback_action
 assert(feedbackRows[0].alerta_id === 8064, 'Mapea item_numero al alerta exacta del digest');
 assert(feedbackRows[0].valor === 1, 'Conserva valor del feedback');
 assert(feedbackRows[0].organization_id === 12, 'Propaga organization_id al feedback');
+assert(feedbackRows[0].feedback_category === 'useful', 'Clasifica feedback positivo como util');
+assert(feedbackRows[0].feedback_detail.reasons.includes('positive_feedback'), 'Guarda detalle de clasificacion');
+
+const negativeRows = construirFeedbackRows({
+  user,
+  digest,
+  alertasOrdenadas,
+  texto: 'la 1 no es de mi zona, es otra provincia',
+  decision: { intent: 'feedback_digest', feedback_actions: [{ item_numero: 1, valor: -1 }] },
+});
+
+assert(negativeRows[0].feedback_category === 'wrong_location', 'Clasifica feedback negativo por ubicacion');
+assert(limpiarFeedbackRowsLegacy(negativeRows)[0].feedback_category === undefined, 'Fallback legacy elimina columnas nuevas');
 
 const memoryRows = construirMemoriaLegacyRows({
   user,

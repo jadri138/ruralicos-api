@@ -42,6 +42,11 @@ const {
   construirReviewRowMIA,
   esTablaRevisionNoDisponible,
 } = require('../mia/alertReview');
+const {
+  construirWhyNotSentResponse,
+  construirWhySentDigest,
+  normalizarDigestExplainParams,
+} = require('./digestExplain');
 
 const {
   PLANES_VALIDOS,
@@ -180,6 +185,153 @@ module.exports = (app, supabase) => {
     } catch (err) {
       console.error('Error en /admin/digests:', err);
       return res.status(500).json({ error: 'Error interno' });
+    }
+  });
+
+  app.get('/admin/digest/why-sent', requireAdmin, async (req, res) => {
+    try {
+      const params = normalizarDigestExplainParams(req.query);
+      let digestQuery = supabase
+        .from('digests')
+        .select('id, user_id, fecha, mensaje, enviado, enviado_at, created_at, alerta_ids, organization_id')
+        .order('created_at', { ascending: false })
+        .limit(params.limit);
+
+      if (params.digest_id) digestQuery = digestQuery.eq('id', params.digest_id);
+      if (params.user_id) digestQuery = digestQuery.eq('user_id', params.user_id);
+      if (params.fecha) digestQuery = digestQuery.eq('fecha', params.fecha);
+
+      const { data: digests, error: digestError } = await digestQuery;
+      if (digestError) throw digestError;
+
+      const digestRows = digests || [];
+      const digestIds = digestRows.map((digest) => Number(digest.id)).filter(Number.isFinite);
+      const alertaIds = [...new Set(digestRows.flatMap((digest) => Array.isArray(digest.alerta_ids) ? digest.alerta_ids : [])
+        .map(Number)
+        .filter(Number.isFinite))];
+
+      let digestItems = [];
+      let attempts = [];
+      let alertas = [];
+      let factSheets = [];
+      const warnings = [];
+
+      if (digestIds.length > 0) {
+        const { data, error } = await supabase
+          .from('digest_items')
+          .select('id, digest_id, user_id, fecha, item_numero, alerta_id, score, motivo_seleccion, resumen_usado, tags_json, selection_score, selection_action, selection_reason, selection_risk, similarity_score, selection_decision')
+          .in('digest_id', digestIds)
+          .order('item_numero', { ascending: true });
+        if (error) {
+          if (isMissingTableError(error)) warnings.push({ table: 'digest_items', reason: 'missing' });
+          else throw error;
+        } else {
+          digestItems = data || [];
+        }
+
+        const attemptsResult = await supabase
+          .from('digest_attempts')
+          .select('id, user_id, digest_id, fecha, kind, status, motivo_no_envio, error_msg, metadata_json, total_alertas_dia, total_alertas_ventana, tras_quality_gate, tras_filtro_usuario, tras_scoring, alertas_finales, created_at, updated_at')
+          .in('digest_id', digestIds)
+          .order('created_at', { ascending: false });
+        if (attemptsResult.error) {
+          if (isMissingTableError(attemptsResult.error)) warnings.push({ table: 'digest_attempts', reason: 'missing' });
+          else throw attemptsResult.error;
+        } else {
+          attempts = attemptsResult.data || [];
+        }
+      }
+
+      const itemAlertaIds = idsNumericosUnicos(digestItems, 'alerta_id');
+      const allAlertaIds = [...new Set([...alertaIds, ...itemAlertaIds])];
+      if (allAlertaIds.length > 0) {
+        const alertasResult = await selectRowsByIds(
+          supabase,
+          'alertas',
+          'id, titulo, fuente, fecha, url, provincias, sectores, subsectores, tipos_alerta, resumen_final, organization_id',
+          allAlertaIds
+        );
+        if (alertasResult.error) throw alertasResult.error;
+        alertas = alertasResult.data || [];
+
+        const factResult = await supabase
+          .from('alert_fact_sheets')
+          .select('alerta_id, status, truth_score, risk_score, evidence_coverage, flags, reasons, shadow_decision, fact_sheet, generated_at')
+          .in('alerta_id', allAlertaIds)
+          .order('generated_at', { ascending: false });
+        if (factResult.error) {
+          if (isMissingTableError(factResult.error)) warnings.push({ table: 'alert_fact_sheets', reason: 'missing' });
+          else throw factResult.error;
+        } else {
+          factSheets = factResult.data || [];
+        }
+      }
+
+      const items = digestRows.map((digest) => construirWhySentDigest({
+        digest,
+        digestItems,
+        alertas,
+        factSheets,
+        attempts,
+      }));
+
+      return res.json({
+        ok: true,
+        available: true,
+        warnings,
+        digest: params.digest_id ? items[0] || null : undefined,
+        items,
+      });
+    } catch (err) {
+      console.error('Error en /admin/digest/why-sent:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/admin/digest/why-not-sent', requireAdmin, async (req, res) => {
+    try {
+      const params = normalizarDigestExplainParams(req.query);
+      let query = supabase
+        .from('digest_attempts')
+        .select('id, user_id, digest_id, fecha, kind, status, motivo_no_envio, error_msg, metadata_json, total_alertas_dia, total_alertas_ventana, tras_quality_gate, tras_filtro_usuario, tras_scoring, alertas_finales, created_at, updated_at')
+        .order('created_at', { ascending: false })
+        .limit(params.limit);
+
+      if (params.user_id) query = query.eq('user_id', params.user_id);
+      if (params.fecha) query = query.eq('fecha', params.fecha);
+      if (params.kind) query = query.eq('kind', params.kind);
+      if (!params.digest_id) query = query.in('status', ['no_send', 'failed', 'skipped_existing']);
+      if (params.digest_id) query = query.eq('digest_id', params.digest_id);
+
+      const { data, error } = await query;
+      if (error) {
+        if (isMissingTableError(error)) {
+          return res.json({ ok: true, available: false, reason: 'digest_attempts_no_disponible', items: [] });
+        }
+        throw error;
+      }
+
+      const attempts = data || [];
+      const userIds = idsNumericosUnicos(attempts, 'user_id');
+      const usersResult = await selectRowsByIds(
+        supabase,
+        'users',
+        'id, name, legal_name, phone, subscription, organization_id',
+        userIds
+      );
+      if (usersResult.error) throw usersResult.error;
+
+      return res.json({
+        ok: true,
+        available: true,
+        items: construirWhyNotSentResponse({
+          attempts,
+          users: usersResult.data || [],
+        }),
+      });
+    } catch (err) {
+      console.error('Error en /admin/digest/why-not-sent:', err);
+      return res.status(500).json({ error: err.message });
     }
   });
 
