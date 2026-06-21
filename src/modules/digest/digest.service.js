@@ -72,7 +72,11 @@ function numeroConfig(name, fallback, min = 0, max = Number.MAX_SAFE_INTEGER) {
 const PREPARAR_DIGEST_BATCH_SIZE = numeroConfig('PREPARAR_DIGEST_BATCH_SIZE', 50, 1, 200);
 const DIGEST_LOCAL_FALLBACK = (process.env.DIGEST_LOCAL_FALLBACK || 'true').toLowerCase() !== 'false';
 const DIGEST_QUALITY_GATE = (process.env.DIGEST_QUALITY_GATE || 'true').toLowerCase() !== 'false';
-const DIGEST_INCLUDE_REVIEW = (process.env.DIGEST_INCLUDE_REVIEW || 'true').toLowerCase() !== 'false';
+// DIGEST_INCLUDE_REVIEW (default false, prudente): si es true, el motor de seleccion puede
+// usar alertas review_only como "relleno seguro" (allowReview) para completar el digest.
+// Aun activado, esas alertas NUNCA se envian automaticamente: el gate
+// esEnvioAutomaticoPermitido las retiene para auditoria/preview. Activar solo para medir.
+const DIGEST_INCLUDE_REVIEW = (process.env.DIGEST_INCLUDE_REVIEW || 'false').toLowerCase() === 'true';
 const DIGEST_INCLUDE_INDIVIDUAL_PROVINCIAL =
   (process.env.DIGEST_INCLUDE_INDIVIDUAL_PROVINCIAL || 'true').toLowerCase() !== 'false';
 const DIGEST_REVIEW_MIN_QUALITY_SCORE = Number(process.env.DIGEST_REVIEW_MIN_QUALITY_SCORE || 78);
@@ -84,7 +88,10 @@ const DIGEST_MAX_ALERTAS_USUARIO = numeroConfig(
   1,
   10
 );
-const DIGEST_RESCUE_ENABLED = (process.env.DIGEST_RESCUE_ENABLED || 'true').toLowerCase() !== 'false';
+// DIGEST_RESCUE_ENABLED (default false, prudente): el rescate semanal reenvia avisos de dias
+// anteriores cuando un usuario lleva tiempo sin digest. Desactivado por defecto para no
+// rellenar el digest "por rellenar"; activar de forma explicita si se quiere recuperar.
+const DIGEST_RESCUE_ENABLED = (process.env.DIGEST_RESCUE_ENABLED || 'false').toLowerCase() === 'true';
 const DIGEST_RESCUE_AFTER_DAYS = numeroConfig('DIGEST_RESCUE_AFTER_DAYS', 7, 1, 30);
 const DIGEST_RESCUE_LOOKBACK_DAYS = numeroConfig('DIGEST_RESCUE_LOOKBACK_DAYS', 7, 1, 30);
 const DIGEST_RESCUE_MAX_ALERTAS = numeroConfig('DIGEST_RESCUE_MAX_ALERTAS', 2, 0, 5);
@@ -100,6 +107,43 @@ const DIGEST_VECTOR_BACKFILL_MIN = Math.max(
 // falsos positivos sobre datos reales (ver docs/intelligence-engine-roadmap.md).
 const DIGEST_FINAL_VALIDATION_ENFORCEMENT =
   (process.env.DIGEST_FINAL_VALIDATION_ENFORCEMENT || 'false').toLowerCase() === 'true';
+
+// ─────────────────────────────────────────────
+// Gate de envio automatico (defensa en profundidad, independiente del enforcement
+// de la validacion final). Una alerta solo es enviable en el digest automatico normal
+// si su decision de seleccion es 'include'. review_only / blocked / exclude se retienen
+// para auditoria o preview, pero NUNCA forman parte del mensaje final automatico, aunque
+// el motor las haya marcado con incluir=true como relleno (incoherencia review_only).
+// Sin decision auditable (alertas antiguas / rescate suave) se permite por compatibilidad;
+// el resto de barreras (calidad, fact sheet, URL) siguen aplicando por separado.
+// ─────────────────────────────────────────────
+function accionDecisionDigest(decision = {}) {
+  if (!decision || typeof decision !== 'object') return null;
+  return decision.action || (decision.incluir === true ? 'include' : null);
+}
+
+function esEnvioAutomaticoPermitido(decision = {}) {
+  const action = accionDecisionDigest(decision);
+  if (action === null) return true;
+  return action === 'include';
+}
+
+function filtrarAlertasEnviablesAutomaticamente(alertas = []) {
+  const enviables = [];
+  const retenidas = [];
+  for (const alerta of alertas || []) {
+    if (esEnvioAutomaticoPermitido(alerta?.decision_digest)) {
+      enviables.push(alerta);
+    } else {
+      retenidas.push({
+        alerta_id: alerta?.id ?? null,
+        action: accionDecisionDigest(alerta?.decision_digest),
+        motivo: alerta?.decision_digest?.motivo || null,
+      });
+    }
+  }
+  return { enviables, retenidas };
+}
 
 // ─────────────────────────────────────────────
 // Helper: normaliza strings para comparar
@@ -2392,6 +2436,9 @@ module.exports = {
   DIGEST_RESCUE_MESSAGE_MAX_CHARS,
   DIGEST_VECTOR_BACKFILL_MIN,
   DIGEST_FINAL_VALIDATION_ENFORCEMENT,
+  accionDecisionDigest,
+  esEnvioAutomaticoPermitido,
+  filtrarAlertasEnviablesAutomaticamente,
   norm,
   intersecta,
   ALERTA_DIGEST_SELECT,
