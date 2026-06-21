@@ -33,6 +33,11 @@ function tagsAlerta(alerta = {}) {
       score: selectionScore,
       score_source: Number.isFinite(Number(decision.score)) ? 'selection_engine' : 'similarity',
     } : null,
+    // Auditoria top-level (fallback seguro en tags_json si faltan columnas dedicadas en digest_items).
+    selection_action: decision ? (decision.action || (decision.incluir ? 'include' : null)) : null,
+    selection_risk: decision?.riesgo || null,
+    selection_reason: decision?.motivo || null,
+    enviable_automatico: decision ? Boolean((decision.action || (decision.incluir ? 'include' : null)) === 'include') : null,
     similitud,
     calidad_mia: alerta.calidad_mia || null,
     mia_profile_score: normalizarNumero(alerta.mia_profile_score),

@@ -117,6 +117,7 @@ const {
   prepararValidacionFinalDigestShadow,
   guardarFactSheetsDigestShadow,
   filtrarAlertasPorValidacionFinalDigest,
+  filtrarAlertasEnviablesAutomaticamente,
   agruparAlertasDigest,
   obtenerNombreCortoDigest,
   construirSaludoDigest,
@@ -572,6 +573,41 @@ module.exports = function digestRoutes(app, supabase) {
           modoRescate,
           fecha: hoy,
         });
+
+        // Gate de envio automatico: review_only / blocked / exclude no se autoenvian aunque
+        // hayan entrado como relleno (incoherencia review_only). Defensa en profundidad,
+        // independiente del enforcement de la validacion final.
+        const { enviables: alertasEnviables, retenidas: alertasRetenidasReview } =
+          filtrarAlertasEnviablesAutomaticamente(alertasFinales);
+        if (alertasRetenidasReview.length > 0) {
+          console.log(`[digest] User ${user.id} → ${alertasRetenidasReview.length} alerta(s) review_only/no enviables retenidas (sin autoenvio)`);
+        }
+        alertasFinales = alertasEnviables;
+
+        if (alertasFinales.length === 0) {
+          await registrarDigestAttempt(supabase, {
+            userId: user.id,
+            fecha: hoy,
+            kind: modoRescate ? 'rescue' : 'daily',
+            status: 'no_send',
+            totalAlertasDia,
+            totalAlertasVentana: modoRescate?.totalAlertasVentana || 0,
+            trasQualityGate: modoRescate?.alertasVentanaTrasCalidad || alertas.length,
+            trasFiltroUsuario: modoRescate?.trasFiltroUsuario || alertasUsuario.length,
+            trasScoring: modoRescate?.trasScoring || alertasOrdenadas.length,
+            alertasFinales: 0,
+            motivoNoEnvio: 'sin_alertas_enviables_review_only',
+            metadata: {
+              plan: plan.nombre,
+              origen: origenDigest,
+              rescate: modoRescate,
+              retenidas_review_only: alertasRetenidasReview,
+            },
+          });
+          sinAlertas++;
+          console.log(`[digest] User ${user.id} → sin alertas enviables tras gate review_only → sin digest`);
+          continue;
+        }
 
         console.log(`[digest] User ${user.id} (${plan.nombre}) → ${alertasFinales.length}/${alertasUsuario.length} alertas → generando...`);
 
