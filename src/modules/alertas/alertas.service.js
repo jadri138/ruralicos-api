@@ -470,31 +470,85 @@ function lineaBoletinPocoUtil(linea) {
   return hitsPortal >= 2;
 }
 
+// Navegacion/chrome de los portales de boletines que se cuela en el contenido raspado
+// (a veces pegado sin espacios dentro de una sola linea). \s* tolera concatenacion.
+const CHROME_PORTAL_RE = [
+  /inicio\s*sede\s*electr[oó]nica/gi,
+  /web\s*institucional/gi,
+  /bolet[ií]n\s*oficial\s*de\s*la\s*provincia/gi,
+  /bop\s*del\s*dia/gi,
+  /b[uú]squedas?\s*buscar(\s*por\s*n[uú]mero)?/gi,
+  /inserci[oó]n\s*de\s*anuncios(\s*y\s*normativa)?/gi,
+  /boletines\s*hist[oó]ricos/gi,
+  /saltar\s*al\s*contenido/gi,
+  /acceder\s*al\s*pdf/gi,
+  /descriptores\s*relacionados/gi,
+  /datos\s*del\s*documento/gi,
+  /autenticidad\s*e\s*integridad/gi,
+  /portal\s*juridic(\s*de\s*catalunya)?/gi,
+  /acciones\s*guardar/gi,
+  /verificaci[oó]n\s*de\s*documentos/gi,
+  /recibir\s*avisos\s*de\s*publicaci[oó]n/gi,
+];
+
+// Pistas de contenido util (sobre texto YA normalizado: minusculas, sin acentos).
+const RELEVANTE_FICHA_RE = /\b(plazo|hasta el|antes del|fecha limite|dias? habiles|presentacion de solicitudes|solicitud|convocatoria|bases reguladoras|ayudas?|subvenci|importe|cuantia|euros?|beneficiari)/;
+// Senal de PLAZO/dato critico: tiene prioridad para anclar la ventana (la fecha limite
+// suele estar al final del documento, despues del tema general).
+const DEADLINE_FICHA_RE = /\b(plazo|hasta el|antes del|fecha limite|dias? habiles|presentacion de solicitudes|importe|cuantia|euros?)/;
+
+function limpiarChromePortal(linea) {
+  let out = String(linea || '');
+  for (const re of CHROME_PORTAL_RE) out = out.replace(re, ' ');
+  return out.replace(/\s{2,}/g, ' ').trim();
+}
+
+// Si el texto limpio cabe en `max`, se usa entero. Si no, se prioriza el principio
+// (contexto) + el primer tramo que menciona plazo/solicitud/ayuda, para que la fecha
+// limite no se pierda por el truncado.
+function ventanaRelevante(segmentos, max) {
+  const full = segmentos.join(' ').replace(/\s+/g, ' ').trim();
+  if (full.length <= max) return full;
+  const norm = segmentos.map(normalizarTexto);
+  // Ancla preferente en el plazo/importe; si no hay, en el tema; si no, cabeza.
+  let idx = norm.findIndex((s) => DEADLINE_FICHA_RE.test(s));
+  if (idx < 0) idx = norm.findIndex((s) => RELEVANTE_FICHA_RE.test(s));
+  if (idx < 0) return full.slice(0, max);
+  const head = segmentos.slice(0, 5).join(' ');
+  const ventana = segmentos.slice(idx, idx + 14).join(' ');
+  return `${head} ${ventana}`.replace(/\s+/g, ' ').trim().slice(0, max);
+}
+
 function limpiarContenidoBoletinParaIA(alerta = {}, max = 2800) {
-  const raw = String(alerta.contenido || '')
+  let raw = String(alerta.contenido || '')
     .replace(/https?:\/\/\S+/g, '')
     .replace(/\r/g, '\n')
     .trim();
 
   if (!raw) return limpiarTextoMensaje(alerta.titulo, max);
 
+  // Quitar el bloque de metadatos anexado al insertar la alerta y cualquier JSON suelto.
+  raw = raw.split(/\n?-{2,}\s*metadatos\s*-{2,}/i)[0];
+  raw = raw.replace(/\{[^{}]*"(?:organismo|seccion|boletin|idOficial|urlHtml|urlPdf)"[^{}]*\}/gi, ' ');
+
+  // Trocear por saltos de linea Y por frases: hay fuentes (BOPA) que traen todo el
+  // documento en una sola linea de miles de caracteres; sin esto, el deadline queda
+  // fuera del recorte por linea.
   const vistas = new Set();
-  const lineas = raw
-    .split(/\n+/g)
-    .map((linea) => limpiarTextoMensaje(linea, 620))
+  const segmentos = raw
+    .split(/\n+|(?<=[.!?;:])\s+/g)
+    .map((seg) => limpiarChromePortal(limpiarTextoMensaje(seg, 620)))
     .filter(Boolean)
-    .filter((linea) => !lineaBoletinPocoUtil(linea))
-    .filter((linea) => {
-      const clave = normalizarTexto(linea).slice(0, 140);
+    // Conserva frases relevantes (plazo/importe) aunque sean cortas; descarta boilerplate.
+    .filter((seg) => RELEVANTE_FICHA_RE.test(normalizarTexto(seg)) || !lineaBoletinPocoUtil(seg))
+    .filter((seg) => {
+      const clave = normalizarTexto(seg).slice(0, 140);
       if (!clave || vistas.has(clave)) return false;
       vistas.add(clave);
       return true;
     });
 
-  const texto = (lineas.length ? lineas.slice(0, 18).join(' ') : raw)
-    .replace(/\s+/g, ' ')
-    .trim();
-
+  const texto = segmentos.length ? ventanaRelevante(segmentos, max) : raw.replace(/\s+/g, ' ').trim();
   return limpiarTextoMensaje(texto, max);
 }
 
@@ -841,7 +895,7 @@ async function generarFichasIAEnLote(alertas) {
   const instructions = 'Eres un analista experto en boletines agrarios. Devuelve SOLO JSON valido con las fichas compactas solicitadas.';
 
   const formatarAlerta = (a) => {
-    const texto = limpiarContenidoBoletinParaIA(a, 2600);
+    const texto = limpiarContenidoBoletinParaIA(a, 4500);
     const provincias = Array.isArray(a.provincias) ? a.provincias.join(', ') : '';
     const sectores = Array.isArray(a.sectores) ? a.sectores.join(', ') : '';
     const subsectores = Array.isArray(a.subsectores) ? a.subsectores.join(', ') : '';
