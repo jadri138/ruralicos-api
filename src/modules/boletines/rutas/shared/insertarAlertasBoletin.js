@@ -67,12 +67,21 @@ async function insertarAlertasBoletin(supabase, documentos, opciones) {
         continue;
       }
 
+      // Override por-documento: un scraper puede marcar una alerta como bloqueada de
+      // entrada (p. ej. BOPA cuando el portal devuelve error/boilerplate -> needs_evidence),
+      // para que NO entre al pipeline IA ni llegue a 'listo'. Compat: si el doc no trae
+      // `_estado_ia`, se usa el estado por defecto y el comportamiento no cambia.
+      const estadoFila = doc._estado_ia || estadoIa;
+      const resumenFila = doc._estado_ia
+        ? `SIN EVIDENCIA: ${doc._evidence_reason || 'documento no disponible en el portal'}`
+        : resumen;
+
       items.push({
         rawDocumentId: doc.raw_document_id ?? null,
         fila: {
           titulo: doc.titulo,
-          resumen,
-          estado_ia: estadoIa,
+          resumen: resumenFila,
+          estado_ia: estadoFila,
           url: doc.url,
           fecha: doc.fecha,
           region,
