@@ -2088,13 +2088,13 @@ Esto ha salido hoy, por si quieres echarle un ojo:
 
 ${cierreDigest}
 
-EJEMPLO de tono (es solo estilo, NO copies estos datos):
+EJEMPLO de TONO (es solo el estilo; los corchetes son huecos, NO inventes ni copies datos):
 *Ayudas*
-*1. Nueva ayuda para modernizar regadios*
-Han sacado una convocatoria para renovar instalaciones de riego. Si tienes regadio, igual te interesa mirarla. El plazo acaba el 30/07.
+*1. [Titulo corto de lo que ha salido]*
+Han sacado una convocatoria relacionada con [tema de la ficha]. Si [condicion del usuario], igual te interesa mirarla. Menciona el plazo SOLO si aparece verificado en la ficha; si no, no lo pongas.
 (aqui el enlace exacto)
-*2. Han cambiado una orden de la PAC*
-Han tocado una orden de la PAC; por el texto no se ve bien que cambia. Te lo dejamos por si quieres mirarlo.
+*2. [Otro titulo corto]*
+Han cambiado [algo]; por el texto no se ve bien que cambia. Te lo dejamos por si quieres mirarlo.
 (aqui el enlace exacto)
 
 REGLAS:
