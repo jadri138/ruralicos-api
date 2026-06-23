@@ -2054,7 +2054,7 @@ async function generarMensajeDigest({ user, alertas, fecha, plan, aprendizaje, o
   const modelo = esCooperativa ? 'gpt-4o' : 'gpt-4o-mini';
 
   const prompt = `
-Eres el asistente de alertas agrarias de ${branding.reply_sender}. Redacta el mensaje de WhatsApp diario para un usuario profesional del sector agrario.
+Eres el asistente de alertas agrarias de ${branding.reply_sender}. Redactas el mensaje de WhatsApp del dia para un profesional del campo. Hablas EN PLURAL, como empresa ("hemos revisado", "te avisamos"), y al usuario de tu. No eres un asesor: avisas de lo que ha salido hoy en los boletines, por si le interesa mirarlo. NUNCA afirmas que algo le afecta; como mucho lo planteas en condicional ("si tienes regadio, igual te interesa").
 
 Fecha: ${fecha}
 Plan del usuario: ${plan.nombre}
@@ -2079,15 +2079,23 @@ ${saludo}
 
 *${tituloDigest}*
 
-Tienes *N alerta${alertas.length !== 1 ? 's' : ''}* relevante${alertas.length !== 1 ? 's' : ''} hoy:
+Esto ha salido hoy, por si quieres echarle un ojo:
 
-[Agrupa por "Grupo sugerido". Usa una cabecera por grupo, por ejemplo *Ayudas*, *Cursos y jornadas*, *Agua y riego*. Dentro de cada grupo, usa este bloque numerado:]
-*N. [Urgente / Normal / Para revisar] - [Titulo breve y descriptivo de la alerta]*
-En sencillo: [Explicación fácil. ${nivelDetalle}]
-[Qué revisar: acción concreta si hay plazo, listado, requisitos, expediente, zona o anexo que comprobar]
-[URL exacta de la alerta]
+[Agrupa por "Grupo sugerido". Una cabecera en negrita por grupo, por ejemplo *Ayudas*, *Agua y riego*, *Normativa*. Dentro de cada grupo, por alerta:]
+*N. [Titulo claro y corto de que ha salido]*
+[1-2 frases naturales: que es y, si procede, en condicional para quien puede tener interes. ${nivelDetalle} NADA de etiquetas tipo "En sencillo:" o "Que revisar:": la explicacion y la accion van dentro de la propia frase.]
+[URL exacta de la alerta, en su propia linea]
 
 ${cierreDigest}
+
+EJEMPLO de TONO (es solo el estilo; los corchetes son huecos, NO inventes ni copies datos):
+*Ayudas*
+*1. [Titulo corto de lo que ha salido]*
+Han sacado una convocatoria relacionada con [tema de la ficha]. Si [condicion del usuario], igual te interesa mirarla. Menciona el plazo SOLO si aparece verificado en la ficha; si no, no lo pongas.
+(aqui el enlace exacto)
+*2. [Otro titulo corto]*
+Han cambiado [algo]; por el texto no se ve bien que cambia. Te lo dejamos por si quieres mirarlo.
+(aqui el enlace exacto)
 
 REGLAS:
 - Ajusta el numero N del encabezado al total de alertas candidatas recibidas.
@@ -2101,8 +2109,8 @@ REGLAS:
 - Lenguaje sencillo, directo y profesional. Cercano, pero sin confianza excesiva.
 - Escribe cada alerta como si se la explicaras a alguien que no sabe leer boletines: "es una ayuda", "cambia una norma", "abre alegaciones", "publican un listado", etc.
 - Cada resumen debe explicar que significa en la practica: acto, destinatario/territorio, tramite, plazo o dato concreto si aparece. No basta con decir que es "relevante".
-- Evita empezar con "El boletin publica". Traduce a lenguaje claro y usa "En sencillo:".
-- La linea "Qué revisar" debe decir qué comprobar: requisitos, plazo, anexo/listado, expediente, municipio/parcela, beneficiarios o documentación.
+- Evita empezar con "El boletin publica". Traduce a lenguaje claro y natural, sin etiquetas.
+- Si hay algo concreto que comprobar (requisitos, plazo, anexo/listado, expediente, municipio/parcela, beneficiarios, documentacion), dilo dentro de la frase, sin ponerle etiqueta.
 - Si la ficha trae RESUMEN_DIGEST, usalo como base principal y solo recortalo si hace falta por longitud.
 - Usa primero "Lectura obligatoria del boletin" y "Extracto oficial"; si contradicen la ficha IA, manda el contenido oficial.
 - NO inventes datos que no esten en la ficha IA, la lectura obligatoria o el extracto oficial.
@@ -2127,7 +2135,7 @@ ${bloqueAlertas}
 Responde UNICAMENTE con el mensaje WhatsApp final. Sin JSON, sin explicaciones, sin nada mas.
 `.trim();
 
-  const instructions = 'Eres un redactor experto en comunicacion agraria para WhatsApp. Responde SOLO con el texto del mensaje. Sin JSON, sin explicaciones.';
+  const instructions = 'Eres el redactor de Ruralicos. Escribes en plural, como empresa, y al usuario de tu. Responde SOLO con el texto del mensaje. Sin JSON, sin explicaciones.';
 
   const mensaje = await llamarIA(prompt, instructions, modelo);
   const limpio = limpiarMensajeDigestIA(mensaje, saludo);

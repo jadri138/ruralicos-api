@@ -793,7 +793,8 @@ Campos por alerta:
 
 Reglas:
 - Lenguaje claro, concreto y util para filtrado posterior. Sin jerga si hay forma sencilla de decirlo.
-- NO inventar datos que no esten en el texto.
+- NO inventes, deduzcas ni estimes NINGUN dato que no este literalmente en el Texto recibido.
+- Plazos, fechas, importes, cuantias y territorios: ponlos SOLO si aparecen explicitos en el Texto; si no, no_detectado. Nunca los aproximes ni los supongas.
 - Si un dato no aparece, usa no_detectado.
 - La ficha debe explicar lo que dice el boletin. Prohibido resolver con frases genericas como "publicacion oficial relevante", "revisa si aplica", "revisar documento oficial", "puede afectar a tu explotacion" o "determinar su aplicabilidad".
 - HECHO, DETALLE y RESUMEN_DIGEST deben salir del Texto recibido. Si el Texto no permite saber que acto se publica, pon prioridad=baja, hecho=no_detectado, impacto=no_detectado, accion=no_enviar_digest, detalle=no_detectado y resumen_digest=no_detectado.
