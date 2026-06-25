@@ -10,6 +10,8 @@
 
 La variable anterior `DIGEST_FINAL_VALIDATION_ENFORCEMENT=true` sigue siendo
 compatible y se interpreta como `enforce` si no existe la variable nueva.
+Cuando se configure `DIGEST_FINAL_VALIDATION_MODE`, mantener la variable legacy
+en `false` o retirarla para que el modo efectivo sea inequívoco.
 
 ## Secuencia de activacion
 
