@@ -148,6 +148,67 @@ function filtrarAlertasEnviablesAutomaticamente(alertas = []) {
 // ─────────────────────────────────────────────
 // Helper: normaliza strings para comparar
 // ─────────────────────────────────────────────
+const MOTIVOS_SIN_COINCIDENCIA_PERFIL = new Set([
+  'fuente_no_permitida',
+  'provincia_no_coincide',
+  'sector_no_coincide',
+  'subsector_no_coincide',
+  'tipo_alerta_no_coincide',
+  'matcher_no_coincide',
+  'preferencias_extra_excluye',
+]);
+
+function resumirSeleccionDigest(seleccion = {}) {
+  const decisiones = Array.isArray(seleccion?.decisiones) ? seleccion.decisiones : [];
+  const motivos = decisiones.reduce((acc, decision) => {
+    const motivo = decision?.incluir ? 'incluida' : (decision?.motivo || 'sin_motivo');
+    acc[motivo] = (acc[motivo] || 0) + 1;
+    return acc;
+  }, {});
+
+  return {
+    evaluadas: decisiones.length,
+    incluidas: decisiones.filter((decision) => decision?.incluir).length,
+    motivos,
+  };
+}
+
+function resolverMotivoNoEnvioDigest({
+  totalAlertasDia = 0,
+  alertasTrasQualityGate = [],
+  alertasVisibles = [],
+  seleccionBase = {},
+  alertasOrdenadas = [],
+} = {}) {
+  const totalQuality = Array.isArray(alertasTrasQualityGate)
+    ? alertasTrasQualityGate.length
+    : Number(alertasTrasQualityGate || 0);
+  const totalVisibles = Array.isArray(alertasVisibles)
+    ? alertasVisibles.length
+    : Number(alertasVisibles || 0);
+  const totalOrdenadas = Array.isArray(alertasOrdenadas)
+    ? alertasOrdenadas.length
+    : Number(alertasOrdenadas || 0);
+
+  if (Number(totalAlertasDia || 0) === 0) return 'no_habia_alertas';
+  if (totalQuality === 0) return 'calidad_baja';
+  if (totalVisibles === 0) return 'sin_alertas_visibles_organizacion';
+
+  const decisiones = Array.isArray(seleccionBase?.decisiones) ? seleccionBase.decisiones : [];
+  const incluidas = Array.isArray(seleccionBase?.alertas) ? seleccionBase.alertas.length : 0;
+  if (incluidas === 0) {
+    const motivos = decisiones.map((decision) => decision?.motivo).filter(Boolean);
+    const todasFueraPorPerfil = motivos.length > 0 &&
+      motivos.every((motivo) => MOTIVOS_SIN_COINCIDENCIA_PERFIL.has(motivo));
+    return todasFueraPorPerfil
+      ? 'perfil_sin_coincidencias'
+      : 'seleccion_sin_alertas_enviables';
+  }
+
+  if (totalOrdenadas === 0) return 'scoring_sin_candidatas';
+  return 'sin_alertas_para_usuario';
+}
+
 function norm(str) {
   return str
     .toString()
@@ -182,6 +243,17 @@ function diasEntreFechas(desdeISO, hastaISO) {
   const hasta = new Date(`${hastaISO}T00:00:00Z`).getTime();
   if (!Number.isFinite(desde) || !Number.isFinite(hasta)) return null;
   return Math.floor((hasta - desde) / 86400000);
+}
+
+const MESES_DIGEST = [
+  'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+  'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre',
+];
+
+function formatearFechaDigest(fechaISO) {
+  const [year, month, day] = String(fechaISO || '').split('-').map(Number);
+  if (!year || !month || !day || !MESES_DIGEST[month - 1]) return String(fechaISO || '');
+  return `${day} de ${MESES_DIGEST[month - 1]}`;
 }
 
 function motivoUsuarioNoRecibeDigest(user = {}) {
@@ -624,6 +696,24 @@ function construirTituloFacilDigest(alerta = {}, max = 120) {
   const texto = construirTextoAlertaDigest(alerta);
   const localizacion = extraerLocalizacionDigest(alerta);
 
+  if (/titularidad compartida/.test(texto)) {
+    return 'Ayuda para explotaciones de titularidad compartida';
+  }
+  if (/asociaciones? de criadores/.test(texto)) {
+    return 'Ayudas para asociaciones de criadores';
+  }
+  if (/ganaderia extensiva|ganadero extensivo|aprovechamiento ganadero extensivo/.test(texto)) {
+    return 'Ayudas para ganadería extensiva';
+  }
+  if (/\b(convocatoria|se convocan|subvenciones?|ayudas?)\b/.test(texto) && /comunidades? de regantes/.test(texto)) {
+    return 'Ayudas para comunidades de regantes';
+  }
+  if (/\b(convocatoria|se convocan|subvenciones?|ayudas?)\b/.test(texto) && /explotaciones? ganaderas?/.test(texto)) {
+    return 'Ayudas para explotaciones ganaderas';
+  }
+  if (/\b(convocatoria|se convocan|subvenciones?|ayudas?)\b/.test(texto) && /explotaciones? agrarias?/.test(texto)) {
+    return 'Ayudas para explotaciones agrarias';
+  }
   if (/tramite administrativo.*concesion|concesion.*ayudas|conceden.*ayudas/.test(texto)) {
     return 'Ayudas: trámite de concesión o listado del expediente';
   }
@@ -684,6 +774,13 @@ function construirResumenPorPatronDigest(alerta = {}, raw = '') {
 
 function construirResumenFacilDigest(alerta = {}, max = 260) {
   const ficha = parsearFichaDigest(alerta.resumen_final || alerta.resumen || '');
+  const texto = construirTextoAlertaDigest(alerta);
+  if (/titularidad compartida/.test(texto) && /\b(se convocan|convocatoria|subvenciones?)\b/.test(texto)) {
+    return recortarTextoRescate(
+      'Han abierto una subvención para explotaciones agrarias de titularidad compartida.',
+      max
+    );
+  }
   const candidatos = [
     ficha.resumen_digest,
     ficha.hecho,
@@ -1340,7 +1437,7 @@ function generarMensajeDigestFallback({ user, alertas, fecha, organizationContex
   const branding = obtenerMiaBranding(organizationContext || user.mia_organization_context || null);
   const saludo = construirSaludoDigest(user);
   const seleccion = (alertas || []).slice(0, 5);
-  const tituloDigest = `${branding.digest_title} del ${fecha}`;
+  const tituloDigest = `${branding.digest_title} del ${formatearFechaDigest(fecha)}`;
   const cierre = branding.website
     ? `_Cualquier duda, visita ${branding.website}_`
     : `_Cualquier duda, contacta con ${branding.reply_sender}_`;
@@ -1356,12 +1453,18 @@ function generarMensajeDigestFallback({ user, alertas, fecha, organizationContex
         construirResumenOficialDigest(alerta, 320) ||
         limpiarLineaDigest(lectura.lectura || alerta.resumen_final || alerta.resumen || alerta.contenido, 300) ||
         'Sin extracto oficial suficiente para resumirla con seguridad.';
+      const accion = recortarTextoRescate(construirAccionRescate(alerta, 'directo'), 190);
+      const signals = alerta.decision_digest?.diagnostico?.policy?.signals || {};
+      const prefijoPrioridad = prioridad.prioridad === 'urgente' && signals.tiene_plazo
+        ? 'Urgente: '
+        : prioridad.prioridad === 'baja'
+          ? 'Para revisar: '
+          : '';
       const url = String(alerta.url || '').trim();
 
       return [
-        `*${itemNumero}. ${prioridad.prioridad.toUpperCase()} - ${titulo}*`,
-        `En sencillo: ${resumen}`,
-        `Qué revisar: ${recortarTextoRescate(construirAccionRescate(alerta, 'directo'), 170)}`,
+        `*${itemNumero}. ${prefijoPrioridad}${titulo}*`,
+        [resumen, accion].filter(Boolean).join(' '),
         url,
       ].filter(Boolean).join('\n');
     });
@@ -1373,8 +1476,6 @@ function generarMensajeDigestFallback({ user, alertas, fecha, organizationContex
     saludo,
     '',
     `*${tituloDigest}*`,
-    '',
-    `Tienes *${seleccion.length} alerta${seleccion.length !== 1 ? 's' : ''}* relevante${seleccion.length !== 1 ? 's' : ''} hoy:`,
     '',
     bloques,
     '',
@@ -1402,6 +1503,15 @@ function naturalizarAccionDigest(texto) {
 
 function construirAccionRescate(alerta = {}, tipo = 'suave') {
   const ficha = parsearFichaDigest(alerta.resumen_final || alerta.resumen || '');
+  const signals = alerta.decision_digest?.diagnostico?.policy?.signals || {};
+  if (signals.es_ayuda && signals.plazo_no_verificado) {
+    const texto = construirTextoAlertaDigest(alerta);
+    const inscritaEnRegistro = /\binscrit[ao]s?\b.*\bregistro\b|\bregistro\b.*\binscrit[ao]s?\b/.test(texto);
+    if (/titularidad compartida/.test(texto) && inscritaEnRegistro) {
+      return 'Si la tuya está inscrita en el registro del Ministerio, puedes comprobar los requisitos en la convocatoria.';
+    }
+    return 'Comprueba los requisitos y si puedes solicitarla en la convocatoria oficial.';
+  }
   if (campoDigestUtil(ficha.accion)) return naturalizarAccionDigest(ficha.accion);
   if (campoDigestUtil(ficha.plazo)) return `Revisa el plazo y comprueba si encaja con tu explotación: ${limpiarLineaDigest(ficha.plazo, 160)}`;
 
@@ -1989,7 +2099,7 @@ async function registrarExploracionDigest(supabase, {
 async function generarMensajeDigest({ user, alertas, fecha, plan, aprendizaje, organizationContext = null }) {
   const branding = obtenerMiaBranding(organizationContext || user.mia_organization_context || null);
   const saludo = construirSaludoDigest(user);
-  const tituloDigest = `${branding.digest_title} del ${fecha}`;
+  const tituloDigest = `${branding.digest_title} del ${formatearFechaDigest(fecha)}`;
   const cierreDigest = branding.website
     ? `_Cualquier duda, visita ${branding.website}_`
     : `_Cualquier duda, contacta con ${branding.reply_sender}_`;
@@ -2090,8 +2200,8 @@ ${cierreDigest}
 
 EJEMPLO de TONO (es solo el estilo; los corchetes son huecos, NO inventes ni copies datos):
 *Ayudas*
-*1. [Titulo corto de lo que ha salido]*
-Han sacado una convocatoria relacionada con [tema de la ficha]. Si [condicion del usuario], igual te interesa mirarla. Menciona el plazo SOLO si aparece verificado en la ficha; si no, no lo pongas.
+*1. Ayuda para [beneficiario concreto]*
+Han abierto una subvencion para [beneficiario concreto]. Si [condicion demostrada por el texto oficial], puedes comprobar los requisitos en la convocatoria. Menciona el plazo SOLO si aparece verificado en la ficha; si no, no lo pongas.
 (aqui el enlace exacto)
 *2. [Otro titulo corto]*
 Han cambiado [algo]; por el texto no se ve bien que cambia. Te lo dejamos por si quieres mirarlo.
@@ -2107,10 +2217,13 @@ REGLAS:
 - Respeta la prioridad indicada en cada alerta. Si es URGENTE, abre con "Urgente". Si es BAJA, usa "Para revisar" y se muy breve.
 - Maximo 1600 caracteres en total. Si hay muchas alertas, reduce las frases de cada una.
 - Lenguaje sencillo, directo y profesional. Cercano, pero sin confianza excesiva.
+- El titulo de cada alerta debe tener idealmente entre 4 y 9 palabras. No copies encabezados juridicos, organismos, fechas de resolucion ni numeros de expediente si no son imprescindibles.
+- Redacta el cuerpo como una o dos frases continuas. Nunca uses las etiquetas "En sencillo:", "Que revisar:", "Resumen:" o "Accion:".
 - Escribe cada alerta como si se la explicaras a alguien que no sabe leer boletines: "es una ayuda", "cambia una norma", "abre alegaciones", "publican un listado", etc.
 - Cada resumen debe explicar que significa en la practica: acto, destinatario/territorio, tramite, plazo o dato concreto si aparece. No basta con decir que es "relevante".
 - Evita empezar con "El boletin publica". Traduce a lenguaje claro y natural, sin etiquetas.
 - Si hay algo concreto que comprobar (requisitos, plazo, anexo/listado, expediente, municipio/parcela, beneficiarios, documentacion), dilo dentro de la frase, sin ponerle etiqueta.
+- Si PLAZO es "no_detectado", no menciones plazos, fechas limite ni que la solicitud este abierta. Limita la accion a comprobar requisitos y condiciones en el enlace oficial.
 - Si la ficha trae RESUMEN_DIGEST, usalo como base principal y solo recortalo si hace falta por longitud.
 - Usa primero "Lectura obligatoria del boletin" y "Extracto oficial"; si contradicen la ficha IA, manda el contenido oficial.
 - NO inventes datos que no esten en la ficha IA, la lectura obligatoria o el extracto oficial.
@@ -2258,13 +2371,13 @@ async function construirPreviewDigestUsuario(supabase, {
   });
 
   let motivoNoEnvio = alertasFinales.length === 0
-    ? totalAlertasDia === 0
-      ? 'no_habia_alertas'
-      : alertasDia.length === 0
-        ? 'calidad_baja'
-        : alertasUsuario.length === 0
-          ? 'perfil_sin_coincidencias'
-          : 'sin_alertas_para_usuario'
+    ? resolverMotivoNoEnvioDigest({
+      totalAlertasDia,
+      alertasTrasQualityGate: alertasDia,
+      alertasVisibles,
+      seleccionBase,
+      alertasOrdenadas,
+    })
     : null;
 
   let mensajeRaw = null;
@@ -2447,6 +2560,8 @@ module.exports = {
   accionDecisionDigest,
   esEnvioAutomaticoPermitido,
   filtrarAlertasEnviablesAutomaticamente,
+  resumirSeleccionDigest,
+  resolverMotivoNoEnvioDigest,
   norm,
   intersecta,
   ALERTA_DIGEST_SELECT,
@@ -2454,6 +2569,7 @@ module.exports = {
   getMaxAlertasDigestUsuario,
   sumarDiasFechaISO,
   diasEntreFechas,
+  formatearFechaDigest,
   motivoUsuarioNoRecibeDigest,
   alertaNoExcluidaPorPreferencias,
   aplicarFiltroFechaAlertas,

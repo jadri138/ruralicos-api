@@ -6,6 +6,7 @@ const {
   construirAccionRescate,
   construirResumenFacilDigest,
   construirTituloFacilDigest,
+  formatearFechaDigest,
   generarMensajeDigestFallback,
   grupoDigestAlerta,
 } = require('../src/modules/digest/digest.service');
@@ -65,9 +66,56 @@ const mensaje = anadirInstruccionFeedback(
   [alertaAgua]
 );
 assert(mensaje.includes('*Agua y riego*'), 'El mensaje final usa el grupo correcto');
-assert(mensaje.includes('Qué revisar: Comprueba'), 'El mensaje final evita "Qué revisar: revisar"');
+assert(!mensaje.includes('En sencillo:'), 'El mensaje final elimina la etiqueta mecanica "En sencillo"');
+assert(!mensaje.includes('Qué revisar:'), 'El mensaje final integra la accion en una frase natural');
+assert(mensaje.includes('Comprueba si'), 'El mensaje final conserva la accion util sin etiqueta');
 assert(!mensaje.includes('Qué miraría'), 'El mensaje final no usa el texto antiguo');
 assert(mensaje.includes('_Si te interesa, responde con *1*. Si no, responde *ninguna*._'), 'Usa cierre de feedback natural');
+assert(formatearFechaDigest('2026-06-23') === '23 de junio', 'Convierte la fecha ISO a una fecha natural');
+
+const alertaAyudaSinPlazo = {
+  id: 102,
+  titulo: 'Convocatoria de subvenciones para explotaciones agrarias de titularidad compartida',
+  resumen_final: [
+    'FICHA_IA',
+    'TIPO: ayudas_subvenciones',
+    'RESUMEN_DIGEST: Se convocan subvenciones para explotaciones agrarias de titularidad compartida.',
+    'PLAZO: no_detectado',
+    'ACCION: revisar si aparece tu explotacion, expediente o plazo publicado el 2026-06-23.',
+  ].join('\n'),
+  tipos_alerta: ['ayudas_subvenciones'],
+  sectores: ['agricultura'],
+  contenido: 'Beneficiarios: explotaciones agrarias de titularidad compartida inscritas en el Registro de explotaciones agrarias de titularidad compartida del Ministerio.',
+  url: 'https://boletin.example/ayuda',
+  decision_digest: {
+    action: 'include',
+    diagnostico: {
+      policy: {
+        signals: {
+          es_ayuda: true,
+          tiene_plazo: false,
+          plazo_no_verificado: true,
+        },
+      },
+    },
+  },
+};
+
+const accionAyudaSinPlazo = construirAccionRescate(alertaAyudaSinPlazo, 'directo');
+assert(!/\bplazo\b/i.test(accionAyudaSinPlazo), 'No reutiliza el plazo no verificado en la accion del mensaje');
+assert(/inscrita en el registro del Ministerio/i.test(accionAyudaSinPlazo), 'Explica de forma natural la condicion demostrada por el texto oficial');
+
+const mensajeAyudaNatural = generarMensajeDigestFallback({
+  user: { nombre: 'Maria', subscription: 'cooperativa' },
+  alertas: [alertaAyudaSinPlazo],
+  fecha: '2026-06-23',
+});
+assert(mensajeAyudaNatural.includes('*Ruralicos - Alertas del 23 de junio*'), 'La cabecera usa una fecha humana');
+assert(mensajeAyudaNatural.includes('*1. Ayuda para explotaciones de titularidad compartida*'), 'Usa un titulo corto centrado en el beneficiario');
+assert(mensajeAyudaNatural.includes('Han abierto una subvención para explotaciones agrarias de titularidad compartida.'), 'Explica la convocatoria con una frase natural');
+assert(mensajeAyudaNatural.includes('Si la tuya está inscrita en el registro del Ministerio, puedes comprobar los requisitos en la convocatoria.'), 'Integra la accion como segunda frase natural');
+assert(!mensajeAyudaNatural.includes('URGENTE -'), 'No exagera urgencia cuando el plazo no esta verificado');
+assert(!mensajeAyudaNatural.includes('Tienes *1 alerta* relevante hoy'), 'Elimina la entradilla mecanica del fallback');
 
 console.log(`\nResultados: ${passed} aprobados, ${failed} fallidos`);
 process.exit(failed > 0 ? 1 : 0);
