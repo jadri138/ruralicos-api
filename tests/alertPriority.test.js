@@ -54,5 +54,16 @@ test('ficha baja reduce prioridad de aviso menor', () => {
   assert.strictEqual(result.prioridad, 'baja');
 });
 
+test('ayuda sin plazo ni accion verificados no se marca urgente', () => {
+  const result = clasificarPrioridadAlerta({
+    titulo: 'Bases reguladoras de ayudas agrarias',
+    resumen_final: 'PRIORIDAD: alta\nPLAZO: no_detectado\nACCION: consultar la publicacion oficial',
+    contenido: 'Se publican las bases reguladoras de ayudas para explotaciones agrarias.',
+    tipos_alerta: ['ayudas_subvenciones'],
+  });
+
+  assert.notStrictEqual(result.prioridad, 'urgente');
+});
+
 console.log(`\nResultados alertPriority: ${passed} aprobados, ${failed} fallidos`);
 if (failed > 0) process.exit(1);

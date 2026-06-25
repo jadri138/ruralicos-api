@@ -16,7 +16,7 @@ const {
   canonicalSector,
   canonicalSubsector,
 } = require('../../../shared/preferenceCanonical');
-const { TAXONOMIA_RURALICOS } = require('../../aprendizaje/taxonomiaRuralicos');
+const { aliasesCanonicos } = require('../../../shared/taxonomyRegistry');
 
 const SECTOR_ALIASES = {
   agricultura: [
@@ -56,25 +56,6 @@ const SUBSECTOR_ALIASES = {
   medio_ambiente: ['medio ambiente', 'ambiental', 'biodiversidad', 'nitratos', 'residuos', 'natura 2000'],
 };
 
-function construirAliasesTaxonomia(prefix, canonicalizer) {
-  return TAXONOMIA_RURALICOS
-    .filter((item) => String(item.id || '').startsWith(`${prefix}:`))
-    .reduce((acc, item) => {
-      const rawValue = String(item.id).split(':').slice(1).join(':');
-      const canonical = canonicalizer(rawValue);
-      if (!canonical) return acc;
-      acc[canonical] = [
-        ...new Set([
-          ...(acc[canonical] || []),
-          rawValue,
-          item.label,
-          ...(item.aliases || []),
-        ].map(normalizarTexto).filter(Boolean)),
-      ];
-      return acc;
-    }, {});
-}
-
 function combinarAliases(base, extra) {
   const result = { ...base };
   for (const [key, values] of Object.entries(extra)) {
@@ -85,11 +66,15 @@ function combinarAliases(base, extra) {
 
 const SECTOR_EVIDENCE_ALIASES = combinarAliases(
   SECTOR_ALIASES,
-  construirAliasesTaxonomia('sector', canonicalSector)
+  Object.fromEntries(
+    Object.keys(SECTOR_ALIASES).map((value) => [value, aliasesCanonicos('sector', value)])
+  )
 );
 const SUBSECTOR_EVIDENCE_ALIASES = combinarAliases(
   SUBSECTOR_ALIASES,
-  construirAliasesTaxonomia('subsector', canonicalSubsector)
+  Object.fromEntries(
+    Object.keys(SUBSECTOR_ALIASES).map((value) => [value, aliasesCanonicos('subsector', value)])
+  )
 );
 
 const GENERIC_PATTERNS = [

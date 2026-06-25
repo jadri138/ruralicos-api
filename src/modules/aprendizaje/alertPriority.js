@@ -20,6 +20,44 @@ function textoAlerta(alerta = {}) {
   ].filter(Boolean).join(' '));
 }
 
+function textoSinAccionGenerica(alerta = {}) {
+  const resumenFinal = String(alerta.resumen_final || '')
+    .split(/\r?\n/g)
+    .filter((linea) => !/^\s*ACCION\s*:/i.test(linea))
+    .join('\n');
+  return norm([
+    alerta.titulo,
+    resumenFinal,
+    alerta.resumen,
+    alerta.contenido,
+  ].filter(Boolean).join(' '));
+}
+
+function campoVerificado(field) {
+  return Boolean(
+    field &&
+    field.status === 'verified' &&
+    field.valor !== null &&
+    field.valor !== undefined &&
+    field.evidencia
+  );
+}
+
+function tienePlazoVerificado(alerta = {}) {
+  if (campoVerificado(alerta.fact_sheet?.plazo)) return true;
+  const texto = textoSinAccionGenerica(alerta);
+  if (/\bplazo\s*:\s*(no_detectado|no detectado|sin especificar|no especificado)\b/.test(texto)) {
+    return false;
+  }
+  return /\b(plazo (de|para) (presentacion|solicitud|solicitudes|alegaciones|subsanacion)|hasta el|antes del|finaliza( el)?|vence( el)?|\d{1,3} dias? (habiles|naturales)|alegaciones durante)\b/.test(texto);
+}
+
+function tieneAccionVerificada(alerta = {}) {
+  if (campoVerificado(alerta.fact_sheet?.accion_requerida)) return true;
+  const texto = textoSinAccionGenerica(alerta);
+  return /\b(presentar solicitud|aportar documentacion|subsanar|formular alegaciones|inscripcion abierta|debera presentar|deberan presentar)\b/.test(texto);
+}
+
 function prioridadFichaIA(alerta = {}) {
   const raw = String([alerta.resumen_final, alerta.resumen].filter(Boolean).join('\n'));
   const match = raw.match(/^PRIORIDAD\s*:\s*(alta|media|baja)/im);
@@ -30,6 +68,8 @@ function clasificarPrioridadAlerta(alerta = {}) {
   const texto = textoAlerta(alerta);
   const tipos = Array.isArray(alerta.tipos_alerta) ? alerta.tipos_alerta.map(norm) : [];
   const prioridadFicha = prioridadFichaIA(alerta);
+  const plazoVerificado = tienePlazoVerificado(alerta);
+  const accionVerificada = tieneAccionVerificada(alerta);
 
   let score = 0;
   const motivos = [];
@@ -44,6 +84,7 @@ function clasificarPrioridadAlerta(alerta = {}) {
   ];
 
   for (const [motivo, regex] of reglasUrgentes) {
+    if (['plazo', 'fecha_limite'].includes(motivo) && !plazoVerificado) continue;
     if (regex.test(texto)) {
       score += 2;
       motivos.push(motivo);
@@ -85,7 +126,9 @@ function clasificarPrioridadAlerta(alerta = {}) {
     motivos.push('ficha:baja');
   }
 
-  if (score >= 3) return { prioridad: URGENTE, score, motivos };
+  if (score >= 3 && (plazoVerificado || accionVerificada)) {
+    return { prioridad: URGENTE, score, motivos };
+  }
   if (score <= -1) return { prioridad: BAJA, score, motivos };
   return { prioridad: NORMAL, score, motivos };
 }
@@ -101,5 +144,7 @@ module.exports = {
   NORMAL,
   URGENTE,
   clasificarPrioridadAlerta,
+  tieneAccionVerificada,
+  tienePlazoVerificado,
   pesoPrioridad,
 };

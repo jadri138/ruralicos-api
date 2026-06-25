@@ -185,7 +185,7 @@ module.exports = function digestRoutes(app, supabase) {
       const organizationId = extraerOrganizationId(user);
       const { data: alertasRaw, error: errAlertas } = await supabase
         .from('alertas')
-        .select('id, titulo, url, fecha, region, fuente, resumen, resumen_final, contenido, provincias, sectores, subsectores, tipos_alerta, estado_ia, duplicado_de, organization_id, embedding_generated_at, created_at')
+        .select(ALERTA_DIGEST_SELECT)
         .eq('fecha', fecha)
         .eq('estado_ia', 'listo')
         .order('id', { ascending: true });

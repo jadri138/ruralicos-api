@@ -2,6 +2,8 @@ const assert = require('assert');
 const {
   preclassifyAlerta,
   CANDIDATE_LEVEL,
+  PRECLASSIFIER_MODE,
+  normalizarModoPreclasificador,
 } = require('../src/modules/alertas/clasificacion/alertPreclassifier');
 
 let passed = 0;
@@ -92,6 +94,16 @@ test('normativa agraria generica -> needs_ai', () => {
   });
   assert.strictEqual(result.candidate_level, CANDIDATE_LEVEL.NEEDS_AI);
   assert.strictEqual(result.pre_status, 'review');
+});
+
+test('modo por defecto es off y acepta observe/hard_exclusions', () => {
+  assert.strictEqual(normalizarModoPreclasificador(''), PRECLASSIFIER_MODE.OFF);
+  assert.strictEqual(normalizarModoPreclasificador('observe'), PRECLASSIFIER_MODE.OBSERVE);
+  assert.strictEqual(
+    normalizarModoPreclasificador('hard_exclusions'),
+    PRECLASSIFIER_MODE.HARD_EXCLUSIONS
+  );
+  assert.strictEqual(normalizarModoPreclasificador('invalido'), PRECLASSIFIER_MODE.OFF);
 });
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

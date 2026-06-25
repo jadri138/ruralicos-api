@@ -22,7 +22,12 @@ function textoAlerta(alerta = {}) {
 }
 
 function extraerFeaturesAlerta(alerta = {}) {
-  return extraerFeatureTagsDeTexto(textoAlerta(alerta));
+  return [
+    ...new Set([
+      ...(Array.isArray(alerta.taxonomy_tags) ? alerta.taxonomy_tags : []),
+      ...extraerFeatureTagsDeTexto(textoAlerta(alerta)),
+    ]),
+  ];
 }
 
 module.exports = {
