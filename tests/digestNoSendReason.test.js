@@ -3,6 +3,8 @@ process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ||
 
 const assert = require('assert');
 const {
+  construirFunnelDigest,
+  contarDecisionesTrasScoring,
   resolverMotivoNoEnvioDigest,
   resumirSeleccionDigest,
 } = require('../src/modules/digest/digest.service');
@@ -47,6 +49,29 @@ assert.deepStrictEqual(resumirSeleccionDigest(fueraPorPolitica), {
     revision_riesgo_alto: 1,
     expediente_individual_sin_municipio: 1,
   },
+});
+
+assert.strictEqual(contarDecisionesTrasScoring({
+  decisiones: [
+    { action: 'include' },
+    { action: 'review_only' },
+    { action: 'exclude' },
+  ],
+}), 2);
+
+assert.deepStrictEqual(construirFunnelDigest({
+  totalAlertasDia: 10,
+  trasQualityGate: 8,
+  trasFiltroUsuario: 12,
+  trasScoring: 6,
+  alertasFinales: 9,
+}), {
+  totalAlertasDia: 10,
+  totalAlertasVentana: 0,
+  trasQualityGate: 8,
+  trasFiltroUsuario: 8,
+  trasScoring: 6,
+  alertasFinales: 6,
 });
 
 console.log('OK: motivos de no envio distinguen perfil y politica de seleccion');

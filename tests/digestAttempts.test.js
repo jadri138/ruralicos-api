@@ -88,6 +88,38 @@ test('registra intento con upsert por usuario fecha y tipo', async () => {
   assert.strictEqual(supabase.calls[0].options.onConflict, 'user_id,fecha,kind');
 });
 
+test('devuelve el id estable del intento cuando Supabase permite select', async () => {
+  const calls = [];
+  const supabase = {
+    from(table) {
+      return {
+        upsert(row, options) {
+          calls.push({ table, row, options });
+          return {
+            select(columns) {
+              calls.push({ op: 'select', columns });
+              return {
+                async maybeSingle() {
+                  return { data: { id: 991 }, error: null };
+                },
+              };
+            },
+          };
+        },
+      };
+    },
+  };
+
+  const result = await registrarDigestAttempt(supabase, {
+    userId: 141,
+    fecha: '2026-06-12',
+    kind: 'daily',
+    status: 'evaluating',
+  });
+  assert.strictEqual(result.id, 991);
+  assert.strictEqual(calls[1].columns, 'id');
+});
+
 test('actualiza intento asociado a digest enviado', async () => {
   const supabase = fakeSupabase();
   const result = await actualizarDigestAttemptPorDigest(supabase, 77, {
