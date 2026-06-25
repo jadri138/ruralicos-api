@@ -326,14 +326,16 @@ No cambiar envio WhatsApp salvo para evitar items inseguros.
 
 ### Despliegue shadow-first (importante)
 
-Por defecto `DIGEST_FINAL_VALIDATION_ENFORCEMENT=false`: la validacion final corre en
-modo SOMBRA (audita y registra en `digest_attempts` / `tags_json` que habria bloqueado,
-pero NO suprime ningun envio). Esto evita perdidas silenciosas de digest mientras se mide
-el ratio de falsos positivos sobre datos reales.
+Por defecto `DIGEST_FINAL_VALIDATION_MODE=shadow`: la validacion final audita y
+registra en `digest_attempts` / `tags_json`, pero no suprime envios.
 
-Para activar el bloqueo real, poner `DIGEST_FINAL_VALIDATION_ENFORCEMENT=true` SOLO despues
-de revisar varios dias de sombra y confirmar que no se descartan digests legitimos
-(ayudas nacionales, alertas que dicen "agricultores", PAC sin plazo, etc.).
+El despliegue pasa despues por `critical`, que bloquea solo expedientes
+individuales, ausencia de URL y afirmaciones sin evidencia de plazo, importe u
+obligacion. `enforce` aplica el filtro completo.
+
+La variable legacy `DIGEST_FINAL_VALIDATION_ENFORCEMENT=true` se conserva y
+equivale a `enforce` si la variable nueva no esta definida. Ver
+`docs/intelligence-enforcement-runbook.md`.
 
 ## Fase 9 - Auditoria admin
 

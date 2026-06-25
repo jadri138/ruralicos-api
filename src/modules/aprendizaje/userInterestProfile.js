@@ -9,14 +9,14 @@ function norm(str) {
 }
 
 function tagsAlerta(alerta = {}) {
-  return [
+  return [...new Set([
     ...(Array.isArray(alerta.provincias) ? alerta.provincias.map((x) => `provincia:${norm(x)}`) : []),
     ...(Array.isArray(alerta.sectores) ? alerta.sectores.map((x) => `sector:${norm(x)}`) : []),
     ...(Array.isArray(alerta.subsectores) ? alerta.subsectores.map((x) => `subsector:${norm(x)}`) : []),
     ...(Array.isArray(alerta.tipos_alerta) ? alerta.tipos_alerta.map((x) => `tipo:${norm(x)}`) : []),
     ...extraerFeaturesAlerta(alerta),
     alerta.fuente ? `fuente:${norm(alerta.fuente)}` : null,
-  ].filter(Boolean);
+  ].filter(Boolean))];
 }
 
 function scoreAlerta(alerta, pesos = {}) {
@@ -30,12 +30,28 @@ function esRechazoGlobalFeedback(texto = '') {
     /\bninguna\b/.test(value) && !/\d/.test(value);
 }
 
+function textoMencionaTag(tag = '', rawText = '') {
+  const value = norm(String(tag).split(':').slice(1).join(':')).replace(/_/g, ' ');
+  const feedback = norm(rawText).replace(/_/g, ' ');
+  if (!value || !feedback) return false;
+  return feedback.includes(value);
+}
+
+function esTagPositivoAtribuible(tag = '', rawText = '') {
+  const normalizedTag = norm(tag);
+  if (/^(tipo|concepto|subsector|tramite|entidad):/.test(normalizedTag)) return true;
+  return textoMencionaTag(normalizedTag, rawText);
+}
+
 function calcularAjusteFeedbackTag(tag = '', delta = 0, rawText = '') {
   const ajuste = Number(delta || 0);
   if (!ajuste) return 0;
-  if (ajuste > 0) return ajuste;
 
   const normalizedTag = norm(tag);
+  if (ajuste > 0) {
+    return esTagPositivoAtribuible(normalizedTag, rawText) ? ajuste : 0;
+  }
+
   const rechazoGlobal = esRechazoGlobalFeedback(rawText);
 
   // Un voto negativo no debe desmontar preferencias base declaradas.
@@ -146,9 +162,11 @@ function ordenarAlertasPorPerfil(alertas, perfil) {
 module.exports = {
   aplicarFeedbackAlPerfil,
   calcularAjusteFeedbackTag,
+  esTagPositivoAtribuible,
   esRechazoGlobalFeedback,
   leerPerfilIntereses,
   ordenarAlertasPorPerfil,
   scoreAlerta,
   tagsAlerta,
+  textoMencionaTag,
 };

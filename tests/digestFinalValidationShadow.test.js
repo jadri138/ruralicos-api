@@ -3,9 +3,11 @@ process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ||
 
 const assert = require('assert');
 const {
+  FINAL_VALIDATION_MODE,
   filtrarAlertasPorValidacionFinalDigest,
   guardarFactSheetsDigestShadow,
   prepararValidacionFinalDigestShadow,
+  resolverModoValidacionFinal,
   resumirValidacionFinalDigest,
 } = require('../src/modules/digest/digest.service');
 
@@ -179,6 +181,76 @@ test('enforcement solo acepta items con validacion send', async () => {
   assert.strictEqual(result.rechazadas.length, 2);
   assert.strictEqual(result.summary.blocked, 1);
   assert.strictEqual(result.summary.review_only, 1);
+});
+
+test('resuelve modo nuevo y mantiene compatibilidad con booleano legacy', async () => {
+  assert.strictEqual(
+    resolverModoValidacionFinal({ mode: 'critical', legacyEnforcement: 'false' }),
+    FINAL_VALIDATION_MODE.CRITICAL
+  );
+  assert.strictEqual(
+    resolverModoValidacionFinal({ mode: '', legacyEnforcement: 'true' }),
+    FINAL_VALIDATION_MODE.ENFORCE
+  );
+  assert.strictEqual(
+    resolverModoValidacionFinal({ mode: '', legacyEnforcement: 'false' }),
+    FINAL_VALIDATION_MODE.SHADOW
+  );
+});
+
+test('critical bloquea solo riesgos criticos demostrables', async () => {
+  const result = filtrarAlertasPorValidacionFinalDigest([
+    alerta({ id: 601 }),
+    alerta({ id: 602 }),
+    alerta({
+      id: 603,
+      fact_sheet: { flags: ['notificacion_individual'] },
+    }),
+  ], {
+    item_results: [
+      {
+        alerta_id: 601,
+        status: 'blocked',
+        flags: ['territory_claim_without_evidence'],
+        reasons: [],
+      },
+      {
+        alerta_id: 602,
+        status: 'blocked',
+        flags: ['deadline_claim_without_evidence'],
+        reasons: [],
+      },
+      {
+        alerta_id: 603,
+        status: 'blocked',
+        flags: ['fact_sheet_blocked'],
+        reasons: [],
+      },
+    ],
+  }, { mode: 'critical' });
+
+  assert.deepStrictEqual(result.aceptadas.map((item) => item.id), [601]);
+  assert.deepStrictEqual(result.rechazadas.map((item) => item.alerta.id), [602, 603]);
+  assert.strictEqual(result.summary.mode, 'critical');
+  assert.strictEqual(result.summary.critical_reasons.deadline_claim_without_evidence, 1);
+  assert.strictEqual(result.summary.critical_reasons.notificacion_individual, 1);
+});
+
+test('shadow no bloquea y conserva el diagnostico fuera del filtro', async () => {
+  const result = filtrarAlertasPorValidacionFinalDigest([
+    alerta({ id: 701 }),
+  ], {
+    item_results: [{
+      alerta_id: 701,
+      status: 'blocked',
+      flags: ['official_url_missing'],
+      reasons: [],
+    }],
+  }, { mode: 'shadow' });
+
+  assert.strictEqual(result.aceptadas.length, 1);
+  assert.strictEqual(result.rechazadas.length, 0);
+  assert.strictEqual(result.summary.mode, 'shadow');
 });
 
 test('doble check critico bloquea el item si hay discrepancia', async () => {

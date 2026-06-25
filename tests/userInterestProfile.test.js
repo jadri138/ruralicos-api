@@ -1,6 +1,7 @@
 const assert = require('assert');
 const {
   calcularAjusteFeedbackTag,
+  esTagPositivoAtribuible,
   esRechazoGlobalFeedback,
 } = require('../src/modules/aprendizaje/userInterestProfile');
 
@@ -43,9 +44,18 @@ test('rechazo de item concreto penaliza tema pero no base geografica', () => {
   assert.strictEqual(calcularAjusteFeedbackTag('concepto:agua_riego', -1, 'no 2'), -0.35);
 });
 
-test('feedback positivo mantiene aprendizaje completo', () => {
-  assert.strictEqual(calcularAjusteFeedbackTag('provincia:huesca', 1, '1'), 1);
+test('feedback positivo generico solo refuerza tags de alta senal', () => {
+  assert.strictEqual(calcularAjusteFeedbackTag('provincia:huesca', 1, '1'), 0);
+  assert.strictEqual(calcularAjusteFeedbackTag('sector:agricultura', 1, '1'), 0);
+  assert.strictEqual(calcularAjusteFeedbackTag('fuente:boe', 1, '1'), 0);
   assert.strictEqual(calcularAjusteFeedbackTag('concepto:agua_riego', 1, '1'), 1);
+  assert.strictEqual(calcularAjusteFeedbackTag('subsector:olivar', 1, '1'), 1);
+});
+
+test('feedback positivo explicito puede atribuir geografia o sector', () => {
+  assert.strictEqual(esTagPositivoAtribuible('provincia:huesca', 'Me interesa Huesca'), true);
+  assert.strictEqual(calcularAjusteFeedbackTag('provincia:huesca', 1, 'Me interesa Huesca'), 1);
+  assert.strictEqual(calcularAjusteFeedbackTag('sector:ganaderia', 1, 'Quiero ganaderia'), 1);
 });
 
 console.log(`\nResultados userInterestProfile: ${passed} aprobados, ${failed} fallidos`);
