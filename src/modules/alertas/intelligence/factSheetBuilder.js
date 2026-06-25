@@ -4,20 +4,19 @@ const {
   normalizarLista,
   crearCampo,
   crearFactSheetBase,
+  esValorDesconocido,
 } = require('./factSheetSchema');
 const {
   crearTraceDesdeRawDocument,
   resolverDocumentTrace,
 } = require('./documentTrace');
 const { validarFactSheet } = require('./factSheetValidator');
-
-const PROVINCE_ALIASES = {
-  huesca: ['huesca'],
-  zaragoza: ['zaragoza'],
-  teruel: ['teruel'],
-  nacional: ['nacional', 'espana', 'todo el territorio nacional', 'ambito estatal'],
-  todas: ['nacional', 'espana', 'todo el territorio nacional', 'ambito estatal'],
-};
+const { PROVINCE_ALIASES } = require('../../../shared/geography');
+const {
+  canonicalSector,
+  canonicalSubsector,
+} = require('../../../shared/preferenceCanonical');
+const { TAXONOMIA_RURALICOS } = require('../../aprendizaje/taxonomiaRuralicos');
 
 const SECTOR_ALIASES = {
   agricultura: [
@@ -56,6 +55,42 @@ const SUBSECTOR_ALIASES = {
   energia: ['energia', 'fotovoltaica', 'placas solares', 'autoconsumo', 'biogas', 'biomasa'],
   medio_ambiente: ['medio ambiente', 'ambiental', 'biodiversidad', 'nitratos', 'residuos', 'natura 2000'],
 };
+
+function construirAliasesTaxonomia(prefix, canonicalizer) {
+  return TAXONOMIA_RURALICOS
+    .filter((item) => String(item.id || '').startsWith(`${prefix}:`))
+    .reduce((acc, item) => {
+      const rawValue = String(item.id).split(':').slice(1).join(':');
+      const canonical = canonicalizer(rawValue);
+      if (!canonical) return acc;
+      acc[canonical] = [
+        ...new Set([
+          ...(acc[canonical] || []),
+          rawValue,
+          item.label,
+          ...(item.aliases || []),
+        ].map(normalizarTexto).filter(Boolean)),
+      ];
+      return acc;
+    }, {});
+}
+
+function combinarAliases(base, extra) {
+  const result = { ...base };
+  for (const [key, values] of Object.entries(extra)) {
+    result[key] = [...new Set([...(result[key] || []), ...values])];
+  }
+  return result;
+}
+
+const SECTOR_EVIDENCE_ALIASES = combinarAliases(
+  SECTOR_ALIASES,
+  construirAliasesTaxonomia('sector', canonicalSector)
+);
+const SUBSECTOR_EVIDENCE_ALIASES = combinarAliases(
+  SUBSECTOR_ALIASES,
+  construirAliasesTaxonomia('subsector', canonicalSubsector)
+);
 
 const GENERIC_PATTERNS = [
   /publicacion oficial relevante/i,
@@ -117,10 +152,11 @@ function buscarEvidencia(blocks, patterns = []) {
 }
 
 function campoDesdeBloque(valor, block, confidence = 0.75) {
-  if (!block) return crearCampo();
+  if (!block || esValorDesconocido(valor)) return crearCampo();
   return crearCampo(valor, block.sentence, {
     source: block.source,
     confidence: block.official ? Math.max(confidence, 0.9) : confidence,
+    evidenceLevel: block.official ? 'official' : 'derived',
   });
 }
 
@@ -132,7 +168,7 @@ function extraerValorEtiqueta(sentence, label) {
 
 function valorNoGenerico(value) {
   const text = String(value || '').trim();
-  return text && !GENERIC_PATTERNS.some((pattern) => pattern.test(text));
+  return !esValorDesconocido(text) && !GENERIC_PATTERNS.some((pattern) => pattern.test(text));
 }
 
 function extraerTipoDocumento(alerta = {}, blocks = []) {
@@ -193,6 +229,14 @@ function extraerTemaPrincipal(alerta = {}, blocks = []) {
 }
 
 function extraerResumenNeutro(alerta = {}, blocks = []) {
+  const official = blocks.find((block) =>
+    block.official &&
+    block.sentence.length >= 45 &&
+    valorNoGenerico(block.sentence) &&
+    !/\b(agencia estatal boletin oficial|buscar en boe|menu|contacto|aviso legal)\b/i.test(block.sentence)
+  );
+  if (official) return campoDesdeBloque(compactarTexto(official.sentence, 320), official, 0.9);
+
   const labels = ['RESUMEN_DIGEST', 'HECHO', 'OBJETO'];
   for (const block of blocks) {
     for (const label of labels) {
@@ -225,19 +269,19 @@ function extraerValoresConEvidencia(values, aliasMap, blocks) {
 }
 
 function extraerTerritorio(alerta = {}, blocks = []) {
-  const declared = [
-    ...normalizarLista(alerta.provincias, normalizarTexto),
-    ...normalizarLista(alerta.region, normalizarTexto),
-  ];
+  const declared = normalizarLista(alerta.provincias, normalizarTexto)
+    .filter((value) => PROVINCE_ALIASES[value]);
   return extraerValoresConEvidencia(declared, PROVINCE_ALIASES, blocks);
 }
 
 function extraerSectores(alerta = {}, blocks = []) {
-  return extraerValoresConEvidencia(normalizarLista(alerta.sectores, normalizarTexto), SECTOR_ALIASES, blocks);
+  const values = normalizarLista(alerta.sectores, canonicalSector);
+  return extraerValoresConEvidencia(values, SECTOR_EVIDENCE_ALIASES, blocks);
 }
 
 function extraerSubsectores(alerta = {}, blocks = []) {
-  return extraerValoresConEvidencia(normalizarLista(alerta.subsectores, normalizarTexto), SUBSECTOR_ALIASES, blocks);
+  const values = normalizarLista(alerta.subsectores, canonicalSubsector);
+  return extraerValoresConEvidencia(values, SUBSECTOR_EVIDENCE_ALIASES, blocks);
 }
 
 function extraerAccion(blocks = []) {
@@ -262,11 +306,13 @@ function extraerPlazo(blocks = []) {
   for (const block of blocks) {
     if (negativePattern.test(block.sentence)) continue;
     const labelValue = extraerValorEtiqueta(block.sentence, 'PLAZO');
-    if (labelValue) return campoDesdeBloque(labelValue, block, 0.84);
+    if (valorNoGenerico(labelValue)) return campoDesdeBloque(labelValue, block, 0.84);
   }
 
   const block = blocks.find((item) => {
     if (negativePattern.test(item.sentence)) return false;
+    const labeled = extraerValorEtiqueta(item.sentence, 'PLAZO');
+    if (labeled && !valorNoGenerico(labeled)) return false;
     return Boolean(buscarEvidencia([item], [
       /\bplazo\b/i,
       /\bhasta el\b/i,
@@ -283,10 +329,13 @@ function extraerPlazo(blocks = []) {
 function extraerBeneficiarios(blocks = []) {
   for (const block of blocks) {
     const labelValue = extraerValorEtiqueta(block.sentence, 'BENEFICIARIOS');
-    if (labelValue) return campoDesdeBloque(labelValue, block, 0.84);
+    if (valorNoGenerico(labelValue)) return campoDesdeBloque(labelValue, block, 0.84);
   }
 
-  const block = buscarEvidencia(blocks, [
+  const block = buscarEvidencia(blocks.filter((item) => {
+    const labeled = extraerValorEtiqueta(item.sentence, 'BENEFICIARIOS');
+    return !labeled || valorNoGenerico(labeled);
+  }), [
     /beneficiarios?/i,
     /dirigid[ao]s?\s+a/i,
     /titulares?\s+de/i,
@@ -300,10 +349,13 @@ function extraerBeneficiarios(blocks = []) {
 function extraerImporte(blocks = []) {
   for (const block of blocks) {
     const labelValue = extraerValorEtiqueta(block.sentence, 'IMPORTE');
-    if (labelValue) return campoDesdeBloque(labelValue, block, 0.84);
+    if (valorNoGenerico(labelValue)) return campoDesdeBloque(labelValue, block, 0.84);
   }
 
-  const block = buscarEvidencia(blocks, [
+  const block = buscarEvidencia(blocks.filter((item) => {
+    const labeled = extraerValorEtiqueta(item.sentence, 'IMPORTE');
+    return !labeled || valorNoGenerico(labeled);
+  }), [
     /\b\d{1,3}(?:[.,]\d{3})*(?:,\d{2})?\s*euros?\b/i,
     /\bimporte\b/i,
     /\bcuantia\b/i,
@@ -328,6 +380,7 @@ function extraerUrl(alerta = {}, trace = null) {
   return crearCampo(url, url, {
     source: trace?.source_url ? 'document_trace.source_url' : 'alerta.url',
     confidence: trace?.source_url ? 0.95 : 0.82,
+    evidenceLevel: trace?.source_url ? 'official' : 'derived',
   });
 }
 

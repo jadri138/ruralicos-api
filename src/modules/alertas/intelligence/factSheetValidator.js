@@ -1,5 +1,6 @@
 const {
   FACT_SHEET_STATUS,
+  campoConEvidenciaOficial,
   campoVerificado,
   normalizarTexto,
   recalcularEvidencias,
@@ -9,9 +10,6 @@ const FIELD_WEIGHTS = {
   tipo_documento: 1,
   tema_principal: 1,
   resumen_neutro: 1,
-  territorio: 1,
-  sectores: 1,
-  accion_requerida: 1,
   url_oficial: 1,
 };
 
@@ -106,16 +104,55 @@ function hayContradiccionSector(sheet = {}, alerta = {}) {
     (/\bcurso\b/.test(sheetText) && /\b(sancion|procedimiento sancionador)\b/.test(alertText));
 }
 
-function calcularCoverage(sheet = {}) {
+function camposCoverage(sheet = {}, alerta = {}) {
+  const weights = { ...FIELD_WEIGHTS };
+  const text = textoAlerta(alerta);
+
+  if ((alerta.provincias || []).length > 0 || (sheet.territorio || []).length > 0) {
+    weights.territorio = 1;
+  }
+  if ((alerta.sectores || []).length > 0 || (sheet.sectores || []).length > 0) {
+    weights.sectores = 1;
+  }
+  if ((alerta.subsectores || []).length > 0 || (sheet.subsectores || []).length > 0) {
+    weights.subsectores = 0.75;
+  }
+  if (
+    sheet.accion_requerida?.valor ||
+    /\b(solicitud|inscripcion|alegacion|subsanacion|documentacion|obligacion)\b/.test(text)
+  ) {
+    weights.accion_requerida = 1;
+  }
+  if (esAyuda(sheet, alerta) || /\b(plazo|hasta el|finaliza|vence|dias habiles)\b/.test(text)) {
+    weights.plazo = 1;
+  }
+  if (esAyuda(sheet, alerta)) weights.beneficiarios = 1;
+  if (/\b(importe|cuantia|euros?)\b/.test(text)) weights.importe = 0.75;
+  if (/\b(requisitos?|documentacion|deberan|anexo)\b/.test(text)) weights.requisitos = 0.75;
+
+  return weights;
+}
+
+function calcularCoverage(sheet = {}, alerta = {}, fieldCheck = campoVerificado) {
   let total = 0;
   let covered = 0;
 
-  for (const [field, weight] of Object.entries(FIELD_WEIGHTS)) {
+  for (const [field, weight] of Object.entries(camposCoverage(sheet, alerta))) {
     total += weight;
-    if (campoVerificado(sheet[field])) covered += weight;
+    if (fieldCheck(sheet[field])) covered += weight;
   }
 
   return total ? Number((covered / total).toFixed(2)) : 0;
+}
+
+function resolverProcedenciaEvidencia(sheet = {}) {
+  const evidences = Array.isArray(sheet.evidencias) ? sheet.evidencias : [];
+  const official = evidences.filter((item) => item.evidence_level === 'official').length;
+  const derived = evidences.filter((item) => item.evidence_level === 'derived').length;
+  if (official > 0 && derived > 0) return 'mixed';
+  if (official > 0) return 'official';
+  if (derived > 0) return 'derived';
+  return 'none';
 }
 
 function estadoDesdeIssues(issues, coverage) {
@@ -201,7 +238,8 @@ function validarFactSheet(input = {}, { alerta = {} } = {}) {
     addIssue(issues, 'contradiccion_sector_tipo', 'Hay contradiccion entre texto, sector o tipo documental.');
   }
 
-  const coverage = calcularCoverage(sheet);
+  const coverage = calcularCoverage(sheet, alerta);
+  const officialCoverage = calcularCoverage(sheet, alerta, campoConEvidenciaOficial);
   const risk = Math.min(100, issues.reduce((acc, issue) => acc + Number(issue.severity || 0), 0));
   const truth = Math.max(0, Math.round((coverage * 100) - Math.min(35, risk * 0.35)));
   const status = estadoDesdeIssues(issues, coverage);
@@ -211,6 +249,8 @@ function validarFactSheet(input = {}, { alerta = {} } = {}) {
     truth_score: truth,
     risk_score: risk,
     evidence_coverage: coverage,
+    official_evidence_coverage: officialCoverage,
+    evidence_provenance: resolverProcedenciaEvidencia(sheet),
     status,
     flags: [...new Set(issues.map((issue) => issue.flag))],
     reasons: issues.map((issue) => ({
@@ -224,6 +264,8 @@ function validarFactSheet(input = {}, { alerta = {} } = {}) {
 module.exports = {
   FIELD_WEIGHTS,
   FLAG_SEVERITY,
+  camposCoverage,
   calcularCoverage,
+  resolverProcedenciaEvidencia,
   validarFactSheet,
 };

@@ -1,5 +1,5 @@
-const FACT_SHEET_SCHEMA_VERSION = 'fact_sheet_v1';
-const FACT_SHEET_BUILDER_VERSION = 'fact_sheet_builder_v1';
+const FACT_SHEET_SCHEMA_VERSION = 'fact_sheet_v2';
+const FACT_SHEET_BUILDER_VERSION = 'fact_sheet_builder_v2';
 
 const FACT_SHEET_STATUS = Object.freeze({
   READY: 'ready_for_digest',
@@ -32,14 +32,29 @@ function normalizarLista(value, normalizer = (item) => item) {
     .filter(Boolean);
 }
 
+function esValorDesconocido(value) {
+  const normalized = normalizarTexto(value).replace(/\s+/g, '_');
+  return !normalized || [
+    'no_detectado',
+    'no_especificado',
+    'sin_especificar',
+    'desconocido',
+    'null',
+    'undefined',
+  ].includes(normalized);
+}
+
 function crearCampo(valor = null, evidencia = null, options = {}) {
-  const cleanEvidence = compactarTexto(evidencia, options.maxEvidence || 500);
-  const hasValue = valor !== undefined && valor !== null && String(valor).trim() !== '';
+  const hasValue = !esValorDesconocido(valor);
+  const cleanEvidence = hasValue
+    ? compactarTexto(evidencia, options.maxEvidence || 500)
+    : null;
   return {
     valor: hasValue ? valor : null,
     evidencia: cleanEvidence,
     source: options.source || null,
     confidence: Number.isFinite(Number(options.confidence)) ? Number(options.confidence) : 0,
+    evidence_level: options.evidenceLevel || 'none',
     status: hasValue && cleanEvidence ? 'verified' : 'no_verificado',
   };
 }
@@ -77,6 +92,8 @@ function crearFactSheetBase({ alerta = {}, trace = null, now = new Date() } = {}
     truth_score: 0,
     risk_score: 100,
     evidence_coverage: 0,
+    official_evidence_coverage: 0,
+    evidence_provenance: 'none',
     status: FACT_SHEET_STATUS.INSUFFICIENT_EVIDENCE,
     flags: [],
     reasons: [],
@@ -85,7 +102,12 @@ function crearFactSheetBase({ alerta = {}, trace = null, now = new Date() } = {}
 
 function campoVerificado(field) {
   if (Array.isArray(field)) return field.some(campoVerificado);
-  return Boolean(field && field.valor !== null && field.evidencia);
+  return Boolean(field && !esValorDesconocido(field.valor) && field.evidencia);
+}
+
+function campoConEvidenciaOficial(field) {
+  if (Array.isArray(field)) return field.some(campoConEvidenciaOficial);
+  return campoVerificado(field) && field.evidence_level === 'official';
 }
 
 function agregarEvidencia(sheet, fieldName, field) {
@@ -101,6 +123,7 @@ function agregarEvidencia(sheet, fieldName, field) {
       evidencia: entry.evidencia,
       source: entry.source || null,
       confidence: entry.confidence || 0,
+      evidence_level: entry.evidence_level || 'none',
     };
     const key = `${item.field}:${item.evidencia}`;
     if (existing.has(key)) continue;
@@ -142,9 +165,11 @@ module.exports = {
   compactarTexto,
   normalizarTexto,
   normalizarLista,
+  esValorDesconocido,
   crearCampo,
   crearFactSheetBase,
   campoVerificado,
+  campoConEvidenciaOficial,
   agregarEvidencia,
   recalcularEvidencias,
 };

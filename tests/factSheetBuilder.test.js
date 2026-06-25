@@ -68,5 +68,39 @@ test('no inventa sector si el texto no lo respalda', () => {
   assert(!sectorVerificado(sheet, 'agricultura'), 'no deberia verificar un sector sin evidencia textual');
 });
 
+test('usa la geografia compartida para provincias fuera de Aragon', () => {
+  const sheet = construirFactSheetAlertaSync({
+    id: 4,
+    titulo: 'Ayudas para explotaciones agrarias de Córdoba',
+    contenido: 'Se convocan ayudas para explotaciones agrarias de la provincia de Córdoba.',
+    provincias: ['Córdoba'],
+    sectores: ['agricultura'],
+    tipos_alerta: ['ayudas_subvenciones'],
+    url: 'https://www.juntadeandalucia.es/boja/ejemplo',
+  });
+
+  assert(
+    sheet.territorio.some((item) => item.valor === 'cordoba' && item.status === 'verified'),
+    'Cordoba debe quedar verificada con el registro geografico compartido'
+  );
+});
+
+test('no convierte no_detectado en un plazo verificado', () => {
+  const sheet = construirFactSheetAlertaSync({
+    id: 5,
+    titulo: 'Bases de ayudas para explotaciones agrarias',
+    contenido: 'Se publican las bases reguladoras de ayudas para explotaciones agrarias.',
+    resumen_final: 'FICHA_IA\nTIPO: ayudas_subvenciones\nPLAZO: no_detectado\nBENEFICIARIOS: no_detectado',
+    provincias: [],
+    sectores: ['agricultura'],
+    tipos_alerta: ['ayudas_subvenciones'],
+    url: 'https://www.boe.es/ejemplo',
+  });
+
+  assert.strictEqual(sheet.plazo.valor, null);
+  assert.strictEqual(sheet.plazo.status, 'no_verificado');
+  assert.notStrictEqual(sheet.beneficiarios.valor, 'no_detectado');
+});
+
 console.log(`\nResultados factSheetBuilder: ${passed} aprobados, ${failed} fallidos`);
 if (failed > 0) process.exit(1);

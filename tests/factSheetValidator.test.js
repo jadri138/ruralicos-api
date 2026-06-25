@@ -77,6 +77,8 @@ test('ayuda/subvencion con plazo claro queda lista para digest', () => {
   assert.strictEqual(sheet.plazo.status, 'verified');
   assert.strictEqual(sheet.beneficiarios.status, 'verified');
   assert(sheet.evidence_coverage >= 0.7);
+  assert(sheet.official_evidence_coverage > 0);
+  assert(['official', 'mixed'].includes(sheet.evidence_provenance));
   assert(sheet.truth_score >= 70);
 });
 
@@ -224,6 +226,21 @@ test('validator detecta plazo inventado en una ficha manual', () => {
 
   assert(validated.flags.includes('plazo_no_verificado'));
   assert.notStrictEqual(validated.status, FACT_SHEET_STATUS.READY);
+});
+
+test('alerta historica sin raw document conserva evidencia derivada de menor nivel', () => {
+  const alerta = alertaBase(11, {
+    titulo: 'Curso agrario para agricultores de Huesca',
+    contenido: 'Curso agrario dirigido a agricultores de Huesca. Inscripcion disponible.',
+    resumen_final: 'FICHA_IA\nTIPO: cursos_formacion\nRESUMEN_DIGEST: Curso agrario para agricultores.\nACCION: revisar inscripcion.',
+    tipos_alerta: ['formacion'],
+    subsectores: [],
+  });
+  const sheet = construirFactSheetAlertaSync(alerta);
+
+  assert.strictEqual(sheet.evidence_provenance, 'derived');
+  assert.strictEqual(sheet.official_evidence_coverage, 0);
+  assert(sheet.evidence_coverage > 0, 'la ausencia historica de raw_document no borra toda la cobertura');
 });
 
 process.on('beforeExit', () => {

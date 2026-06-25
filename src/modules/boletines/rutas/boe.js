@@ -7,10 +7,12 @@
 // inserta en alertas para los departamentos relevantes (sin cambios de coste).
 
 const { XMLParser } = require('fast-xml-parser');
+const cheerio = require('cheerio');
 const { checkCronToken } = require('../../../middleware/cronToken');
 const { htmlATexto } = require('../../../shared/htmlParser');
 const {
   CAPTURE_STATUS,
+  actualizarRawDocumentContenido,
   registrarRawDocuments,
   marcarRawDocumentInsertado,
   marcarRawDocumentSaltado,
@@ -85,6 +87,81 @@ function extraerItemsSumario(sumario, fechaISO) {
   return items;
 }
 
+const BOE_CONTENT_SELECTORS = [
+  '#textoxslt',
+  '#texto',
+  '.documento',
+  '.texto-disposicion',
+  'main article',
+  'article',
+  'main',
+  '#contenido',
+];
+
+function limpiarTextoExtraidoBoe(value) {
+  return String(value || '')
+    .replace(/\bAgencia Estatal Bolet[ií]n Oficial del Estado\b/gi, ' ')
+    .replace(/\b(Inicio|Mi BOE|Buscar|Men[uú]|Ayuda|Contacto|Aviso legal)\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function extraerTextoNodoBoe($, node) {
+  const clone = $(node).clone();
+  clone.find([
+    'script',
+    'style',
+    'nav',
+    'header',
+    'footer',
+    'form',
+    'aside',
+    '[role="navigation"]',
+    '[aria-label*="naveg"]',
+    '[class*="menu"]',
+    '[class*="breadcrumb"]',
+    '[class*="migas"]',
+    '[class*="sidebar"]',
+    '[class*="acciones"]',
+    '[class*="compart"]',
+    '[id*="menu"]',
+    '[id*="cabecera"]',
+    '[id*="pie"]',
+  ].join(',')).remove();
+
+  const fragments = [];
+  clone.find('h1, h2, h3, h4, p, li, dt, dd, blockquote, table tr').each((_, element) => {
+    const text = limpiarTextoExtraidoBoe($(element).text());
+    if (text.length >= 12 && !fragments.includes(text)) fragments.push(text);
+  });
+
+  const structured = fragments.join(' ');
+  return limpiarTextoExtraidoBoe(structured || htmlATexto(clone.html() || clone.text()));
+}
+
+function extraerTextoOficialBoe(html) {
+  if (!html) return '';
+  const $ = cheerio.load(html);
+  const candidates = [];
+
+  for (const selector of BOE_CONTENT_SELECTORS) {
+    $(selector).each((_, node) => {
+      const text = extraerTextoNodoBoe($, node);
+      if (text.length >= 80) candidates.push(text);
+    });
+  }
+
+  if (candidates.length === 0) {
+    const body = extraerTextoNodoBoe($, $('body').first().get(0));
+    if (body) candidates.push(body);
+  }
+
+  return candidates
+    .sort((left, right) => right.length - left.length)[0]
+    ?.slice(0, 20000)
+    .trim() || '';
+}
+
 async function fetchHtmlPorDefecto(url_html) {
   try {
     const resp = await fetch(url_html);
@@ -93,7 +170,7 @@ async function fetchHtmlPorDefecto(url_html) {
       return null;
     }
     const html = await resp.text();
-    return htmlATexto(html);
+    return extraerTextoOficialBoe(html);
   } catch (e) {
     console.error('Error descargando/parsing HTML del BOE', url_html, e.message);
     return null;
@@ -161,7 +238,14 @@ async function procesarItemsBoe(supabase, items, opciones = {}) {
     let contenidoPlano = item.titulo;
     if (item.url_html) {
       const texto = await fetchHtml(item.url_html);
-      if (texto) contenidoPlano = texto.slice(0, 8000);
+      if (texto) {
+        contenidoPlano = texto.slice(0, 8000);
+        await actualizarRawDocumentContenido(
+          supabase,
+          item.raw_document_id,
+          texto
+        );
+      }
     }
 
     // 5) Insertar alerta y enlazar el raw document.
@@ -276,3 +360,4 @@ module.exports = boeRoutes;
 module.exports.procesarItemsBoe = procesarItemsBoe;
 module.exports.extraerItemsSumario = extraerItemsSumario;
 module.exports.esDepartamentoRelevante = esDepartamentoRelevante;
+module.exports.extraerTextoOficialBoe = extraerTextoOficialBoe;
