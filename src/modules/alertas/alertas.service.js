@@ -594,7 +594,6 @@ function construirMensajeFallback(alerta) {
       : '',
     120
   ) || 'sector_agrario';
-  const fecha = limpiarTextoMensaje(alerta.fecha, 20) || 'El boletin no lo especifica';
   const detalle = contexto
     ? `Dato oficial: ${contexto}`
     : 'no_detectado';
@@ -609,7 +608,7 @@ function construirMensajeFallback(alerta) {
     `OBJETO: ${titulo}`,
     'IMPACTO: no_detectado',
     'PLAZO: no_detectado',
-    `ACCION: revisar si aparece tu explotacion, expediente o plazo publicado el ${fecha}`,
+    'ACCION: consultar la publicacion oficial',
     `DETALLE: ${detalle}`,
     `RESUMEN_DIGEST: ${contexto ? `En sencillo: ${contexto}` : 'no_detectado'}`,
     `CLAVES: ${titulo}`,

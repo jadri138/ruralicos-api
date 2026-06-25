@@ -177,6 +177,26 @@ async function marcarRawDocumentInsertado(supabase, rawDocumentId, alertaId) {
   }
 }
 
+async function actualizarRawDocumentContenido(supabase, rawDocumentId, textoRaw) {
+  const texto = String(textoRaw || '').replace(/\s+/g, ' ').trim();
+  if (!rawDocumentId || !texto) return { updated: false };
+
+  const { error } = await supabase
+    .from('raw_documents')
+    .update({
+      texto_raw: texto,
+      contenido_hash: hashTexto(texto),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', rawDocumentId);
+
+  if (error) {
+    console.error('[raw_documents] Error actualizando contenido:', rawDocumentId, error.message);
+    return { updated: false, error: error.message };
+  }
+  return { updated: true };
+}
+
 // Marca un raw document como no insertado. Por defecto 'skipped_by_rule'; con
 // `opciones.status` se reutiliza para 'duplicate', 'missing_url' o 'error'.
 //
@@ -220,6 +240,7 @@ module.exports = {
   hashUrl,
   normalizarRawDocument,
   registrarRawDocuments,
+  actualizarRawDocumentContenido,
   marcarRawDocumentInsertado,
   marcarRawDocumentSaltado,
 };

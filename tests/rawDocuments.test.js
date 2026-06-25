@@ -258,6 +258,52 @@ async function main() {
     assert.ok(items.find((i) => i.region.includes('HACIENDA')), 'incluye el departamento no relevante');
   });
 
+  await test('BOE extrae el cuerpo oficial sin navegacion ni cabecera del portal', () => {
+    const html = `
+      <html><body>
+        <header>Agencia Estatal Boletín Oficial del Estado</header>
+        <nav>Inicio Mi BOE Buscar Menú Contacto</nav>
+        <main>
+          <div id="textoxslt">
+            <h1>Extracto de la resolución de ayudas</h1>
+            <p>Se convocan subvenciones para explotaciones agrarias de titularidad compartida.</p>
+            <p>El plazo de presentación será de quince días hábiles.</p>
+          </div>
+        </main>
+        <footer>Aviso legal Contacto</footer>
+      </body></html>
+    `;
+    const texto = boe.extraerTextoOficialBoe(html);
+    assert(texto.includes('Se convocan subvenciones'));
+    assert(texto.includes('quince días hábiles'));
+    assert(!texto.includes('Agencia Estatal'));
+    assert(!texto.includes('Mi BOE'));
+  });
+
+  await test('BOE persiste el cuerpo oficial limpio en raw_documents', async () => {
+    const supabase = crearSupabaseMemoria();
+    const items = [{
+      titulo: 'Orden de ayudas agrarias',
+      url: 'https://boe/ayudas.pdf',
+      url_pdf: 'https://boe/ayudas.pdf',
+      url_html: 'https://boe/ayudas.html',
+      fecha: '2026-06-17',
+      region: 'MINISTERIO DE AGRICULTURA',
+    }];
+    const textoOficial = 'Texto oficial de ayudas PAC con plazo de 20 dias habiles.';
+
+    const stats = await boe.procesarItemsBoe(supabase, items, {
+      fechaISO: '2026-06-17',
+      fetchHtml: async () => textoOficial,
+    });
+
+    assert.strictEqual(stats.nuevas, 1);
+    const raw = supabase._stores.raw_documents[0];
+    assert.strictEqual(raw.texto_raw, textoOficial);
+    assert.ok(raw.contenido_hash, 'recalcula la huella del contenido oficial');
+    assert.strictEqual(supabase._stores.alertas[0].contenido, textoOficial);
+  });
+
   await test('BOE registra todos los items; departamento no relevante -> skipped_by_rule (no se pierde)', async () => {
     const supabase = crearSupabaseMemoria();
     const items = [

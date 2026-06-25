@@ -3,7 +3,10 @@ process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ||
 process.env.OPENAI_API_KEY = process.env.OPENAI_API_KEY || 'sk-test';
 
 const assert = require('assert');
-const { limpiarContenidoBoletinParaIA } = require('../src/modules/alertas/alertas.service');
+const {
+  construirMensajeFallback,
+  limpiarContenidoBoletinParaIA,
+} = require('../src/modules/alertas/alertas.service');
 
 let passed = 0;
 let failed = 0;
@@ -67,6 +70,20 @@ test('un contenido normal y corto se devuelve intacto (sin romper compatibilidad
   const out = limpiarContenidoBoletinParaIA({ contenido }, 4500);
   assert(out.includes('convocatoria de ayudas'));
   assert(out.includes('30 de julio'));
+});
+
+test('el fallback no fabrica expediente, solicitud ni plazo', () => {
+  const ficha = construirMensajeFallback({
+    titulo: 'Bases reguladoras de ayudas agrarias',
+    contenido: 'Se publican las bases reguladoras de ayudas agrarias.',
+    fecha: '2026-06-25',
+  });
+  const accion = ficha.split('\n').find((linea) => linea.startsWith('ACCION:')) || '';
+
+  assert(!/\bexpediente\b/i.test(accion));
+  assert(!/\bsolicitud\b/i.test(accion));
+  assert(!/\bplazo publicado\b/i.test(accion));
+  assert.strictEqual(accion, 'ACCION: consultar la publicacion oficial');
 });
 
 console.log(`\nResultados limpiarContenidoFicha: ${passed} aprobados, ${failed} fallidos`);
