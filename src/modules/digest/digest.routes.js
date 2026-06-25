@@ -41,6 +41,10 @@ const {
   registrarDigestAttempt,
 } = require('../mia/digestAttempts');
 const {
+  registrarDigestCandidateDecisions,
+  vincularDigestCandidateDecisions,
+} = require('../mia/digestCandidateDecisions');
+const {
   cargarPerfilOperativoMIA,
   aplicarPerfilOperativoAUsuario,
   ordenarAlertasConPerfilOperativoMIA,
@@ -119,6 +123,8 @@ const {
   filtrarAlertasPorValidacionFinalDigest,
   filtrarAlertasEnviablesAutomaticamente,
   resumirSeleccionDigest,
+  contarDecisionesTrasScoring,
+  construirFunnelDigest,
   resolverMotivoNoEnvioDigest,
   agruparAlertasDigest,
   obtenerNombreCortoDigest,
@@ -155,6 +161,55 @@ const {
   generarMensajeDigest,
   construirPreviewDigestUsuario,
 } = require('./digest.service');
+
+function decisionesQualityGate(alertas = [], rechazadas = []) {
+  const rejected = new Map((rechazadas || []).map((item) => [String(item.id), item]));
+  return (alertas || []).map((alerta) => {
+    const rechazo = rejected.get(String(alerta.id));
+    return rechazo
+      ? {
+        id: alerta.id,
+        action: 'exclude',
+        motivo: 'quality_gate',
+        score: rechazo.score,
+        flags: rechazo.flags || [],
+      }
+      : {
+        id: alerta.id,
+        action: 'include',
+        motivo: 'quality_gate_pass',
+        score: alerta.calidad_mia?.score ?? null,
+      };
+  });
+}
+
+function decisionesVisibilidadOrganizacion(alertas = [], visibles = []) {
+  const visibleIds = new Set((visibles || []).map((alerta) => String(alerta.id)));
+  return (alertas || []).map((alerta) => ({
+    id: alerta.id,
+    action: visibleIds.has(String(alerta.id)) ? 'include' : 'exclude',
+    motivo: visibleIds.has(String(alerta.id))
+      ? 'organization_visible'
+      : 'organization_not_visible',
+  }));
+}
+
+function decisionesValidacionFinal(alertas = [], validation = null) {
+  const items = Array.isArray(validation?.item_results) ? validation.item_results : [];
+  return (alertas || []).map((alerta, index) => {
+    const item = items.find((candidate) =>
+      String(candidate?.alerta_id ?? '') === String(alerta.id)
+    ) || items[index] || {};
+    return {
+      id: alerta.id,
+      action: item.status === 'send' ? 'include' : (item.status || 'review_only'),
+      motivo: item.reasons?.[0]?.code || item.flags?.[0] || 'final_validation',
+      status: item.status || 'review_only',
+      flags: item.flags || [],
+      reasons: item.reasons || [],
+    };
+  });
+}
 
 module.exports = function digestRoutes(app, supabase) {
 
@@ -427,9 +482,43 @@ module.exports = function digestRoutes(app, supabase) {
         const organizationContext = await cargarOrganizationContextMIA(supabase, user);
         const organizationId = organizationContext.organization_id || null;
         const userConOrganization = aplicarOrganizationContextAUsuario(user, organizationContext);
+        const attemptStart = await registrarDigestAttempt(supabase, {
+          userId: user.id,
+          organizationId,
+          fecha: hoy,
+          kind: 'daily',
+          status: 'evaluating',
+          ...construirFunnelDigest({
+            totalAlertasDia,
+            trasQualityGate: alertas.length,
+          }),
+          metadata: { plan: plan.nombre, audit_version: 'digest_candidate_audit_v1' },
+        });
+        let digestAttemptId = attemptStart.id || null;
+        let attemptKind = 'daily';
+
+        await registrarDigestCandidateDecisions(supabase, {
+          userId: user.id,
+          organizationId,
+          fecha: hoy,
+          kind: 'daily',
+          stage: 'quality_gate',
+          digestAttemptId,
+          decisions: decisionesQualityGate(alertasDia || [], alertasDescartadasCalidad),
+          metadata: { min_score: DIGEST_QUALITY_GATE ? 65 : null },
+        });
 
         // Filtrar alertas relevantes para este usuario
         const alertasVisibles = filtrarAlertasPorOrganization(alertas, organizationId);
+        await registrarDigestCandidateDecisions(supabase, {
+          userId: user.id,
+          organizationId,
+          fecha: hoy,
+          kind: 'daily',
+          stage: 'organization_visibility',
+          digestAttemptId,
+          decisions: decisionesVisibilidadOrganizacion(alertas, alertasVisibles),
+        });
         const decisionFn = (alerta) => decidirAlertaParaDigest(alerta, userConOrganization, {
           qualityGate: DIGEST_QUALITY_GATE,
           allowReview: DIGEST_INCLUDE_REVIEW,
@@ -445,6 +534,15 @@ module.exports = function digestRoutes(app, supabase) {
           exclusionPreferencias: (item) => alertaExcluidaPorPreferenciasExtra(item, user.preferencias_extra),
         });
         const alertasUsuario = seleccionBase.alertas;
+        await registrarDigestCandidateDecisions(supabase, {
+          userId: user.id,
+          organizationId,
+          fecha: hoy,
+          kind: 'daily',
+          stage: 'user_filter',
+          digestAttemptId,
+          decisions: seleccionBase.decisiones,
+        });
         const aprendizaje = await obtenerAprendizajeUsuario(supabase, user.id);
         const perfilOperativoMIA = await cargarPerfilOperativoMIA(supabase, user.id, { user: userConOrganization });
         const userConPerfilMIA = aplicarPerfilOperativoAUsuario(userConOrganization, perfilOperativoMIA);
@@ -475,8 +573,26 @@ module.exports = function digestRoutes(app, supabase) {
           origen: usandoMIA ? seleccionMIA.origen : 'perfil_tags_prioridad',
           exclusionPreferencias: (item) => alertaExcluidaPorPreferenciasExtra(item, user.preferencias_extra),
         });
+        await registrarDigestCandidateDecisions(supabase, {
+          userId: user.id,
+          organizationId,
+          fecha: hoy,
+          kind: 'daily',
+          stage: 'selection',
+          digestAttemptId,
+          decisions: seleccionFinal.decisiones,
+          metadata: { origen: usandoMIA ? seleccionMIA.origen : 'perfil_tags_prioridad' },
+        });
         let alertasFinales = seleccionFinal.alertas;
         let modoRescate = null;
+        const funnelActual = (finales = 0) => construirFunnelDigest({
+          totalAlertasDia,
+          totalAlertasVentana: modoRescate?.totalAlertasVentana || 0,
+          trasQualityGate: modoRescate?.alertasVentanaTrasCalidad ?? alertas.length,
+          trasFiltroUsuario: modoRescate?.trasFiltroUsuario ?? alertasUsuario.length,
+          trasScoring: modoRescate?.trasScoring ?? contarDecisionesTrasScoring(seleccionFinal),
+          alertasFinales: finales,
+        });
 
         // Sin alertas relevantes → silencio
         if (alertasFinales.length === 0) {
@@ -492,6 +608,8 @@ module.exports = function digestRoutes(app, supabase) {
                 console.warn('[digest:rescue] No se pudieron cargar alertas de rescate:', errRescate.message);
                 alertasRescateCache = {
                   alertas: [],
+                  raw: [],
+                  rechazadas: [],
                   total: 0,
                   descartadasCalidad: 0,
                   error: errRescate.message,
@@ -500,12 +618,16 @@ module.exports = function digestRoutes(app, supabase) {
                 const calidadRescate = filtrarAlertasPorCalidadDigest(alertasVentana || [], { minScore: 65 });
                 alertasRescateCache = {
                   alertas: calidadRescate.aceptadas,
+                  raw: alertasVentana || [],
+                  rechazadas: calidadRescate.rechazadas,
                   total: (alertasVentana || []).length,
                   descartadasCalidad: calidadRescate.rechazadas.length,
                 };
               } else {
                 alertasRescateCache = {
                   alertas: alertasVentana || [],
+                  raw: alertasVentana || [],
+                  rechazadas: [],
                   total: (alertasVentana || []).length,
                   descartadasCalidad: 0,
                 };
@@ -531,6 +653,70 @@ module.exports = function digestRoutes(app, supabase) {
               trasFiltroUsuario: rescate.trasFiltroUsuario,
               trasScoring: rescate.trasScoring,
             };
+            await registrarDigestAttempt(supabase, {
+              userId: user.id,
+              organizationId,
+              fecha: hoy,
+              kind: 'daily',
+              status: 'no_send',
+              ...construirFunnelDigest({
+                totalAlertasDia,
+                trasQualityGate: alertas.length,
+                trasFiltroUsuario: alertasUsuario.length,
+                trasScoring: contarDecisionesTrasScoring(seleccionFinal),
+                alertasFinales: 0,
+              }),
+              motivoNoEnvio: 'daily_sin_alertas_rescate_iniciado',
+              metadata: {
+                plan: plan.nombre,
+                rescue_kind: rescate.tipo,
+              },
+            });
+            attemptKind = 'rescue';
+            const rescueAttempt = await registrarDigestAttempt(supabase, {
+              userId: user.id,
+              organizationId,
+              fecha: hoy,
+              kind: attemptKind,
+              status: 'evaluating',
+              ...construirFunnelDigest({
+                totalAlertasDia,
+                totalAlertasVentana: modoRescate.totalAlertasVentana,
+                trasQualityGate: modoRescate.alertasVentanaTrasCalidad,
+                trasFiltroUsuario: modoRescate.trasFiltroUsuario,
+                trasScoring: modoRescate.trasScoring,
+                alertasFinales: alertasFinales.length,
+              }),
+              metadata: {
+                plan: plan.nombre,
+                rescate: modoRescate,
+                audit_version: 'digest_candidate_audit_v1',
+              },
+            });
+            digestAttemptId = rescueAttempt.id || digestAttemptId;
+            await registrarDigestCandidateDecisions(supabase, {
+              userId: user.id,
+              organizationId,
+              fecha: hoy,
+              kind: attemptKind,
+              stage: 'quality_gate',
+              digestAttemptId,
+              decisions: decisionesQualityGate(
+                alertasRescateCache.raw,
+                alertasRescateCache.rechazadas
+              ),
+              metadata: { rescue_from: desdeRescate },
+            });
+            await registrarDigestCandidateDecisions(supabase, {
+              userId: user.id,
+              organizationId,
+              fecha: hoy,
+              kind: attemptKind,
+              stage: 'selection',
+              digestAttemptId,
+              decisions: rescate.decisiones,
+              metadata: { rescue_type: rescate.tipo },
+            });
             console.log(`[digest:rescue] User ${user.id} (${plan.nombre}) → rescate ${rescate.tipo} con ${alertasFinales.length} alertas`);
           } else {
             const motivoNoEnvio = resolverMotivoNoEnvioDigest({
@@ -546,11 +732,7 @@ module.exports = function digestRoutes(app, supabase) {
               fecha: hoy,
               kind: 'daily',
               status: 'no_send',
-              totalAlertasDia,
-              trasQualityGate: alertas.length,
-              trasFiltroUsuario: alertasUsuario.length,
-              trasScoring: alertasOrdenadas.length,
-              alertasFinales: 0,
+              ...funnelActual(0),
               motivoNoEnvio,
               metadata: {
                 plan: plan.nombre,
@@ -579,25 +761,38 @@ module.exports = function digestRoutes(app, supabase) {
         // Gate de envio automatico: review_only / blocked / exclude no se autoenvian aunque
         // hayan entrado como relleno (incoherencia review_only). Defensa en profundidad,
         // independiente del enforcement de la validacion final.
+        const candidatasAutoSend = alertasFinales;
         const { enviables: alertasEnviables, retenidas: alertasRetenidasReview } =
           filtrarAlertasEnviablesAutomaticamente(alertasFinales);
         if (alertasRetenidasReview.length > 0) {
           console.log(`[digest] User ${user.id} → ${alertasRetenidasReview.length} alerta(s) review_only/no enviables retenidas (sin autoenvio)`);
         }
         alertasFinales = alertasEnviables;
+        const enviablesIds = new Set(alertasEnviables.map((alerta) => String(alerta.id)));
+        await registrarDigestCandidateDecisions(supabase, {
+          userId: user.id,
+          organizationId,
+          fecha: hoy,
+          kind: attemptKind,
+          stage: 'auto_send_gate',
+          digestAttemptId,
+          decisions: candidatasAutoSend.map((alerta) => ({
+            id: alerta.id,
+            action: enviablesIds.has(String(alerta.id)) ? 'include' : 'review_only',
+            motivo: enviablesIds.has(String(alerta.id))
+              ? 'automatic_send_allowed'
+              : 'automatic_send_retained',
+            selection_decision: alerta.decision_digest || null,
+          })),
+        });
 
         if (alertasFinales.length === 0) {
           await registrarDigestAttempt(supabase, {
             userId: user.id,
             fecha: hoy,
-            kind: modoRescate ? 'rescue' : 'daily',
+            kind: attemptKind,
             status: 'no_send',
-            totalAlertasDia,
-            totalAlertasVentana: modoRescate?.totalAlertasVentana || 0,
-            trasQualityGate: modoRescate?.alertasVentanaTrasCalidad || alertas.length,
-            trasFiltroUsuario: modoRescate?.trasFiltroUsuario || alertasUsuario.length,
-            trasScoring: modoRescate?.trasScoring || alertasOrdenadas.length,
-            alertasFinales: 0,
+            ...funnelActual(0),
             motivoNoEnvio: 'sin_alertas_enviables_review_only',
             metadata: {
               plan: plan.nombre,
@@ -652,13 +847,9 @@ module.exports = function digestRoutes(app, supabase) {
             await registrarDigestAttempt(supabase, {
               userId: user.id,
               fecha: hoy,
-              kind: 'daily',
+              kind: attemptKind,
               status: 'no_send',
-              totalAlertasDia,
-              trasQualityGate: alertas.length,
-              trasFiltroUsuario: alertasUsuario.length,
-              trasScoring: alertasOrdenadas.length,
-              alertasFinales: alertasFinales.length,
+              ...funnelActual(alertasFinales.length),
               motivoNoEnvio: 'ia_sin_alertas',
               metadata: { plan: plan.nombre },
             });
@@ -683,6 +874,16 @@ module.exports = function digestRoutes(app, supabase) {
             });
             alertasFinales = shadow.alertas;
             finalValidationShadow = shadow.validation;
+            await registrarDigestCandidateDecisions(supabase, {
+              userId: user.id,
+              organizationId,
+              fecha: hoy,
+              kind: attemptKind,
+              stage: 'final_validation',
+              digestAttemptId,
+              decisions: decisionesValidacionFinal(alertasFinales, finalValidationShadow),
+              metadata: { enforcement_enabled: DIGEST_FINAL_VALIDATION_ENFORCEMENT },
+            });
             for (const warning of shadow.warnings || []) {
               errores.push({
                 userId: user.id,
@@ -714,14 +915,9 @@ module.exports = function digestRoutes(app, supabase) {
               await registrarDigestAttempt(supabase, {
                 userId: user.id,
                 fecha: hoy,
-                kind: modoRescate ? 'rescue' : 'daily',
+                kind: attemptKind,
                 status: 'no_send',
-                totalAlertasDia,
-                totalAlertasVentana: modoRescate?.totalAlertasVentana || 0,
-                trasQualityGate: modoRescate?.alertasVentanaTrasCalidad || alertas.length,
-                trasFiltroUsuario: modoRescate?.trasFiltroUsuario || alertasUsuario.length,
-                trasScoring: modoRescate?.trasScoring || alertasOrdenadas.length,
-                alertasFinales: alertasFinales.length,
+                ...funnelActual(alertasFinales.length),
                 motivoNoEnvio: 'final_validation_error',
                 metadata: { plan: plan.nombre, origen: origenDigest, rescate: modoRescate },
               });
@@ -734,14 +930,9 @@ module.exports = function digestRoutes(app, supabase) {
               await registrarDigestAttempt(supabase, {
                 userId: user.id,
                 fecha: hoy,
-                kind: modoRescate ? 'rescue' : 'daily',
+                kind: attemptKind,
                 status: 'no_send',
-                totalAlertasDia,
-                totalAlertasVentana: modoRescate?.totalAlertasVentana || 0,
-                trasQualityGate: modoRescate?.alertasVentanaTrasCalidad || alertas.length,
-                trasFiltroUsuario: modoRescate?.trasFiltroUsuario || alertasUsuario.length,
-                trasScoring: modoRescate?.trasScoring || alertasOrdenadas.length,
-                alertasFinales: 0,
+                ...funnelActual(0),
                 motivoNoEnvio: finalValidationEnforcement.motivo_no_envio || 'final_validation_no_send',
                 metadata: {
                   plan: plan.nombre,
@@ -787,6 +978,19 @@ module.exports = function digestRoutes(app, supabase) {
               });
               alertasFinales = shadow.alertas;
               finalValidationShadow = shadow.validation;
+              await registrarDigestCandidateDecisions(supabase, {
+                userId: user.id,
+                organizationId,
+                fecha: hoy,
+                kind: attemptKind,
+                stage: 'final_validation',
+                digestAttemptId,
+                decisions: decisionesValidacionFinal(alertasFinales, finalValidationShadow),
+                metadata: {
+                  enforcement_enabled: DIGEST_FINAL_VALIDATION_ENFORCEMENT,
+                  regenerated: true,
+                },
+              });
               for (const warning of shadow.warnings || []) {
                 errores.push({
                   userId: user.id,
@@ -801,14 +1005,9 @@ module.exports = function digestRoutes(app, supabase) {
                 await registrarDigestAttempt(supabase, {
                   userId: user.id,
                   fecha: hoy,
-                  kind: modoRescate ? 'rescue' : 'daily',
+                  kind: attemptKind,
                   status: 'no_send',
-                  totalAlertasDia,
-                  totalAlertasVentana: modoRescate?.totalAlertasVentana || 0,
-                  trasQualityGate: modoRescate?.alertasVentanaTrasCalidad || alertas.length,
-                  trasFiltroUsuario: modoRescate?.trasFiltroUsuario || alertasUsuario.length,
-                  trasScoring: modoRescate?.trasScoring || alertasOrdenadas.length,
-                  alertasFinales: 0,
+                  ...funnelActual(0),
                   motivoNoEnvio: finalValidationEnforcement.motivo_no_envio || 'final_validation_no_send',
                   metadata: {
                     plan: plan.nombre,
@@ -827,14 +1026,9 @@ module.exports = function digestRoutes(app, supabase) {
                 await registrarDigestAttempt(supabase, {
                   userId: user.id,
                   fecha: hoy,
-                  kind: modoRescate ? 'rescue' : 'daily',
+                  kind: attemptKind,
                   status: 'no_send',
-                  totalAlertasDia,
-                  totalAlertasVentana: modoRescate?.totalAlertasVentana || 0,
-                  trasQualityGate: modoRescate?.alertasVentanaTrasCalidad || alertas.length,
-                  trasFiltroUsuario: modoRescate?.trasFiltroUsuario || alertasUsuario.length,
-                  trasScoring: modoRescate?.trasScoring || alertasOrdenadas.length,
-                  alertasFinales: 0,
+                  ...funnelActual(0),
                   motivoNoEnvio: 'final_validation_unstable_after_regeneration',
                   metadata: {
                     plan: plan.nombre,
@@ -895,14 +1089,9 @@ module.exports = function digestRoutes(app, supabase) {
               await registrarDigestAttempt(supabase, {
                 userId: user.id,
                 fecha: hoy,
-                kind: modoRescate ? 'rescue' : 'daily',
+                kind: attemptKind,
                 status: 'skipped_existing',
-                totalAlertasDia,
-                totalAlertasVentana: modoRescate?.totalAlertasVentana || 0,
-                trasQualityGate: modoRescate?.alertasVentanaTrasCalidad || alertas.length,
-                trasFiltroUsuario: modoRescate?.trasFiltroUsuario || alertasUsuario.length,
-                trasScoring: modoRescate?.trasScoring || alertasOrdenadas.length,
-                alertasFinales: alertasFinales.length,
+                ...funnelActual(alertasFinales.length),
                 metadata: { plan: plan.nombre, rescate: modoRescate },
               });
               saltados++;
@@ -911,14 +1100,9 @@ module.exports = function digestRoutes(app, supabase) {
               await registrarDigestAttempt(supabase, {
                 userId: user.id,
                 fecha: hoy,
-                kind: modoRescate ? 'rescue' : 'daily',
+                kind: attemptKind,
                 status: 'failed',
-                totalAlertasDia,
-                totalAlertasVentana: modoRescate?.totalAlertasVentana || 0,
-                trasQualityGate: modoRescate?.alertasVentanaTrasCalidad || alertas.length,
-                trasFiltroUsuario: modoRescate?.trasFiltroUsuario || alertasUsuario.length,
-                trasScoring: modoRescate?.trasScoring || alertasOrdenadas.length,
-                alertasFinales: alertasFinales.length,
+                ...funnelActual(alertasFinales.length),
                 motivoNoEnvio: 'error_guardando_digest',
                 errorMsg: writeError.message,
                 metadata: { plan: plan.nombre, rescate: modoRescate },
@@ -938,18 +1122,21 @@ module.exports = function digestRoutes(app, supabase) {
               }
             }
 
-            await registrarDigestAttempt(supabase, {
+            const finalizedAttempt = await registrarDigestAttempt(supabase, {
               userId: user.id,
+              organizationId,
               fecha: hoy,
-              kind: 'daily',
+              kind: attemptKind,
               status: modoRescate ? 'rescued' : 'generated',
               digestId: digestInsertado.id,
-              totalAlertasDia,
-              totalAlertasVentana: modoRescate?.totalAlertasVentana || 0,
-              trasQualityGate: alertas.length,
-              trasFiltroUsuario: alertasUsuario.length,
-              trasScoring: alertasOrdenadas.length,
-              alertasFinales: alertasFinales.length,
+              ...construirFunnelDigest({
+                totalAlertasDia,
+                totalAlertasVentana: modoRescate?.totalAlertasVentana || 0,
+                trasQualityGate: modoRescate?.alertasVentanaTrasCalidad ?? alertas.length,
+                trasFiltroUsuario: modoRescate?.trasFiltroUsuario ?? alertasUsuario.length,
+                trasScoring: modoRescate?.trasScoring ?? contarDecisionesTrasScoring(seleccionFinal),
+                alertasFinales: alertasFinales.length,
+              }),
               motivoNoEnvio: modoRescate ? 'sin_alertas_hoy_rescate_semanal_generado' : null,
               metadata: {
                 plan: plan.nombre,
@@ -959,26 +1146,20 @@ module.exports = function digestRoutes(app, supabase) {
                 final_validation_enforcement: finalValidationEnforcement?.summary || null,
               },
             });
-
-            if (modoRescate) {
-              await registrarDigestAttempt(supabase, {
+            digestAttemptId = finalizedAttempt.id || digestAttemptId;
+            const candidateLink = await vincularDigestCandidateDecisions(supabase, {
+              userId: user.id,
+              fecha: hoy,
+              kind: attemptKind,
+              digestId: digestInsertado.id,
+              digestAttemptId,
+            });
+            if (!candidateLink.ok) {
+              errores.push({
                 userId: user.id,
-                fecha: hoy,
-                kind: 'rescue',
-                status: 'generated',
                 digestId: digestInsertado.id,
-                totalAlertasDia,
-                totalAlertasVentana: modoRescate.totalAlertasVentana,
-                trasQualityGate: modoRescate.alertasVentanaTrasCalidad,
-                trasFiltroUsuario: modoRescate.trasFiltroUsuario,
-                trasScoring: modoRescate.trasScoring,
-                alertasFinales: alertasFinales.length,
-                metadata: {
-                  plan: plan.nombre,
-                  tipo: modoRescate.tipo,
-                  desde: modoRescate.desde,
-                  descartadas_calidad: modoRescate.descartadasCalidad,
-                },
+                warning: 'candidate_decisions_no_vinculadas',
+                error: candidateLink.error,
               });
             }
 
@@ -1092,14 +1273,9 @@ module.exports = function digestRoutes(app, supabase) {
           await registrarDigestAttempt(supabase, {
             userId: user.id,
             fecha: hoy,
-            kind: modoRescate ? 'rescue' : 'daily',
+            kind: attemptKind,
             status: 'failed',
-            totalAlertasDia,
-            totalAlertasVentana: modoRescate?.totalAlertasVentana || 0,
-            trasQualityGate: modoRescate?.alertasVentanaTrasCalidad || alertas.length,
-            trasFiltroUsuario: modoRescate?.trasFiltroUsuario || alertasUsuario.length,
-            trasScoring: modoRescate?.trasScoring || alertasOrdenadas.length,
-            alertasFinales: alertasFinales.length,
+            ...funnelActual(alertasFinales.length),
             motivoNoEnvio: 'error_generando_digest',
             errorMsg: errIA.message,
             metadata: {

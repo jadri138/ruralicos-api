@@ -62,12 +62,27 @@ async function registrarDigestAttempt(supabase, input = {}) {
   }
 
   try {
-    const { error } = await supabase
+    const upsertQuery = supabase
       .from('digest_attempts')
       .upsert(row, { onConflict: 'user_id,fecha,kind' });
+    let result;
+    if (typeof upsertQuery?.select === 'function') {
+      const selectQuery = upsertQuery.select('id');
+      result = typeof selectQuery?.maybeSingle === 'function'
+        ? await selectQuery.maybeSingle()
+        : await selectQuery;
+    } else {
+      result = await upsertQuery;
+    }
+    const { data, error } = result || {};
 
     if (error) throw error;
-    return { ok: true, available: true };
+    return {
+      ok: true,
+      available: true,
+      id: data?.id || (Array.isArray(data) ? data[0]?.id : null) || null,
+      row,
+    };
   } catch (error) {
     if (esTablaNoDisponible(error)) {
       return { ok: true, available: false, reason: 'digest_attempts_no_disponible' };

@@ -173,6 +173,40 @@ function resumirSeleccionDigest(seleccion = {}) {
   };
 }
 
+function contarDecisionesTrasScoring(seleccion = {}) {
+  const decisiones = Array.isArray(seleccion?.decisiones) ? seleccion.decisiones : [];
+  return decisiones.filter((decision) =>
+    ['include', 'review_only'].includes(accionDecisionDigest(decision))
+  ).length;
+}
+
+function construirFunnelDigest({
+  totalAlertasDia = 0,
+  totalAlertasVentana = 0,
+  trasQualityGate = 0,
+  trasFiltroUsuario = 0,
+  trasScoring = 0,
+  alertasFinales = 0,
+} = {}) {
+  const nonNegative = (value) => Math.max(0, Math.floor(Number(value) || 0));
+  const totalDia = nonNegative(totalAlertasDia);
+  const totalVentana = nonNegative(totalAlertasVentana);
+  const scopeTotal = totalVentana > 0 ? totalVentana : totalDia;
+  const quality = Math.min(nonNegative(trasQualityGate), scopeTotal);
+  const filtro = Math.min(nonNegative(trasFiltroUsuario), quality);
+  const scoring = Math.min(nonNegative(trasScoring), filtro);
+  const finales = Math.min(nonNegative(alertasFinales), scoring);
+
+  return {
+    totalAlertasDia: totalDia,
+    totalAlertasVentana: totalVentana,
+    trasQualityGate: quality,
+    trasFiltroUsuario: filtro,
+    trasScoring: scoring,
+    alertasFinales: finales,
+  };
+}
+
 function resolverMotivoNoEnvioDigest({
   totalAlertasDia = 0,
   alertasTrasQualityGate = [],
@@ -1847,7 +1881,8 @@ function seleccionarAlertasRescate({
       tipo: 'directo',
       alertas: directasFinales.alertas,
       trasFiltroUsuario: seleccionBase.alertas.length,
-      trasScoring: directasOrdenadas.length,
+      trasScoring: contarDecisionesTrasScoring(directasFinales),
+      decisiones: directasFinales.decisiones,
     };
   }
 
@@ -1858,11 +1893,21 @@ function seleccionarAlertasRescate({
     aprendizaje
   );
 
+  const seleccionadasIds = new Set(
+    suavesOrdenadas.slice(0, maxItems).map((alerta) => String(alerta.id))
+  );
   return {
     tipo: suavesOrdenadas.length > 0 ? 'suave' : 'sin_alertas_ventana',
     alertas: suavesOrdenadas.slice(0, maxItems),
     trasFiltroUsuario: seleccionBase.alertas.length,
-    trasScoring: suavesOrdenadas.length,
+    trasScoring: Math.min(suavesOrdenadas.length, maxItems),
+    decisiones: suavesBase.map((alerta) => ({
+      id: alerta.id,
+      action: seleccionadasIds.has(String(alerta.id)) ? 'include' : 'exclude',
+      motivo: seleccionadasIds.has(String(alerta.id))
+        ? 'rescue_soft_selected'
+        : 'rescue_soft_not_selected',
+    })),
   };
 }
 
@@ -2575,6 +2620,8 @@ module.exports = {
   esEnvioAutomaticoPermitido,
   filtrarAlertasEnviablesAutomaticamente,
   resumirSeleccionDigest,
+  contarDecisionesTrasScoring,
+  construirFunnelDigest,
   resolverMotivoNoEnvioDigest,
   norm,
   intersecta,
