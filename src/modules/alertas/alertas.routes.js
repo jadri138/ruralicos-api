@@ -9,6 +9,15 @@ const { llamarIA, parsearJSON } = require('../../platform/ia/llamarIA');
 const { enviarWhatsAppResumen } = require('../../platform/whatsapp');
 const { getFechaMadridISO } = require('../../shared/fechaMadrid');
 const { requireAdmin } = require('../../middleware/requireAdmin');
+const {
+  CANDIDATE_LEVEL,
+  PRECLASSIFIER_MODE,
+  normalizarModoPreclasificador,
+  preclassifyAlerta,
+} = require('./clasificacion/alertPreclassifier');
+const {
+  normalizarClasificacionCanonica,
+} = require('../../shared/taxonomyRegistry');
 
 const {
   DIGEST_ONLY_MODE,
@@ -65,6 +74,54 @@ const {
   buildPromptClasificar,
   clasificarConReintento,
 } = require('./alertas.service');
+
+const INTELLIGENCE_COLUMNS = new Set([
+  'pre_score',
+  'pre_status',
+  'pre_reasons',
+  'candidate_level',
+  'decision_audit',
+  'taxonomy_tags',
+]);
+
+function limpiarPatchIntelligence(patch = {}) {
+  return Object.fromEntries(
+    Object.entries(patch).filter(([key]) => !INTELLIGENCE_COLUMNS.has(key))
+  );
+}
+
+async function actualizarAlertaCompatible(supabase, alertaId, patch) {
+  let result = await supabase.from('alertas').update(patch).eq('id', alertaId);
+  if (
+    result.error &&
+    ['42703', 'PGRST204'].includes(result.error.code) &&
+    Object.keys(patch).some((key) => INTELLIGENCE_COLUMNS.has(key))
+  ) {
+    result = await supabase
+      .from('alertas')
+      .update(limpiarPatchIntelligence(patch))
+      .eq('id', alertaId);
+  }
+  return result;
+}
+
+function patchPreclasificacion(preclassification, classification = null) {
+  if (!preclassification) return {};
+  return {
+    pre_score: preclassification.pre_score,
+    pre_status: preclassification.pre_status,
+    pre_reasons: preclassification.pre_reasons,
+    candidate_level: preclassification.candidate_level,
+    decision_audit: {
+      version: 'alert_decision_audit_v1',
+      preclassification,
+      classification: classification ? {
+        es_relevante: Boolean(classification.es_relevante),
+        taxonomy_tags: classification.taxonomy_tags || [],
+      } : null,
+    },
+  };
+}
 
 module.exports = function alertasRoutes(app, supabase) {
 
@@ -139,33 +196,69 @@ module.exports = function alertasRoutes(app, supabase) {
         return res.json({ success: true, procesadas: 0, mensaje: 'No hay alertas pendientes de clasificar' });
       }
 
-      const {
-        resultados,
-        errores: erroresClasificacion,
-        fallbackLocal,
-      } = await clasificarConReintento(alertas);
+      const preclassifierMode = normalizarModoPreclasificador();
+      const preclasificaciones = new Map();
+      if (preclassifierMode !== PRECLASSIFIER_MODE.OFF) {
+        for (const alerta of alertas) {
+          preclasificaciones.set(String(alerta.id), preclassifyAlerta(alerta));
+        }
+      }
+
+      const descartesDuros = preclassifierMode === PRECLASSIFIER_MODE.HARD_EXCLUSIONS
+        ? alertas.filter((alerta) =>
+          preclasificaciones.get(String(alerta.id))?.candidate_level === CANDIDATE_LEVEL.DISCARD
+        )
+        : [];
+      const descartesDurosIds = new Set(descartesDuros.map((alerta) => String(alerta.id)));
+      const alertasParaClasificar = alertas.filter((alerta) => !descartesDurosIds.has(String(alerta.id)));
+
+      const classificationResult = alertasParaClasificar.length > 0
+        ? await clasificarConReintento(alertasParaClasificar)
+        : { resultados: [], errores: [], fallbackLocal: 0 };
+      const resultados = [
+        ...classificationResult.resultados,
+        ...descartesDuros.map((alerta) => clasificacionDescartada(alerta.id)),
+      ];
+      const erroresClasificacion = [
+        ...classificationResult.errores,
+        ...descartesDuros.map((alerta) => ({
+          fase: 'preclasificacion',
+          id: alerta.id,
+          motivo: 'hard_exclusion',
+        })),
+      ];
+      const fallbackLocal = classificationResult.fallbackLocal;
 
       let clasificadas = 0;
       let descartadas = 0;
       let actualizadas = 0;
       const erroresUpdate = [];
       const idsActualizados = new Set();
+      const alertasPorId = new Map(alertas.map((alerta) => [String(alerta.id), alerta]));
 
-      for (const item of resultados) {
+      for (const rawItem of resultados) {
+        const alerta = alertasPorId.get(String(rawItem.id));
+        const item = rawItem.es_relevante
+          ? normalizarClasificacionCanonica(alerta, rawItem)
+          : { ...rawItem, taxonomy_tags: [] };
         if (!item.id) continue;
+        const preclassification = preclasificaciones.get(String(item.id));
 
         if (!item.es_relevante) {
-          const { error: updError } = await supabase
-            .from('alertas')
-            .update({
+          const { error: updError } = await actualizarAlertaCompatible(
+            supabase,
+            item.id,
+            {
               estado_ia: 'descartado',
               resumen: 'NO IMPORTA',
               provincias: [],
               sectores: [],
               subsectores: [],
               tipos_alerta: [],
-            })
-            .eq('id', item.id);
+              taxonomy_tags: [],
+              ...patchPreclasificacion(preclassification, item),
+            }
+          );
           if (updError) {
             erroresUpdate.push({ id: item.id, error: updError.message });
             continue;
@@ -174,16 +267,19 @@ module.exports = function alertasRoutes(app, supabase) {
           actualizadas++;
           idsActualizados.add(String(item.id));
         } else {
-          const { error: updError } = await supabase
-            .from('alertas')
-            .update({
+          const { error: updError } = await actualizarAlertaCompatible(
+            supabase,
+            item.id,
+            {
               estado_ia: 'pendiente_resumir',
               provincias: item.provincias ?? [],
               sectores: item.sectores ?? [],
               subsectores: item.subsectores ?? [],
               tipos_alerta: item.tipos_alerta ?? [],
-            })
-            .eq('id', item.id);
+              taxonomy_tags: item.taxonomy_tags ?? [],
+              ...patchPreclasificacion(preclassification, item),
+            }
+          );
           if (updError) {
             erroresUpdate.push({ id: item.id, error: updError.message });
             continue;
@@ -200,6 +296,17 @@ module.exports = function alertasRoutes(app, supabase) {
         .filter((a) => !idsActualizados.has(String(a.id)))
         .map((a) => a.id);
 
+      for (const id of idsNoResueltos) {
+        const preclassification = preclasificaciones.get(String(id));
+        if (!preclassification) continue;
+        const { error: preError } = await actualizarAlertaCompatible(
+          supabase,
+          id,
+          patchPreclasificacion(preclassification)
+        );
+        if (preError) erroresUpdate.push({ id, fase: 'preclasificacion', error: preError.message });
+      }
+
       res.json({
         success: true,
         procesadas: alertas.length,
@@ -207,6 +314,9 @@ module.exports = function alertasRoutes(app, supabase) {
         clasificadas,
         clasificados: clasificadas,
         descartadas,
+        preclassifier_mode: preclassifierMode,
+        preclasificadas: preclasificaciones.size,
+        descartes_duros_preclasificador: descartesDuros.length,
         fallback_local: fallbackLocal,
         errores: [...erroresClasificacion, ...erroresUpdate].slice(0, 20),
         pendientes_reintento: idsNoResueltos,
@@ -714,4 +824,3 @@ Responde UNICAMENTE con la ficha final. Sin JSON, sin explicaciones, sin nada ma
   });
 
 };
-

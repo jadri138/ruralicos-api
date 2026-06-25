@@ -11,8 +11,8 @@
 //   raw_documents -> alertas -> [PRECLASIFICACION BARATA] -> IA solo si merece
 //                    la pena -> quality gate -> digest
 //
-// En este PR el modulo NO esta conectado al pipeline. Se integrara en
-// /alertas/clasificar detras del flag ALERT_PRECLASSIFIER_ENABLED, persistiendo
+// Se conecta a /alertas/clasificar mediante ALERT_PRECLASSIFIER_MODE,
+// persistiendo
 // el resultado en las columnas pre_score/pre_status/pre_reasons/candidate_level
 // (ver migracion supabase/migrations/*_add_alert_preclassification.sql).
 //
@@ -30,6 +30,19 @@ function normalizarTexto(texto) {
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
     .toLowerCase();
+}
+
+const PRECLASSIFIER_MODE = Object.freeze({
+  OFF: 'off',
+  OBSERVE: 'observe',
+  HARD_EXCLUSIONS: 'hard_exclusions',
+});
+
+function normalizarModoPreclasificador(value = process.env.ALERT_PRECLASSIFIER_MODE) {
+  const mode = String(value || PRECLASSIFIER_MODE.OFF).trim().toLowerCase();
+  return Object.values(PRECLASSIFIER_MODE).includes(mode)
+    ? mode
+    : PRECLASSIFIER_MODE.OFF;
 }
 
 function contieneAlguno(texto, palabras) {
@@ -285,6 +298,8 @@ module.exports = {
   preclassifyAlerta,
   CANDIDATE_LEVEL,
   PRE_STATUS,
+  PRECLASSIFIER_MODE,
+  normalizarModoPreclasificador,
   // Exportadas para tests/calibracion; no son parte del contrato estable.
   POSITIVE_TERMS,
   NEGATIVE_TERMS,
