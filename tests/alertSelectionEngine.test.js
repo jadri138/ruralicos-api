@@ -212,6 +212,34 @@ test('ayuda sin plazo verificable queda en revision y no se autoenvia', () => {
   assert(decision.diagnostico.policy.riesgo_de_ruido.reasons.some((reason) => reason.code === 'plazo_no_verificado'));
 });
 
+test('convocatoria general sin plazo verificado se envia sin inventar fecha limite', () => {
+  const decision = decidirAlertaParaDigest(alerta(107, {
+    fuente: 'BOE',
+    titulo: 'Extracto de la Resolucion por la que se convocan subvenciones a explotaciones agrarias de titularidad compartida',
+    provincias: [],
+    subsectores: [],
+    resumen_final: [
+      'FICHA_IA',
+      'TIPO: ayudas_subvenciones',
+      'PRIORIDAD: media',
+      'RESUMEN_DIGEST: Se convocan subvenciones por concesion directa a explotaciones agrarias de titularidad compartida.',
+      'HECHO: convocatoria de subvenciones para explotaciones agrarias',
+      'PLAZO: no_detectado',
+      'ACCION: revisar si aparece tu explotacion, expediente o plazo publicado el 2026-06-23',
+    ].join('\n'),
+    contenido: 'Extracto de la resolucion por la que se convocan subvenciones por concesion directa a explotaciones agrarias de titularidad compartida.',
+  }), user);
+
+  assert.strictEqual(decision.action, 'include');
+  assert.strictEqual(decision.incluir, true);
+  assert.strictEqual(decision.sendable, true);
+  assert.strictEqual(decision.motivo, 'incluida_sin_plazo_verificado');
+  assert.strictEqual(decision.riesgo, 'medio');
+  assert.strictEqual(decision.diagnostico.policy.signals.plazo_no_verificado, true);
+  assert.strictEqual(decision.diagnostico.policy.signals.es_convocatoria_ayuda, true);
+  assert.strictEqual(decision.diagnostico.policy.signals.es_individual, false);
+});
+
 test('usuario con preferencias incompletas queda en revision, no envio automatico', () => {
   const decision = decidirAlertaParaDigest(alerta(105), {
     subscription: 'cooperativa',

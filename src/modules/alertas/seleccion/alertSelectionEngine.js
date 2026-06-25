@@ -80,6 +80,18 @@ function textoAlerta(alerta = {}) {
   return textoFeaturesAlerta(alerta);
 }
 
+function textoAlertaSinAccionGenerica(alerta = {}) {
+  const resumenFinal = String(alerta.resumen_final || '')
+    .split(/\r?\n/g)
+    .filter((linea) => !/^\s*ACCION\s*:/i.test(linea))
+    .join('\n');
+
+  return textoFeaturesAlerta({
+    ...alerta,
+    resumen_final: resumenFinal,
+  });
+}
+
 function tieneMunicipioDeclarado(alerta = {}, user = {}) {
   const prefs = user.preferences || {};
   const municipios = [
@@ -109,22 +121,32 @@ function construirSignals(alerta = {}, calidad = {}) {
   const features = extraerFeaturesAlerta(alerta);
   const flags = Array.isArray(calidad.flags) ? calidad.flags : [];
   const texto = textoAlerta(alerta);
-  const plazoNoVerificado = /\b(sin plazo claro|sin plazo verificable|sin plazo demostrado|sin plazo demostrable|no permite confirmar plazo|no consta plazo|plazo no (consta|confirmado|verificado)|pendiente de confirmar plazo)\b/.test(texto);
+  const textoSinAccionGenerica = textoAlertaSinAccionGenerica(alerta);
+  const plazoNoVerificado = /\b(sin plazo claro|sin plazo verificable|sin plazo demostrado|sin plazo demostrable|no permite confirmar plazo|no consta plazo|plazo no (consta|confirmado|verificado)|pendiente de confirmar plazo)\b/.test(textoSinAccionGenerica) ||
+    /\bplazo\s*:\s*(no_detectado|no detectado|sin especificar|no especificado)\b/.test(textoSinAccionGenerica);
+  const tienePlazoVerificable = !plazoNoVerificado && /\b(plazo (de|para) (presentacion|solicitud|solicitudes|alegaciones|subsanacion)|hasta el|antes del|finaliza( el)?|vence( el)?|\d{1,3} dias? (habiles|naturales)|alegaciones durante)\b/.test(textoSinAccionGenerica);
+  const esConvocatoriaAyuda = /\b(se convocan|convocatoria|extracto de la resolucion|bases reguladoras|concesion directa|se aprueban? las bases)\b/.test(textoSinAccionGenerica);
+  const tieneMarcadorIndividualFuerte = /\b(expediente individual|solicitud de concesion|concesion de aguas?|aprovechamiento de aguas?|procedimiento sancionador|notificacion individual|solicitud de licencia ambiental|licencia ambiental de actividad|actividad clasificada|autorizacion de vertido|extincion de derecho|parcela concreta|titular concreto|solicitada por)\b/.test(textoSinAccionGenerica);
+  const expedienteNoGeneral = /\bexpediente\b/.test(textoSinAccionGenerica) && !esConvocatoriaAyuda;
 
   return {
     features,
     flags,
-    tiene_plazo: !plazoNoVerificado && (features.includes('concepto:plazo') || /\b(plazo|hasta el|dias habiles|alegaciones)\b/.test(texto)),
+    tiene_plazo: tienePlazoVerificable,
     plazo_no_verificado: plazoNoVerificado,
     tiene_solicitud: features.includes('accion:solicitar'),
     tiene_subsanacion: features.includes('accion:subsanar'),
     tiene_alegaciones: features.includes('accion:alegar'),
     es_ayuda: features.includes('concepto:ayuda_directa'),
+    es_convocatoria_ayuda: esConvocatoriaAyuda,
     es_pac: features.includes('concepto:pac'),
     es_agua: features.includes('concepto:agua_riego'),
     es_sanidad_animal: features.includes('concepto:sanidad_animal') || features.includes('concepto:bienestar_animal'),
     es_medio_ambiente: features.includes('concepto:medio_ambiente'),
-    es_individual: features.includes('tramite:individual') || flags.includes('expediente_individual'),
+    // La taxonomia detecta la palabra "expediente" incluso dentro de la ACCION
+    // generica que llevan muchas fichas. Ignoramos esa linea, pero conservamos
+    // marcadores fuertes de expedientes particulares en el contenido real.
+    es_individual: flags.includes('expediente_individual') || tieneMarcadorIndividualFuerte || expedienteNoGeneral,
     es_licitacion: features.includes('tramite:licitacion'),
     es_nombramiento: features.includes('tramite:nombramiento'),
     generico: /\b(revisar si aplica|revisar si afecta|determinar su aplicabilidad|publicacion oficial relevante|consulta el documento|sin extracto oficial suficiente)\b/.test(texto),
@@ -248,7 +270,14 @@ function calcularRiesgoRuido({ alerta = {}, user = {}, calidad = {}, signals = {
     });
   }
   if (signals.es_ayuda && signals.plazo_no_verificado) {
-    reasons.push({ code: 'plazo_no_verificado', level: 'alto', detail: 'Ayuda o subvencion sin plazo verificable.' });
+    const convocatoriaGeneral = signals.es_convocatoria_ayuda && !signals.es_individual && !signals.generico;
+    reasons.push({
+      code: 'plazo_no_verificado',
+      level: convocatoriaGeneral ? 'medio' : 'alto',
+      detail: convocatoriaGeneral
+        ? 'Convocatoria o bases de ayuda sin plazo verificable; puede enviarse sin afirmar fechas.'
+        : 'Ayuda o subvencion sin plazo verificable.',
+    });
   }
   if (Number(calidad.score || 0) < policy.minReviewQualityScore) {
     reasons.push({ code: 'calidad_baja', level: 'alto', detail: `Calidad ${calidad.score}.` });
@@ -370,7 +399,14 @@ function clasificarDecision({ score, blocks, signals, calidad, policy, riesgoRui
     return { action: 'exclude', motivo: riesgoRuido.reasons[0]?.code || 'riesgo_ruido_alto', riesgo: 'alto' };
   }
   if (score >= policy.minIncludeScore) {
-    return { action: 'include', motivo: 'incluida', riesgo: signals.es_individual || riesgoRuido?.nivel === 'medio' ? 'medio' : 'bajo' };
+    const incluidaSinPlazo = signals.es_ayuda &&
+      signals.es_convocatoria_ayuda &&
+      signals.plazo_no_verificado;
+    return {
+      action: 'include',
+      motivo: incluidaSinPlazo ? 'incluida_sin_plazo_verificado' : 'incluida',
+      riesgo: signals.es_individual || riesgoRuido?.nivel === 'medio' ? 'medio' : 'bajo',
+    };
   }
   if (puedeSerRevisionSegura({ score, calidad, signals, policy })) return { action: 'review_only', motivo: 'revision_segura', riesgo: 'medio' };
   return { action: 'exclude', motivo: 'score_insuficiente', riesgo: 'medio' };
@@ -448,9 +484,12 @@ function evaluarAlertaParaDigest(alerta, user, options = {}) {
         blocks: bloqueo.blocks,
         matches,
         signals: {
+          es_ayuda: signals.es_ayuda,
+          tiene_plazo: signals.tiene_plazo,
           es_individual: signals.es_individual,
           es_licitacion: signals.es_licitacion,
           es_nombramiento: signals.es_nombramiento,
+          es_convocatoria_ayuda: signals.es_convocatoria_ayuda,
           generico: signals.generico,
           plazo_no_verificado: signals.plazo_no_verificado,
           municipio_declarado: bloqueo.municipio,

@@ -118,6 +118,8 @@ const {
   guardarFactSheetsDigestShadow,
   filtrarAlertasPorValidacionFinalDigest,
   filtrarAlertasEnviablesAutomaticamente,
+  resumirSeleccionDigest,
+  resolverMotivoNoEnvioDigest,
   agruparAlertasDigest,
   obtenerNombreCortoDigest,
   construirSaludoDigest,
@@ -531,15 +533,13 @@ module.exports = function digestRoutes(app, supabase) {
             };
             console.log(`[digest:rescue] User ${user.id} (${plan.nombre}) → rescate ${rescate.tipo} con ${alertasFinales.length} alertas`);
           } else {
-            const motivoNoEnvio = totalAlertasDia === 0
-              ? 'no_habia_alertas'
-              : alertas.length === 0
-                ? 'calidad_baja'
-                : alertasUsuario.length === 0
-                  ? 'perfil_sin_coincidencias'
-                  : alertasOrdenadas.length === 0
-                    ? 'scoring_sin_candidatas'
-                    : 'sin_alertas_para_usuario';
+            const motivoNoEnvio = resolverMotivoNoEnvioDigest({
+              totalAlertasDia,
+              alertasTrasQualityGate: alertas,
+              alertasVisibles,
+              seleccionBase,
+              alertasOrdenadas,
+            });
 
             await registrarDigestAttempt(supabase, {
               userId: user.id,
@@ -556,6 +556,8 @@ module.exports = function digestRoutes(app, supabase) {
                 plan: plan.nombre,
                 rescate_enabled: DIGEST_RESCUE_ENABLED,
                 rescate_elegible: false,
+                seleccion_base: resumirSeleccionDigest(seleccionBase),
+                seleccion_final: resumirSeleccionDigest(seleccionFinal),
               },
             });
 
