@@ -55,9 +55,9 @@ Para afirmar afectacion directa, la seleccion debe tener:
 
 Tambien se acepta `match_strength: "fuerte"` o `strong_match: true`.
 
-## Integracion futura
+## Integracion
 
-La Fase 7 debe llamarlo en modo sombra desde `digest.service.js` y guardar en
+El digest lo ejecuta antes de persistir y guarda en
 `digest_items.tags_json`:
 
 - `final_validation_status`
@@ -65,4 +65,15 @@ La Fase 7 debe llamarlo en modo sombra desde `digest.service.js` y guardar en
 - `final_validation_reasons`
 - `shadow_decision`
 
-La Fase 8 podra convertir `blocked` y `review_only` en enforcement real.
+El modo efectivo se configura con `DIGEST_FINAL_VALIDATION_MODE`:
+
+- `shadow`: registra decisiones, sin suprimir alertas;
+- `critical`: bloquea solo expedientes/notificaciones/sanciones individuales,
+  ausencia de URL y afirmaciones no demostradas de plazo, importe u obligacion;
+- `enforce`: solo permite items cuyo estado final sea `send`.
+
+La variable legacy `DIGEST_FINAL_VALIDATION_ENFORCEMENT=true` equivale a
+`enforce` cuando la variable nueva no esta definida.
+
+La activacion, metricas y reversion se describen en
+`docs/intelligence-enforcement-runbook.md`.

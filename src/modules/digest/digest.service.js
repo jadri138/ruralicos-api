@@ -100,13 +100,28 @@ const DIGEST_VECTOR_BACKFILL_MIN = Math.max(
   1,
   Math.min(DIGEST_MAX_ALERTAS_USUARIO, Number(process.env.DIGEST_VECTOR_BACKFILL_MIN || 3))
 );
-// Despliegue progresivo (shadow-first): por defecto la validacion final corre en
-// modo SOMBRA (audita y registra que habria bloqueado, pero NO suprime envios).
-// El enforcement real, que puede dejar a un usuario sin digest, se activa de forma
-// explicita con DIGEST_FINAL_VALIDATION_ENFORCEMENT=true una vez medido el ratio de
-// falsos positivos sobre datos reales (ver docs/intelligence-engine-roadmap.md).
+const FINAL_VALIDATION_MODE = Object.freeze({
+  SHADOW: 'shadow',
+  CRITICAL: 'critical',
+  ENFORCE: 'enforce',
+});
+
+function resolverModoValidacionFinal({
+  mode = process.env.DIGEST_FINAL_VALIDATION_MODE,
+  legacyEnforcement = process.env.DIGEST_FINAL_VALIDATION_ENFORCEMENT,
+} = {}) {
+  const normalized = String(mode || '').trim().toLowerCase();
+  if (Object.values(FINAL_VALIDATION_MODE).includes(normalized)) return normalized;
+  return String(legacyEnforcement || 'false').trim().toLowerCase() === 'true'
+    ? FINAL_VALIDATION_MODE.ENFORCE
+    : FINAL_VALIDATION_MODE.SHADOW;
+}
+
+// Compatibilidad: el booleano sigue indicando si hay filtrado real. El modo
+// concreto decide si solo se bloquean riesgos criticos o toda la validacion.
+const DIGEST_FINAL_VALIDATION_MODE = resolverModoValidacionFinal();
 const DIGEST_FINAL_VALIDATION_ENFORCEMENT =
-  (process.env.DIGEST_FINAL_VALIDATION_ENFORCEMENT || 'false').toLowerCase() === 'true';
+  DIGEST_FINAL_VALIDATION_MODE !== FINAL_VALIDATION_MODE.SHADOW;
 
 // ─────────────────────────────────────────────
 // Gate de envio automatico (defensa en profundidad, independiente del enforcement
@@ -1290,6 +1305,7 @@ async function guardarFactSheetsDigestShadow({
   validation = null,
   organizationId = null,
   digestId = null,
+  enforcementMode = DIGEST_FINAL_VALIDATION_MODE,
   storeFactSheetFn = guardarFactSheetShadow,
 } = {}) {
   const results = [];
@@ -1313,7 +1329,7 @@ async function guardarFactSheetsDigestShadow({
       factSheet,
       organizationId,
       shadowDecision,
-      enforcementMode: 'shadow',
+      enforcementMode,
     });
     results.push({
       ...result,
@@ -1329,14 +1345,54 @@ async function guardarFactSheetsDigestShadow({
   };
 }
 
-function filtrarAlertasPorValidacionFinalDigest(alertas = [], validation = null) {
+const CRITICAL_VALIDATION_FLAGS = new Set([
+  'official_url_missing',
+  'message_url_missing',
+  'deadline_claim_without_evidence',
+  'amount_claim_without_evidence',
+  'mandatory_action_without_evidence',
+]);
+
+const CRITICAL_INDIVIDUAL_FLAGS = new Set([
+  'expediente_individual',
+  'notificacion_individual',
+  'sancion_individual',
+]);
+
+function motivosCriticosValidacionFinal(alerta = {}, itemValidation = {}) {
+  const flags = new Set([
+    ...(Array.isArray(itemValidation?.flags) ? itemValidation.flags : []),
+    ...(Array.isArray(alerta?.fact_sheet?.flags) ? alerta.fact_sheet.flags : []),
+    ...(Array.isArray(alerta?.fact_sheet_flags) ? alerta.fact_sheet_flags : []),
+  ]);
+  const critical = [...flags].filter((flag) =>
+    CRITICAL_VALIDATION_FLAGS.has(flag) || CRITICAL_INDIVIDUAL_FLAGS.has(flag)
+  );
+  const individualSignal = alerta?.decision_digest?.diagnostico?.policy?.signals?.es_individual;
+  if (individualSignal && !critical.includes('expediente_individual')) {
+    critical.push('expediente_individual');
+  }
+  return critical;
+}
+
+function filtrarAlertasPorValidacionFinalDigest(
+  alertas = [],
+  validation = null,
+  { mode = FINAL_VALIDATION_MODE.ENFORCE } = {}
+) {
+  const resolvedMode = resolverModoValidacionFinal({ mode });
   const aceptadas = [];
   const rechazadas = [];
 
   for (const [index, alerta] of (alertas || []).entries()) {
     const itemValidation = itemValidationPorAlerta(validation, alerta, index);
     const status = itemValidation?.status || alerta.final_validation_status || 'review_only';
-    if (status === 'send') {
+    const criticalReasons = motivosCriticosValidacionFinal(alerta, itemValidation);
+    const shouldReject = resolvedMode === FINAL_VALIDATION_MODE.ENFORCE
+      ? status !== 'send'
+      : resolvedMode === FINAL_VALIDATION_MODE.CRITICAL && criticalReasons.length > 0;
+
+    if (!shouldReject) {
       aceptadas.push(alerta);
     } else {
       rechazadas.push({
@@ -1344,6 +1400,7 @@ function filtrarAlertasPorValidacionFinalDigest(alertas = [], validation = null)
         status,
         flags: itemValidation?.flags || alerta.final_validation_flags || [],
         reasons: itemValidation?.reasons || alerta.final_validation_reasons || [],
+        critical_reasons: criticalReasons,
       });
     }
   }
@@ -1352,17 +1409,25 @@ function filtrarAlertasPorValidacionFinalDigest(alertas = [], validation = null)
     aceptadas,
     rechazadas,
     enforced: rechazadas.length > 0,
+    mode: resolvedMode,
     motivo_no_envio: aceptadas.length === 0
       ? rechazadas.some((item) => item.status === 'blocked')
         ? 'final_validation_blocked'
         : 'final_validation_review_only'
       : null,
     summary: {
+      mode: resolvedMode,
       input: (alertas || []).length,
       accepted: aceptadas.length,
       rejected: rechazadas.length,
       blocked: rechazadas.filter((item) => item.status === 'blocked').length,
       review_only: rechazadas.filter((item) => item.status === 'review_only').length,
+      critical_reasons: rechazadas.reduce((acc, item) => {
+        for (const reason of item.critical_reasons || []) {
+          acc[reason] = (acc[reason] || 0) + 1;
+        }
+        return acc;
+      }, {}),
     },
   };
 }
@@ -2494,7 +2559,11 @@ async function construirPreviewDigestUsuario(supabase, {
     finalValidationWarnings = shadow.warnings;
 
     if (DIGEST_FINAL_VALIDATION_ENFORCEMENT) {
-      finalValidationEnforcement = filtrarAlertasPorValidacionFinalDigest(alertasFinales, finalValidationShadow);
+      finalValidationEnforcement = filtrarAlertasPorValidacionFinalDigest(
+        alertasFinales,
+        finalValidationShadow,
+        { mode: DIGEST_FINAL_VALIDATION_MODE }
+      );
       if (finalValidationEnforcement.aceptadas.length === 0) {
         alertasFinales = [];
         mensaje = null;
@@ -2533,7 +2602,11 @@ async function construirPreviewDigestUsuario(supabase, {
         alertasFinales = enforcedShadow.alertas;
         finalValidationShadow = enforcedShadow.validation;
         finalValidationWarnings = [...finalValidationWarnings, ...enforcedShadow.warnings];
-        finalValidationEnforcement = filtrarAlertasPorValidacionFinalDigest(alertasFinales, finalValidationShadow);
+        finalValidationEnforcement = filtrarAlertasPorValidacionFinalDigest(
+          alertasFinales,
+          finalValidationShadow,
+          { mode: DIGEST_FINAL_VALIDATION_MODE }
+        );
         if (finalValidationEnforcement.aceptadas.length === 0) {
           alertasFinales = [];
           mensaje = null;
@@ -2615,7 +2688,10 @@ module.exports = {
   DIGEST_RESCUE_MAX_ALERTAS,
   DIGEST_RESCUE_MESSAGE_MAX_CHARS,
   DIGEST_VECTOR_BACKFILL_MIN,
+  FINAL_VALIDATION_MODE,
+  DIGEST_FINAL_VALIDATION_MODE,
   DIGEST_FINAL_VALIDATION_ENFORCEMENT,
+  resolverModoValidacionFinal,
   accionDecisionDigest,
   esEnvioAutomaticoPermitido,
   filtrarAlertasEnviablesAutomaticamente,
@@ -2670,6 +2746,7 @@ module.exports = {
   resumirValidacionFinalDigest,
   prepararValidacionFinalDigestShadow,
   guardarFactSheetsDigestShadow,
+  motivosCriticosValidacionFinal,
   filtrarAlertasPorValidacionFinalDigest,
   agruparAlertasDigest,
   obtenerNombreCortoDigest,

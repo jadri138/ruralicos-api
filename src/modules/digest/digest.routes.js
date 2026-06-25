@@ -76,6 +76,7 @@ const {
   DIGEST_RESCUE_MAX_ALERTAS,
   DIGEST_RESCUE_MESSAGE_MAX_CHARS,
   DIGEST_VECTOR_BACKFILL_MIN,
+  DIGEST_FINAL_VALIDATION_MODE,
   DIGEST_FINAL_VALIDATION_ENFORCEMENT,
   norm,
   intersecta,
@@ -882,7 +883,10 @@ module.exports = function digestRoutes(app, supabase) {
               stage: 'final_validation',
               digestAttemptId,
               decisions: decisionesValidacionFinal(alertasFinales, finalValidationShadow),
-              metadata: { enforcement_enabled: DIGEST_FINAL_VALIDATION_ENFORCEMENT },
+              metadata: {
+                enforcement_enabled: DIGEST_FINAL_VALIDATION_ENFORCEMENT,
+                enforcement_mode: DIGEST_FINAL_VALIDATION_MODE,
+              },
             });
             for (const warning of shadow.warnings || []) {
               errores.push({
@@ -897,6 +901,7 @@ module.exports = function digestRoutes(app, supabase) {
               alertas: alertasFinales,
               validation: finalValidationShadow,
               organizationId,
+              enforcementMode: DIGEST_FINAL_VALIDATION_MODE,
             });
             if (!initialFactSheetStore.ok) {
               errores.push({
@@ -925,7 +930,11 @@ module.exports = function digestRoutes(app, supabase) {
               continue;
             }
 
-            finalValidationEnforcement = filtrarAlertasPorValidacionFinalDigest(alertasFinales, finalValidationShadow);
+            finalValidationEnforcement = filtrarAlertasPorValidacionFinalDigest(
+              alertasFinales,
+              finalValidationShadow,
+              { mode: DIGEST_FINAL_VALIDATION_MODE }
+            );
             if (finalValidationEnforcement.aceptadas.length === 0) {
               await registrarDigestAttempt(supabase, {
                 userId: user.id,
@@ -988,6 +997,7 @@ module.exports = function digestRoutes(app, supabase) {
                 decisions: decisionesValidacionFinal(alertasFinales, finalValidationShadow),
                 metadata: {
                   enforcement_enabled: DIGEST_FINAL_VALIDATION_ENFORCEMENT,
+                  enforcement_mode: DIGEST_FINAL_VALIDATION_MODE,
                   regenerated: true,
                 },
               });
@@ -1000,7 +1010,11 @@ module.exports = function digestRoutes(app, supabase) {
                 });
               }
 
-              finalValidationEnforcement = filtrarAlertasPorValidacionFinalDigest(alertasFinales, finalValidationShadow);
+              finalValidationEnforcement = filtrarAlertasPorValidacionFinalDigest(
+                alertasFinales,
+                finalValidationShadow,
+                { mode: DIGEST_FINAL_VALIDATION_MODE }
+              );
               if (finalValidationEnforcement.aceptadas.length === 0) {
                 await registrarDigestAttempt(supabase, {
                   userId: user.id,
@@ -1178,6 +1192,7 @@ module.exports = function digestRoutes(app, supabase) {
               validation: finalValidationShadow,
               organizationId,
               digestId: digestInsertado.id,
+              enforcementMode: DIGEST_FINAL_VALIDATION_MODE,
             });
 
             if (!factSheetStore.ok) {

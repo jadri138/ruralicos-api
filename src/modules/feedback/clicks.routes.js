@@ -2,6 +2,10 @@ const crypto = require('crypto');
 const { checkCronToken } = require('../../middleware/cronToken');
 const { conOrganizationId, extraerOrganizationId } = require('../mia/organizationContext');
 
+// Un click indica curiosidad, no una preferencia declarada. Se incorpora al
+// embedding con menos peso que el feedback explicito y no actualiza tags.
+const CLICK_INTEREST_WEIGHT = 0.45;
+
 function hashIp(ip) {
   const salt = process.env.JWT_SECRET || process.env.CRON_TOKEN || 'ruralicos';
   return crypto
@@ -58,7 +62,7 @@ async function guardarMemoriaClickSiPrimero(supabase, link) {
       contenido: `Hizo click en la alerta: ${alerta?.titulo || link.url_destino}`,
       alerta_id: link.alerta_id,
       digest_id: link.digest_id,
-      peso_inicial: 0.45,
+      peso_inicial: CLICK_INTEREST_WEIGHT,
     }, extraerOrganizationId(link)));
 
   if (memoriaError) {
@@ -66,7 +70,7 @@ async function guardarMemoriaClickSiPrimero(supabase, link) {
   }
 }
 
-module.exports = function clicksRoutes(app, supabase) {
+function clicksRoutes(app, supabase) {
   const procesarTokenClick = async (req, res, tokenRaw) => {
     const token = String(tokenRaw || '').trim();
     if (!/^[a-zA-Z0-9_-]{8,80}$/.test(token)) {
@@ -181,4 +185,8 @@ module.exports = function clicksRoutes(app, supabase) {
   app.get('/a/:token', clickHandler);
   app.get('/alerta/:token', clickHandler);
   app.get('/clicks/recientes', recientesHandler);
-};
+}
+
+module.exports = clicksRoutes;
+module.exports.CLICK_INTEREST_WEIGHT = CLICK_INTEREST_WEIGHT;
+module.exports.guardarMemoriaClickSiPrimero = guardarMemoriaClickSiPrimero;
