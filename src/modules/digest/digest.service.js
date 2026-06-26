@@ -726,7 +726,7 @@ function construirTextoOriginalAlertaDigest(alerta = {}, extra = '') {
     ...(Array.isArray(alerta.provincias) ? alerta.provincias : []),
   ].filter(Boolean).join(' ');
 }
-
+22
 function limpiarRuidoInstitucionalAguaDigest(texto = '') {
   return norm(texto || '')
     .replace(/\bconsejeria de agricultura,\s*pesca,\s*agua y desarrollo rural\b/g, 'consejeria de agricultura pesca desarrollo rural')
