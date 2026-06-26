@@ -252,8 +252,8 @@ const TAXONOMIA_RURALICOS = [
     id: 'tramite:nombramiento',
     label: 'Nombramiento',
     featureTag: 'tramite:nombramiento',
-    featureRegex: /\b(nombramiento|nombramientos|cese|ceses|designacion|toma de posesion|vocal|vocales|cargo)\b/,
-    aliases: ['nombramiento', 'nombramientos', 'cese', 'designacion', 'toma de posesion', 'vocal', 'vocales', 'cargo'],
+    featureRegex: /\b(nombramiento|nombramientos|se nombra|cese|ceses|designacion|toma de posesion|vocal|vocales|cargo publico|cargo administrativo)\b/,
+    aliases: ['nombramiento', 'nombramientos', 'se nombra', 'cese', 'designacion', 'toma de posesion', 'vocal', 'vocales', 'cargo publico', 'cargo administrativo'],
   },
   {
     id: 'tramite:licitacion',
