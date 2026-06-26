@@ -274,6 +274,7 @@ test('ayuda autonomica andaluza sin provincia explicita entra para agricultor an
     contenido: [
       'Se convocan ayudas dirigidas al apoyo a la prestacion de servicios de asesoramiento especifico en sanidad y bienestar animal.',
       'La intervencion forma parte del Plan Estrategico de la PAC y esta financiada por FEADER.',
+      'La financiacion se realiza con cargo a los fondos FEADER y al presupuesto de la Junta de Andalucia.',
       'Podran estar vinculadas a agricultores, ganaderos y titulares de explotaciones agrarias de Andalucia segun la convocatoria.',
     ].join(' '),
   }), agricultorAndaluz);
@@ -285,6 +286,7 @@ test('ayuda autonomica andaluza sin provincia explicita entra para agricultor an
   assert.strictEqual(decision.diagnostico.policy.matches.sector_expreso, true);
   assert.strictEqual(decision.diagnostico.policy.matches.tipo_expreso, true);
   assert.strictEqual(decision.diagnostico.policy.signals.es_individual, false);
+  assert.strictEqual(decision.diagnostico.policy.signals.es_nombramiento, false);
 });
 
 test('notificacion individual de ayuda no se relaja como convocatoria general', () => {
