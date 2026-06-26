@@ -53,6 +53,39 @@ function tiposCompatibles(tiposUserActivos = [], tiposAlerta = [], alerta = {}) 
   });
 }
 
+function textoRelevanteAlerta(alerta = {}) {
+  return norm([
+    alerta.titulo,
+    alerta.resumen,
+    alerta.resumen_final,
+    alerta.contenido,
+    ...(Array.isArray(alerta.tipos_alerta) ? alerta.tipos_alerta : []),
+    ...(Array.isArray(alerta.sectores) ? alerta.sectores : []),
+    ...(Array.isArray(alerta.subsectores) ? alerta.subsectores : []),
+  ].filter(Boolean).join(' '));
+}
+
+function esConvocatoriaAyudaGeneral(alerta = {}) {
+  const texto = textoRelevanteAlerta(alerta);
+  const tipos = listaCanonica(alerta.tipos_alerta, canonicalTipoAlerta);
+  const featureTags = featureTagsAlerta(alerta);
+
+  const esAyuda = tipos.includes('ayudas_subvenciones') ||
+    featureTags.includes('concepto:ayuda_directa') ||
+    /\b(ayudas?|subvencion(?:es)?|convocatoria|bases reguladoras|pac|fega|feader|feaga)\b/.test(texto);
+
+  const esConvocatoriaAmplia = /\b(se convocan|convocatoria|extracto de la resolucion|bases reguladoras|se aprueban? las bases|intervencion|plan estrategico de la pac|politica agraria comun)\b/.test(texto);
+  const destinatarioAgrarioAmplio = /\b(agricultor(?:es|as)?|ganader(?:o|a|os|as)|explotaciones? agrarias?|explotaciones? ganaderas?|titulares de explotaciones|beneficiari(?:o|a|os|as)|servicios de asesoramiento|asesoramiento especifico|pac|feader|feaga)\b/.test(texto);
+  const marcadorIndividual = /\b(notificacion individual|procedimiento sancionador|expediente individual|solicitud de concesion|concesion de aguas?|aprovechamiento de aguas?|solicitada por|titular concreto|parcela concreta|pago indebido|reintegro)\b/.test(texto) ||
+    (/\bexpediente\b/.test(texto) && !esConvocatoriaAmplia);
+
+  return esAyuda && (esConvocatoriaAmplia || destinatarioAgrarioAmplio) && !marcadorIndividual;
+}
+
+function usuarioAceptaAyudasGenerales(tiposUserActivos = []) {
+  return tiposUserActivos.length === 0 || tiposUserActivos.includes('ayudas_subvenciones');
+}
+
 const PROVINCIAS_POR_FUENTE = {
   BOE: ['nacional'],
   FEGA: ['nacional'],
@@ -271,12 +304,18 @@ function diagnosticarAlertaUsuario(alerta, user, options = {}) {
   const sectoresUserNorm = listaCanonica(prefs.sectores, canonicalSector);
   const subsectoresUserNorm = listaCanonica(prefs.subsectores, canonicalSubsector);
   const tiposUser = prefs.tipos_alerta || {};
+  const tiposUserActivos = Object.entries(tiposUser)
+    .filter(([_, v]) => v === true)
+    .map(([k]) => canonicalTipoAlerta(k))
+    .filter(Boolean);
 
   const provinciasANorm = provinciasDerivadasAlerta(alerta);
   const alertaNacional = esAlertaNacional(alerta, provinciasANorm);
   const sectoresANorm = listaCanonica(alerta.sectores, canonicalSector);
   const subsectoresANorm = listaCanonica(alerta.subsectores, canonicalSubsector);
   const tiposANorm = listaCanonica(alerta.tipos_alerta, canonicalTipoAlerta);
+  const ayudaGeneralConInteresUsuario = esConvocatoriaAyudaGeneral(alerta) &&
+    usuarioAceptaAyudasGenerales(tiposUserActivos);
 
   const okProvincia =
     provinciasUserNorm.length === 0 ||
@@ -310,15 +349,11 @@ function diagnosticarAlertaUsuario(alerta, user, options = {}) {
   const okSubsector =
     subsectoresUserNorm.length === 0 ||
     subsectoresANorm.length === 0 ||
-    intersecta(subsectoresUserNorm, subsectoresANorm);
+    intersecta(subsectoresUserNorm, subsectoresANorm) ||
+    (ayudaGeneralConInteresUsuario && okSector);
   if (!okSubsector) {
     return { ok: false, motivo: 'subsector_no_coincide', detalle: { usuario: subsectoresUserNorm, alerta: subsectoresANorm } };
   }
-
-  const tiposUserActivos = Object.entries(tiposUser)
-    .filter(([_, v]) => v === true)
-    .map(([k]) => canonicalTipoAlerta(k))
-    .filter(Boolean);
 
   if (!tiposCompatibles(tiposUserActivos, tiposANorm, alerta)) {
     return { ok: false, motivo: 'tipo_alerta_no_coincide', detalle: { usuario: tiposUserActivos, alerta: tiposANorm } };
@@ -331,4 +366,12 @@ function alertaCoincideConUsuario(alerta, user, options = {}) {
   return diagnosticarAlertaUsuario(alerta, user, options).ok;
 }
 
-module.exports = { alertaCoincideConUsuario, diagnosticarAlertaUsuario, norm, intersecta };
+module.exports = {
+  alertaCoincideConUsuario,
+  diagnosticarAlertaUsuario,
+  esAlertaNacional,
+  esConvocatoriaAyudaGeneral,
+  intersecta,
+  norm,
+  provinciasDerivadasAlerta,
+};

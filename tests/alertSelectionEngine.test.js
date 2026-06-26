@@ -240,6 +240,89 @@ test('convocatoria general sin plazo verificado se envia sin inventar fecha limi
   assert.strictEqual(decision.diagnostico.policy.signals.es_individual, false);
 });
 
+test('ayuda autonomica andaluza sin provincia explicita entra para agricultor andaluz', () => {
+  const agricultorAndaluz = {
+    subscription: 'cooperativa',
+    preferences: {
+      provincias: ['Cordoba'],
+      sectores: ['agricultura'],
+      subsectores: ['olivar'],
+      tipos_alerta: {
+        ayudas_subvenciones: true,
+      },
+    },
+  };
+
+  const decision = decidirAlertaParaDigest(alerta(12431, {
+    fuente: 'BOJA',
+    titulo: 'Resolucion por la que se convocan ayudas dirigidas al apoyo a la prestacion de servicios de asesoramiento',
+    region: 'Andalucia',
+    provincias: [],
+    sectores: ['mixto'],
+    subsectores: ['ovino', 'vacuno', 'caprino', 'porcino', 'avicultura', 'vinedo', 'agua', 'medio_ambiente'],
+    tipos_alerta: ['ayudas_subvenciones'],
+    resumen_final: [
+      'FICHA_IA',
+      'TIPO: ayudas_subvenciones',
+      'PRIORIDAD: media',
+      'RESUMEN_DIGEST: Se convocan ayudas para apoyar servicios de asesoramiento vinculados a explotaciones agrarias y ganaderas en Andalucia.',
+      'HECHO: convocatoria de ayudas para servicios de asesoramiento agrario',
+      'BENEFICIARIOS: agricultores, ganaderos y titulares de explotaciones que cumplan la convocatoria',
+      'PLAZO: no_detectado',
+      'ACCION: revisar la publicacion oficial para comprobar requisitos y plazo',
+    ].join('\n'),
+    contenido: [
+      'Se convocan ayudas dirigidas al apoyo a la prestacion de servicios de asesoramiento especifico en sanidad y bienestar animal.',
+      'La intervencion forma parte del Plan Estrategico de la PAC y esta financiada por FEADER.',
+      'Podran estar vinculadas a agricultores, ganaderos y titulares de explotaciones agrarias de Andalucia segun la convocatoria.',
+    ].join(' '),
+  }), agricultorAndaluz);
+
+  assert.strictEqual(decision.action, 'include');
+  assert.strictEqual(decision.incluir, true);
+  assert.strictEqual(decision.motivo, 'incluida_sin_plazo_verificado');
+  assert.strictEqual(decision.diagnostico.policy.matches.provincia_expresa, true);
+  assert.strictEqual(decision.diagnostico.policy.matches.sector_expreso, true);
+  assert.strictEqual(decision.diagnostico.policy.matches.tipo_expreso, true);
+  assert.strictEqual(decision.diagnostico.policy.signals.es_individual, false);
+});
+
+test('notificacion individual de ayuda no se relaja como convocatoria general', () => {
+  const agricultorAndaluz = {
+    subscription: 'cooperativa',
+    preferences: {
+      provincias: ['Cordoba'],
+      sectores: ['agricultura'],
+      subsectores: ['olivar'],
+      tipos_alerta: {
+        ayudas_subvenciones: true,
+      },
+    },
+  };
+
+  const decision = decidirAlertaParaDigest(alerta(12452, {
+    fuente: 'BOJA',
+    titulo: 'Notificacion individual en expediente de ayudas ganaderas',
+    region: 'Andalucia',
+    provincias: [],
+    sectores: ['ganaderia'],
+    subsectores: ['vacuno'],
+    tipos_alerta: ['ayudas_subvenciones'],
+    resumen_final: [
+      'FICHA_IA',
+      'TIPO: ayudas_subvenciones',
+      'PRIORIDAD: media',
+      'RESUMEN_DIGEST: Notificacion individual de un expediente de ayudas.',
+      'HECHO: expediente individual de ayuda',
+      'ACCION: revisar si eres titular del expediente',
+    ].join('\n'),
+    contenido: 'Notificacion individual en expediente de ayudas ganaderas solicitada por un titular concreto.',
+  }), agricultorAndaluz);
+
+  assert.strictEqual(decision.incluir, false);
+  assert(['sector_no_coincide', 'subsector_no_coincide', 'expediente_individual_sin_municipio'].includes(decision.motivo));
+});
+
 test('usuario con preferencias incompletas queda en revision, no envio automatico', () => {
   const decision = decidirAlertaParaDigest(alerta(105), {
     subscription: 'cooperativa',

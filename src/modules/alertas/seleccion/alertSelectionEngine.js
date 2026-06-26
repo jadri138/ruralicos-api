@@ -1,4 +1,8 @@
-const { diagnosticarAlertaUsuario } = require('./alertaMatcher');
+const {
+  diagnosticarAlertaUsuario,
+  esAlertaNacional,
+  provinciasDerivadasAlerta,
+} = require('./alertaMatcher');
 const { evaluarCalidadAlerta } = require('../../mia/alertQuality');
 const { extraerFeaturesAlerta, textoAlerta: textoFeaturesAlerta } = require('../../aprendizaje/alertFeatures');
 const { clasificarPrioridadAlerta, pesoPrioridad } = require('../../aprendizaje/alertPriority');
@@ -67,6 +71,13 @@ const MARCADORES_NACIONALES = new Set(['nacional', 'espana', 'españa', 'estatal
 
 function intersecta(a = [], b = []) {
   return a.some((item) => b.includes(item));
+}
+
+function sectoresCompatiblesDeclarados(sectoresUser = [], sectoresAlerta = []) {
+  if (intersecta(sectoresUser, sectoresAlerta)) return true;
+  const agrarios = ['agricultura', 'ganaderia'];
+  return (sectoresUser.includes('mixto') && intersecta(agrarios, sectoresAlerta)) ||
+    (sectoresAlerta.includes('mixto') && intersecta(agrarios, sectoresUser));
 }
 
 function tiposActivosUsuario(user = {}) {
@@ -159,18 +170,20 @@ function coincidenciasDeclaradas(alerta = {}, user = {}) {
   const sectoresUser = lista(prefs.sectores, canonicalSector);
   const subsectoresUser = lista(prefs.subsectores, canonicalSubsector);
   const tiposUser = tiposActivosUsuario(user);
-  const provinciasAlerta = lista(alerta.provincias);
+  const provinciasAlerta = provinciasDerivadasAlerta(alerta);
   const sectoresAlerta = lista(alerta.sectores, canonicalSector);
   const subsectoresAlerta = lista(alerta.subsectores, canonicalSubsector);
   const tiposAlerta = lista(alerta.tipos_alerta, canonicalTipoAlerta);
-  const alertaNacional = provinciasAlerta.some((provincia) => MARCADORES_NACIONALES.has(provincia));
+  const alertaNacional = esAlertaNacional(alerta, provinciasAlerta) ||
+    provinciasAlerta.some((provincia) => MARCADORES_NACIONALES.has(provincia));
+  const sectorDeclaradoCompatible = sectoresCompatiblesDeclarados(sectoresUser, sectoresAlerta);
 
   return {
     provincia: provinciasUser.length === 0 || alertaNacional || intersecta(provinciasUser, provinciasAlerta),
     provincia_expresa: provinciasUser.length > 0 && !alertaNacional && intersecta(provinciasUser, provinciasAlerta),
     provincia_nacional: alertaNacional,
-    sector: sectoresUser.length === 0 || sectoresAlerta.length === 0 || intersecta(sectoresUser, sectoresAlerta),
-    sector_expreso: sectoresUser.length > 0 && sectoresAlerta.length > 0 && intersecta(sectoresUser, sectoresAlerta),
+    sector: sectoresUser.length === 0 || sectoresAlerta.length === 0 || sectorDeclaradoCompatible,
+    sector_expreso: sectoresUser.length > 0 && sectoresAlerta.length > 0 && sectorDeclaradoCompatible,
     subsector: subsectoresUser.length === 0 || subsectoresAlerta.length === 0 || intersecta(subsectoresUser, subsectoresAlerta),
     subsector_expreso: subsectoresUser.length > 0 && subsectoresAlerta.length > 0 && intersecta(subsectoresUser, subsectoresAlerta),
     tipo: tiposUser.length === 0 || tiposAlerta.length === 0 || intersecta(tiposUser, tiposAlerta),
