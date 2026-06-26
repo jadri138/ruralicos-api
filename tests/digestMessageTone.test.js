@@ -117,5 +117,48 @@ assert(mensajeAyudaNatural.includes('Si la tuya está inscrita en el registro de
 assert(!mensajeAyudaNatural.includes('URGENTE -'), 'No exagera urgencia cuando el plazo no esta verificado');
 assert(!mensajeAyudaNatural.includes('Tienes *1 alerta* relevante hoy'), 'Elimina la entradilla mecanica del fallback');
 
+const alertaBOJAAyudaAsesoramiento = {
+  id: 12431,
+  titulo: 'Resolucion de 16 de junio de 2026 por la que se convocan ayudas dirigidas al apoyo a la prestacion de servicios de asesoramiento en sanidad y bienestar animal',
+  resumen_final: 'FICHA_IA TIPO: ayudas_subvenciones HECHO: Se convocan para el ejercicio 2026 ayudas dirigidas al apoyo a la prestacion de servicios de asesoramiento especifico en sanidad y bienestar animal. OBJETO: La Consejeria de Agricultura, Pesca, Agua y Desarrollo Rural publica la convocatoria.',
+  contenido: 'La Consejeria de Agricultura, Pesca, Agua y Desarrollo Rural establecio las bases reguladoras aplicables.',
+  tipos_alerta: ['ayudas_subvenciones', 'agua_infraestructuras', 'fiscalidad', 'medio_ambiente'],
+  sectores: ['mixto'],
+  subsectores: ['ovino', 'vacuno', 'caprino', 'porcino', 'avicultura', 'agua'],
+  url: 'https://boja.example/12431',
+};
+
+const alertaBOJAAyudaGenetica = {
+  id: 12432,
+  titulo: 'Resolucion de 22 de junio de 2026 por la que se convocan subvenciones dirigidas al apoyo de actividades de conservacion de los recursos geneticos en la ganaderia',
+  resumen_final: 'FICHA_IA TIPO: ayudas_subvenciones HECHO: Se convocan para el ejercicio 2026 subvenciones dirigidas al apoyo de actividades de conservacion de los recursos geneticos en la ganaderia. DETALLE: La Consejeria de Agricultura, Pesca, Agua y Desarrollo Rural aprueba la convocatoria para la concesion de ayudas de la Union a agricultores.',
+  tipos_alerta: ['ayudas_subvenciones', 'normativa_general'],
+  sectores: ['ganaderia'],
+  subsectores: ['vacuno', 'ovino', 'caprino'],
+  url: 'https://boja.example/12432',
+};
+
+const grupoAyudaAsesoramiento = grupoDigestAlerta(alertaBOJAAyudaAsesoramiento);
+assert(grupoAyudaAsesoramiento.key === 'ayudas', 'Agrupa como Ayudas una convocatoria aunque tenga agua_infraestructuras secundaria');
+assert(construirTituloFacilDigest(alertaBOJAAyudaAsesoramiento) === 'Ayudas para asesoramiento ganadero', 'Titula la ayuda de asesoramiento como convocatoria ganadera');
+const resumenAyudaAsesoramiento = construirResumenFacilDigest(alertaBOJAAyudaAsesoramiento, 320);
+assert(/Convocan ayudas para servicios de asesoramiento ganadero/i.test(resumenAyudaAsesoramiento), 'Resume la ayuda de asesoramiento como convocatoria');
+assert(!/ya tramitada|listado del expediente|concesi[oÃ³]n de aguas/i.test(resumenAyudaAsesoramiento), 'No convierte la convocatoria de asesoramiento en expediente ya tramitado');
+
+const grupoAyudaGenetica = grupoDigestAlerta(alertaBOJAAyudaGenetica);
+assert(grupoAyudaGenetica.key === 'ayudas', 'Agrupa como Ayudas una convocatoria aunque mencione Agua por el nombre de la Consejeria');
+assert(construirTituloFacilDigest(alertaBOJAAyudaGenetica) === 'Ayudas para conservación genética ganadera', 'Titula la ayuda de recursos geneticos como convocatoria ganadera');
+const accionAyudaGenetica = construirAccionRescate(alertaBOJAAyudaGenetica, 'directo');
+assert(!/listado|aparec/i.test(accionAyudaGenetica), 'No sugiere aparecer en listados cuando es una convocatoria nueva');
+
+const mensajeBOJAAyudas = generarMensajeDigestFallback({
+  user: { nombre: 'Antonio', subscription: 'agricultor' },
+  alertas: [alertaBOJAAyudaAsesoramiento, alertaBOJAAyudaGenetica],
+  fecha: '2026-06-26',
+});
+assert(mensajeBOJAAyudas.includes('*Ayudas*'), 'El digest final coloca estas convocatorias bajo Ayudas');
+assert(!mensajeBOJAAyudas.includes('*Agua y riego*'), 'El digest final no crea grupo Agua y riego por ruido institucional');
+assert(!/ayuda ya tramitada|listado del expediente/i.test(mensajeBOJAAyudas), 'El digest final no usa lenguaje de concesion ya tramitada para convocatorias');
+
 console.log(`\nResultados: ${passed} aprobados, ${failed} fallidos`);
 process.exit(failed > 0 ? 1 : 0);
