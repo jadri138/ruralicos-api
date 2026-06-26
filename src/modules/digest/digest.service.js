@@ -727,8 +727,34 @@ function construirTextoOriginalAlertaDigest(alerta = {}, extra = '') {
   ].filter(Boolean).join(' ');
 }
 
+function limpiarRuidoInstitucionalAguaDigest(texto = '') {
+  return norm(texto || '')
+    .replace(/\bconsejeria de agricultura,\s*pesca,\s*agua y desarrollo rural\b/g, 'consejeria de agricultura pesca desarrollo rural')
+    .replace(/\bagricultura,\s*pesca,\s*agua y desarrollo rural\b/g, 'agricultura pesca desarrollo rural');
+}
+
 function esAguaRiegoDigest(texto) {
-  return /\baguas?\b|\baguas?\s+subterraneas?\b|riego|regadio|regantes|hidrografica|concesion.*\baguas?\b|aprovechamiento.*\baguas?\b/i.test(texto || '');
+  const limpio = limpiarRuidoInstitucionalAguaDigest(texto);
+  return /\baguas?\s+(subterraneas?|superficiales?|regeneradas?|depuradas?)\b|riego|regadio|regantes|hidrografica|concesion.*\baguas?\b|aprovechamiento.*\baguas?\b|comunidades? de regantes/i.test(limpio);
+}
+
+function esConvocatoriaAyudaDigest(texto = '') {
+  const limpio = norm(texto || '');
+  return /\b(se convocan|convocatoria|convocan para|se aprueba.*convocatoria|extracto.*convocatoria)\b/.test(limpio) &&
+    /\b(ayudas?|subvencion(?:es)?|pac|fega|feader|feaga)\b/.test(limpio);
+}
+
+function esAyudaSubvencionDigest(texto = '', tipos = []) {
+  return tipos.includes('ayudas_subvenciones') ||
+    /\b(ayudas?|subvencion(?:es)?|pac|fega|feader|feaga|de minimis|convocatoria|concesion directa)\b/.test(texto);
+}
+
+function esConcesionAyudaYaTramitadaDigest(texto = '') {
+  const limpio = norm(texto || '');
+  if (esConvocatoriaAyudaDigest(limpio) || /\bconcesion directa\b/.test(limpio)) return false;
+  const tieneAyuda = /\b(ayudas?|subvencion(?:es)?|pac|fega|feader|feaga)\b/.test(limpio);
+  return /tramite administrativo.*concesion|resolucion.*concesion.*(ayudas?|subvencion(?:es)?)|concesion.*(ayudas?|subvencion(?:es)?)|conceden.*(ayudas?|subvencion(?:es)?)/.test(limpio) ||
+    (tieneAyuda && /relacion.*beneficiarios|listado.*(beneficiarios|expediente)/.test(limpio));
 }
 
 function extraerLocalizacionDigest(alerta = {}, extra = '') {
@@ -758,12 +784,19 @@ function extraerLocalizacionDigest(alerta = {}, extra = '') {
 function construirTituloFacilDigest(alerta = {}, max = 120) {
   const texto = construirTextoAlertaDigest(alerta);
   const localizacion = extraerLocalizacionDigest(alerta);
+  const convocatoriaAyuda = esConvocatoriaAyudaDigest(texto);
 
   if (/titularidad compartida/.test(texto)) {
     return 'Ayuda para explotaciones de titularidad compartida';
   }
   if (/asociaciones? de criadores/.test(texto)) {
     return 'Ayudas para asociaciones de criadores';
+  }
+  if (convocatoriaAyuda && /asesoramiento.*(sanidad|bienestar animal)|servicios de asesoramiento/.test(texto)) {
+    return 'Ayudas para asesoramiento ganadero';
+  }
+  if (convocatoriaAyuda && /recursos geneticos|conservacion.*ganaderia|razas ganaderas?/.test(texto)) {
+    return 'Ayudas para conservación genética ganadera';
   }
   if (/ganaderia extensiva|ganadero extensivo|aprovechamiento ganadero extensivo/.test(texto)) {
     return 'Ayudas para ganadería extensiva';
@@ -777,8 +810,11 @@ function construirTituloFacilDigest(alerta = {}, max = 120) {
   if (/\b(convocatoria|se convocan|subvenciones?|ayudas?)\b/.test(texto) && /explotaciones? agrarias?/.test(texto)) {
     return 'Ayudas para explotaciones agrarias';
   }
-  if (/tramite administrativo.*concesion|concesion.*ayudas|conceden.*ayudas/.test(texto)) {
+  if (esConcesionAyudaYaTramitadaDigest(texto)) {
     return 'Ayudas: trámite de concesión o listado del expediente';
+  }
+  if (convocatoriaAyuda) {
+    return 'Convocatoria de ayudas rurales';
   }
   if (/modifica.*orden|modificacion.*orden|se modifica/.test(texto)) {
     return 'Cambio en una orden o ayuda agraria';
@@ -809,7 +845,16 @@ function construirResumenPorPatronDigest(alerta = {}, raw = '') {
   const texto = construirTextoAlertaDigest(alerta, raw);
   const localizacion = extraerLocalizacionDigest(alerta, raw);
 
-  if (/tramite administrativo.*concesion|concesion.*ayudas|conceden.*ayudas/.test(texto)) {
+  if (esConvocatoriaAyudaDigest(texto)) {
+    if (/asesoramiento.*(sanidad|bienestar animal)|servicios de asesoramiento/.test(texto)) {
+      return 'Convocan ayudas para servicios de asesoramiento ganadero. Revisa beneficiarios, requisitos y plazo en la publicación oficial antes de solicitarla.';
+    }
+    if (/recursos geneticos|conservacion.*ganaderia|razas ganaderas?/.test(texto)) {
+      return 'Convocan subvenciones para conservar recursos genéticos ganaderos. Revisa beneficiarios, requisitos y plazo en la publicación oficial antes de solicitarla.';
+    }
+    return 'Convocan una ayuda o subvención. Revisa beneficiarios, requisitos y plazo en la publicación oficial antes de solicitarla.';
+  }
+  if (esConcesionAyudaYaTramitadaDigest(texto)) {
     return 'Es un paso de una ayuda ya tramitada: publican información sobre la concesión. Te interesa sobre todo si pediste esa ayuda o puedes aparecer en el expediente.';
   }
   if (/modifica.*orden|modificacion.*orden|se modifica/.test(texto)) {
@@ -865,15 +910,16 @@ function construirResumenFacilDigest(alerta = {}, max = 260) {
 function grupoDigestAlerta(alerta = {}) {
   const texto = construirTextoAlertaDigest(alerta);
   const tipos = Array.isArray(alerta.tipos_alerta) ? alerta.tipos_alerta.map(norm) : [];
+  const esAyuda = esAyudaSubvencionDigest(texto, tipos);
 
+  if (esAyuda) {
+    return { key: 'ayudas', label: 'Ayudas', order: 10 };
+  }
   if (tipos.includes('agua_infraestructuras') || esAguaRiegoDigest(texto)) {
     return { key: 'agua_riego', label: 'Agua y riego', order: 30 };
   }
   if (/curso|formacion|jornada|seminario|webinar|inscripcion.*curso/.test(texto) || tipos.includes('formacion')) {
     return { key: 'cursos', label: 'Cursos y jornadas', order: 20 };
-  }
-  if (tipos.includes('ayudas_subvenciones') || /ayuda|subvencion|pac|fega|de minimis|convocatoria|concesion directa/.test(texto)) {
-    return { key: 'ayudas', label: 'Ayudas', order: 10 };
   }
   if (tipos.includes('fiscalidad') || /irpf|iva|modulos|impuesto|fiscal/.test(texto)) {
     return { key: 'fiscalidad', label: 'Fiscalidad', order: 40 };
@@ -1637,7 +1683,10 @@ function construirAccionRescate(alerta = {}, tipo = 'suave') {
   ].filter(Boolean).join(' '));
   const localizacion = extraerLocalizacionDigest(alerta);
 
-  if (/tramite administrativo.*concesion|concesion.*ayudas|conceden.*ayudas/.test(bolsa)) {
+  if (esConvocatoriaAyudaDigest(bolsa)) {
+    return 'Si encaja con tu explotación o entidad, abre la convocatoria oficial para preparar la solicitud.';
+  }
+  if (esConcesionAyudaYaTramitadaDigest(bolsa)) {
     return 'Comprueba si tú o tu explotación aparecéis en el listado, anexo o expediente.';
   }
   if (/modifica.*orden|modificacion.*orden|se modifica/.test(bolsa)) {
