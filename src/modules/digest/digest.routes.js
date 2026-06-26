@@ -446,7 +446,12 @@ module.exports = function digestRoutes(app, supabase) {
         const digestExistente = digestsPorUsuario.get(user.id);
         const plan = getPlan(user.subscription);
 
-        if (digestExistente && (!force || digestExistente.enviado)) {
+        if (digestExistente?.enviado) {
+          saltados++;
+          continue;
+        }
+
+        if (digestExistente && !force) {
           await registrarDigestAttempt(supabase, {
             userId: user.id,
             fecha: hoy,
