@@ -102,5 +102,42 @@ test('no convierte no_detectado en un plazo verificado', () => {
   assert.notStrictEqual(sheet.beneficiarios.valor, 'no_detectado');
 });
 
+test('no convierte la fecha del titulo en plazo verificado', () => {
+  const sheet = construirFactSheetAlertaSync({
+    id: 6,
+    titulo: 'Resolucion de 16 de junio de 2026 por la que se convocan ayudas para explotaciones agrarias',
+    contenido: 'Se convocan ayudas para explotaciones agrarias. Beneficiarios: titulares de explotaciones agrarias.',
+    resumen_final: [
+      'FICHA_IA',
+      'TIPO: ayudas_subvenciones',
+      'RESUMEN_DIGEST: Se convocan ayudas para explotaciones agrarias.',
+      'PLAZO: Resolucion de 16 de junio de 2026 por la que se convocan ayudas para explotaciones agrarias',
+    ].join('\n'),
+    provincias: [],
+    sectores: ['agricultura'],
+    tipos_alerta: ['ayudas_subvenciones'],
+    url: 'https://www.boe.es/ejemplo-fecha-titulo',
+  });
+
+  assert.strictEqual(sheet.plazo.valor, null);
+  assert.strictEqual(sheet.plazo.status, 'no_verificado');
+});
+
+test('extrae un plazo real cuando el texto oficial dice que finaliza en una fecha', () => {
+  const sheet = construirFactSheetAlertaSync({
+    id: 7,
+    titulo: 'Ayudas ICO-MAPA-SAECA por sequia',
+    contenido: 'Se convocan ayudas para explotaciones agrarias y ganaderas. El plazo de presentacion de solicitudes finalizara el 30 de septiembre de 2028.',
+    resumen_final: 'FICHA_IA\nTIPO: ayudas_subvenciones\nRESUMEN_DIGEST: Ayudas ICO-MAPA-SAECA por sequia.',
+    provincias: [],
+    sectores: ['agricultura', 'ganaderia'],
+    tipos_alerta: ['ayudas_subvenciones'],
+    url: 'https://www.boe.es/ejemplo-plazo-real',
+  });
+
+  assert.strictEqual(sheet.plazo.status, 'verified');
+  assert(/30 de septiembre de 2028/i.test(sheet.plazo.valor || sheet.plazo.evidencia || ''), 'deberia conservar la fecha de fin real');
+});
+
 console.log(`\nResultados factSheetBuilder: ${passed} aprobados, ${failed} fallidos`);
 if (failed > 0) process.exit(1);

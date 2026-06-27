@@ -160,5 +160,44 @@ assert(mensajeBOJAAyudas.includes('*Ayudas*'), 'El digest final coloca estas con
 assert(!mensajeBOJAAyudas.includes('*Agua y riego*'), 'El digest final no crea grupo Agua y riego por ruido institucional');
 assert(!/ayuda ya tramitada|listado del expediente/i.test(mensajeBOJAAyudas), 'El digest final no usa lenguaje de concesion ya tramitada para convocatorias');
 
+const alertaIcoMapaSaeca = {
+  id: 12570,
+  titulo: 'Extracto de la Resolucion por la que se convocan ayudas ICO-MAPA-SAECA por sequia',
+  resumen_final: [
+    'FICHA_IA',
+    'TIPO: ayudas_subvenciones',
+    'RESUMEN_DIGEST: Se convocan ayudas ICO-MAPA-SAECA por sequia para explotaciones agrarias, ganaderas y cooperativas.',
+    'BENEFICIARIOS: explotaciones agrarias, explotaciones ganaderas y cooperativas agrarias',
+    'PLAZO: el plazo finalizara el 30 de septiembre de 2028',
+    'ACCION: revisar requisitos y preparar solicitud',
+  ].join('\n'),
+  contenido: 'Linea ICO-MAPA-SAECA por perdida de rentabilidad derivada de la sequia. Beneficiarios: explotaciones agrarias, explotaciones inscritas en el Registro General de Explotaciones Ganaderas y cooperativas agrarias.',
+  tipos_alerta: ['ayudas_subvenciones'],
+  sectores: ['agricultura'],
+  taxonomy_tags: ['sector:ganaderia'],
+  url: 'https://boe.example/12570',
+};
+
+assert(grupoDigestAlerta(alertaIcoMapaSaeca).key === 'ayudas', 'Agrupa ICO-MAPA-SAECA como Ayudas');
+assert(construirTituloFacilDigest(alertaIcoMapaSaeca) === 'Ayudas ICO-MAPA-SAECA por sequía', 'Titula ICO-MAPA-SAECA sin reducirla solo a ganaderia');
+const resumenIcoMapaSaeca = construirResumenFacilDigest(alertaIcoMapaSaeca, 320);
+assert(/explotaciones agrarias, ganaderas y cooperativas/i.test(resumenIcoMapaSaeca), 'Resume ICO-MAPA-SAECA como agraria, ganadera y cooperativa');
+const accionIcoMapaSaeca = construirAccionRescate(alertaIcoMapaSaeca, 'directo');
+assert(/ICO-MAPA-SAECA/i.test(accionIcoMapaSaeca), 'La accion ICO-MAPA-SAECA apunta a la linea correcta');
+
+const alertaSAT = {
+  id: 12565,
+  titulo: 'Resolucion por la que se disuelve la Sociedad Agraria de Transformacion numero 8577 Llanos del Almendro',
+  resumen_final: 'FICHA_IA TIPO: normativa_general RESUMEN_DIGEST: Se publica la disolucion de una Sociedad Agraria de Transformacion concreta.',
+  contenido: 'Registro General de Sociedades Agrarias de Transformacion. Se disuelve la Sociedad Agraria de Transformacion numero 8577 y se abre el proceso de liquidacion.',
+  tipos_alerta: ['normativa_general'],
+  sectores: ['agricultura'],
+  url: 'https://dogc.example/12565',
+};
+
+const grupoSAT = grupoDigestAlerta(alertaSAT);
+assert(grupoSAT.key === 'normativa', 'No confunde Transformacion con Formacion al agrupar una SAT');
+assert(grupoSAT.key !== 'cursos', 'La SAT no cae en Cursos y jornadas por substring');
+
 console.log(`\nResultados: ${passed} aprobados, ${failed} fallidos`);
 process.exit(failed > 0 ? 1 : 0);

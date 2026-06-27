@@ -285,27 +285,46 @@ function extraerAccion(blocks = []) {
   return campoDesdeBloque(labelValue || compactarTexto(block.sentence, 220), block, 0.74);
 }
 
+const MESES_PLAZO = '(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)';
+const FECHA_LITERAL_PLAZO = `\\d{1,2}\\s+de\\s+${MESES_PLAZO}(?:\\s+de\\s+\\d{4})?`;
+const PATRONES_PLAZO_VERIFICABLE = [
+  new RegExp(`\\b(hasta|antes\\s+del?|finaliza(?:ra)?|vence|vencera|termina|concluye|expira)\\s+(?:el\\s+)?${FECHA_LITERAL_PLAZO}\\b`, 'i'),
+  new RegExp(`\\bplazo\\b.{0,140}\\b(finaliza(?:ra)?|vence|vencera|termina|concluye|expira|hasta|antes\\s+del?)\\b.{0,80}${FECHA_LITERAL_PLAZO}\\b`, 'i'),
+  /\bplazo\b.{0,120}\b\d{1,3}\s+dias?\s+(habiles|naturales)\b/i,
+  /\b\d{1,3}\s+dias?\s+(habiles|naturales)\b.{0,80}\b(desde|a partir de|contados? desde|siguientes? a)\b/i,
+  /\balegaciones?\s+(durante|por)\s+\d{1,3}\s+dias?\b/i,
+  /\bdentro del plazo de\s+\d{1,3}\s+dias?\b/i,
+  /\bplazo de presentacion\b.{0,140}\b(solicitudes?|alegaciones?|subsanacion)\b/i,
+];
+
+function tienePlazoVerificable(sentence = '') {
+  const texto = normalizarTexto(sentence);
+  if (!texto) return false;
+  return PATRONES_PLAZO_VERIFICABLE.some((pattern) => pattern.test(texto));
+}
+
+function tienePlazoEtiquetadoVerificable(value = '') {
+  const texto = normalizarTexto(value);
+  if (!texto) return false;
+  return tienePlazoVerificable(texto) || /^\d{1,3}\s+dias?$/.test(texto);
+}
+
 function extraerPlazo(blocks = []) {
   const negativePattern = /\b(no\s+(aparece|consta|hay|permite confirmar)|sin)\s+(un\s+)?plazo\b|\bplazo\s+(no\s+)?claro\b/i;
 
   for (const block of blocks) {
     if (negativePattern.test(block.sentence)) continue;
     const labelValue = extraerValorEtiqueta(block.sentence, 'PLAZO');
-    if (valorNoGenerico(labelValue)) return campoDesdeBloque(labelValue, block, 0.84);
+    if (valorNoGenerico(labelValue) && tienePlazoEtiquetadoVerificable(labelValue)) {
+      return campoDesdeBloque(labelValue, block, 0.84);
+    }
   }
 
   const block = blocks.find((item) => {
     if (negativePattern.test(item.sentence)) return false;
     const labeled = extraerValorEtiqueta(item.sentence, 'PLAZO');
-    if (labeled && !valorNoGenerico(labeled)) return false;
-    return Boolean(buscarEvidencia([item], [
-      /\bplazo\b/i,
-      /\bhasta el\b/i,
-      /\bfinaliza\b/i,
-      /\b\d{1,2}\s+dias?\s+(habiles|naturales)?\b/i,
-      /\balegaciones?\s+durante\b/i,
-      /\b\d{1,2}\s+de\s+[a-z]+(\s+de\s+\d{4})?\b/i,
-    ]));
+    if (labeled) return valorNoGenerico(labeled) && tienePlazoEtiquetadoVerificable(labeled);
+    return tienePlazoVerificable(item.sentence);
   });
 
   return campoDesdeBloque(block ? compactarTexto(block.sentence, 220) : null, block, 0.76);

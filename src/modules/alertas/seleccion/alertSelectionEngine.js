@@ -2,6 +2,9 @@ const {
   diagnosticarAlertaUsuario,
   esAlertaNacional,
   provinciasDerivadasAlerta,
+  sectoresDerivadosAlerta,
+  subsectoresDerivadosAlerta,
+  tiposDerivadosAlerta,
 } = require('./alertaMatcher');
 const { evaluarCalidadAlerta } = require('../../mia/alertQuality');
 const { extraerFeaturesAlerta, textoAlerta: textoFeaturesAlerta } = require('../../aprendizaje/alertFeatures');
@@ -138,6 +141,8 @@ function construirSignals(alerta = {}, calidad = {}) {
   const tienePlazoVerificable = !plazoNoVerificado && /\b(plazo (de|para) (presentacion|solicitud|solicitudes|alegaciones|subsanacion)|hasta el|antes del|finaliza( el)?|vence( el)?|\d{1,3} dias? (habiles|naturales)|alegaciones durante)\b/.test(textoSinAccionGenerica);
   const esConvocatoriaAyuda = /\b(se convocan|convocatoria|extracto de la resolucion|bases reguladoras|concesion directa|se aprueban? las bases)\b/.test(textoSinAccionGenerica);
   const tieneMarcadorIndividualFuerte = /\b(expediente individual|solicitud de concesion|concesion de aguas?|aprovechamiento de aguas?|procedimiento sancionador|notificacion individual|solicitud de licencia ambiental|licencia ambiental de actividad|actividad clasificada|autorizacion de vertido|extincion de derecho|parcela concreta|titular concreto|solicitada por)\b/.test(textoSinAccionGenerica);
+  const tieneSociedadAgrariaIndividual = /\b(sociedad agraria de transformacion|registro general de sociedades agrarias de transformacion|sat\s*(?:n|num|numero|n\.)?)\b/.test(textoSinAccionGenerica) &&
+    /\b(disolucion|disuelve|disuelta|liquidacion|liquida|cancelacion|baja|concurso voluntario|juzgado de lo mercantil|mercantil)\b/.test(textoSinAccionGenerica);
   const expedienteNoGeneral = /\bexpediente\b/.test(textoSinAccionGenerica) && !esConvocatoriaAyuda;
 
   return {
@@ -157,7 +162,7 @@ function construirSignals(alerta = {}, calidad = {}) {
     // La taxonomia detecta la palabra "expediente" incluso dentro de la ACCION
     // generica que llevan muchas fichas. Ignoramos esa linea, pero conservamos
     // marcadores fuertes de expedientes particulares en el contenido real.
-    es_individual: flags.includes('expediente_individual') || tieneMarcadorIndividualFuerte || expedienteNoGeneral,
+    es_individual: flags.includes('expediente_individual') || tieneMarcadorIndividualFuerte || tieneSociedadAgrariaIndividual || expedienteNoGeneral,
     es_licitacion: features.includes('tramite:licitacion'),
     es_nombramiento: features.includes('tramite:nombramiento'),
     generico: /\b(revisar si aplica|revisar si afecta|determinar su aplicabilidad|publicacion oficial relevante|consulta el documento|sin extracto oficial suficiente)\b/.test(texto),
@@ -171,9 +176,9 @@ function coincidenciasDeclaradas(alerta = {}, user = {}) {
   const subsectoresUser = lista(prefs.subsectores, canonicalSubsector);
   const tiposUser = tiposActivosUsuario(user);
   const provinciasAlerta = provinciasDerivadasAlerta(alerta);
-  const sectoresAlerta = lista(alerta.sectores, canonicalSector);
-  const subsectoresAlerta = lista(alerta.subsectores, canonicalSubsector);
-  const tiposAlerta = lista(alerta.tipos_alerta, canonicalTipoAlerta);
+  const sectoresAlerta = sectoresDerivadosAlerta(alerta);
+  const subsectoresAlerta = subsectoresDerivadosAlerta(alerta);
+  const tiposAlerta = tiposDerivadosAlerta(alerta);
   const alertaNacional = esAlertaNacional(alerta, provinciasAlerta) ||
     provinciasAlerta.some((provincia) => MARCADORES_NACIONALES.has(provincia));
   const sectorDeclaradoCompatible = sectoresCompatiblesDeclarados(sectoresUser, sectoresAlerta);
@@ -266,9 +271,9 @@ function aplicarBloqueosDuros({ base, calidad, signals, exclusion, matches, user
 
 function calcularRiesgoRuido({ alerta = {}, user = {}, calidad = {}, signals = {}, matches = {}, bloqueo = {}, policy = {} }) {
   const reasons = [];
-  const tiposAlerta = lista(alerta.tipos_alerta, canonicalTipoAlerta);
-  const sectoresAlerta = lista(alerta.sectores, canonicalSector);
-  const subsectoresAlerta = lista(alerta.subsectores, canonicalSubsector);
+  const tiposAlerta = tiposDerivadosAlerta(alerta);
+  const sectoresAlerta = sectoresDerivadosAlerta(alerta);
+  const subsectoresAlerta = subsectoresDerivadosAlerta(alerta);
   const factSheet = calidad?.metadata?.fact_sheet || {};
 
   if (signals.generico) reasons.push({ code: 'resumen_generico', level: 'alto', detail: 'Resumen generico o poco accionable.' });
@@ -524,7 +529,7 @@ function evaluarAlertaParaDigest(alerta, user, options = {}) {
 }
 
 function tipoPrincipal(alerta = {}) {
-  const tipos = lista(alerta.tipos_alerta, canonicalTipoAlerta);
+  const tipos = tiposDerivadosAlerta(alerta);
   return tipos[0] || 'sin_tipo';
 }
 

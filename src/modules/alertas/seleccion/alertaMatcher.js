@@ -28,6 +28,45 @@ function listaCanonica(value, canonicalizer) {
     : [];
 }
 
+function dedupe(values = []) {
+  return [...new Set((values || []).filter(Boolean))];
+}
+
+function taxonomyTagsAlerta(alerta = {}) {
+  return Array.isArray(alerta.taxonomy_tags)
+    ? alerta.taxonomy_tags.map(norm).filter(Boolean)
+    : [];
+}
+
+function valoresTaxonomiaPorPrefijo(alerta = {}, prefijo = '', canonicalizer = norm) {
+  const prefix = norm(prefijo);
+  return taxonomyTagsAlerta(alerta)
+    .filter((tag) => tag.startsWith(prefix))
+    .map((tag) => canonicalizer(tag.slice(prefix.length)))
+    .filter(Boolean);
+}
+
+function sectoresDerivadosAlerta(alerta = {}) {
+  return dedupe([
+    ...listaCanonica(alerta.sectores, canonicalSector),
+    ...valoresTaxonomiaPorPrefijo(alerta, 'sector:', canonicalSector),
+  ]);
+}
+
+function subsectoresDerivadosAlerta(alerta = {}) {
+  return dedupe([
+    ...listaCanonica(alerta.subsectores, canonicalSubsector),
+    ...valoresTaxonomiaPorPrefijo(alerta, 'subsector:', canonicalSubsector),
+  ]);
+}
+
+function tiposDerivadosAlerta(alerta = {}) {
+  return dedupe([
+    ...listaCanonica(alerta.tipos_alerta, canonicalTipoAlerta),
+    ...valoresTaxonomiaPorPrefijo(alerta, 'tipo:', canonicalTipoAlerta),
+  ]);
+}
+
 function featureTagsAlerta(alerta = {}) {
   const texto = [
     alerta.titulo,
@@ -37,6 +76,7 @@ function featureTagsAlerta(alerta = {}) {
     ...(Array.isArray(alerta.sectores) ? alerta.sectores : []),
     ...(Array.isArray(alerta.subsectores) ? alerta.subsectores : []),
     ...(Array.isArray(alerta.tipos_alerta) ? alerta.tipos_alerta : []),
+    ...taxonomyTagsAlerta(alerta),
   ].filter(Boolean).join(' ');
 
   return extraerFeatureTagsDeTexto(texto);
@@ -62,12 +102,13 @@ function textoRelevanteAlerta(alerta = {}) {
     ...(Array.isArray(alerta.tipos_alerta) ? alerta.tipos_alerta : []),
     ...(Array.isArray(alerta.sectores) ? alerta.sectores : []),
     ...(Array.isArray(alerta.subsectores) ? alerta.subsectores : []),
+    ...taxonomyTagsAlerta(alerta),
   ].filter(Boolean).join(' '));
 }
 
 function esConvocatoriaAyudaGeneral(alerta = {}) {
   const texto = textoRelevanteAlerta(alerta);
-  const tipos = listaCanonica(alerta.tipos_alerta, canonicalTipoAlerta);
+  const tipos = tiposDerivadosAlerta(alerta);
   const featureTags = featureTagsAlerta(alerta);
 
   const esAyuda = tipos.includes('ayudas_subvenciones') ||
@@ -311,9 +352,9 @@ function diagnosticarAlertaUsuario(alerta, user, options = {}) {
 
   const provinciasANorm = provinciasDerivadasAlerta(alerta);
   const alertaNacional = esAlertaNacional(alerta, provinciasANorm);
-  const sectoresANorm = listaCanonica(alerta.sectores, canonicalSector);
-  const subsectoresANorm = listaCanonica(alerta.subsectores, canonicalSubsector);
-  const tiposANorm = listaCanonica(alerta.tipos_alerta, canonicalTipoAlerta);
+  const sectoresANorm = sectoresDerivadosAlerta(alerta);
+  const subsectoresANorm = subsectoresDerivadosAlerta(alerta);
+  const tiposANorm = tiposDerivadosAlerta(alerta);
   const ayudaGeneralConInteresUsuario = esConvocatoriaAyudaGeneral(alerta) &&
     usuarioAceptaAyudasGenerales(tiposUserActivos);
 
@@ -374,4 +415,8 @@ module.exports = {
   intersecta,
   norm,
   provinciasDerivadasAlerta,
+  sectoresDerivadosAlerta,
+  subsectoresDerivadosAlerta,
+  taxonomyTagsAlerta,
+  tiposDerivadosAlerta,
 };
