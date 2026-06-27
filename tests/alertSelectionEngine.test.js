@@ -325,6 +325,90 @@ test('notificacion individual de ayuda no se relaja como convocatoria general', 
   assert(['sector_no_coincide', 'subsector_no_coincide', 'expediente_individual_sin_municipio'].includes(decision.motivo));
 });
 
+test('taxonomy_tags amplian sectores para ayuda BOE ICO-MAPA-SAECA ganadera', () => {
+  const ganaderoAndaluz = {
+    subscription: 'cooperativa',
+    preferences: {
+      provincias: ['Cordoba'],
+      sectores: ['ganaderia'],
+      subsectores: [],
+      tipos_alerta: {
+        ayudas_subvenciones: true,
+      },
+    },
+  };
+
+  const decision = decidirAlertaParaDigest(alerta(12570, {
+    fuente: 'BOE',
+    titulo: 'Extracto de la Resolucion por la que se convocan ayudas ICO-MAPA-SAECA por sequia',
+    provincias: ['nacional'],
+    sectores: ['agricultura'],
+    subsectores: [],
+    tipos_alerta: ['ayudas_subvenciones'],
+    taxonomy_tags: ['sector:ganaderia', 'tipo:ayudas_subvenciones'],
+    resumen_final: [
+      'FICHA_IA',
+      'TIPO: ayudas_subvenciones',
+      'PRIORIDAD: media',
+      'RESUMEN_DIGEST: Se convocan ayudas de la linea ICO-MAPA-SAECA por sequia para explotaciones agrarias, ganaderas y cooperativas.',
+      'HECHO: convocatoria de ayudas ICO-MAPA-SAECA',
+      'BENEFICIARIOS: titulares de explotaciones agrarias y ganaderas',
+      'PLAZO: el plazo finalizara el 30 de septiembre de 2028',
+      'ACCION: revisar requisitos y preparar solicitud',
+    ].join('\n'),
+    contenido: [
+      'Se convocan ayudas de la linea ICO-MAPA-SAECA por la perdida de rentabilidad derivada de la sequia.',
+      'Podran ser beneficiarias las explotaciones inscritas en el Registro General de Explotaciones Ganaderas, explotaciones agrarias y cooperativas agrarias.',
+      'El plazo de presentacion finalizara el 30 de septiembre de 2028.',
+    ].join(' '),
+  }), ganaderoAndaluz);
+
+  assert.strictEqual(decision.action, 'include');
+  assert.strictEqual(decision.incluir, true);
+  assert.strictEqual(decision.diagnostico.policy.matches.sector, true);
+  assert.strictEqual(decision.diagnostico.policy.matches.sector_expreso, true);
+  assert.strictEqual(decision.diagnostico.policy.matches.tipo_expreso, true);
+});
+
+test('disolucion de Sociedad Agraria de Transformacion queda fuera como expediente individual', () => {
+  const usuarioTarragona = {
+    subscription: 'cooperativa',
+    preferences: {
+      provincias: ['Tarragona'],
+      sectores: ['agricultura'],
+      subsectores: [],
+      tipos_alerta: {
+        normativa_general: true,
+      },
+    },
+  };
+
+  const decision = decidirAlertaParaDigest(alerta(12565, {
+    fuente: 'DOGC',
+    titulo: 'Resolucion por la que se disuelve la Sociedad Agraria de Transformacion numero 8577 Llanos del Almendro',
+    provincias: ['Tarragona'],
+    sectores: ['agricultura'],
+    subsectores: [],
+    tipos_alerta: ['normativa_general'],
+    resumen_final: [
+      'FICHA_IA',
+      'TIPO: normativa_general',
+      'PRIORIDAD: baja',
+      'RESUMEN_DIGEST: Se publica la disolucion de una Sociedad Agraria de Transformacion concreta.',
+      'HECHO: disolucion de la SAT numero 8577',
+      'ACCION: revisar solo si eres parte interesada en esa sociedad',
+    ].join('\n'),
+    contenido: [
+      'Registro General de Sociedades Agrarias de Transformacion.',
+      'Se disuelve la Sociedad Agraria de Transformacion numero 8577 Llanos del Almendro y se abre su proceso de liquidacion.',
+    ].join(' '),
+  }), usuarioTarragona);
+
+  assert.strictEqual(decision.incluir, false);
+  assert.strictEqual(decision.motivo, 'expediente_individual_sin_municipio');
+  assert.strictEqual(decision.diagnostico.policy.signals.es_individual, true);
+});
+
 test('usuario con preferencias incompletas queda en revision, no envio automatico', () => {
   const decision = decidirAlertaParaDigest(alerta(105), {
     subscription: 'cooperativa',

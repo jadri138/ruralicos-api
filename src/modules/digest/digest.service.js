@@ -713,6 +713,7 @@ function construirTextoAlertaDigest(alerta = {}, extra = '') {
     ...(Array.isArray(alerta.tipos_alerta) ? alerta.tipos_alerta : []),
     ...(Array.isArray(alerta.sectores) ? alerta.sectores : []),
     ...(Array.isArray(alerta.subsectores) ? alerta.subsectores : []),
+    ...(Array.isArray(alerta.taxonomy_tags) ? alerta.taxonomy_tags : []),
   ].filter(Boolean).join(' '));
 }
 
@@ -742,6 +743,13 @@ function esConvocatoriaAyudaDigest(texto = '') {
   const limpio = norm(texto || '');
   return /\b(se convocan|convocatoria|convocan para|se aprueba.*convocatoria|extracto.*convocatoria)\b/.test(limpio) &&
     /\b(ayudas?|subvencion(?:es)?|pac|fega|feader|feaga)\b/.test(limpio);
+}
+
+function esAyudaIcoMapaSaecaSequiaDigest(texto = '') {
+  const limpio = norm(texto || '');
+  const linea = /\b(ico[-\s]?mapa[-\s]?saeca|ico[-\s]?mapa|mapa[-\s]?saeca|saeca|real decreto[- ]ley 4\/2022)\b/.test(limpio);
+  const causa = /\b(sequia|perdida de rentabilidad|explotaciones? agrarias?|explotaciones? ganaderas?|cooperativas? agrarias?)\b/.test(limpio);
+  return linea && causa;
 }
 
 function esAyudaSubvencionDigest(texto = '', tipos = []) {
@@ -798,6 +806,9 @@ function construirTituloFacilDigest(alerta = {}, max = 120) {
   if (convocatoriaAyuda && /recursos geneticos|conservacion.*ganaderia|razas ganaderas?/.test(texto)) {
     return 'Ayudas para conservación genética ganadera';
   }
+  if (convocatoriaAyuda && esAyudaIcoMapaSaecaSequiaDigest(texto)) {
+    return 'Ayudas ICO-MAPA-SAECA por sequía';
+  }
   if (/ganaderia extensiva|ganadero extensivo|aprovechamiento ganadero extensivo/.test(texto)) {
     return 'Ayudas para ganadería extensiva';
   }
@@ -846,6 +857,9 @@ function construirResumenPorPatronDigest(alerta = {}, raw = '') {
   const localizacion = extraerLocalizacionDigest(alerta, raw);
 
   if (esConvocatoriaAyudaDigest(texto)) {
+    if (esAyudaIcoMapaSaecaSequiaDigest(texto)) {
+      return 'Convocan ayudas ICO-MAPA-SAECA por sequía para explotaciones agrarias, ganaderas y cooperativas. Revisa beneficiarios, requisitos y plazo en la publicación oficial antes de solicitarla.';
+    }
     if (/asesoramiento.*(sanidad|bienestar animal)|servicios de asesoramiento/.test(texto)) {
       return 'Convocan ayudas para servicios de asesoramiento ganadero. Revisa beneficiarios, requisitos y plazo en la publicación oficial antes de solicitarla.';
     }
@@ -918,10 +932,10 @@ function grupoDigestAlerta(alerta = {}) {
   if (tipos.includes('agua_infraestructuras') || esAguaRiegoDigest(texto)) {
     return { key: 'agua_riego', label: 'Agua y riego', order: 30 };
   }
-  if (/curso|formacion|jornada|seminario|webinar|inscripcion.*curso/.test(texto) || tipos.includes('formacion')) {
+  if (/\b(cursos?|formacion|jornadas?|seminario|webinar)\b|\binscripcion\b.*\bcurso\b/.test(texto) || tipos.includes('formacion')) {
     return { key: 'cursos', label: 'Cursos y jornadas', order: 20 };
   }
-  if (tipos.includes('fiscalidad') || /irpf|iva|modulos|impuesto|fiscal/.test(texto)) {
+  if (tipos.includes('fiscalidad') || /\b(irpf|iva|modulos?|impuestos?|fiscalidad|fiscal)\b/.test(texto)) {
     return { key: 'fiscalidad', label: 'Fiscalidad', order: 40 };
   }
   if (tipos.includes('medio_ambiente') || /medio ambiente|ambiental|residuo|vertido|forestal|incendio/.test(texto)) {
@@ -1665,11 +1679,17 @@ function construirAccionRescate(alerta = {}, tipo = 'suave') {
   const signals = alerta.decision_digest?.diagnostico?.policy?.signals || {};
   if (signals.es_ayuda && signals.plazo_no_verificado) {
     const texto = construirTextoAlertaDigest(alerta);
+    if (esAyudaIcoMapaSaecaSequiaDigest(texto)) {
+      return 'Comprueba si tu explotación o cooperativa cumple los requisitos de la línea ICO-MAPA-SAECA.';
+    }
     const inscritaEnRegistro = /\binscrit[ao]s?\b.*\bregistro\b|\bregistro\b.*\binscrit[ao]s?\b/.test(texto);
     if (/titularidad compartida/.test(texto) && inscritaEnRegistro) {
       return 'Si la tuya está inscrita en el registro del Ministerio, puedes comprobar los requisitos en la convocatoria.';
     }
     return 'Comprueba los requisitos y si puedes solicitarla en la convocatoria oficial.';
+  }
+  if (esAyudaIcoMapaSaecaSequiaDigest(construirTextoAlertaDigest(alerta))) {
+    return 'Comprueba si tu explotación o cooperativa cumple los requisitos de la línea ICO-MAPA-SAECA.';
   }
   if (campoDigestUtil(ficha.accion)) return naturalizarAccionDigest(ficha.accion);
   if (campoDigestUtil(ficha.plazo)) return `Revisa el plazo y comprueba si encaja con tu explotación: ${limpiarLineaDigest(ficha.plazo, 160)}`;
@@ -1678,11 +1698,16 @@ function construirAccionRescate(alerta = {}, tipo = 'suave') {
     alerta.titulo,
     alerta.resumen_final,
     alerta.resumen,
+    alerta.contenido,
     ...(Array.isArray(alerta.tipos_alerta) ? alerta.tipos_alerta : []),
     ...(Array.isArray(alerta.sectores) ? alerta.sectores : []),
+    ...(Array.isArray(alerta.taxonomy_tags) ? alerta.taxonomy_tags : []),
   ].filter(Boolean).join(' '));
   const localizacion = extraerLocalizacionDigest(alerta);
 
+  if (esAyudaIcoMapaSaecaSequiaDigest(bolsa)) {
+    return 'Comprueba si tu explotación o cooperativa cumple los requisitos de la línea ICO-MAPA-SAECA.';
+  }
   if (esConvocatoriaAyudaDigest(bolsa)) {
     return 'Si encaja con tu explotación o entidad, abre la convocatoria oficial para preparar la solicitud.';
   }
