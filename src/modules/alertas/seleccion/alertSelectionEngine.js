@@ -106,6 +106,98 @@ function textoAlertaSinAccionGenerica(alerta = {}) {
   });
 }
 
+function clasificarIntencionOperativa({ texto = '', features = [], plazoNoVerificado = false, tienePlazoVerificable = false, esConvocatoriaAyuda = false } = {}) {
+  const reasons = [];
+  const tieneSolicitud = features.includes('accion:solicitar');
+  const tieneSubsanacion = features.includes('accion:subsanar');
+  const tieneAlegaciones = features.includes('accion:alegar');
+  const tieneJustificacion = features.includes('accion:justificar');
+  const tieneDeclaracion = features.includes('accion:declarar');
+  const tieneRecurso = features.includes('accion:recurrir');
+  const esLicitacion = features.includes('tramite:licitacion');
+  const esNombramiento = features.includes('tramite:nombramiento');
+
+  const esObligacionOperativa = /\b(debera[n]?|obligacion(?:es)?|requisito(?:s)? obligatorio(?:s)?|nueva obligacion|medidas obligatorias|declaracion obligatoria|comunicacion obligatoria|inscripcion obligatoria|prohibicion|restriccion(?:es)? de movimiento|plan sanitario|programa sanitario)\b/.test(texto);
+  const esResolucionExPost = /\b(resolucion definitiva|resolucion de concesion|concesion de subvenciones|relacion de beneficiarios|beneficiarios definitivos|pago de la ayuda|se ordena el pago|abono de la ayuda|pago compensatorio|lista definitiva|se publica la relacion)\b/.test(texto) &&
+    !/\b(se convocan|convocatoria|solicitud|presentar solicitud|subsanacion|recurso de alzada|recurso de reposicion|alegaciones|justificacion|cuenta justificativa)\b/.test(texto);
+  const esSancionControl = /\b(procedimiento sancionador|sancion|sanciones|multa|reintegro|control sobre el terreno|inspeccion|incumplimiento|penalizacion|perdida del derecho al cobro)\b/.test(texto);
+  const esInformativaPura = /\b(se informa|publicacion informativa|informe anual|estadistica|memoria anual|extracto estadistico|anuncio informativo)\b/.test(texto) &&
+    !tieneSolicitud && !tieneSubsanacion && !tieneAlegaciones && !tieneJustificacion && !tieneRecurso && !esObligacionOperativa;
+
+  let fase = 'informativa';
+  let valor = 'medio';
+  let accionabilidad = 'media';
+
+  if (esLicitacion || esNombramiento) {
+    fase = esLicitacion ? 'licitacion' : 'nombramiento';
+    valor = 'bajo';
+    accionabilidad = 'baja';
+    reasons.push(esLicitacion ? 'licitacion' : 'nombramiento');
+  } else if (esSancionControl) {
+    fase = 'control_sancion';
+    valor = 'bajo';
+    accionabilidad = 'baja';
+    reasons.push('control_sancion');
+  } else if (esResolucionExPost) {
+    fase = 'resolucion_pago';
+    valor = 'bajo';
+    accionabilidad = 'baja';
+    reasons.push('resolucion_ex_post');
+  } else if (tieneSubsanacion) {
+    fase = 'subsanacion';
+    valor = 'alto';
+    accionabilidad = 'alta';
+    reasons.push('subsanacion');
+  } else if (tieneJustificacion) {
+    fase = 'justificacion';
+    valor = 'alto';
+    accionabilidad = 'alta';
+    reasons.push('justificacion');
+  } else if (tieneRecurso) {
+    fase = 'recurso';
+    valor = 'medio';
+    accionabilidad = 'media';
+    reasons.push('recurso');
+  } else if (tieneAlegaciones) {
+    fase = 'alegaciones';
+    valor = 'medio';
+    accionabilidad = 'media';
+    reasons.push('alegaciones');
+  } else if (esConvocatoriaAyuda || tieneSolicitud) {
+    fase = 'convocatoria_solicitud';
+    valor = plazoNoVerificado ? 'medio' : 'alto';
+    accionabilidad = tienePlazoVerificable || tieneSolicitud ? 'alta' : 'media';
+    reasons.push(esConvocatoriaAyuda ? 'convocatoria' : 'solicitud');
+  } else if (tieneDeclaracion || esObligacionOperativa) {
+    fase = 'obligacion_tramite';
+    valor = 'alto';
+    accionabilidad = 'alta';
+    reasons.push(tieneDeclaracion ? 'declaracion' : 'obligacion');
+  } else if (esInformativaPura) {
+    fase = 'informativa_pura';
+    valor = 'bajo';
+    accionabilidad = 'baja';
+    reasons.push('informativa_pura');
+  }
+
+  if (tienePlazoVerificable && valor !== 'bajo') {
+    accionabilidad = 'alta';
+    reasons.push('plazo_verificable');
+  }
+
+  return {
+    fase,
+    valor,
+    accionabilidad,
+    bajo_valor: valor === 'bajo',
+    es_obligacion_operativa: esObligacionOperativa,
+    es_resolucion_ex_post: esResolucionExPost,
+    es_sancion_control: esSancionControl,
+    es_informativa_pura: esInformativaPura,
+    reasons: [...new Set(reasons)],
+  };
+}
+
 function tieneMunicipioDeclarado(alerta = {}, user = {}) {
   const prefs = user.preferences || {};
   const municipios = [
@@ -144,15 +236,26 @@ function construirSignals(alerta = {}, calidad = {}) {
   const tieneSociedadAgrariaIndividual = /\b(sociedad agraria de transformacion|registro general de sociedades agrarias de transformacion|sat\s*(?:n|num|numero|n\.)?)\b/.test(textoSinAccionGenerica) &&
     /\b(disolucion|disuelve|disuelta|liquidacion|liquida|cancelacion|baja|concurso voluntario|juzgado de lo mercantil|mercantil)\b/.test(textoSinAccionGenerica);
   const expedienteNoGeneral = /\bexpediente\b/.test(textoSinAccionGenerica) && !esConvocatoriaAyuda;
+  const intencion = clasificarIntencionOperativa({
+    texto: textoSinAccionGenerica,
+    features,
+    plazoNoVerificado,
+    tienePlazoVerificable,
+    esConvocatoriaAyuda,
+  });
 
   return {
     features,
     flags,
+    intencion,
     tiene_plazo: tienePlazoVerificable,
     plazo_no_verificado: plazoNoVerificado,
     tiene_solicitud: features.includes('accion:solicitar'),
     tiene_subsanacion: features.includes('accion:subsanar'),
     tiene_alegaciones: features.includes('accion:alegar'),
+    tiene_justificacion: features.includes('accion:justificar'),
+    tiene_declaracion: features.includes('accion:declarar'),
+    tiene_recurso: features.includes('accion:recurrir'),
     es_ayuda: features.includes('concepto:ayuda_directa'),
     es_convocatoria_ayuda: esConvocatoriaAyuda,
     es_pac: features.includes('concepto:pac'),
@@ -162,7 +265,7 @@ function construirSignals(alerta = {}, calidad = {}) {
     // La taxonomia detecta la palabra "expediente" incluso dentro de la ACCION
     // generica que llevan muchas fichas. Ignoramos esa linea, pero conservamos
     // marcadores fuertes de expedientes particulares en el contenido real.
-    es_individual: flags.includes('expediente_individual') || tieneMarcadorIndividualFuerte || tieneSociedadAgrariaIndividual || expedienteNoGeneral,
+    es_individual: flags.includes('expediente_individual') || tieneMarcadorIndividualFuerte || tieneSociedadAgrariaIndividual || expedienteNoGeneral || intencion.es_sancion_control,
     es_licitacion: features.includes('tramite:licitacion'),
     es_nombramiento: features.includes('tramite:nombramiento'),
     generico: /\b(revisar si aplica|revisar si afecta|determinar su aplicabilidad|publicacion oficial relevante|consulta el documento|sin extracto oficial suficiente)\b/.test(texto),
@@ -278,6 +381,13 @@ function calcularRiesgoRuido({ alerta = {}, user = {}, calidad = {}, signals = {
 
   if (signals.generico) reasons.push({ code: 'resumen_generico', level: 'alto', detail: 'Resumen generico o poco accionable.' });
   if (signals.es_licitacion) reasons.push({ code: 'posible_licitacion', level: 'alto', detail: 'Posible licitacion o contrato.' });
+  if (signals.intencion?.bajo_valor) {
+    reasons.push({
+      code: `intencion_${signals.intencion.fase}`,
+      level: 'alto',
+      detail: `Intencion operativa de bajo valor: ${signals.intencion.fase}.`,
+    });
+  }
   if (signals.es_individual && !bloqueo.municipio) {
     reasons.push({
       code: bloqueo.interesProvincial ? 'expediente_individual_revision' : 'expediente_individual_sin_municipio',
@@ -349,7 +459,13 @@ function calcularScore({ alerta, base, calidad, signals, matches, municipio, int
   if (signals.tiene_solicitud && signals.tiene_plazo) score = sumar(score, reasons, 12, 'accion_con_plazo', 'Tiene accion y plazo claros.');
   else if (signals.tiene_solicitud || signals.tiene_plazo) score = sumar(score, reasons, 7, 'accion_o_plazo', 'Tiene accion o plazo detectable.');
   if (signals.tiene_subsanacion) score = sumar(score, reasons, 8, 'subsanacion', 'Requerimiento o subsanacion accionable.');
+  if (signals.tiene_justificacion) score = sumar(score, reasons, 9, 'justificacion', 'Fase de justificacion de ayuda o gasto.');
+  if (signals.tiene_declaracion) score = sumar(score, reasons, 8, 'declaracion_registro', 'Declaracion, alta o modificacion registral.');
+  if (signals.tiene_recurso) score = sumar(score, reasons, 5, 'recurso_reclamacion', 'Recurso o reclamacion con posible accion.');
   if (signals.tiene_alegaciones) score = sumar(score, reasons, 6, 'alegaciones', 'Tramite de alegaciones/informacion publica.');
+  if (signals.intencion?.es_obligacion_operativa) score = sumar(score, reasons, 9, 'obligacion_operativa', 'Obligacion o restriccion operativa para explotaciones.');
+  if (signals.intencion?.valor === 'alto') score = sumar(score, reasons, 6, `intencion_${signals.intencion.fase}`, 'Intencion operativa de alto valor.');
+  else if (signals.intencion?.valor === 'bajo') score = sumar(score, reasons, -22, `intencion_${signals.intencion.fase}`, 'Intencion operativa de bajo valor.');
   if (signals.es_sanidad_animal) score = sumar(score, reasons, 10, 'sanidad_bienestar_animal', 'Sanidad o bienestar animal operativo.');
   if (signals.es_agua && !signals.es_individual) score = sumar(score, reasons, 6, 'agua_general', 'Agua/riego de posible impacto amplio.');
   if (signals.es_medio_ambiente && signals.tiene_alegaciones) score = sumar(score, reasons, 6, 'ambiental_con_tramite', 'Medio ambiente con tramite accionable.');
@@ -385,7 +501,7 @@ function puedeSerRevisionSegura({ score, calidad, signals, policy }) {
   if (policy.qualityGate && Number(calidad?.score || 0) < policy.minReviewQualityScore) return false;
   if (calidad?.critical) return false;
 
-  if (signals.es_individual || signals.es_licitacion || signals.es_nombramiento || signals.generico) {
+  if (signals.es_individual || signals.es_licitacion || signals.es_nombramiento || signals.generico || signals.intencion?.bajo_valor) {
     return false;
   }
 
@@ -394,6 +510,9 @@ function puedeSerRevisionSegura({ score, calidad, signals, policy }) {
     signals.tiene_solicitud ||
     signals.tiene_plazo ||
     signals.tiene_subsanacion ||
+    signals.tiene_justificacion ||
+    signals.tiene_declaracion ||
+    signals.tiene_recurso ||
     signals.tiene_alegaciones ||
     signals.es_pac ||
     signals.es_agua ||
@@ -508,6 +627,10 @@ function evaluarAlertaParaDigest(alerta, user, options = {}) {
           es_licitacion: signals.es_licitacion,
           es_nombramiento: signals.es_nombramiento,
           es_convocatoria_ayuda: signals.es_convocatoria_ayuda,
+          intencion: signals.intencion,
+          tiene_justificacion: signals.tiene_justificacion,
+          tiene_declaracion: signals.tiene_declaracion,
+          tiene_recurso: signals.tiene_recurso,
           generico: signals.generico,
           plazo_no_verificado: signals.plazo_no_verificado,
           municipio_declarado: bloqueo.municipio,
@@ -753,7 +876,19 @@ function puedeIncluirRevisionSegura(decision = {}, calidad = {}, options = {}) {
     return false;
   }
 
-  return Boolean(signals.es_ayuda || signals.tiene_solicitud || signals.tiene_plazo || signals.es_pac || signals.es_agua || signals.es_sanidad_animal || signals.es_medio_ambiente);
+  return Boolean(
+    signals.es_ayuda ||
+    signals.tiene_solicitud ||
+    signals.tiene_plazo ||
+    signals.tiene_subsanacion ||
+    signals.tiene_justificacion ||
+    signals.tiene_declaracion ||
+    signals.tiene_recurso ||
+    signals.es_pac ||
+    signals.es_agua ||
+    signals.es_sanidad_animal ||
+    signals.es_medio_ambiente
+  );
 }
 
 module.exports = {

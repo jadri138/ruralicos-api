@@ -152,6 +152,35 @@ test('reconoce el vocabulario ampliado de sectores y morfologia', () => {
   assert(features.includes('subsector:almendro'));
 });
 
+test('reconoce familias agrarias de alto valor para clasificacion', () => {
+  const texto = [
+    'Alta REGA y ROMA con modificacion de explotacion ganadera.',
+    'Plan de bioseguridad con limpieza y desinfeccion de vehiculos.',
+    'Ayuda para DOP e IGP, cadena alimentaria y transformacion agroalimentaria.',
+    'Cuenta justificativa, recurso de alzada y venta directa en mercados de productores.',
+  ].join(' ');
+
+  const resultado = construirPreferenciasDesdeTexto(texto);
+  const features = extraerFeatureTagsDeTexto(texto);
+
+  assert(features.includes('concepto:registro_explotaciones'));
+  assert(features.includes('concepto:bioseguridad'));
+  assert(features.includes('concepto:calidad_diferenciada'));
+  assert(features.includes('concepto:agroindustria'));
+  assert(features.includes('concepto:comercializacion'));
+  assert(features.includes('accion:justificar'));
+  assert(features.includes('accion:recurrir'));
+  assert(resultado.preferencias.sectores.includes('agricultura'));
+  assert(resultado.preferencias.sectores.includes('ganaderia'));
+  assert(resultado.preferencias.subsectores.includes('registro_explotaciones'));
+  assert(resultado.preferencias.subsectores.includes('bioseguridad'));
+  assert(resultado.preferencias.subsectores.includes('calidad_diferenciada'));
+  assert(resultado.preferencias.subsectores.includes('agroindustria'));
+  assert(resultado.preferencias.subsectores.includes('comercializacion'));
+  assert(resultado.preferencias.tipos_alerta.normativa_general);
+  assert(resultado.preferencias.tipos_alerta.sanidad_animal);
+});
+
 test('detecta subsectores nuevos y los deja en forma canonica', () => {
   const equino = extraerTaxonomiaDeTexto('Tengo caballos y yeguas en mi explotacion equina');
   assert(equino.matches.some((m) => m.id === 'subsector:equino'));
@@ -164,6 +193,9 @@ test('detecta subsectores nuevos y los deja en forma canonica', () => {
 
   const flor = construirPreferenciasDesdeTexto('Tengo un vivero de plantas ornamentales');
   assert(flor.preferencias.subsectores.includes('floricultura'));
+
+  const forrajes = construirPreferenciasDesdeTexto('Tengo praderas de alfalfa para heno y ensilado');
+  assert(forrajes.preferencias.subsectores.includes('forrajes'));
 });
 
 test('amplia vocabulario sin romper exclusiones existentes', () => {
@@ -174,6 +206,39 @@ test('amplia vocabulario sin romper exclusiones existentes', () => {
   assert(!resultado.matches.some((m) => m.id === 'concepto:normativa'));
   assert(!resultado.matches.some((m) => m.id === 'concepto:ayuda_directa'));
   assert(!resultado.matches.some((m) => m.id === 'subsector:vinedo'));
+});
+
+test('evita falsos positivos en nuevas familias taxonomicas', () => {
+  const texto = [
+    'registro civil y registro de la propiedad.',
+    'industria cultural del municipio.',
+    'contrato laboral y contratos del sector publico.',
+    'recursos humanos del ayuntamiento.',
+    'cuarentena preventiva por salud publica en residencia municipal.',
+    'limpieza y desinfeccion de edificios publicos.',
+    'control de vectores en instalaciones municipales.',
+  ].join(' ');
+  const resultado = extraerTaxonomiaDeTexto(texto);
+  const features = extraerFeatureTagsDeTexto(texto);
+
+  assert(!resultado.matches.some((m) => m.id === 'concepto:registro_explotaciones'));
+  assert(!resultado.matches.some((m) => m.id === 'concepto:bioseguridad'));
+  assert(!resultado.matches.some((m) => m.id === 'concepto:agroindustria'));
+  assert(!resultado.matches.some((m) => m.id === 'concepto:comercializacion'));
+  assert(!resultado.matches.some((m) => m.id === 'accion:recurrir'));
+  assert(!features.includes('concepto:registro_explotaciones'));
+  assert(!features.includes('concepto:bioseguridad'));
+  assert(!features.includes('concepto:agroindustria'));
+  assert(!features.includes('concepto:comercializacion'));
+  assert(!features.includes('accion:recurrir'));
+});
+
+test('bioseguridad generica exige contexto ganadero', () => {
+  const features = extraerFeatureTagsDeTexto(
+    'Las explotaciones ganaderas deberan aplicar limpieza y desinfeccion de vehiculos y control de vectores.'
+  );
+
+  assert(features.includes('concepto:bioseguridad'));
 });
 
 console.log(`\nResultados taxonomiaRuralicos: ${passed} aprobados, ${failed} fallidos`);

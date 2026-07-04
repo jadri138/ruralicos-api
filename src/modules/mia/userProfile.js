@@ -1,4 +1,5 @@
 const { tagsAlerta } = require('../aprendizaje/userInterestProfile');
+const { construirPreferenciasDesdeTexto } = require('../aprendizaje/taxonomiaRuralicos');
 const {
   inferirTopic,
   inferirPolarity,
@@ -15,6 +16,16 @@ const TOPIC_ALIASES = {
   olivar: ['olivar', 'olivo', 'olivos', 'aceituna', 'aceitunas'],
   porcino: ['porcino', 'cerdo', 'cerdos'],
   vacuno: ['vacuno', 'vaca', 'vacas', 'bovino', 'bovinos'],
+  ovino: ['ovino', 'oveja', 'ovejas', 'cordero', 'corderos'],
+  caprino: ['caprino', 'cabra', 'cabras'],
+  apicultura: ['apicultura', 'abejas', 'colmenas'],
+  cereal: ['cereal', 'cereales', 'trigo', 'cebada', 'maiz'],
+  frutales: ['frutales', 'fruta', 'frutal'],
+  vinedo: ['vinedo', 'vinedo', 'vina', 'vina', 'uva', 'vitivinicola'],
+  formacion: ['curso', 'cursos', 'formacion', 'jornada', 'jornadas'],
+  medio_ambiente: ['medio ambiente', 'ambiental', 'forestal', 'monte', 'biodiversidad'],
+  plazos: ['plazo', 'plazos', 'fecha limite', 'dias habiles', 'presentacion de solicitudes'],
+  normativa_general: ['normativa', 'norma', 'orden', 'decreto', 'resolucion'],
   general: [],
 };
 
@@ -81,6 +92,21 @@ function preferenciasDeclaradas(user = {}) {
   const tiposActivos = Object.entries(prefs.tipos_alerta || {})
     .filter(([, activo]) => activo === true)
     .map(([tipo]) => tipo);
+  const textoTaxonomia = [
+    prefs.perfil,
+    user.preferencias_extra,
+    ...(Array.isArray(prefs.provincias) ? prefs.provincias : []),
+    ...(Array.isArray(prefs.sectores) ? prefs.sectores : []),
+    ...(Array.isArray(prefs.subsectores) ? prefs.subsectores : []),
+    ...tiposActivos,
+  ].filter(Boolean).join(' ');
+  const taxonomia = construirPreferenciasDesdeTexto(textoTaxonomia, { minScore: 0 });
+  const exclusionesTaxonomia = [
+    ...(taxonomia.exclusiones?.temas || []),
+    ...(taxonomia.exclusiones?.tags || []),
+  ]
+    .map((item) => String(item || '').replace(/^[^:]+:/, '').replace(/_/g, ' ').trim())
+    .filter((item) => item.length >= 3);
 
   return {
     provincias: limpiarLista(prefs.provincias),
@@ -89,7 +115,19 @@ function preferenciasDeclaradas(user = {}) {
     tipos_alerta: limpiarLista(tiposActivos),
     perfil: String(prefs.perfil || '').trim() || null,
     texto_libre: String(user.preferencias_extra || '').trim() || null,
-    exclusiones_texto: extraerExclusiones(user.preferencias_extra),
+    exclusiones_texto: [...new Set([
+      ...extraerExclusiones(user.preferencias_extra),
+      ...exclusionesTaxonomia,
+    ])].slice(0, 30),
+    taxonomia: {
+      confidence: taxonomia.confidence || 0,
+      intereses: limpiarLista(taxonomia.intereses || []),
+      conceptos: limpiarLista(taxonomia.conceptos || []),
+      entidades: limpiarLista(taxonomia.entidades || []),
+      acciones: limpiarLista(taxonomia.acciones || []),
+      tramites: limpiarLista(taxonomia.tramites || []),
+      conflictos: (taxonomia.conflictos || []).map((item) => item.id).filter(Boolean).slice(0, 12),
+    },
   };
 }
 
@@ -119,11 +157,39 @@ function temaDesdeTag(tag = '') {
   if (limpio.includes('pac') || limpio.includes('fega')) return 'pac';
   if (/(tractor|maquinaria|apero)/.test(limpio)) return 'ayudas_maquinaria';
   if (/(ayuda|subvencion|convocatoria|pago|indemnizacion)/.test(limpio)) return 'ayudas_subvenciones';
+  if (/(plazo|fecha limite|dias habiles|presentacion de solicitudes)/.test(limpio)) return 'plazos';
   if (/(agua|riego|regadio|pozo|regantes)/.test(limpio)) return 'agua_riego';
   if (/oliv/.test(limpio)) return 'olivar';
   if (/porcino|cerdo/.test(limpio)) return 'porcino';
   if (/vacuno|bovino|vaca/.test(limpio)) return 'vacuno';
+  if (/ovino|oveja|cordero/.test(limpio)) return 'ovino';
+  if (/caprino|cabra/.test(limpio)) return 'caprino';
+  if (/apicultura|abeja|colmena/.test(limpio)) return 'apicultura';
+  if (/cereal|trigo|cebada|maiz/.test(limpio)) return 'cereal';
+  if (/frutal|fruta/.test(limpio)) return 'frutales';
+  if (/vinedo|vina|uva|vitivin/.test(limpio)) return 'vinedo';
+  if (/formacion|curso|jornada/.test(limpio)) return 'formacion';
+  if (/medio ambiente|ambiental|forestal|monte|biodiversidad/.test(limpio)) return 'medio_ambiente';
+  if (/normativa|norma|orden|decreto|resolucion/.test(limpio)) return 'normativa_general';
   return limpio || 'general';
+}
+
+function sumarPreferenciasDeclaradas(temas, declared = {}) {
+  const add = (items, delta, source) => {
+    for (const item of items || []) {
+      const topic = temaDesdeTag(item);
+      if (topic && topic !== 'general') sumarTema(temas, topic, delta, source, item);
+    }
+  };
+
+  add(declared.sectores, 0.45, 'declared_preferences');
+  add(declared.subsectores, 0.9, 'declared_preferences');
+  add(declared.tipos_alerta, 0.65, 'declared_preferences');
+  add(declared.taxonomia?.intereses, 0.85, 'declared_text_taxonomy');
+  add(declared.taxonomia?.conceptos, 0.75, 'declared_text_taxonomy');
+  add(declared.taxonomia?.entidades, 0.7, 'declared_text_taxonomy');
+  add(declared.taxonomia?.acciones, 0.45, 'declared_text_taxonomy');
+  add(declared.taxonomia?.tramites, 0.45, 'declared_text_taxonomy');
 }
 
 function normalizarTemaEntry(entry) {
@@ -146,6 +212,8 @@ function construirPerfilOperativoMIA({
   const temas = new Map();
   const rawTagScores = {};
   const facts = [];
+
+  sumarPreferenciasDeclaradas(temas, declared);
 
   for (const row of interestRows || []) {
     const tag = String(row.tag || '').trim();
@@ -295,6 +363,7 @@ function textoAlerta(alerta = {}) {
     ...(Array.isArray(alerta.sectores) ? alerta.sectores : []),
     ...(Array.isArray(alerta.subsectores) ? alerta.subsectores : []),
     ...(Array.isArray(alerta.tipos_alerta) ? alerta.tipos_alerta : []),
+    ...(Array.isArray(alerta.taxonomy_tags) ? alerta.taxonomy_tags : []),
   ].filter(Boolean).map(normalizar).join(' ');
 }
 

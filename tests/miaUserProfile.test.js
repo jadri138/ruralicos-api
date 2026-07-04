@@ -70,7 +70,9 @@ const profile = construirPerfilOperativoMIA({
 assert(profile.version === 'mia_user_profile_v1', 'Construye perfil con version estable');
 assert(profile.declared.provincias.includes('Extremadura'), 'Conserva zonas declaradas');
 assert(profile.hard_filters.exclusiones_texto.includes('vino'), 'Extrae exclusiones de texto libre');
+assert(profile.declared.taxonomia.conceptos.includes('pac'), 'Extrae taxonomia del texto libre declarado');
 assert(profile.interests.some((item) => item.topic === 'pac'), 'Incluye PAC como interes aprendido');
+assert(profile.interests.some((item) => item.topic === 'cereal'), 'Convierte subsectores declarados en intereses operativos');
 assert(profile.dislikes.some((item) => item.topic === 'agua_riego'), 'Incluye agua/riego como senal negativa');
 assert(profile.prompt_block.includes('PERFIL OPERATIVO MIA'), 'Genera bloque compacto para prompts');
 
@@ -102,18 +104,50 @@ const alertaVino = {
   sectores: ['agricultura'],
 };
 
+const alertaTaxonomyTags = {
+  id: 4,
+  titulo: 'Aviso breve',
+  resumen_final: 'Publican un tramite breve.',
+  taxonomy_tags: ['concepto:pac', 'concepto:maquinaria_agricola'],
+};
+
 const scoreTractores = puntuarAlertaConPerfilOperativoMIA(alertaTractores, profile);
 const scoreAgua = puntuarAlertaConPerfilOperativoMIA(alertaAgua, profile);
 const scoreVino = puntuarAlertaConPerfilOperativoMIA(alertaVino, profile);
+const scoreTaxonomyTags = puntuarAlertaConPerfilOperativoMIA(alertaTaxonomyTags, profile);
 
 assert(scoreTractores.score > scoreAgua.score, 'Prioriza alerta alineada con intereses');
 assert(scoreAgua.reasons.some((reason) => reason.includes('dislike:agua_riego')), 'Explica penalizacion por desinteres');
 assert(scoreVino.excluded === true, 'Marca exclusiones duras por texto libre');
+assert(scoreTaxonomyTags.score > 0, 'Usa taxonomy_tags para puntuar aunque el texto sea corto');
 
 const ordenadas = ordenarAlertasConPerfilOperativoMIA([alertaAgua, alertaVino, alertaTractores], profile);
 assert(ordenadas.length === 2, 'Filtra exclusiones duras al ordenar');
 assert(ordenadas[0].id === alertaTractores.id, 'Ordena primero la alerta mas alineada');
 assert(extraerExclusiones('No quiero porcino ni cursos').includes('porcino'), 'Extrae exclusiones con no quiero');
+
+const sparseProfile = construirPerfilOperativoMIA({
+  user: {
+    id: 200,
+    preferences: {
+      perfil: 'agricultor',
+      provincias: ['Huesca'],
+      sectores: ['agricultura'],
+      subsectores: ['cereal'],
+      tipos_alerta: { plazos: true },
+    },
+    preferencias_extra: 'Me interesa PAC y maquinaria agricola. No quiero licitaciones.',
+  },
+});
+const sparseScore = puntuarAlertaConPerfilOperativoMIA({
+  titulo: 'Ayudas PAC con plazo para maquinaria agricola',
+  resumen_final: 'Convocatoria con plazo de solicitud para tractores.',
+  sectores: ['agricultura'],
+  subsectores: ['cereal'],
+  tipos_alerta: ['plazos'],
+}, sparseProfile);
+assert(sparseScore.score > 2, 'Perfil sin memoria aprende de preferencias declaradas y texto libre');
+assert(sparseProfile.hard_filters.exclusiones_texto.some((item) => /licitacion/.test(item)), 'Taxonomia convierte exclusiones declaradas en filtro duro');
 
 console.log(`\nResultados: ${passed} aprobados, ${failed} fallidos`);
 process.exit(failed > 0 ? 1 : 0);

@@ -212,6 +212,110 @@ test('ayuda sin plazo verificable queda en revision y no se autoenvia', () => {
   assert(decision.diagnostico.policy.riesgo_de_ruido.reasons.some((reason) => reason.code === 'plazo_no_verificado'));
 });
 
+test('premia fases accionables de justificacion aunque no sean solicitud inicial', () => {
+  const decision = decidirAlertaParaDigest(alerta(108, {
+    titulo: 'Justificacion de ayudas para inversiones agrarias en Teruel',
+    resumen_final: [
+      'FICHA_IA',
+      'TIPO: ayudas_subvenciones',
+      'PRIORIDAD: alta',
+      'RESUMEN_DIGEST: Se abre el plazo para presentar la cuenta justificativa de ayudas a inversiones agrarias.',
+      'HECHO: fase de justificacion de ayudas agrarias',
+      'PLAZO: 15 dias habiles',
+      'ACCION: presentar cuenta justificativa y facturas justificativas',
+    ].join('\n'),
+    contenido: 'Las personas beneficiarias deberan presentar cuenta justificativa y facturas justificativas en el plazo de 15 dias habiles.',
+  }), user);
+
+  assert.strictEqual(decision.action, 'include');
+  assert.strictEqual(decision.diagnostico.policy.signals.intencion.fase, 'justificacion');
+  assert(decision.diagnostico.ranking.reasons.some((reason) => reason.code === 'justificacion'));
+});
+
+test('premia obligaciones operativas de bioseguridad frente a informacion generica', () => {
+  const ganadero = {
+    ...user,
+    preferences: {
+      ...user.preferences,
+      sectores: ['ganaderia'],
+      subsectores: ['vacuno', 'bioseguridad'],
+      tipos_alerta: { sanidad_animal: true, normativa_general: true },
+    },
+  };
+  const decision = decidirAlertaParaDigest(alerta(109, {
+    titulo: 'Medidas obligatorias de bioseguridad para explotaciones ganaderas en Teruel',
+    resumen_final: [
+      'FICHA_IA',
+      'TIPO: sanidad_animal',
+      'PRIORIDAD: alta',
+      'RESUMEN_DIGEST: Se aprueban medidas obligatorias de bioseguridad para explotaciones ganaderas.',
+      'HECHO: nuevas obligaciones sanitarias para explotaciones ganaderas',
+      'ACCION: aplicar plan de bioseguridad y limpieza y desinfeccion',
+    ].join('\n'),
+    contenido: 'Las explotaciones ganaderas deberan aplicar medidas obligatorias de bioseguridad, limpieza y desinfeccion de vehiculos.',
+    sectores: ['ganaderia'],
+    subsectores: ['vacuno', 'bioseguridad'],
+    tipos_alerta: ['sanidad_animal'],
+    taxonomy_tags: ['sector:ganaderia', 'subsector:bioseguridad', 'concepto:bioseguridad'],
+  }), ganadero);
+
+  assert.strictEqual(decision.action, 'include');
+  assert.strictEqual(decision.diagnostico.policy.signals.intencion.fase, 'obligacion_tramite');
+  assert(decision.diagnostico.ranking.reasons.some((reason) => reason.code === 'obligacion_operativa'));
+});
+
+test('deriva sanidad animal desde bioseguridad aunque falte tipos_alerta', () => {
+  const ganadero = {
+    ...user,
+    preferences: {
+      ...user.preferences,
+      sectores: ['ganaderia'],
+      subsectores: ['bioseguridad'],
+      tipos_alerta: { sanidad_animal: true },
+    },
+  };
+  const decision = decidirAlertaParaDigest(alerta(111, {
+    titulo: 'Medidas obligatorias de bioseguridad para explotaciones ganaderas en Teruel',
+    resumen_final: [
+      'FICHA_IA',
+      'TIPO: sanidad_animal',
+      'PRIORIDAD: alta',
+      'RESUMEN_DIGEST: Se aprueban medidas obligatorias de bioseguridad para explotaciones ganaderas.',
+      'HECHO: medidas obligatorias de bioseguridad ganadera',
+      'ACCION: aplicar el plan de bioseguridad',
+    ].join('\n'),
+    contenido: 'Las explotaciones ganaderas deberan aplicar medidas obligatorias de bioseguridad.',
+    sectores: ['ganaderia'],
+    subsectores: ['bioseguridad'],
+    tipos_alerta: [],
+    taxonomy_tags: ['sector:ganaderia', 'subsector:bioseguridad', 'concepto:bioseguridad'],
+  }), ganadero);
+
+  assert.strictEqual(decision.action, 'include');
+  assert.strictEqual(decision.diagnostico.policy.matches.tipo, true);
+  assert.strictEqual(decision.diagnostico.policy.riesgo_de_ruido.reasons.some((reason) => reason.code === 'tipo_alerta_vacio'), false);
+});
+
+test('rebaja resoluciones ex post aunque coincidan por tema de ayuda', () => {
+  const decision = decidirAlertaParaDigest(alerta(110, {
+    titulo: 'Resolucion definitiva de concesion de subvenciones agrarias en Teruel',
+    resumen_final: [
+      'FICHA_IA',
+      'TIPO: ayudas_subvenciones',
+      'PRIORIDAD: media',
+      'RESUMEN_DIGEST: Se publica la relacion definitiva de beneficiarios y el pago de la ayuda.',
+      'HECHO: resolucion definitiva de concesion de subvenciones agrarias',
+      'ACCION: consultar la relacion si ya eres beneficiario',
+    ].join('\n'),
+    contenido: 'Resolucion definitiva de concesion de subvenciones. Se publica la relacion de beneficiarios definitivos y se ordena el pago de la ayuda.',
+  }), user);
+
+  assert.strictEqual(decision.incluir, false);
+  assert.strictEqual(decision.action, 'exclude');
+  assert.strictEqual(decision.diagnostico.policy.signals.intencion.fase, 'resolucion_pago');
+  assert(decision.diagnostico.policy.riesgo_de_ruido.reasons.some((reason) => reason.code === 'intencion_resolucion_pago'));
+});
+
 test('convocatoria general sin plazo verificado se envia sin inventar fecha limite', () => {
   const decision = decidirAlertaParaDigest(alerta(107, {
     fuente: 'BOE',

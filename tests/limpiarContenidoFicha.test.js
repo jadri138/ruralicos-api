@@ -6,6 +6,7 @@ const assert = require('assert');
 const {
   construirMensajeFallback,
   limpiarContenidoBoletinParaIA,
+  normalizarFichaIA,
 } = require('../src/modules/alertas/alertas.service');
 
 let passed = 0;
@@ -84,6 +85,37 @@ test('el fallback no fabrica expediente, solicitud ni plazo', () => {
   assert(!/\bsolicitud\b/i.test(accion));
   assert(!/\bplazo publicado\b/i.test(accion));
   assert.strictEqual(accion, 'ACCION: consultar la publicacion oficial');
+});
+
+test('normaliza un resumen_digest generico usando campos concretos de la ficha', () => {
+  const borrador = [
+    'FICHA_IA',
+    'TIPO: ayudas_subvenciones',
+    'PRIORIDAD: media',
+    'TERRITORIO: Huesca',
+    'AFECTA_A: explotaciones agrarias',
+    'HECHO: convocatoria de ayudas para modernizacion de explotaciones',
+    'OBJETO: maquinaria agricola',
+    'IMPACTO: permite financiar inversiones productivas',
+    'PLAZO: no_detectado',
+    'ACCION: revisar requisitos de la convocatoria',
+    'DETALLE: incluye tractores y aperos',
+    'RESUMEN_DIGEST: Publicacion oficial relevante. Revisar si afecta.',
+    'CLAVES: ayudas, maquinaria, tractores',
+  ].join('\n');
+
+  const { texto } = normalizarFichaIA(borrador, {
+    titulo: 'Ayudas para maquinaria agricola',
+    contenido: 'Se convocan ayudas para modernizacion de explotaciones agrarias.',
+    provincias: ['Huesca'],
+    sectores: ['agricultura'],
+  });
+  const resumen = texto.split('\n').find((linea) => linea.startsWith('RESUMEN_DIGEST:')) || '';
+
+  assert(!/Publicacion oficial relevante/i.test(resumen), 'elimina resumen generico');
+  assert(/maquinaria agricola/i.test(resumen), 'conserva objeto concreto');
+  assert(/explotaciones agrarias/i.test(resumen), 'incluye destinatario');
+  assert(/Huesca/i.test(resumen), 'incluye territorio');
 });
 
 console.log(`\nResultados limpiarContenidoFicha: ${passed} aprobados, ${failed} fallidos`);

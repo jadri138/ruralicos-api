@@ -57,6 +57,8 @@ function tipoAlertaDesdeItem(item = {}) {
   if (item.id === 'concepto:agua_riego') return 'agua_infraestructuras';
   if (item.id === 'concepto:fiscalidad') return 'fiscalidad';
   if (item.id === 'concepto:medio_ambiente') return 'medio_ambiente';
+  if (item.id === 'concepto:bioseguridad') return 'sanidad_animal';
+  if (item.id === 'concepto:registro_explotaciones') return 'normativa_general';
   if (item.id === 'tramite:licitacion') return 'licitaciones';
   return null;
 }
@@ -102,6 +104,27 @@ const TAXONOMIA_RURALICOS = [
     featureTag: 'accion:alegar',
     featureRegex: /\b(alegaciones|alegar|informacion publica|exposicion publica|audiencia|tramite de audiencia|periodo de consulta|consulta publica)\b/,
     aliases: ['alegaciones', 'alegar', 'informacion publica', 'exposicion publica', 'audiencia', 'consulta publica'],
+  },
+  {
+    id: 'accion:justificar',
+    label: 'Justificacion',
+    featureTag: 'accion:justificar',
+    featureRegex: /\b(justificacion|justificar|cuenta justificativa|memoria justificativa|facturas justificativas|gastos subvencionables|pago anticipado|anticipo|certificacion de obra|certificacion final)\b/,
+    aliases: ['justificacion', 'justificar', 'cuenta justificativa', 'memoria justificativa', 'facturas justificativas', 'gastos subvencionables', 'pago anticipado', 'anticipo', 'certificacion de obra', 'certificacion final'],
+  },
+  {
+    id: 'accion:declarar',
+    label: 'Declaracion y registro',
+    featureTag: 'accion:declarar',
+    featureRegex: /\b(declaracion responsable|comunicacion previa|alta en el registro|baja en el registro|modificacion de datos|inscripcion registral|actualizacion de datos|declarar superficies|declarar animales)\b/,
+    aliases: ['declaracion responsable', 'comunicacion previa', 'alta en el registro', 'baja en el registro', 'modificacion de datos', 'inscripcion registral', 'actualizacion de datos', 'declarar superficies', 'declarar animales'],
+  },
+  {
+    id: 'accion:recurrir',
+    label: 'Recursos y reclamaciones',
+    featureTag: 'accion:recurrir',
+    featureRegex: /\b(recurso de alzada|recurso de reposicion|reclamacion administrativa|reclamaciones administrativas|impugnacion|recurrir resolucion|presentar recurso|alegacion a resolucion provisional)\b/,
+    aliases: ['recurso de alzada', 'recurso de reposicion', 'reclamacion administrativa', 'impugnacion', 'recurrir resolucion', 'presentar recurso', 'alegacion a resolucion provisional'],
   },
   {
     id: 'concepto:ayuda_directa',
@@ -158,6 +181,17 @@ const TAXONOMIA_RURALICOS = [
     sector: 'ganaderia',
   },
   {
+    id: 'concepto:bioseguridad',
+    label: 'Bioseguridad ganadera',
+    featureTag: 'concepto:bioseguridad',
+    featureRegex: /\b(bioseguridad|plan de bioseguridad|medidas de bioseguridad|bioseguridad ganadera|(?:ganader(?:o|a|os|as|ia)|explotaciones? ganaderas?|granja|animales|porcino|vacuno|ovino|caprino|avicola|aves|sanidad animal|rega).{0,120}(desinfeccion de vehiculos|limpieza y desinfeccion|cuarentena|restriccion(?:es)? de movimientos?|vacio sanitario|cerramiento sanitario|control de vectores|desinsectacion|desratizacion)|(desinfeccion de vehiculos|limpieza y desinfeccion|cuarentena|restriccion(?:es)? de movimientos?|vacio sanitario|cerramiento sanitario|control de vectores|desinsectacion|desratizacion).{0,120}(ganader(?:o|a|os|as|ia)|explotaciones? ganaderas?|granja|animales|porcino|vacuno|ovino|caprino|avicola|aves|sanidad animal|rega))\b/,
+    aliases: ['bioseguridad', 'plan de bioseguridad', 'medidas de bioseguridad', 'bioseguridad ganadera', 'plan de bioseguridad ganadera', 'medidas de bioseguridad ganadera'],
+    feedbackCanonico: 'bioseguridad',
+    sector: 'ganaderia',
+    subsector: 'bioseguridad',
+    tipoAlerta: 'sanidad_animal',
+  },
+  {
     id: 'concepto:bienestar_animal',
     label: 'Bienestar animal',
     featureTag: 'concepto:bienestar_animal',
@@ -182,6 +216,17 @@ const TAXONOMIA_RURALICOS = [
     featureRegex: /\b(cuaderno digital|cuaderno de explotacion|cuaderno de campo|siex|siar|reto|registro de tratamientos|registro de explotaciones|libro de explotacion)\b/,
     aliases: ['cuaderno digital', 'cuaderno de explotacion', 'cuaderno de campo', 'siex', 'siar', 'reto', 'registro de tratamientos', 'registro de explotaciones', 'libro de explotacion'],
     feedbackCanonico: 'cuaderno digital',
+  },
+  {
+    id: 'concepto:registro_explotaciones',
+    label: 'Registros de explotaciones',
+    featureTag: 'concepto:registro_explotaciones',
+    featureRegex: /\b(rega|regepa|roma|regeus|registro general de explotaciones ganaderas|registro de explotaciones agrarias|registro de explotaciones ganaderas|registro de maquinaria agricola|registro oficial de maquinaria agricola|registro viticola|registro de operadores|siex|reto|libro de explotacion|alta de explotacion|baja de explotacion|modificacion de explotacion)\b/,
+    excludeRegex: /\b(registro civil|registro mercantil|registro de la propiedad|registro electronico general|registro de entrada|registro salarial)\b/,
+    aliases: ['rega', 'regepa', 'roma', 'regeus', 'registro general de explotaciones ganaderas', 'registro de explotaciones agrarias', 'registro de explotaciones ganaderas', 'registro de maquinaria agricola', 'registro oficial de maquinaria agricola', 'registro viticola', 'registro de operadores', 'siex', 'reto', 'libro de explotacion', 'alta de explotacion', 'baja de explotacion', 'modificacion de explotacion'],
+    feedbackCanonico: 'registro de explotaciones',
+    subsector: 'registro_explotaciones',
+    tipoAlerta: 'normativa_general',
   },
   {
     id: 'concepto:medio_ambiente',
@@ -225,6 +270,28 @@ const TAXONOMIA_RURALICOS = [
     featureRegex: /\b(cooperativa|cooperativas|cooperativismo|sat|sociedad agraria de transformacion|seccion de credito|opfh|organizacion de productores)\b/,
     aliases: ['cooperativa', 'cooperativas', 'cooperativismo', 'sat', 'sociedad agraria de transformacion', 'seccion de credito', 'opfh', 'organizacion de productores'],
     feedbackCanonico: 'cooperativas',
+  },
+  {
+    id: 'concepto:agroindustria',
+    label: 'Agroindustria',
+    featureTag: 'concepto:agroindustria',
+    featureRegex: /\b(agroindustria|industria agroalimentaria|industria alimentaria|transformacion agroalimentaria|transformacion de productos agrarios|industria carnica|industria lactea|queseria|queserias|matadero|mataderos|sala de despiece|almazara|central hortofruticola|envasadora|conservera)\b/,
+    excludeRegex: /\bindustria\s+(cultural|musical|turistica|cinematografica|textil)\b/,
+    aliases: ['agroindustria', 'industria agroalimentaria', 'industria alimentaria', 'transformacion agroalimentaria', 'transformacion de productos agrarios', 'industria carnica', 'industria lactea', 'queseria', 'matadero', 'sala de despiece', 'almazara', 'central hortofruticola', 'envasadora', 'conservera'],
+    feedbackCanonico: 'agroindustria',
+    sector: 'agricultura',
+    subsector: 'agroindustria',
+  },
+  {
+    id: 'concepto:comercializacion',
+    label: 'Comercializacion y cadena alimentaria',
+    featureTag: 'concepto:comercializacion',
+    featureRegex: /\b(comercializacion|cadena alimentaria|contrato alimentario|contratos alimentarios|ley de la cadena alimentaria|venta directa|canal corto|canales cortos|mercados de productores|organizacion de productores|opfh|interprofesional|observatorio de precios|precios agrarios|exportacion agroalimentaria|importacion agroalimentaria)\b/,
+    excludeRegex: /\b(contrato\s+laboral|contrato\s+menor|contratos?\s+del\s+sector\s+publico)\b/,
+    aliases: ['comercializacion', 'cadena alimentaria', 'contrato alimentario', 'contratos alimentarios', 'ley de la cadena alimentaria', 'venta directa', 'canal corto', 'canales cortos', 'mercados de productores', 'organizacion de productores', 'opfh', 'interprofesional', 'observatorio de precios', 'precios agrarios', 'exportacion agroalimentaria', 'importacion agroalimentaria'],
+    feedbackCanonico: 'comercializacion',
+    sector: 'agricultura',
+    subsector: 'comercializacion',
   },
   {
     id: 'entidad:comunidad_regantes',
@@ -294,10 +361,12 @@ const TAXONOMIA_RURALICOS = [
   { id: 'subsector:apicultura', label: 'Apicultura', featureTag: 'subsector:apicultura', aliases: ['apicultura', 'apicola', 'abeja', 'abejas', 'miel', 'colmena', 'colmenas', 'colmenar', 'apicultor', 'apicultores', 'polen', 'cera'], feedbackCanonico: 'apicultura', sector: 'ganaderia' },
   { id: 'subsector:cunicultura', label: 'Cunicultura', featureTag: 'subsector:cunicultura', aliases: ['cunicultura', 'conejo', 'conejos', 'cunicola', 'granja cunicola'], feedbackCanonico: 'cunicultura', sector: 'ganaderia' },
   { id: 'subsector:equino', label: 'Equino', featureTag: 'subsector:equino', aliases: ['equino', 'equinos', 'equinocultura', 'caballo', 'caballos', 'yegua', 'yeguas', 'potro', 'equido', 'equidos', 'ganado equino'], feedbackCanonico: 'equinocultura', sector: 'ganaderia' },
+  { id: 'subsector:forrajes', label: 'Forrajes y pastos', featureTag: 'subsector:forrajes', aliases: ['forraje', 'forrajes', 'pasto', 'pastos', 'pradera', 'praderas', 'pastizal', 'pastizales', 'dehesa', 'dehesas', 'alfalfa', 'heno', 'ensilado', 'siega'], feedbackCanonico: 'forrajes', sector: 'ganaderia' },
   { id: 'concepto:pastos', label: 'Pastos', featureTag: 'concepto:pastos', aliases: ['pasto', 'pastos', 'forraje', 'forrajes', 'pradera', 'praderas', 'pastizal', 'pastizales', 'dehesa', 'dehesas', 'pastoreo', 'siega'], feedbackCanonico: 'pastos', sector: 'ganaderia', subsector: 'forrajes' },
   { id: 'concepto:purines_estiercoles', label: 'Purines y estiercoles', featureTag: 'concepto:purines_estiercoles', aliases: ['purin', 'purines', 'estiercol', 'estiercoles', 'deyeccion', 'deyecciones', 'gestion de purines', 'fosa de purines', 'balsa de purines', 'aplicacion de purines'], feedbackCanonico: 'purines', sector: 'ganaderia' },
   { id: 'concepto:seguros_agrarios', label: 'Seguros agrarios', featureTag: 'concepto:seguros_agrarios', aliases: ['seguro agrario', 'seguros agrarios', 'agroseguro', 'seguro de cosecha', 'seguro de explotacion', 'enesa', 'subvencion del seguro'], feedbackCanonico: 'seguros agrarios' },
   { id: 'concepto:ecologico', label: 'Produccion ecologica', featureTag: 'concepto:ecologico', aliases: ['ecologico', 'ecologica', 'produccion ecologica', 'agricultura ecologica', 'ganaderia ecologica', 'certificacion ecologica', 'bio', 'agroecologia', 'caae'], feedbackCanonico: 'ecologico' },
+  { id: 'concepto:calidad_diferenciada', label: 'Calidad diferenciada', featureTag: 'concepto:calidad_diferenciada', aliases: ['calidad diferenciada', 'figura de calidad', 'figuras de calidad', 'denominacion de origen', 'denominacion de origen protegida', 'indicacion geografica protegida', 'dop', 'igp', 'especialidad tradicional garantizada', 'etg', 'produccion integrada', 'marca de calidad', 'pliego de condiciones'], feedbackCanonico: 'calidad diferenciada', sector: 'agricultura', subsector: 'calidad_diferenciada' },
   { id: 'concepto:dano_climatico', label: 'Danos climaticos', featureTag: 'concepto:dano_climatico', aliases: ['pedrisco', 'granizo', 'helada', 'heladas', 'inundacion', 'inundaciones', 'temporal', 'dana', 'gota fria', 'incendio', 'incendios', 'dano climatico', 'adversidad climatica', 'catastrofe'], feedbackCanonico: 'danos climaticos' },
   { id: 'concepto:formacion', label: 'Cursos y formacion', featureTag: 'concepto:formacion', excludeRegex: /\bcurso\s+(fluvial|de agua|del rio|hidrologico)\b/, aliases: ['curso', 'cursos', 'formacion', 'jornada', 'jornadas', 'taller', 'talleres', 'seminario', 'webinar', 'capacitacion', 'charla', 'curso de incorporacion'], feedbackCanonico: 'formacion' },
   { id: 'concepto:normativa', label: 'Normativa', featureTag: 'concepto:normativa', excludeRegex: /\b(ley|leyes|norma|normas|normativa)\s+general\b/, aliases: ['normativa', 'norma', 'normas', 'ley', 'leyes', 'decreto', 'real decreto', 'reglamento', 'disposicion', 'obligacion', 'prohibicion', 'requisito legal'], feedbackCanonico: 'normativa' },

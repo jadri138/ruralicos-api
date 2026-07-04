@@ -22,7 +22,21 @@ assert(result.taxonomy_tags.includes('concepto:formacion'));
 assert(result.taxonomy_tags.includes('concepto:pac'));
 assert(result.taxonomy_tags.includes('subsector:frutal'));
 assert(result.taxonomy_tags.includes('tipo:ayudas_subvenciones'));
-assert.strictEqual(LEGACY_ALERT_TYPES.size, 5);
+assert.strictEqual(LEGACY_ALERT_TYPES.size, 6);
 assert(aliasesCanonicos('subsector', 'frutales').includes('frutales'));
+
+const bioseguridad = normalizarClasificacionCanonica({
+  titulo: 'Medidas obligatorias de bioseguridad ganadera',
+  contenido: 'Las explotaciones ganaderas deberan aplicar limpieza y desinfeccion de vehiculos.',
+}, {
+  sectores: ['ganaderia'],
+  subsectores: ['bioseguridad'],
+  tipos_alerta: ['sanidad animal'],
+});
+
+assert(bioseguridad.tipos_alerta.includes('sanidad_animal'));
+assert(bioseguridad.taxonomy_tags.includes('tipo:sanidad_animal'));
+assert(bioseguridad.taxonomy_tags.includes('concepto:sanidad_animal'));
+assert(bioseguridad.taxonomy_tags.includes('concepto:bioseguridad'));
 
 console.log('OK: registro taxonomico canonico mantiene interfaz legacy y tags enriquecidos');

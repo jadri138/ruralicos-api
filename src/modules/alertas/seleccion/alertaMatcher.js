@@ -17,9 +17,10 @@ function norm(str) {
 
 const intersecta = (a, b) => a.some((x) => b.includes(x));
 const TIPOS_ALERTA_POR_FEATURE = {
-  plazos: 'concepto:plazo',
-  formacion: 'concepto:formacion',
-  licitaciones: 'tramite:licitacion',
+  plazos: ['concepto:plazo'],
+  formacion: ['concepto:formacion'],
+  licitaciones: ['tramite:licitacion'],
+  sanidad_animal: ['concepto:sanidad_animal', 'concepto:bioseguridad', 'concepto:bienestar_animal'],
 };
 
 function listaCanonica(value, canonicalizer) {
@@ -64,7 +65,20 @@ function tiposDerivadosAlerta(alerta = {}) {
   return dedupe([
     ...listaCanonica(alerta.tipos_alerta, canonicalTipoAlerta),
     ...valoresTaxonomiaPorPrefijo(alerta, 'tipo:', canonicalTipoAlerta),
+    ...tiposDerivadosPorFeatures(alerta),
   ]);
+}
+
+function tiposDerivadosPorFeatures(alerta = {}) {
+  const featureTags = featureTagsAlerta(alerta);
+  const tipos = [];
+
+  for (const [tipo, tags] of Object.entries(TIPOS_ALERTA_POR_FEATURE)) {
+    const expected = Array.isArray(tags) ? tags : [tags];
+    if (expected.some((tag) => featureTags.includes(tag))) tipos.push(tipo);
+  }
+
+  return tipos;
 }
 
 function featureTagsAlerta(alerta = {}) {
@@ -88,8 +102,10 @@ function tiposCompatibles(tiposUserActivos = [], tiposAlerta = [], alerta = {}) 
 
   const featureTags = featureTagsAlerta(alerta);
   return tiposUserActivos.some((tipo) => {
-    const featureTag = TIPOS_ALERTA_POR_FEATURE[tipo];
-    return featureTag ? featureTags.includes(featureTag) : false;
+    const featureTagsEsperados = TIPOS_ALERTA_POR_FEATURE[tipo];
+    if (!featureTagsEsperados) return false;
+    const expected = Array.isArray(featureTagsEsperados) ? featureTagsEsperados : [featureTagsEsperados];
+    return expected.some((featureTag) => featureTags.includes(featureTag));
   });
 }
 

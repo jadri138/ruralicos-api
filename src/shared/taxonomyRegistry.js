@@ -16,6 +16,7 @@ const LEGACY_ALERT_TYPES = new Set([
   'agua_infraestructuras',
   'fiscalidad',
   'medio_ambiente',
+  'sanidad_animal',
 ]);
 
 const TYPE_FEATURES = Object.freeze({
@@ -24,6 +25,7 @@ const TYPE_FEATURES = Object.freeze({
   agua_infraestructuras: 'concepto:agua_riego',
   fiscalidad: 'concepto:fiscalidad',
   medio_ambiente: 'concepto:medio_ambiente',
+  sanidad_animal: 'concepto:sanidad_animal',
 });
 
 function lista(value) {

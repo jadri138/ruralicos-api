@@ -1,0 +1,44 @@
+{
+  "jovenes-agricultores": {
+    "author": "Petar Milošević",
+    "license": "CC BY-SA 4.0",
+    "source": "https://commons.wikimedia.org/wiki/File:Tractor_New_Holland_T6.165_plowing_(Zadobrova,_Ljubljana).jpg",
+    "term": "tractor plowing field",
+    "bytes": 771782
+  },
+  "ganaderia-ecologica": {
+    "author": "LBM1948",
+    "license": "CC BY-SA 4.0",
+    "source": "https://commons.wikimedia.org/wiki/File:Pirineo_Oscense,_ganado_1993_06.jpg",
+    "term": "sheep flock pasture spain",
+    "bytes": 262583
+  },
+  "regadios-cataluna": {
+    "author": "Bob Heims, U.S. Army Corps of Engineers",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Center_pivot_irrigation_Idaho.jpg",
+    "term": "center pivot irrigation field",
+    "bytes": 261323
+  },
+  "ayuda-basica-renta": {
+    "author": "Acabashi",
+    "license": "CC BY-SA 4.0",
+    "source": "https://commons.wikimedia.org/wiki/File:Field_of_ripe_wheat_at_Willingale,_Essex,_England.jpg",
+    "term": "ripe wheat field summer",
+    "bytes": 593926
+  },
+  "apicultura-montes": {
+    "author": "Alexkom000",
+    "license": "CC BY 4.0",
+    "source": "https://commons.wikimedia.org/wiki/File:2026-05-24_Apiary_at_Passadi%C3%A7os_do_Mondego_1.jpg",
+    "term": "beehive apiary",
+    "bytes": 569441
+  },
+  "modernizacion-explotaciones": {
+    "author": "Dietmar Rabich",
+    "license": "CC BY-SA 4.0",
+    "source": "https://commons.wikimedia.org/wiki/File:Korfu_(GR),_Agii_Douli,_Olivenhain_--_2018_--_1284-8.jpg",
+    "term": "olive grove spain",
+    "bytes": 659359
+  }
+}

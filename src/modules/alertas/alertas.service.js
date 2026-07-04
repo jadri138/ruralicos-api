@@ -641,6 +641,26 @@ function limitarPalabras(texto, maxPalabras, maxChars) {
   return palabras.slice(0, maxPalabras).join(' ');
 }
 
+function contarPalabrasFicha(texto) {
+  return limpiarCampoFicha(texto, 1200).split(/\s+/).filter(Boolean).length;
+}
+
+function resumenDigestInsuficiente(resumen) {
+  if (campoFichaGenerico(resumen)) return true;
+  const limpio = normalizarTexto(resumen);
+  if (contarPalabrasFicha(resumen) < 22) return true;
+  if (/^(es|se trata de|publican?) una? (actuacion|publicacion|aviso) oficial\b/.test(limpio)) return true;
+  if (/^el boletin publica\b/.test(limpio) && contarPalabrasFicha(resumen) < 45) return true;
+  return [
+    'revisar si afecta',
+    'revisa si afecta',
+    'publicacion oficial relevante',
+    'documento oficial relevante',
+    'consultar la publicacion oficial',
+    'determinar su aplicabilidad',
+  ].some((marca) => limpio.includes(marca));
+}
+
 function primerArray(valor) {
   return Array.isArray(valor) && valor.length > 0 ? valor[0] : '';
 }
@@ -686,29 +706,40 @@ function normalizarClavesFicha(valor, fallback = '') {
 function construirResumenDigestFicha({
   resumen,
   hecho,
+  objeto,
+  afectaA,
   detalle,
   impacto,
   plazo,
+  accion,
   territorio,
   extracto,
   titulo,
 }) {
-  if (!campoFichaGenerico(resumen)) {
+  if (!resumenDigestInsuficiente(resumen)) {
     return limitarPalabras(resumen, 78, 620) || 'no_detectado';
   }
 
   const partes = [];
   if (!campoFichaGenerico(hecho)) partes.push(hecho);
-  if (!campoFichaGenerico(detalle)) partes.push(detalle);
+  if (!campoFichaGenerico(objeto) && !normalizarTexto(partes.join(' ')).includes(normalizarTexto(objeto))) {
+    partes.push(`Objeto: ${objeto}`);
+  }
+  if (!campoFichaGenerico(afectaA)) partes.push(`Afecta a: ${afectaA}`);
+  if (!campoFichaGenerico(territorio)) partes.push(`Territorio: ${territorio}`);
+  if (!campoFichaGenerico(detalle)) partes.push(`Dato clave: ${detalle}`);
   if (!campoFichaGenerico(plazo)) partes.push(`Plazo: ${plazo}`);
   if (!campoFichaGenerico(impacto)) partes.push(`Importancia: ${impacto}`);
-  if (!campoFichaGenerico(territorio)) partes.push(`Territorio: ${territorio}`);
+  if (!campoFichaGenerico(accion) && !/^(leer|consultar|revisar) (el )?(anuncio|documento|publicacion) oficial/i.test(accion)) {
+    partes.push(`Que hacer: ${accion}`);
+  }
 
   const base = limpiarCampoFicha(partes.join(' '), 620) || extracto || titulo;
   if (!base) return 'no_detectado';
 
   const limpio = base.replace(/^el boletin (indica|publica|recoge|dice)\s*:\s*/i, '').trim();
-  return limitarPalabras(`En sencillo: ${limpio}`, 78, 620) || 'no_detectado';
+  const prefijo = /^en sencillo\b/i.test(limpio) ? '' : 'En sencillo: ';
+  return limitarPalabras(`${prefijo}${limpio}`, 90, 700) || 'no_detectado';
 }
 
 function construirFichaIA(data = {}, alerta = {}) {
@@ -755,9 +786,12 @@ function construirFichaIA(data = {}, alerta = {}) {
   ficha.resumen_digest = construirResumenDigestFicha({
     resumen: data.resumen_digest || data.resumen,
     hecho: ficha.hecho,
+    objeto: ficha.objeto,
+    afectaA: ficha.afecta_a,
     detalle: ficha.detalle,
     impacto: ficha.impacto,
     plazo: ficha.plazo,
+    accion: ficha.accion,
     territorio: ficha.territorio,
     extracto,
     titulo,
