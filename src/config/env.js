@@ -73,9 +73,11 @@ function validarEntorno(env = process.env) {
   };
 }
 
-// Valida y reporta. En producción con críticas ausentes: termina el proceso
-// (mejor un deploy que falla en rojo que una API a medias). En desarrollo,
-// solo avisa para no bloquear trabajo local parcial.
+// Valida y reporta. En producción, una variable crítica AUSENTE termina el
+// proceso (mejor un deploy que falla en rojo que una API a medias). Los checks
+// de formato (longitud, placeholder, prefijo de URL) solo hacen ruido: pueden
+// dar falso positivo con valores reales y no deben poder tumbar un deploy que
+// hoy funciona. En desarrollo nunca se sale.
 function asegurarEntorno(env = process.env, { exitOnError } = {}) {
   const resultado = validarEntorno(env);
   const esProduccion = (env.NODE_ENV || '').toLowerCase() === 'production';
@@ -85,13 +87,13 @@ function asegurarEntorno(env = process.env, { exitOnError } = {}) {
     console.warn(`[env] Aviso: falta ${aviso}`);
   }
   for (const invalida of resultado.invalidas) {
-    console.error(`[env] Variable inválida: ${invalida}`);
+    console.error(`[env] Variable sospechosa (revisar): ${invalida}`);
   }
   for (const faltante of resultado.faltantes) {
     console.error(`[env] FALTA variable crítica: ${faltante}`);
   }
 
-  if (!resultado.ok && debeSalir) {
+  if (resultado.faltantes.length > 0 && debeSalir) {
     console.error('[env] Entorno incompleto: la API no arranca. Corrige las variables y redespliega.');
     process.exit(1);
   }
