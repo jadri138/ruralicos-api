@@ -7,16 +7,8 @@
 // Cron recomendado: días laborables a las 10:00–11:00h (el BOCYL
 // se publica entre las 08:00 y las 10:30h de lunes a viernes).
 
-const { checkCronToken }                          = require('../../../middleware/cronToken');
 const { getFechaHoyYYYYMMDD, obtenerDocumentosBocylPorFecha } = require('../scrapers/BOCYL/bocylScraper');
-const { procesarConFiltroRural } = require('./shared/procesarConFiltroRural');
-
-// ─────────────────────────────────────────────
-// Filtro de relevancia rural
-// ─────────────────────────────────────────────
-function normalizar(s) {
-  return (s || '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
-}
+const { registrarBoletinRuta, crearFiltroRural } = require('./shared/registrarBoletinRuta');
 
 const EXCLUIR_FUERTE = [
   'boletin oficial de la provincia',
@@ -33,47 +25,21 @@ const INCLUIR_RURAL = [
   'sanidad animal', 'plaga', 'caza',
 ];
 
-function esRuralRelevante(texto) {
-  const t = normalizar(texto);
-  if (EXCLUIR_FUERTE.some(k => t.includes(normalizar(k)))) return false;
-  return INCLUIR_RURAL.some(k => t.includes(normalizar(k)));
-}
+const esRuralRelevante = crearFiltroRural({ excluir: EXCLUIR_FUERTE, incluir: INCLUIR_RURAL });
 
-// ─────────────────────────────────────────────
-// Ruta
-// ─────────────────────────────────────────────
 module.exports = function bocylRoutes(app, supabase) {
-  app.get('/scrape-bocyl-oficial', async (req, res) => {
-    if (!checkCronToken(req, res)) return;
-
-    try {
-      const fechaHoy = getFechaHoyYYYYMMDD();
-      const docs     = await obtenerDocumentosBocylPorFecha(fechaHoy);
-
-      if (!docs.length) {
-        return res.json({
-          success: true,
-          totales: 0, documentos_insertables: 0,
-          nuevas: 0, duplicadas: 0, errores: 0, saltadasFiltro: 0,
-          mensaje: 'No hay boletín BOCYL publicado hoy (festivo o fin de semana)',
-        });
-      }
-
-      const stats = await procesarConFiltroRural(supabase, docs, {
-        fuente: 'BOCYL',
-        region: 'Castilla y León',
-        esRuralRelevante,
-        contenido: (doc) => doc.texto,
-      });
-
-      return res.json({
-        success: true,
-        ...stats,
-        mensaje: 'BOCYL procesado (API OpenDataSoft + captura bruta + filtro rural)',
-      });
-    } catch (e) {
-      console.error('Error en /scrape-bocyl-oficial', e);
-      return res.status(500).json({ error: e.message });
-    }
+  registrarBoletinRuta(app, supabase, {
+    paths: ['/scrape-bocyl-oficial'],
+    fuente: 'BOCYL',
+    region: 'Castilla y León',
+    hoy: getFechaHoyYYYYMMDD,
+    fechaModo: 'hoy',
+    obtenerDocs: (fecha) => obtenerDocumentosBocylPorFecha(fecha),
+    procesador: 'filtroRural',
+    opciones: { esRuralRelevante },
+    mensajes: {
+      sinDocs: 'No hay boletín BOCYL publicado hoy (festivo o fin de semana)',
+      procesado: 'BOCYL procesado (API OpenDataSoft + captura bruta + filtro rural)',
+    },
   });
 };

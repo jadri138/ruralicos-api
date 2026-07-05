@@ -3,13 +3,8 @@
 // Scraper del BOR (Boletin Oficial de La Rioja).
 // Cron recomendado: dias laborables a partir de las 08:30h.
 
-const { checkCronToken } = require('../../../middleware/cronToken');
 const { obtenerDocumentosBorConTexto, getFechaHoyISO } = require('../scrapers/BOR/borScraper');
-const { procesarBoletinPreclasificado } = require('./shared/procesarBoletinPreclasificado');
-
-function normalizar(s) {
-  return (s || '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
-}
+const { registrarBoletinRuta, crearFiltroRural } = require('./shared/registrarBoletinRuta');
 
 const EXCLUIR_FUERTE = [
   'ayuntamiento', 'mancomunidad',
@@ -34,52 +29,19 @@ const INCLUIR_RURAL = [
   'consejeria de agricultura',
 ];
 
-function esRuralRelevante(texto) {
-  const t = normalizar(texto);
-  if (EXCLUIR_FUERTE.some((k) => t.includes(normalizar(k)))) return false;
-  return INCLUIR_RURAL.some((k) => t.includes(normalizar(k)));
-}
+const esRuralRelevante = crearFiltroRural({ excluir: EXCLUIR_FUERTE, incluir: INCLUIR_RURAL });
 
 module.exports = function borRoutes(app, supabase) {
-  async function scrapeBor(req, res) {
-    if (!checkCronToken(req, res)) return;
-
-    try {
-      const fecha = req.query.fecha ? String(req.query.fecha).slice(0, 10) : getFechaHoyISO();
-      const docs = await obtenerDocumentosBorConTexto(fecha, esRuralRelevante);
-
-      if (!docs.length) {
-        return res.json({
-          success: true,
-          fecha,
-          totales: 0,
-          documentos_insertables: 0,
-          nuevas: 0,
-          duplicadas: 0,
-          errores: 0,
-          saltadasFiltro: 0,
-          mensaje: 'No hay disposiciones BOR en esta fecha',
-        });
-      }
-
-      const stats = await procesarBoletinPreclasificado(supabase, docs, {
-        fuente: 'BOR',
-        region: 'La Rioja',
-        contenido: (doc) => doc.texto,
-      });
-
-      return res.json({
-        success: true,
-        fecha: docs[0]?.fecha || fecha,
-        ...stats,
-        mensaje: 'BOR procesado (captura bruta + filtro rural)',
-      });
-    } catch (e) {
-      console.error('Error en /scrape-bor', e);
-      return res.status(500).json({ error: e.message });
-    }
-  }
-
-  app.get('/scrape-bor-oficial', scrapeBor);
-  app.get('/scrape-bor', scrapeBor);
+  registrarBoletinRuta(app, supabase, {
+    paths: ['/scrape-bor-oficial', '/scrape-bor'],
+    fuente: 'BOR',
+    region: 'La Rioja',
+    hoy: getFechaHoyISO,
+    fechaModo: 'query-o-hoy',
+    obtenerDocs: (fecha) => obtenerDocumentosBorConTexto(fecha, esRuralRelevante),
+    mensajes: {
+      sinDocs: 'No hay disposiciones BOR en esta fecha',
+      procesado: 'BOR procesado (captura bruta + filtro rural)',
+    },
+  });
 };

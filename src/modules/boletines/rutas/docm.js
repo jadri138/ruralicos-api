@@ -1,10 +1,5 @@
-const { checkCronToken } = require('../../../middleware/cronToken');
 const { getFechaHoyYYYYMMDD, obtenerDocumentosDocmPorFecha } = require('../scrapers/DOCM/docmScraper');
-const { procesarConFiltroRural } = require('./shared/procesarConFiltroRural');
-
-function normalizar(s) {
-  return (s || '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
-}
+const { registrarBoletinRuta, crearFiltroRural } = require('./shared/registrarBoletinRuta');
 
 const EXCLUIR_FUERTE = [
   'ayuntamiento', 'diputacion', 'presupuesto',
@@ -18,49 +13,24 @@ const INCLUIR_RURAL = [
   'sanidad animal', 'caza', 'viticult', 'vitivinicol', 'olivar',
 ];
 
-function esRuralRelevante(texto) {
-  const t = normalizar(texto);
-  if (EXCLUIR_FUERTE.some(k => t.includes(normalizar(k)))) return false;
-  return INCLUIR_RURAL.some(k => t.includes(normalizar(k)));
-}
+const esRuralRelevante = crearFiltroRural({ excluir: EXCLUIR_FUERTE, incluir: INCLUIR_RURAL });
 
 module.exports = function docmRoutes(app, supabase) {
-  app.get('/scrape-docm-oficial', async (req, res) => {
-    if (!checkCronToken(req, res)) return;
-
-    try {
-      const fechaHoy = getFechaHoyYYYYMMDD();
-      const docs = await obtenerDocumentosDocmPorFecha(fechaHoy);
-
-      if (!docs.length) {
-        return res.json({
-          success: true,
-          totales: 0,
-          documentos_insertables: 0,
-          nuevas: 0,
-          duplicadas: 0,
-          errores: 0,
-          saltadasFiltro: 0,
-          mensaje: 'No hay boletín DOCM publicado hoy (festivo o fin de semana)',
-        });
-      }
-
-      const stats = await procesarConFiltroRural(supabase, docs, {
-        fuente: 'DOCM',
-        region: 'Castilla-La Mancha',
-        esRuralRelevante,
-        construirBolsa: (doc) => [String(doc.texto || '').slice(0, 3500), doc.titulo, doc.seccion].join(' '),
-        contenido: (doc) => doc.texto,
-      });
-
-      return res.json({
-        success: true,
-        ...stats,
-        mensaje: 'DOCM procesado (HTML scraping + captura bruta + filtro rural)',
-      });
-    } catch (e) {
-      console.error('Error en /scrape-docm-oficial', e);
-      return res.status(500).json({ error: e.message });
-    }
+  registrarBoletinRuta(app, supabase, {
+    paths: ['/scrape-docm-oficial'],
+    fuente: 'DOCM',
+    region: 'Castilla-La Mancha',
+    hoy: getFechaHoyYYYYMMDD,
+    fechaModo: 'hoy',
+    obtenerDocs: (fecha) => obtenerDocumentosDocmPorFecha(fecha),
+    procesador: 'filtroRural',
+    opciones: {
+      esRuralRelevante,
+      construirBolsa: (doc) => [String(doc.texto || '').slice(0, 3500), doc.titulo, doc.seccion].join(' '),
+    },
+    mensajes: {
+      sinDocs: 'No hay boletín DOCM publicado hoy (festivo o fin de semana)',
+      procesado: 'DOCM procesado (HTML scraping + captura bruta + filtro rural)',
+    },
   });
 };

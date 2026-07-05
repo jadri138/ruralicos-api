@@ -3,13 +3,8 @@
 // Scraper del BOPA (Boletín Oficial del Principado de Asturias).
 // Cron recomendado: días laborables a partir de las 08:30h.
 
-const { checkCronToken } = require('../../../middleware/cronToken');
 const { obtenerDocumentosBopaConTexto, getFechaHoyISO } = require('../scrapers/BOPA/bopaScraper');
-const { procesarBoletinPreclasificado } = require('./shared/procesarBoletinPreclasificado');
-
-function normalizar(s) {
-  return (s || '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
-}
+const { registrarBoletinRuta, crearFiltroRural } = require('./shared/registrarBoletinRuta');
 
 const EXCLUIR_FUERTE = [
   'ayuntamiento', 'concejo', 'mancomunidad',
@@ -36,52 +31,19 @@ const INCLUIR_RURAL = [
   'industria alimentaria',
 ];
 
-function esRuralRelevante(texto) {
-  const t = normalizar(texto);
-  if (EXCLUIR_FUERTE.some((k) => t.includes(normalizar(k)))) return false;
-  return INCLUIR_RURAL.some((k) => t.includes(normalizar(k)));
-}
+const esRuralRelevante = crearFiltroRural({ excluir: EXCLUIR_FUERTE, incluir: INCLUIR_RURAL });
 
 module.exports = function bopaRoutes(app, supabase) {
-  async function scrapeBopa(req, res) {
-    if (!checkCronToken(req, res)) return;
-
-    try {
-      const fecha = req.query.fecha ? String(req.query.fecha).slice(0, 10) : null;
-      const docs = await obtenerDocumentosBopaConTexto(fecha, esRuralRelevante);
-
-      if (!docs.length) {
-        return res.json({
-          success: true,
-          fecha: fecha || getFechaHoyISO(),
-          totales: 0,
-          documentos_insertables: 0,
-          nuevas: 0,
-          duplicadas: 0,
-          errores: 0,
-          saltadasFiltro: 0,
-          mensaje: 'No hay disposiciones BOPA en el último boletín',
-        });
-      }
-
-      const stats = await procesarBoletinPreclasificado(supabase, docs, {
-        fuente: 'BOPA',
-        region: 'Asturias',
-        contenido: (doc) => doc.texto,
-      });
-
-      return res.json({
-        success: true,
-        fecha: docs[0]?.fecha || fecha,
-        ...stats,
-        mensaje: 'BOPA procesado (captura bruta + filtro rural)',
-      });
-    } catch (e) {
-      console.error('Error en /scrape-bopa', e);
-      return res.status(500).json({ error: e.message });
-    }
-  }
-
-  app.get('/scrape-bopa-oficial', scrapeBopa);
-  app.get('/scrape-bopa', scrapeBopa);
+  registrarBoletinRuta(app, supabase, {
+    paths: ['/scrape-bopa-oficial', '/scrape-bopa'],
+    fuente: 'BOPA',
+    region: 'Asturias',
+    hoy: getFechaHoyISO,
+    fechaModo: 'query',
+    obtenerDocs: (fecha) => obtenerDocumentosBopaConTexto(fecha, esRuralRelevante),
+    mensajes: {
+      sinDocs: 'No hay disposiciones BOPA en el último boletín',
+      procesado: 'BOPA procesado (captura bruta + filtro rural)',
+    },
+  });
 };

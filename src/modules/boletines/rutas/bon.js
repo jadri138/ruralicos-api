@@ -3,13 +3,9 @@
 // Scraper del BON (Boletin Oficial de Navarra).
 // Cron recomendado: dias laborables a partir de las 08:30h.
 
-const { checkCronToken } = require('../../../middleware/cronToken');
 const { obtenerDocumentosBonConTexto } = require('../scrapers/BON/bonScraper');
-const { procesarBoletinPreclasificado } = require('./shared/procesarBoletinPreclasificado');
-
-function normalizar(s) {
-  return (s || '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
-}
+const { getFechaMadridISO } = require('../../../shared/fechaMadrid');
+const { registrarBoletinRuta, crearFiltroRural } = require('./shared/registrarBoletinRuta');
 
 const EXCLUIR_FUERTE = [
   'ayuntamiento', 'concejo', 'mancomunidad',
@@ -35,52 +31,19 @@ const INCLUIR_RURAL = [
   'departamento de desarrollo rural',
 ];
 
-function esRuralRelevante(texto) {
-  const t = normalizar(texto);
-  if (EXCLUIR_FUERTE.some((k) => t.includes(normalizar(k)))) return false;
-  return INCLUIR_RURAL.some((k) => t.includes(normalizar(k)));
-}
+const esRuralRelevante = crearFiltroRural({ excluir: EXCLUIR_FUERTE, incluir: INCLUIR_RURAL });
 
 module.exports = function bonRoutes(app, supabase) {
-  async function scrapeBon(req, res) {
-    if (!checkCronToken(req, res)) return;
-
-    try {
-      const fecha = req.query.fecha ? String(req.query.fecha).slice(0, 10) : null;
-      const docs = await obtenerDocumentosBonConTexto(fecha, esRuralRelevante);
-
-      if (!docs.length) {
-        return res.json({
-          success: true,
-          fecha,
-          totales: 0,
-          documentos_insertables: 0,
-          nuevas: 0,
-          duplicadas: 0,
-          errores: 0,
-          saltadasFiltro: 0,
-          mensaje: 'No hay disposiciones BON en el ultimo boletin',
-        });
-      }
-
-      const stats = await procesarBoletinPreclasificado(supabase, docs, {
-        fuente: 'BON',
-        region: 'Navarra',
-        contenido: (doc) => doc.texto,
-      });
-
-      return res.json({
-        success: true,
-        fecha: docs[0]?.fecha || fecha,
-        ...stats,
-        mensaje: 'BON procesado (captura bruta + filtro rural)',
-      });
-    } catch (e) {
-      console.error('Error en /scrape-bon', e);
-      return res.status(500).json({ error: e.message });
-    }
-  }
-
-  app.get('/scrape-bon-oficial', scrapeBon);
-  app.get('/scrape-bon', scrapeBon);
+  registrarBoletinRuta(app, supabase, {
+    paths: ['/scrape-bon-oficial', '/scrape-bon'],
+    fuente: 'BON',
+    region: 'Navarra',
+    hoy: getFechaMadridISO,
+    fechaModo: 'query',
+    obtenerDocs: (fecha) => obtenerDocumentosBonConTexto(fecha, esRuralRelevante),
+    mensajes: {
+      sinDocs: 'No hay disposiciones BON en el ultimo boletin',
+      procesado: 'BON procesado (captura bruta + filtro rural)',
+    },
+  });
 };

@@ -3,16 +3,8 @@
 // Scraper del DOGV (Diari Oficial de la Generalitat Valenciana).
 // Cron recomendado: días laborables a las 11:00–12:00h.
 
-const { checkCronToken } = require('../../../middleware/cronToken');
 const { obtenerDocumentosDogvConTexto, getFechaHoyISO } = require('../scrapers/DOGV/dogvScraper');
-const { procesarBoletinPreclasificado } = require('./shared/procesarBoletinPreclasificado');
-
-// ─────────────────────────────────────────────
-// Filtro de relevancia rural
-// ─────────────────────────────────────────────
-function normalizar(s) {
-  return (s || '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
-}
+const { registrarBoletinRuta, crearFiltroRural } = require('./shared/registrarBoletinRuta');
 
 const EXCLUIR_FUERTE = [
   'ayuntamiento', 'ajuntament', 'diputacio', 'diputacion',
@@ -38,48 +30,19 @@ const INCLUIR_RURAL = [
   'conselleria de agricultura',
 ];
 
-function esRuralRelevante(texto) {
-  const t = normalizar(texto);
-  if (EXCLUIR_FUERTE.some(k => t.includes(normalizar(k)))) return false;
-  return INCLUIR_RURAL.some(k => t.includes(normalizar(k)));
-}
+const esRuralRelevante = crearFiltroRural({ excluir: EXCLUIR_FUERTE, incluir: INCLUIR_RURAL });
 
-// ─────────────────────────────────────────────
-// Ruta
-// ─────────────────────────────────────────────
 module.exports = function dogvRoutes(app, supabase) {
-  app.get('/scrape-dogv', async (req, res) => {
-    if (!checkCronToken(req, res)) return;
-
-    try {
-      const fechaHoy = getFechaHoyISO();
-      const docs     = await obtenerDocumentosDogvConTexto(fechaHoy, esRuralRelevante);
-
-      if (!docs.length) {
-        return res.json({
-          success: true,
-          fecha: fechaHoy,
-          totales: 0, documentos_insertables: 0,
-          nuevas: 0, duplicadas: 0, errores: 0, saltadasFiltro: 0,
-          mensaje: 'No hay disposiciones DOGV hoy (festivo o fin de semana)',
-        });
-      }
-
-      const stats = await procesarBoletinPreclasificado(supabase, docs, {
-        fuente: 'DOGV',
-        region: 'Comunitat Valenciana',
-        contenido: (doc) => doc.texto,
-      });
-
-      return res.json({
-        success: true,
-        fecha: fechaHoy,
-        ...stats,
-        mensaje: 'DOGV procesado (captura bruta + filtro rural)',
-      });
-    } catch (e) {
-      console.error('Error en /scrape-dogv', e);
-      return res.status(500).json({ error: e.message });
-    }
+  registrarBoletinRuta(app, supabase, {
+    paths: ['/scrape-dogv'],
+    fuente: 'DOGV',
+    region: 'Comunitat Valenciana',
+    hoy: getFechaHoyISO,
+    fechaModo: 'hoy',
+    obtenerDocs: (fecha) => obtenerDocumentosDogvConTexto(fecha, esRuralRelevante),
+    mensajes: {
+      sinDocs: 'No hay disposiciones DOGV hoy (festivo o fin de semana)',
+      procesado: 'DOGV procesado (captura bruta + filtro rural)',
+    },
   });
 };

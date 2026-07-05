@@ -3,13 +3,8 @@
 // Scraper del BOIB (Boletin Oficial de las Illes Balears).
 // Cron recomendado: dias laborables a partir de las 08:30h.
 
-const { checkCronToken } = require('../../../middleware/cronToken');
 const { obtenerDocumentosBoibConTexto, getFechaHoyISO } = require('../scrapers/BOIB/boibScraper');
-const { procesarBoletinPreclasificado } = require('./shared/procesarBoletinPreclasificado');
-
-function normalizar(s) {
-  return (s || '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
-}
+const { registrarBoletinRuta, crearFiltroRural } = require('./shared/registrarBoletinRuta');
 
 const EXCLUIR_FUERTE = [
   'ayuntamiento', 'ajuntament', 'consell insular',
@@ -35,52 +30,19 @@ const INCLUIR_RURAL = [
   'conselleria de agricultura', 'conselleria d agricultura',
 ];
 
-function esRuralRelevante(texto) {
-  const t = normalizar(texto);
-  if (EXCLUIR_FUERTE.some((k) => t.includes(normalizar(k)))) return false;
-  return INCLUIR_RURAL.some((k) => t.includes(normalizar(k)));
-}
+const esRuralRelevante = crearFiltroRural({ excluir: EXCLUIR_FUERTE, incluir: INCLUIR_RURAL });
 
 module.exports = function boibRoutes(app, supabase) {
-  async function scrapeBoib(req, res) {
-    if (!checkCronToken(req, res)) return;
-
-    try {
-      const fecha = req.query.fecha ? String(req.query.fecha).slice(0, 10) : null;
-      const docs = await obtenerDocumentosBoibConTexto(fecha, esRuralRelevante);
-
-      if (!docs.length) {
-        return res.json({
-          success: true,
-          fecha: fecha || getFechaHoyISO(),
-          totales: 0,
-          documentos_insertables: 0,
-          nuevas: 0,
-          duplicadas: 0,
-          errores: 0,
-          saltadasFiltro: 0,
-          mensaje: 'No hay disposiciones BOIB en el ultimo boletin',
-        });
-      }
-
-      const stats = await procesarBoletinPreclasificado(supabase, docs, {
-        fuente: 'BOIB',
-        region: 'Illes Balears',
-        contenido: (doc) => doc.texto,
-      });
-
-      return res.json({
-        success: true,
-        fecha: docs[0]?.fecha || fecha,
-        ...stats,
-        mensaje: 'BOIB procesado (captura bruta + filtro rural)',
-      });
-    } catch (e) {
-      console.error('Error en /scrape-boib', e);
-      return res.status(500).json({ error: e.message });
-    }
-  }
-
-  app.get('/scrape-boib-oficial', scrapeBoib);
-  app.get('/scrape-boib', scrapeBoib);
+  registrarBoletinRuta(app, supabase, {
+    paths: ['/scrape-boib-oficial', '/scrape-boib'],
+    fuente: 'BOIB',
+    region: 'Illes Balears',
+    hoy: getFechaHoyISO,
+    fechaModo: 'query',
+    obtenerDocs: (fecha) => obtenerDocumentosBoibConTexto(fecha, esRuralRelevante),
+    mensajes: {
+      sinDocs: 'No hay disposiciones BOIB en el ultimo boletin',
+      procesado: 'BOIB procesado (captura bruta + filtro rural)',
+    },
+  });
 };

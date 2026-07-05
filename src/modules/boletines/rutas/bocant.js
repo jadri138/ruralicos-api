@@ -3,13 +3,8 @@
 // Scraper del BOC (Boletin Oficial de Cantabria).
 // Cron recomendado: dias laborables a partir de las 08:30h.
 
-const { checkCronToken } = require('../../../middleware/cronToken');
 const { obtenerDocumentosBocantConTexto, getFechaHoyISO } = require('../scrapers/BOCANT/bocantScraper');
-const { procesarBoletinPreclasificado } = require('./shared/procesarBoletinPreclasificado');
-
-function normalizar(s) {
-  return (s || '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
-}
+const { registrarBoletinRuta, crearFiltroRural } = require('./shared/registrarBoletinRuta');
 
 const EXCLUIR_FUERTE = [
   'ayuntamiento', 'mancomunidad',
@@ -37,52 +32,19 @@ const INCLUIR_RURAL = [
   'direccion general de agricultura',
 ];
 
-function esRuralRelevante(texto) {
-  const t = normalizar(texto);
-  if (EXCLUIR_FUERTE.some((k) => t.includes(normalizar(k)))) return false;
-  return INCLUIR_RURAL.some((k) => t.includes(normalizar(k)));
-}
+const esRuralRelevante = crearFiltroRural({ excluir: EXCLUIR_FUERTE, incluir: INCLUIR_RURAL });
 
 module.exports = function bocantRoutes(app, supabase) {
-  async function scrapeBocant(req, res) {
-    if (!checkCronToken(req, res)) return;
-
-    try {
-      const fecha = req.query.fecha ? String(req.query.fecha).slice(0, 10) : null;
-      const docs = await obtenerDocumentosBocantConTexto(fecha, esRuralRelevante);
-
-      if (!docs.length) {
-        return res.json({
-          success: true,
-          fecha: fecha || getFechaHoyISO(),
-          totales: 0,
-          documentos_insertables: 0,
-          nuevas: 0,
-          duplicadas: 0,
-          errores: 0,
-          saltadasFiltro: 0,
-          mensaje: 'No hay disposiciones BOC Cantabria en esta fecha',
-        });
-      }
-
-      const stats = await procesarBoletinPreclasificado(supabase, docs, {
-        fuente: 'BOCANT',
-        region: 'Cantabria',
-        contenido: (doc) => doc.texto,
-      });
-
-      return res.json({
-        success: true,
-        fecha: docs[0]?.fecha || fecha,
-        ...stats,
-        mensaje: 'BOC Cantabria procesado (captura bruta + filtro rural)',
-      });
-    } catch (e) {
-      console.error('Error en /scrape-bocant', e);
-      return res.status(500).json({ error: e.message });
-    }
-  }
-
-  app.get('/scrape-bocant-oficial', scrapeBocant);
-  app.get('/scrape-bocant', scrapeBocant);
+  registrarBoletinRuta(app, supabase, {
+    paths: ['/scrape-bocant-oficial', '/scrape-bocant'],
+    fuente: 'BOCANT',
+    region: 'Cantabria',
+    hoy: getFechaHoyISO,
+    fechaModo: 'query',
+    obtenerDocs: (fecha) => obtenerDocumentosBocantConTexto(fecha, esRuralRelevante),
+    mensajes: {
+      sinDocs: 'No hay disposiciones BOC Cantabria en esta fecha',
+      procesado: 'BOC Cantabria procesado (captura bruta + filtro rural)',
+    },
+  });
 };

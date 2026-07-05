@@ -2,13 +2,8 @@
 //
 // Scraper del BOCCE (Boletin Oficial de la Ciudad Autonoma de Ceuta).
 
-const { checkCronToken } = require('../../../middleware/cronToken');
 const { obtenerDocumentosBocceConTexto, getFechaHoyISO } = require('../scrapers/BOCCE/bocceScraper');
-const { procesarBoletinPreclasificado } = require('./shared/procesarBoletinPreclasificado');
-
-function normalizar(s) {
-  return (s || '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
-}
+const { registrarBoletinRuta, crearFiltroRural } = require('./shared/registrarBoletinRuta');
 
 const EXCLUIR_FUERTE = [
   'ayuntamiento', 'administracion publica', 'presidencia',
@@ -33,52 +28,19 @@ const INCLUIR_RURAL = [
   'medio ambiente', 'desarrollo rural',
 ];
 
-function esRuralRelevante(texto) {
-  const t = normalizar(texto);
-  if (EXCLUIR_FUERTE.some((k) => t.includes(normalizar(k)))) return false;
-  return INCLUIR_RURAL.some((k) => t.includes(normalizar(k)));
-}
+const esRuralRelevante = crearFiltroRural({ excluir: EXCLUIR_FUERTE, incluir: INCLUIR_RURAL });
 
 module.exports = function bocceRoutes(app, supabase) {
-  async function scrapeBocce(req, res) {
-    if (!checkCronToken(req, res)) return;
-
-    try {
-      const fecha = req.query.fecha ? String(req.query.fecha).slice(0, 10) : getFechaHoyISO();
-      const docs = await obtenerDocumentosBocceConTexto(fecha, esRuralRelevante);
-
-      if (!docs.length) {
-        return res.json({
-          success: true,
-          fecha,
-          totales: 0,
-          documentos_insertables: 0,
-          nuevas: 0,
-          duplicadas: 0,
-          errores: 0,
-          saltadasFiltro: 0,
-          mensaje: 'No hay boletines BOCCE en esta fecha',
-        });
-      }
-
-      const stats = await procesarBoletinPreclasificado(supabase, docs, {
-        fuente: 'BOCCE',
-        region: 'Ceuta',
-        contenido: (doc) => doc.texto,
-      });
-
-      return res.json({
-        success: true,
-        fecha,
-        ...stats,
-        mensaje: 'BOCCE procesado (captura bruta + filtro rural)',
-      });
-    } catch (e) {
-      console.error('Error en /scrape-bocce', e);
-      return res.status(500).json({ error: e.message });
-    }
-  }
-
-  app.get('/scrape-bocce-oficial', scrapeBocce);
-  app.get('/scrape-bocce', scrapeBocce);
+  registrarBoletinRuta(app, supabase, {
+    paths: ['/scrape-bocce-oficial', '/scrape-bocce'],
+    fuente: 'BOCCE',
+    region: 'Ceuta',
+    hoy: getFechaHoyISO,
+    fechaModo: 'query-o-hoy',
+    obtenerDocs: (fecha) => obtenerDocumentosBocceConTexto(fecha, esRuralRelevante),
+    mensajes: {
+      sinDocs: 'No hay boletines BOCCE en esta fecha',
+      procesado: 'BOCCE procesado (captura bruta + filtro rural)',
+    },
+  });
 };

@@ -3,16 +3,8 @@
 // Scraper del DOGC (Diari Oficial de la Generalitat de Catalunya).
 // Cron recomendado: días laborables a las 10:00–11:00h.
 
-const { checkCronToken } = require('../../../middleware/cronToken');
 const { obtenerDocumentosDogcConTexto, getFechaHoyISO } = require('../scrapers/DOGC/dogcScraper');
-const { procesarBoletinPreclasificado } = require('./shared/procesarBoletinPreclasificado');
-
-// ─────────────────────────────────────────────
-// Filtro de relevancia rural
-// ─────────────────────────────────────────────
-function normalizar(s) {
-  return (s || '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
-}
+const { registrarBoletinRuta, crearFiltroRural } = require('./shared/registrarBoletinRuta');
 
 const EXCLUIR_FUERTE = [
   'ayuntamiento', 'ajuntament', 'diputacio', 'diputacion',
@@ -35,49 +27,19 @@ const INCLUIR_RURAL = [
   'denominaci d\'origen', 'denominacion de origen',
 ];
 
-function esRuralRelevante(texto) {
-  const t = normalizar(texto);
-  if (EXCLUIR_FUERTE.some(k => t.includes(normalizar(k)))) return false;
-  return INCLUIR_RURAL.some(k => t.includes(normalizar(k)));
-}
+const esRuralRelevante = crearFiltroRural({ excluir: EXCLUIR_FUERTE, incluir: INCLUIR_RURAL });
 
-// ─────────────────────────────────────────────
-// Ruta
-// ─────────────────────────────────────────────
 module.exports = function dogcRoutes(app, supabase) {
-  app.get('/scrape-dogc', async (req, res) => {
-    if (!checkCronToken(req, res)) return;
-
-    try {
-      const fechaHoy = getFechaHoyISO();
-      // docs incluye TODOS los detectados, anotados con `_relevante` (captura bruta).
-      const docs     = await obtenerDocumentosDogcConTexto(fechaHoy, esRuralRelevante);
-
-      if (!docs.length) {
-        return res.json({
-          success: true,
-          fecha: fechaHoy,
-          totales: 0, documentos_insertables: 0,
-          nuevas: 0, duplicadas: 0, errores: 0, saltadasFiltro: 0,
-          mensaje: 'No hay disposiciones DOGC hoy (festivo o fin de semana)',
-        });
-      }
-
-      const stats = await procesarBoletinPreclasificado(supabase, docs, {
-        fuente: 'DOGC',
-        region: 'Catalunya',
-        contenido: (doc) => doc.texto,
-      });
-
-      return res.json({
-        success: true,
-        fecha: fechaHoy,
-        ...stats,
-        mensaje: 'DOGC procesado (Socrata + captura bruta + filtro rural)',
-      });
-    } catch (e) {
-      console.error('Error en /scrape-dogc', e);
-      return res.status(500).json({ error: e.message });
-    }
+  registrarBoletinRuta(app, supabase, {
+    paths: ['/scrape-dogc'],
+    fuente: 'DOGC',
+    region: 'Catalunya',
+    hoy: getFechaHoyISO,
+    fechaModo: 'hoy',
+    obtenerDocs: (fecha) => obtenerDocumentosDogcConTexto(fecha, esRuralRelevante),
+    mensajes: {
+      sinDocs: 'No hay disposiciones DOGC hoy (festivo o fin de semana)',
+      procesado: 'DOGC procesado (Socrata + captura bruta + filtro rural)',
+    },
   });
 };
