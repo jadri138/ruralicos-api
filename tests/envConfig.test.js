@@ -71,6 +71,17 @@ test('ADMIN_ALERT_PHONES (alias plural) satisface la recomendada', () => {
   assert.deepStrictEqual(r.avisos, []);
 });
 
+test('detecta placeholders de plantilla sin rellenar', () => {
+  const r = validarEntorno({
+    ...ENV_COMPLETO,
+    SUPABASE_SERVICE_ROLE_KEY: '<<< PEGA AQUI TU SERVICE ROLE KEY >>>',
+    OPENAI_API_KEY: 'CHANGEME',
+  });
+  assert.strictEqual(r.ok, false);
+  assert.strictEqual(r.invalidas.length, 2);
+  assert(r.invalidas.every((i) => i.includes('placeholder')));
+});
+
 test('asegurarEntorno no mata el proceso fuera de produccion', () => {
   const r = asegurarEntorno({ NODE_ENV: 'development' }, { exitOnError: false });
   assert.strictEqual(r.ok, false);

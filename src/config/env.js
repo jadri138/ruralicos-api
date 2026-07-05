@@ -31,6 +31,13 @@ function valorDe(env, item) {
   return '';
 }
 
+// Placeholders de plantilla (.env.example pegado sin rellenar). Caso real:
+// un .env local llevaba "<<< PEGA AQUI ... >>>" como service key y pasaba
+// la validacion de presencia.
+function esPlaceholder(valor) {
+  return /<<<|>>>|PEGA AQUI|CAMBIAME|CHANGEME|TU[_ ]TOKEN|TU[_ ]CLAVE|REEMPLAZA/i.test(valor);
+}
+
 function validarEntorno(env = process.env) {
   const faltantes = [];
   const invalidas = [];
@@ -40,6 +47,10 @@ function validarEntorno(env = process.env) {
     const valor = valorDe(env, item);
     if (!valor) {
       faltantes.push(`${item.name} — ${item.desc}`);
+      continue;
+    }
+    if (esPlaceholder(valor)) {
+      invalidas.push(`${item.name}: contiene un placeholder de plantilla sin rellenar`);
       continue;
     }
     if (typeof item.check === 'function') {
