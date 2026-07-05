@@ -26,11 +26,17 @@ function registrarScraper(app, supabase, config) {
         region: config.region,
       });
 
+      // Mensaje explicito cuando no hay documentos: permite al evaluador de
+      // calidad distinguir "sin publicacion" (normal) de "parseo roto" (warning).
+      const mensaje = docs.length === 0
+        ? `No hay boletín ${config.fuente} para ${fecha} (sin publicación o festivo)`
+        : `${config.fuente} procesado (captura bruta + filtro provincial)`;
+
       return res.json({
         success: true,
         fecha,
         ...stats,
-        mensaje: `${config.fuente} procesado (captura bruta + filtro provincial)`,
+        mensaje,
       });
     } catch (err) {
       console.error(`Error en ${config.path}`, err);

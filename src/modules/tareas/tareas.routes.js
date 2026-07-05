@@ -3,6 +3,8 @@ const { checkCronToken } = require('../../middleware/cronToken');
 const { enviarWhatsAppAdmin, enviarDigestPro } = require('../../platform/whatsapp');
 const { getFechaMadridISO } = require('../../shared/fechaMadrid');
 const { evaluarRespuestaScraper } = require('../boletines/scraperRunQuality');
+const { evaluarSaludFuentes, construirMensajeFuentesCaidas } = require('../boletines/fuentesHealth');
+const { omitirScraperSiCapturado } = require('../boletines/scraperSkip');
 const { cotejarListadosOficiales } = require('../../services/officialListMatcher');
 const {
   cargarOutboxPendiente,
@@ -276,6 +278,63 @@ module.exports = function tareasRoutes(app, supabase) {
     }
   });
 
+  // Vigía de fuentes: detecta boletines con el 100% de ejecuciones en error
+  // durante >= min_dias consecutivos y avisa al admin por WhatsApp.
+  // Pensado para UN cron diario (no tiene dedupe propio de avisos).
+  app.get('/tareas/salud-fuentes', async (req, res) => {
+    if (!checkCronToken(req, res)) return;
+
+    try {
+      const dias = Math.max(2, Math.min(14, Number(req.query.dias || 7)));
+      const minDiasCaida = Math.max(1, Math.min(7, Number(req.query.min_dias || 2)));
+      const enviar = boolValue(req.query.enviar, true);
+      const hoy = getFechaMadridISO();
+
+      // Una consulta por día: mantiene cada respuesta muy por debajo del
+      // límite de filas de PostgREST (25 fuentes x ~15 runs/día).
+      const runs = [];
+      for (let offset = 0; offset < dias; offset++) {
+        const dia = new Date(`${hoy}T00:00:00Z`);
+        dia.setUTCDate(dia.getUTCDate() - offset);
+        const diaISO = dia.toISOString().slice(0, 10);
+        const siguiente = new Date(dia);
+        siguiente.setUTCDate(siguiente.getUTCDate() + 1);
+
+        const { data, error } = await supabase
+          .from('scraper_runs')
+          .select('fuente, status, error_msg, started_at')
+          .gte('started_at', `${diaISO}T00:00:00Z`)
+          .lt('started_at', `${siguiente.toISOString().slice(0, 10)}T00:00:00Z`)
+          .limit(1000);
+
+        if (error) throw new Error(`scraper_runs (${diaISO}): ${error.message}`);
+        for (const run of data || []) {
+          runs.push({ ...run, dia: String(run.started_at || '').slice(0, 10) });
+        }
+      }
+
+      const caidas = evaluarSaludFuentes(runs, { minDiasCaida });
+
+      let aviso = { skipped: true, reason: caidas.length ? 'enviar=false' : 'sin_fuentes_caidas' };
+      if (caidas.length && enviar) {
+        aviso = await enviarWhatsAppAdmin(construirMensajeFuentesCaidas(caidas, { fecha: hoy }));
+      }
+
+      return res.json({
+        success: true,
+        fecha: hoy,
+        dias_revisados: dias,
+        min_dias_caida: minDiasCaida,
+        runs_analizados: runs.length,
+        fuentes_caidas: caidas,
+        aviso,
+      });
+    } catch (err) {
+      console.error('Error en /tareas/salud-fuentes', err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   app.get('/tareas/scrapers-diario', async (req, res) => {
     if (!checkCronToken(req, res)) return;
 
@@ -285,8 +344,18 @@ module.exports = function tareasRoutes(app, supabase) {
     const fecha = /^\d{4}-\d{2}-\d{2}$/.test(req.query.fecha || '')
       ? req.query.fecha
       : getFechaMadridISO();
+    const force = boolValue(req.query.force, false);
 
     async function hit(path) {
+      const omision = await omitirScraperSiCapturado(supabase, {
+        path,
+        fuente: obtenerFuenteScraper(path),
+        fecha,
+        force,
+        guardarRun: guardarScraperRun,
+      });
+      if (omision) return omision;
+
       const startedAt = new Date();
       const url = buildScrapeUrl(baseUrl, path, fecha);
       const response = await fetch(url, buildCronFetchOptions(token));
@@ -374,6 +443,15 @@ module.exports = function tareasRoutes(app, supabase) {
     const fecha = /^\d{4}-\d{2}-\d{2}$/.test(req.query.fecha || '')
       ? req.query.fecha
       : getFechaMadridISO();
+
+    const omision = await omitirScraperSiCapturado(supabase, {
+      path,
+      fuente: obtenerFuenteScraper(path),
+      fecha,
+      force: boolValue(req.query.force, false),
+      guardarRun: guardarScraperRun,
+    });
+    if (omision) return res.json(omision);
 
     const startedAt = new Date();
     const url = buildComplementaryScrapeUrl(baseUrl, path, fecha, {
@@ -660,6 +738,15 @@ module.exports = function tareasRoutes(app, supabase) {
       async function runScraperStage(path) {
         const startedAt = new Date();
         const fuente = obtenerFuenteScraper(path);
+
+        const omision = await omitirScraperSiCapturado(supabase, {
+          path,
+          fuente,
+          fecha,
+          force: boolValue(req.query.force, false),
+          guardarRun: guardarScraperRun,
+        });
+        if (omision) return { path, fuente, ok: true, body: omision.body, quality: omision.quality };
 
         try {
           const result = await hit(path);

@@ -72,6 +72,45 @@ test('normaliza fila de auditoria de digest', () => {
   assert.deepStrictEqual(row.metadata_json, { tipo: 'suave' });
 });
 
+test('un re-registro parcial no incluye columnas de embudo no pasadas (no machaca generated)', () => {
+  // Caso real: segundo cron marca 'skipped_existing' sobre un intento que ya
+  // tenia el embudo escrito por 'generated'. El upsert no debe resetear a 0.
+  const row = construirDigestAttemptRow({
+    userId: 141,
+    fecha: '2026-07-04',
+    kind: 'daily',
+    status: 'skipped_existing',
+    totalAlertasDia: 33,
+    trasQualityGate: 24,
+    digestId: 77,
+    metadata: { plan: 'cooperativa', enviado: false },
+  });
+
+  assert.strictEqual(row.total_alertas_dia, 33);
+  assert.strictEqual(row.tras_quality_gate, 24);
+  assert.strictEqual('tras_filtro_usuario' in row, false, 'no debe incluir tras_filtro_usuario');
+  assert.strictEqual('tras_scoring' in row, false, 'no debe incluir tras_scoring');
+  assert.strictEqual('alertas_finales' in row, false, 'no debe incluir alertas_finales');
+  assert.strictEqual('total_alertas_ventana' in row, false, 'no debe incluir total_alertas_ventana');
+  assert.strictEqual('motivo_no_envio' in row, false, 'no debe incluir motivo_no_envio');
+  assert.strictEqual('error_msg' in row, false, 'no debe incluir error_msg');
+});
+
+test('motivoNoEnvio null explicito limpia el motivo previo', () => {
+  const row = construirDigestAttemptRow({
+    userId: 141,
+    fecha: '2026-07-04',
+    kind: 'daily',
+    status: 'generated',
+    alertasFinales: 2,
+    motivoNoEnvio: null,
+  });
+
+  assert.strictEqual('motivo_no_envio' in row, true, 'la clave explicita debe incluirse');
+  assert.strictEqual(row.motivo_no_envio, null);
+  assert.strictEqual(row.alertas_finales, 2);
+});
+
 test('registra intento con upsert por usuario fecha y tipo', async () => {
   const supabase = fakeSupabase();
   const result = await registrarDigestAttempt(supabase, {

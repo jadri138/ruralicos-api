@@ -30,17 +30,41 @@ function construirDigestAttemptRow(input = {}) {
     fecha,
     kind,
     status,
-    total_alertas_dia: normalizarEntero(input.total_alertas_dia ?? input.totalAlertasDia),
-    total_alertas_ventana: normalizarEntero(input.total_alertas_ventana ?? input.totalAlertasVentana),
-    tras_quality_gate: normalizarEntero(input.tras_quality_gate ?? input.trasQualityGate),
-    tras_filtro_usuario: normalizarEntero(input.tras_filtro_usuario ?? input.trasFiltroUsuario),
-    tras_scoring: normalizarEntero(input.tras_scoring ?? input.trasScoring),
-    alertas_finales: normalizarEntero(input.alertas_finales ?? input.alertasFinales),
-    motivo_no_envio: normalizarTexto(input.motivo_no_envio ?? input.motivoNoEnvio, 240),
-    error_msg: normalizarTexto(input.error_msg ?? input.errorMsg, 800),
-    metadata_json: normalizarJson(input.metadata_json || input.metadata),
     updated_at: new Date().toISOString(),
   };
+
+  // El registro es un upsert (user_id, fecha, kind): solo se incluyen las columnas
+  // que el llamador pasa explicitamente. Un re-registro parcial (p.ej. un segundo
+  // cron marcando 'skipped_existing') NO debe machacar a 0 el embudo ni la metadata
+  // que escribio la pasada 'generated' (bug observado en produccion, jul-2026).
+  const incluirEntero = (col, ...keys) => {
+    for (const key of keys) {
+      if (key in input) {
+        row[col] = normalizarEntero(input[key]);
+        return;
+      }
+    }
+  };
+  const incluirTexto = (col, max, ...keys) => {
+    for (const key of keys) {
+      if (key in input) {
+        row[col] = normalizarTexto(input[key], max);
+        return;
+      }
+    }
+  };
+
+  incluirEntero('total_alertas_dia', 'total_alertas_dia', 'totalAlertasDia');
+  incluirEntero('total_alertas_ventana', 'total_alertas_ventana', 'totalAlertasVentana');
+  incluirEntero('tras_quality_gate', 'tras_quality_gate', 'trasQualityGate');
+  incluirEntero('tras_filtro_usuario', 'tras_filtro_usuario', 'trasFiltroUsuario');
+  incluirEntero('tras_scoring', 'tras_scoring', 'trasScoring');
+  incluirEntero('alertas_finales', 'alertas_finales', 'alertasFinales');
+  incluirTexto('motivo_no_envio', 240, 'motivo_no_envio', 'motivoNoEnvio');
+  incluirTexto('error_msg', 800, 'error_msg', 'errorMsg');
+  if (input.metadata_json !== undefined || input.metadata !== undefined) {
+    row.metadata_json = normalizarJson(input.metadata_json || input.metadata);
+  }
 
   const organizationId = input.organization_id ?? input.organizationId;
   if (organizationId !== undefined && organizationId !== null && organizationId !== '') {

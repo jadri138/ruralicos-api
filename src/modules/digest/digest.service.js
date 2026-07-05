@@ -88,10 +88,13 @@ const DIGEST_MAX_ALERTAS_USUARIO = numeroConfig(
   1,
   10
 );
-// DIGEST_RESCUE_ENABLED (default false, prudente): el rescate semanal reenvia avisos de dias
-// anteriores cuando un usuario lleva tiempo sin digest. Desactivado por defecto para no
-// rellenar el digest "por rellenar"; activar de forma explicita si se quiere recuperar.
-const DIGEST_RESCUE_ENABLED = (process.env.DIGEST_RESCUE_ENABLED || 'false').toLowerCase() === 'true';
+// DIGEST_RESCUE_ENABLED (default true): el rescate semanal reenvia avisos de dias
+// anteriores cuando un usuario lleva DIGEST_RESCUE_AFTER_DAYS sin recibir digest.
+// Con el default anterior (false) hubo usuarios de pago 2+ semanas en silencio total
+// (jul-2026). Los limites ya son prudentes: solo actua tras una semana sin envios,
+// maximo DIGEST_RESCUE_MAX_ALERTAS alertas, y siempre pasando quality gate y filtros
+// del usuario. Poner DIGEST_RESCUE_ENABLED=false para desactivarlo.
+const DIGEST_RESCUE_ENABLED = (process.env.DIGEST_RESCUE_ENABLED || 'true').toLowerCase() === 'true';
 const DIGEST_RESCUE_AFTER_DAYS = numeroConfig('DIGEST_RESCUE_AFTER_DAYS', 7, 1, 30);
 const DIGEST_RESCUE_LOOKBACK_DAYS = numeroConfig('DIGEST_RESCUE_LOOKBACK_DAYS', 7, 1, 30);
 const DIGEST_RESCUE_MAX_ALERTAS = numeroConfig('DIGEST_RESCUE_MAX_ALERTAS', 2, 0, 5);

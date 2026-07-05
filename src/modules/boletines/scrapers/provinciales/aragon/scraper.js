@@ -1,13 +1,15 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
-const https = require('https');
 const { htmlATexto } = require('../../../../../shared/htmlParser');
 const { extraerTextoPdf } = require('../../../../../shared/pdfExtractor');
 const { cabecerasNavegador } = require('../../../../../platform/httpClient');
+const {
+  agenteResiliente,
+  agenteResilienteInseguro,
+  ipConocida,
+} = require('../../../../../platform/dnsResiliente');
 
 const { esProvincialRelevante } = require('../shared/provincialFilter');
-
-const httpsInseguro = new https.Agent({ rejectUnauthorized: false });
 
 const BOPZ_BASE = 'https://boletin.dpz.es';
 const BOPZ_PORTADA = `${BOPZ_BASE}/BOPZ/`;
@@ -49,7 +51,7 @@ async function getHtml(url, options = {}) {
       const { data } = await axios.get(url, {
         responseType: 'arraybuffer',
         timeout,
-        httpsAgent: options.insecure ? httpsInseguro : undefined,
+        httpsAgent: options.insecure ? agenteResilienteInseguro : agenteResiliente,
         headers: cabecerasNavegador({ Referer: options.referer }),
       });
       return options.latin1 ? decodeLatin1(data) : Buffer.from(data).toString('utf8');
@@ -68,7 +70,7 @@ async function getPdfText(url, options = {}) {
   const { data } = await axios.get(url, {
     responseType: 'arraybuffer',
     timeout: 45000,
-    httpsAgent: options.insecure ? httpsInseguro : undefined,
+    httpsAgent: options.insecure ? agenteResilienteInseguro : agenteResiliente,
     headers: cabecerasNavegador({ Accept: 'application/pdf,*/*', Referer: options.referer }),
   });
   return extraerTextoPdf(Buffer.from(data));
@@ -151,7 +153,10 @@ async function obtenerDocumentosBopzConTexto(fechaISO) {
   } catch (error) {
     // Fuente del BOPZ caida o timeout (boletin.dpz.es): log operativo claro y se
     // propaga para que la ejecucion quede marcada como error diagnosticable.
-    console.error(`[BOPZ] Error operativo obteniendo el sumario/portada (timeout o fuente no disponible): ${error.message}`);
+    // La IP conocida distingue "DNS irresoluble" de "conexion bloqueada/lenta".
+    const ip = ipConocida('boletin.dpz.es');
+    error.message = `${error.message} [BOPZ ip=${ip ? `${ip.ip} (${ip.origen})` : 'sin resolver'}]`;
+    console.error(`[BOPZ] Error operativo obteniendo el sumario/portada: ${error.message}`);
     throw error;
   }
   const candidatos = extraerBopzSumario(html);

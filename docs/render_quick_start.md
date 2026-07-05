@@ -41,6 +41,19 @@ FEGA_EJERCICIO=2024
 FEGA_ENVIAR_MATCHES=false
 ```
 
+## Vigía de fuentes caídas (recomendado)
+
+Un segundo Cron Job diario que avisa por WhatsApp al admin si alguna fuente
+lleva 2+ días con el 100% de sus ejecuciones en error:
+
+```bash
+curl -fsS -H "x-cron-token: $CRON_TOKEN" "$BASE_URL/tareas/salud-fuentes"
+```
+
+Parámetros opcionales: `?dias=7` (ventana revisada), `?min_dias=2` (racha
+mínima para avisar), `?enviar=false` (solo diagnóstico, sin WhatsApp).
+Requiere `ADMIN_ALERT_PHONE` (o `ADMIN_ALERT_PHONES`) configurado.
+
 ## Checklist final
 
 - [ ] Esquema operativo aplicado en Supabase.

@@ -26,7 +26,9 @@ module.exports = function bothaRoutes(app, supabase) {
         success: true,
         fecha,
         ...stats,
-        mensaje: 'BOTHA procesado (captura bruta + filtro rural)',
+        mensaje: docs.length === 0
+          ? `No hay boletín BOTHA para ${fecha} (sin publicación o festivo)`
+          : 'BOTHA procesado (captura bruta + filtro rural)',
       });
     } catch (err) {
       console.error('Error en /scrape-botha-oficial', err);

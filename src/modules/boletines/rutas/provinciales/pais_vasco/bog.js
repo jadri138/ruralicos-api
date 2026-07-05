@@ -25,7 +25,9 @@ module.exports = function bogRoutes(app, supabase) {
         success: true,
         fecha,
         ...stats,
-        mensaje: 'BOG procesado (captura bruta + filtro provincial)',
+        mensaje: docs.length === 0
+          ? `No hay boletín BOG para ${fecha} (sin publicación o festivo)`
+          : 'BOG procesado (captura bruta + filtro provincial)',
       });
     } catch (err) {
       console.error('Error en /scrape-bog-oficial', err);

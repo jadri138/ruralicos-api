@@ -161,6 +161,7 @@ module.exports = function boaRoutes(app, supabase) {
       return res.json({
         success: true,
         mlkobs_totales: mlkobs.length,
+        totales: mlkobs.length,
         documentos_insertables: stats.documentos_insertables,
         nuevas: stats.nuevas,
         duplicadas: stats.duplicadas,

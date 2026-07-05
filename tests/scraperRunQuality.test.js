@@ -51,6 +51,42 @@ test('marca warning si no hay volumen y no se explica', () => {
   assert(quality.flags.includes('sin_volumen_no_explicado'));
 });
 
+test('marca ok si no hay volumen pero el mensaje lo explica', () => {
+  const casos = [
+    'No hay boletín BOPH para 2026-07-04 (sin publicación o festivo)',
+    'No se han encontrado documentos BOA hoy',
+    'No hay boletín BOCYL publicado hoy (festivo o fin de semana)',
+    'No hay disposiciones BON en el ultimo boletin',
+  ];
+
+  for (const mensaje of casos) {
+    const quality = evaluarRespuestaScraper({
+      responseOk: true,
+      body: { success: true, nuevas: 0, duplicadas: 0, errores: 0, totales: 0, mensaje },
+      fuente: 'BOPH',
+    });
+    assert.strictEqual(quality.severity, 'ok', `debería ser ok: "${mensaje}" → ${quality.flags}`);
+  }
+});
+
+test('marca ok cuando hubo documentos aunque todos cayeran por filtro (caso BOA)', () => {
+  const quality = evaluarRespuestaScraper({
+    responseOk: true,
+    body: {
+      success: true,
+      totales: 1,
+      documentos_insertables: 0,
+      nuevas: 0,
+      duplicadas: 0,
+      errores: 0,
+      mensaje: 'BOA procesado (captura bruta + 1 MLKOB = 1 alerta + filtro)',
+    },
+    fuente: 'BOA',
+  });
+
+  assert.strictEqual(quality.severity, 'ok');
+});
+
 test('marca error por HTTP o errores internos', () => {
   const httpQuality = evaluarRespuestaScraper({
     responseOk: false,

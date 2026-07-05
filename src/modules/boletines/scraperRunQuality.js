@@ -58,7 +58,8 @@ function evaluarRespuestaScraper({
     .filter((value) => value !== null)
     .reduce((sum, value) => sum + Number(value || 0), 0);
   const mensaje = textoBody(body, ['mensaje', 'message']);
-  const mensajeSinDocs = /no hay|sin documentos|sin alertas|no se encontraron/i.test(mensaje);
+  const mensajeSinDocs =
+    /no hay|sin documentos|sin alertas|no se encontraron|no se han encontrado|sin publicaci|sin boletin|sin boletín|festivo|fin de semana|no publicado|sin disposiciones/i.test(mensaje);
 
   if (responseOk && tieneMetricasVolumen && volumen === 0 && !mensajeSinDocs) {
     flags.push('sin_volumen_no_explicado');
