@@ -1,7 +1,14 @@
 // src/platform/ia/llamarIA.js
 //
 // Centraliza las llamadas a OpenAI Responses API y el parseo de JSON.
-// Compartido por alertas.js, digest.js, alertasFree.js y revisarAlertas.js.
+// Compartido por alertas, digest, cerebro, feedbackParser y MIA.
+//
+// Robustez (jul-2026): timeout con abort, reintentos con backoff para errores
+// transitorios (red, 408/429/5xx) y auditoria de coste/latencia en la tabla
+// ia_runs (best effort: si la tabla o supabase no estan disponibles, la llamada
+// funciona igual). Configurable por entorno:
+//   IA_TIMEOUT_MS (90000) · IA_HTTP_RETRIES (2) · IA_HTTP_RETRY_DELAY_MS (2000)
+//   IA_RUNS_LOG (true)
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
@@ -16,6 +23,49 @@ if (typeof globalThis.fetch === 'function') {
     _fetch = require('node-fetch');
   } catch {
     throw new Error('No hay fetch disponible. Actualiza a Node 18+ o instala node-fetch v2.');
+  }
+}
+
+function numeroEnv(name, fallback, min, max) {
+  const value = Number(process.env[name]);
+  if (!Number.isFinite(value)) return fallback;
+  return Math.max(min, Math.min(max, Math.floor(value)));
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Errores transitorios que merecen reintento. Un 429 por cuota agotada
+// (insufficient_quota) NO es transitorio: reintentar solo quema tiempo.
+function esReintentableIA({ status = null, body = '', errorMessage = '' } = {}) {
+  if (/insufficient_quota|exceeded your current quota/i.test(String(body || ''))) return false;
+  if (status !== null) return [408, 429, 500, 502, 503, 504].includes(Number(status));
+  return /fetch failed|network|aborted|timeout|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|terminated/i
+    .test(String(errorMessage || ''));
+}
+
+// Auditoria best-effort en ia_runs: nunca bloquea ni rompe la llamada.
+// Se silencia el error de "tabla no existe" para no inundar logs durante la
+// ventana entre deploy del codigo y aplicacion de la migracion.
+function registrarIARun(run) {
+  if ((process.env.IA_RUNS_LOG || 'true').toLowerCase() !== 'true') return;
+
+  try {
+    const { supabase } = require('../supabase');
+    supabase
+      .from('ia_runs')
+      .insert([run])
+      .then(
+        ({ error }) => {
+          if (error && !['42P01', 'PGRST205'].includes(error.code)) {
+            console.warn('[ia_runs] No se pudo registrar llamada IA:', error.message);
+          }
+        },
+        (err) => console.warn('[ia_runs] No se pudo registrar llamada IA:', err.message)
+      );
+  } catch {
+    // Sin supabase configurado (tests locales): se omite la auditoria.
   }
 }
 
@@ -34,26 +84,90 @@ async function llamarIA(prompt, instructions, model = 'gpt-4o-mini', options = {
   if (options?.maxOutputTokens) body.max_output_tokens = options.maxOutputTokens;
   if (options?.reasoning) body.reasoning = options.reasoning;
 
-  const aiRes = await _fetch('https://api.openai.com/v1/responses', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${OPENAI_API_KEY}`,
-    },
-    body: JSON.stringify(body),
-  });
+  const fetchImpl = options?.fetchImpl || _fetch;
+  const timeoutMs = Number(options?.timeoutMs) || numeroEnv('IA_TIMEOUT_MS', 90000, 5000, 600000);
+  const retries = Number.isFinite(Number(options?.retries))
+    ? Math.max(0, Math.min(5, Number(options.retries)))
+    : numeroEnv('IA_HTTP_RETRIES', 2, 0, 5);
+  const retryDelayMs = Number(options?.retryDelayMs) || numeroEnv('IA_HTTP_RETRY_DELAY_MS', 2000, 100, 60000);
+  const task = String(options?.task || 'generic').slice(0, 80);
 
-  if (!aiRes.ok) {
-    const text = await aiRes.text();
-    throw new Error(`Error OpenAI ${aiRes.status}: ${text}`);
+  const startedAt = Date.now();
+  let attempt = 0;
+  let lastError = null;
+
+  while (attempt <= retries) {
+    attempt += 1;
+
+    let aiRes;
+    try {
+      aiRes = await fetchImpl('https://api.openai.com/v1/responses', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${OPENAI_API_KEY}`,
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch (err) {
+      lastError = new Error(`Error de red llamando a OpenAI: ${err.message}`);
+      if (attempt <= retries && esReintentableIA({ errorMessage: err.message })) {
+        await sleep(retryDelayMs * attempt);
+        continue;
+      }
+      break;
+    }
+
+    if (!aiRes.ok) {
+      const text = await aiRes.text();
+      lastError = new Error(`Error OpenAI ${aiRes.status}: ${text}`);
+      lastError.status = aiRes.status;
+      if (attempt <= retries && esReintentableIA({ status: aiRes.status, body: text })) {
+        await sleep(retryDelayMs * attempt);
+        continue;
+      }
+      break;
+    }
+
+    const aiJson = await aiRes.json();
+    const contenido = extraerTextoRespuesta(aiJson);
+
+    if (!contenido) {
+      lastError = new Error('La IA no devolvió texto');
+      break;
+    }
+
+    registrarIARun({
+      task,
+      model,
+      status: 'ok',
+      http_status: aiRes.status,
+      attempts: attempt,
+      duration_ms: Date.now() - startedAt,
+      input_tokens: aiJson?.usage?.input_tokens ?? null,
+      output_tokens: aiJson?.usage?.output_tokens ?? null,
+      total_tokens: aiJson?.usage?.total_tokens ?? null,
+      error_msg: null,
+    });
+
+    return contenido;
   }
 
-  const aiJson = await aiRes.json();
+  registrarIARun({
+    task,
+    model,
+    status: 'error',
+    http_status: lastError?.status ?? null,
+    attempts: attempt,
+    duration_ms: Date.now() - startedAt,
+    input_tokens: null,
+    output_tokens: null,
+    total_tokens: null,
+    error_msg: String(lastError?.message || 'error desconocido').slice(0, 800),
+  });
 
-  const contenido = extraerTextoRespuesta(aiJson);
-
-  if (!contenido) throw new Error('La IA no devolvió texto');
-  return contenido;
+  throw lastError || new Error('Error desconocido llamando a OpenAI');
 }
 
 function extraerTextoRespuesta(aiJson) {
@@ -133,4 +247,8 @@ function extraerPrimerJSON(texto) {
   return null;
 }
 
-module.exports = { llamarIA, parsearJSON };
+module.exports = {
+  llamarIA,
+  parsearJSON,
+  __testing: { esReintentableIA, extraerTextoRespuesta, extraerPrimerJSON },
+};

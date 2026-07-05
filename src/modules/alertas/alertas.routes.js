@@ -548,7 +548,7 @@ ${borrador}
 Responde UNICAMENTE con la ficha final. Sin JSON, sin explicaciones, sin nada mas.
 `.trim();
 
-            const respuestaIA = await llamarIA(prompt, instructions, 'gpt-5-nano', { maxOutputTokens: 820 });
+            const respuestaIA = await llamarIA(prompt, instructions, 'gpt-5-nano', { maxOutputTokens: 820, task: 'revisar' });
             revision = normalizarFichaIA(respuestaIA, a);
             resumenFinal = revision.texto;
           }

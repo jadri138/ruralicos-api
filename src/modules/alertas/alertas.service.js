@@ -950,13 +950,14 @@ async function generarFichasIAEnLote(alertas) {
   const llamarGenerador = async (prompt) => {
     const maxOutputTokens = Math.min(8000, Math.max(1200, alertas.length * 650 + 500));
     if (!usarFormatoEstructurado) {
-      return llamarIA(prompt, instructions, 'gpt-5-nano', { maxOutputTokens });
+      return llamarIA(prompt, instructions, 'gpt-5-nano', { maxOutputTokens, task: 'fichas' });
     }
 
     try {
       return await llamarIA(prompt, instructions, 'gpt-5-nano', {
         textFormat: FICHA_IA_TEXT_FORMAT,
         maxOutputTokens,
+        task: 'fichas',
       });
     } catch (err) {
       const mensaje = String(err.message || '');
@@ -965,7 +966,7 @@ async function generarFichasIAEnLote(alertas) {
 
       usarFormatoEstructurado = false;
       console.warn('[resumir] Formato JSON estructurado no disponible, reintentando sin text.format:', err.message);
-      return llamarIA(prompt, instructions, 'gpt-5-nano', { maxOutputTokens });
+      return llamarIA(prompt, instructions, 'gpt-5-nano', { maxOutputTokens, task: 'fichas' });
     }
   };
 
@@ -1087,13 +1088,14 @@ async function clasificarConReintento(alertas) {
 
   const llamarClasificador = async (prompt, maxOutputTokens) => {
     if (!usarFormatoEstructurado) {
-      return llamarIA(prompt, instructions, 'gpt-5-nano');
+      return llamarIA(prompt, instructions, 'gpt-5-nano', { task: 'clasificar' });
     }
 
     try {
       return await llamarIA(prompt, instructions, 'gpt-5-nano', {
         textFormat: CLASIFICACION_TEXT_FORMAT,
         maxOutputTokens,
+        task: 'clasificar',
       });
     } catch (err) {
       const mensaje = String(err.message || '');
@@ -1102,7 +1104,7 @@ async function clasificarConReintento(alertas) {
 
       usarFormatoEstructurado = false;
       console.warn('[clasificar] Formato JSON estructurado no disponible, reintentando sin text.format:', err.message);
-      return llamarIA(prompt, instructions, 'gpt-5-nano');
+      return llamarIA(prompt, instructions, 'gpt-5-nano', { task: 'clasificar' });
     }
   };
 

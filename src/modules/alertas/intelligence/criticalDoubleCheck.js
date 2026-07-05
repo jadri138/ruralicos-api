@@ -194,8 +194,8 @@ async function ejecutarDobleCheckCritico({
 
   const prompt = construirPromptDobleCheck({ alerta, factSheet, mensaje });
   const [rawA, rawB] = await Promise.all([
-    llamarIAFn(prompt, 'Eres auditor juridico-agro. Se estricto y no inventes.', process.env.CRITICAL_DOUBLE_CHECK_MODEL_A || 'gpt-4o-mini'),
-    llamarIAFn(prompt, 'Eres auditor de evidencia documental. Se conservador y bloquea dudas.', process.env.CRITICAL_DOUBLE_CHECK_MODEL_B || 'gpt-4o-mini'),
+    llamarIAFn(prompt, 'Eres auditor juridico-agro. Se estricto y no inventes.', process.env.CRITICAL_DOUBLE_CHECK_MODEL_A || 'gpt-4o-mini', { task: 'double_check' }),
+    llamarIAFn(prompt, 'Eres auditor de evidencia documental. Se conservador y bloquea dudas.', process.env.CRITICAL_DOUBLE_CHECK_MODEL_B || 'gpt-4o-mini', { task: 'double_check' }),
   ]);
 
   return { required: true, ...compararDobleCheck(rawA, rawB) };

@@ -295,7 +295,8 @@ Reglas:
     const texto = await llamarIA(
       prompt,
       'Devuelve solo JSON valido. Sin markdown, sin explicaciones.',
-      'gpt-4o-mini'
+      'gpt-4o-mini',
+      { task: 'cerebro_feedback' }
     );
     const interpretacion = normalizarInterpretacion(parsearJSON(texto));
     return reforzarInterpretacionConReglasLocales(interpretacion, mensajeUsuario, alertasDelDigest);
@@ -318,7 +319,7 @@ Incertidumbre: ${zonaIncertidumbre}
 Devuelve solo una pregunta natural de WhatsApp, maximo 2 frases.
 `.trim();
 
-  return llamarIA(prompt, 'Responde solo con el texto de la pregunta.', 'gpt-4o-mini');
+  return llamarIA(prompt, 'Responde solo con el texto de la pregunta.', 'gpt-4o-mini', { task: 'cerebro_exploracion' });
 }
 
 async function generarContextoNarrativo(usuario, memorias) {
@@ -344,7 +345,7 @@ Usa una formulacion neutra si no hay certeza: "Paula tiene una explotacion/perfi
 Devuelve solo el parrafo.
 `.trim();
 
-  return llamarIA(prompt, 'Responde solo con el parrafo.', 'gpt-4o-mini');
+  return llamarIA(prompt, 'Responde solo con el parrafo.', 'gpt-4o-mini', { task: 'cerebro_contexto' });
 }
 
 module.exports = {

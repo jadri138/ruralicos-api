@@ -210,7 +210,7 @@ ${JSON.stringify(input)}
 
       let contenido;
       try {
-        contenido = await llamarIA(prompt, "Devuelve SOLO JSON válido, sin texto adicional.", "gpt-5");
+        contenido = await llamarIA(prompt, "Devuelve SOLO JSON válido, sin texto adicional.", "gpt-5", { task: "revisar_final" });
       } catch (e) {
         return res.status(500).json({ error: "Error al llamar a OpenAI", detalle: e.message });
       }

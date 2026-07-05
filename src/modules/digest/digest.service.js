@@ -2451,7 +2451,7 @@ Responde UNICAMENTE con el mensaje WhatsApp final. Sin JSON, sin explicaciones, 
 
   const instructions = 'Eres el redactor de Ruralicos. Escribes en plural, como empresa, y al usuario de tu. Responde SOLO con el texto del mensaje. Sin JSON, sin explicaciones.';
 
-  const mensaje = await llamarIA(prompt, instructions, modelo);
+  const mensaje = await llamarIA(prompt, instructions, modelo, { task: 'digest_mensaje' });
   const limpio = limpiarMensajeDigestIA(mensaje, saludo);
   if (mensajeDigestPareceGenerico(limpio)) {
     console.warn('[digest] La IA genero un mensaje generico; usando fallback con lectura del boletin.');

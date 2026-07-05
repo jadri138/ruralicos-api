@@ -89,7 +89,7 @@ ${lista}
 
       let contenido;
       try {
-        contenido = await llamarIA(prompt, instructions, 'gpt-4o-mini');
+        contenido = await llamarIA(prompt, instructions, 'gpt-4o-mini', { task: 'resumen_free' });
       } catch (e) {
         console.error('Error IA FREE:', e.message);
         return res.status(500).json({ error: 'Error OpenAI en resumen FREE', detalle: e.message });

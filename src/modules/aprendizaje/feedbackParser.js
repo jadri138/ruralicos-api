@@ -358,7 +358,8 @@ Devuelve solo JSON:
     const respuestaTexto = await llamarIA(
       prompt,
       'Devuelve solo JSON valido. Sin markdown, sin explicaciones.',
-      'gpt-4o-mini'
+      'gpt-4o-mini',
+      { task: 'feedback_parser' }
     );
     const respuesta = parsearJSON(respuestaTexto);
     if (respuesta?.sentimiento && Array.isArray(respuesta.temas)) {

@@ -251,7 +251,7 @@ async function generarRespuestaGroundedMIA({
       construirPromptGroundedMIA({ texto, tipoPregunta, evidenceLevel, needsAgent, evidencias }),
       instruccionesGroundedMIA(organizationContext),
       model,
-      { maxOutputTokens: Number(process.env.MIA_GROUNDED_MAX_TOKENS || 450) }
+      { maxOutputTokens: Number(process.env.MIA_GROUNDED_MAX_TOKENS || 450), task: 'mia_grounded' }
     );
     const limpio = limpiarRespuestaGroundedMIA(raw);
     const validation = validarRespuestaGroundedMIA(limpio, { evidencias, tipoPregunta, needsAgent });
