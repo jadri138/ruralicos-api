@@ -83,7 +83,7 @@ console.log('\n=== TESTS: admin audit log ===\n');
     resourceType: 'user',
     resourceId: 141,
   });
-  assert(missing.ok === true && missing.available === false, 'No rompe si admin_audit_log no existe aun');
+  assert(missing.ok === false && missing.available === false && missing.inserted === false, 'Un error de BD no lanza: falla controlado');
 
   console.log(`\nResultados: ${passed} aprobados, ${failed} fallidos`);
   process.exit(failed > 0 ? 1 : 0);

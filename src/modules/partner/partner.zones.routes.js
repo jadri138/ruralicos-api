@@ -3,19 +3,11 @@
 // Zonas geograficas de la cooperativa (panel PARTNER). Todo se filtra por
 // req.org.organizationId (requireOrg): una cooperativa solo ve y toca sus zonas.
 // Escritura (crear/editar/borrar) limitada a roles owner/admin (puedeEscribir).
-//
-// Si aun no existe la tabla organization_zones, responde { ok:true, available:false }
-// en vez de 500 (mismo patron MISSING_TABLE_CODES que partner.data.routes.js).
 
 const { requireOrg } = require('../../middleware/requireAdmin');
 
-const MISSING_TABLE_CODES = new Set(['42P01', '42703', 'PGRST205']);
 const UNIQUE_VIOLATION = '23505';
 const ROLES_ESCRITURA = new Set(['owner', 'admin']);
-
-function esTablaNoDisponible(error) {
-  return MISSING_TABLE_CODES.has(error?.code);
-}
 
 function puedeEscribir(req) {
   return ROLES_ESCRITURA.has(req.org?.memberRole);
@@ -62,10 +54,7 @@ module.exports = (app, supabase) => {
         .eq('organization_id', orgId)
         .order('name', { ascending: true });
 
-      if (error) {
-        if (esTablaNoDisponible(error)) return res.json({ ok: true, available: false, items: [] });
-        throw error;
-      }
+      if (error) throw error;
 
       const clientCounts = new Map();
       const memberCounts = new Map();
@@ -74,30 +63,24 @@ module.exports = (app, supabase) => {
         .from('organization_clients')
         .select('zone_id, status')
         .eq('organization_id', orgId);
-      if (!clientsError) {
-        for (const client of clients || []) {
-          if (client.zone_id != null && client.status !== 'inactive') {
-            const key = Number(client.zone_id);
-            clientCounts.set(key, (clientCounts.get(key) || 0) + 1);
-          }
+      if (clientsError) throw clientsError;
+      for (const client of clients || []) {
+        if (client.zone_id != null && client.status !== 'inactive') {
+          const key = Number(client.zone_id);
+          clientCounts.set(key, (clientCounts.get(key) || 0) + 1);
         }
-      } else if (!esTablaNoDisponible(clientsError)) {
-        throw clientsError;
       }
 
       const { data: members, error: membersError } = await supabase
         .from('organization_members')
         .select('zone_id')
         .eq('organization_id', orgId);
-      if (!membersError) {
-        for (const member of members || []) {
-          if (member.zone_id != null) {
-            const key = Number(member.zone_id);
-            memberCounts.set(key, (memberCounts.get(key) || 0) + 1);
-          }
+      if (membersError) throw membersError;
+      for (const member of members || []) {
+        if (member.zone_id != null) {
+          const key = Number(member.zone_id);
+          memberCounts.set(key, (memberCounts.get(key) || 0) + 1);
         }
-      } else if (!esTablaNoDisponible(membersError)) {
-        throw membersError;
       }
 
       return res.json({
@@ -137,7 +120,6 @@ module.exports = (app, supabase) => {
         .maybeSingle();
 
       if (error) {
-        if (esTablaNoDisponible(error)) return res.json({ ok: true, available: false });
         if (error.code === UNIQUE_VIOLATION) return res.status(409).json({ error: 'Ya existe una zona con ese nombre' });
         throw error;
       }
@@ -182,7 +164,6 @@ module.exports = (app, supabase) => {
         .maybeSingle();
 
       if (error) {
-        if (esTablaNoDisponible(error)) return res.json({ ok: true, available: false });
         if (error.code === UNIQUE_VIOLATION) return res.status(409).json({ error: 'Ya existe una zona con ese nombre' });
         throw error;
       }
@@ -215,10 +196,7 @@ module.exports = (app, supabase) => {
         .select('id')
         .maybeSingle();
 
-      if (error) {
-        if (esTablaNoDisponible(error)) return res.json({ ok: true, available: false });
-        throw error;
-      }
+      if (error) throw error;
       if (!data) return res.status(404).json({ error: 'Zona no encontrada' });
 
       return res.json({ ok: true });

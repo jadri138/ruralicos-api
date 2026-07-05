@@ -4,12 +4,6 @@ const {
   FACT_SHEET_BUILDER_VERSION,
 } = require('./factSheetSchema');
 
-const MISSING_TABLE_CODES = new Set(['42P01', '42703', 'PGRST205']);
-
-function esTablaNoDisponible(error) {
-  return MISSING_TABLE_CODES.has(error?.code);
-}
-
 function normalizarNumero(value) {
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
@@ -50,20 +44,6 @@ function construirFactSheetRow({
   }, organizationId);
 }
 
-function limpiarRowLegacy(row = {}) {
-  const {
-    truth_score,
-    risk_score,
-    evidence_coverage,
-    source_trace,
-    shadow_decision,
-    enforcement_mode,
-    organization_id,
-    ...legacy
-  } = row;
-  return legacy;
-}
-
 async function guardarFactSheetShadow(supabase, options = {}) {
   const row = construirFactSheetRow(options);
   if (!supabase?.from || !row) {
@@ -78,33 +58,6 @@ async function guardarFactSheetShadow(supabase, options = {}) {
     if (error) throw error;
     return { ok: true, available: true, stored: true, row };
   } catch (error) {
-    if (error?.code === '42703') {
-      try {
-        const legacyRow = limpiarRowLegacy(row);
-        const { error: legacyError } = await supabase
-          .from('alert_fact_sheets')
-          .upsert(legacyRow, { onConflict: 'alerta_id,schema_version,builder_version' });
-
-        if (legacyError) throw legacyError;
-        return {
-          ok: true,
-          available: true,
-          stored: true,
-          row: legacyRow,
-          warning: 'alert_fact_sheets_audit_columns_missing',
-        };
-      } catch (legacyError) {
-        if (esTablaNoDisponible(legacyError)) {
-          return { ok: true, available: false, stored: false, reason: 'alert_fact_sheets_no_disponible' };
-        }
-        return { ok: false, available: false, stored: false, error: legacyError.message };
-      }
-    }
-
-    if (esTablaNoDisponible(error)) {
-      return { ok: true, available: false, stored: false, reason: 'alert_fact_sheets_no_disponible' };
-    }
-
     return { ok: false, available: false, stored: false, error: error.message };
   }
 }
@@ -130,13 +83,11 @@ async function cargarFactSheetActual(supabase, {
     const row = Array.isArray(data) ? data[0] : null;
     return row?.fact_sheet || null;
   } catch (error) {
-    if (esTablaNoDisponible(error)) return null;
     return null;
   }
 }
 
 module.exports = {
-  esTablaNoDisponible,
   construirFactSheetRow,
   guardarFactSheetShadow,
   cargarFactSheetActual,

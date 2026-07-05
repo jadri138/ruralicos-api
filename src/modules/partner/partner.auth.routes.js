@@ -9,12 +9,7 @@ const jwt = require('jsonwebtoken');
 const rateLimit = require('express-rate-limit');
 const { requireOrg } = require('../../middleware/requireAdmin');
 
-const MISSING_TABLE_CODES = new Set(['42P01', '42703', 'PGRST205']);
 const TOKEN_TTL = '12h';
-
-function esTablaNoDisponible(error) {
-  return MISSING_TABLE_CODES.has(error?.code);
-}
 
 function normalizarEmail(value) {
   return String(value || '').trim().toLowerCase();
@@ -82,12 +77,7 @@ module.exports = (app, supabase) => {
         .eq('slug', slug)
         .maybeSingle();
 
-      if (error) {
-        if (esTablaNoDisponible(error)) {
-          return res.json({ ok: true, available: false, organization: null });
-        }
-        throw error;
-      }
+      if (error) throw error;
 
       if (!data) return res.status(404).json({ error: 'Cooperativa no encontrada' });
       return res.json({ ok: true, available: true, organization: publicOrganization(data) });
@@ -116,9 +106,6 @@ module.exports = (app, supabase) => {
         .maybeSingle();
 
       if (error) {
-        if (esTablaNoDisponible(error)) {
-          return res.status(503).json({ error: 'Panel de cooperativas no disponible todavia' });
-        }
         console.error('Error consultando organization_staff:', error.message);
         return res.status(500).json({ error: 'Error interno' });
       }

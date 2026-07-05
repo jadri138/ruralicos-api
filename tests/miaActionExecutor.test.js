@@ -1,6 +1,5 @@
 const {
   construirFeedbackRows,
-  limpiarFeedbackRowsLegacy,
   construirMemoriaLegacyRows,
   construirCasoAgenteDesdeDecision,
   ejecutarAccionesMIA,
@@ -130,7 +129,6 @@ const negativeRows = construirFeedbackRows({
 });
 
 assert(negativeRows[0].feedback_category === 'wrong_location', 'Clasifica feedback negativo por ubicacion');
-assert(limpiarFeedbackRowsLegacy(negativeRows)[0].feedback_category === undefined, 'Fallback legacy elimina columnas nuevas');
 
 const memoryRows = construirMemoriaLegacyRows({
   user,

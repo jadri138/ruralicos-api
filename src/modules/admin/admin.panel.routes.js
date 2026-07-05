@@ -40,7 +40,6 @@ const { notificarCambioPlan } = require('../../services/planChangeNotifier');
 const {
   construirDatasetRevisionMIA,
   construirReviewRowMIA,
-  esTablaRevisionNoDisponible,
 } = require('../mia/alertReview');
 const {
   construirWhyNotSentResponse,
@@ -55,7 +54,6 @@ const {
   USER_SELECT_ADMIN,
   limpiarBusquedaUsuario,
   escaparLike,
-  isMissingTableError,
   leerVentanaHoras,
   payloadVentanaHoras,
   normalizarAdminUserId,
@@ -222,24 +220,16 @@ module.exports = (app, supabase) => {
           .select('id, digest_id, user_id, fecha, item_numero, alerta_id, score, motivo_seleccion, resumen_usado, tags_json, selection_score, selection_action, selection_reason, selection_risk, similarity_score, selection_decision')
           .in('digest_id', digestIds)
           .order('item_numero', { ascending: true });
-        if (error) {
-          if (isMissingTableError(error)) warnings.push({ table: 'digest_items', reason: 'missing' });
-          else throw error;
-        } else {
-          digestItems = data || [];
-        }
+        if (error) throw error;
+        digestItems = data || [];
 
         const attemptsResult = await supabase
           .from('digest_attempts')
           .select('id, user_id, digest_id, fecha, kind, status, motivo_no_envio, error_msg, metadata_json, total_alertas_dia, total_alertas_ventana, tras_quality_gate, tras_filtro_usuario, tras_scoring, alertas_finales, created_at, updated_at')
           .in('digest_id', digestIds)
           .order('created_at', { ascending: false });
-        if (attemptsResult.error) {
-          if (isMissingTableError(attemptsResult.error)) warnings.push({ table: 'digest_attempts', reason: 'missing' });
-          else throw attemptsResult.error;
-        } else {
-          attempts = attemptsResult.data || [];
-        }
+        if (attemptsResult.error) throw attemptsResult.error;
+        attempts = attemptsResult.data || [];
       }
 
       const itemAlertaIds = idsNumericosUnicos(digestItems, 'alerta_id');
@@ -259,12 +249,8 @@ module.exports = (app, supabase) => {
           .select('alerta_id, status, truth_score, risk_score, evidence_coverage, flags, reasons, shadow_decision, fact_sheet, generated_at')
           .in('alerta_id', allAlertaIds)
           .order('generated_at', { ascending: false });
-        if (factResult.error) {
-          if (isMissingTableError(factResult.error)) warnings.push({ table: 'alert_fact_sheets', reason: 'missing' });
-          else throw factResult.error;
-        } else {
-          factSheets = factResult.data || [];
-        }
+        if (factResult.error) throw factResult.error;
+        factSheets = factResult.data || [];
       }
 
       const items = digestRows.map((digest) => construirWhySentDigest({
@@ -304,12 +290,7 @@ module.exports = (app, supabase) => {
       if (params.digest_id) query = query.eq('digest_id', params.digest_id);
 
       const { data, error } = await query;
-      if (error) {
-        if (isMissingTableError(error)) {
-          return res.json({ ok: true, available: false, reason: 'digest_attempts_no_disponible', items: [] });
-        }
-        throw error;
-      }
+      if (error) throw error;
 
       const attempts = data || [];
       const userIds = idsNumericosUnicos(attempts, 'user_id');
@@ -354,12 +335,7 @@ module.exports = (app, supabase) => {
       if (resourceType) query = query.eq('resource_type', resourceType);
 
       const { data, error } = await query;
-      if (error) {
-        if (isMissingTableError(error)) {
-          return res.json({ ok: true, available: false, reason: 'admin_audit_log_no_disponible', items: [] });
-        }
-        throw error;
-      }
+      if (error) throw error;
 
       return res.json({
         ok: true,

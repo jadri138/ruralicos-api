@@ -40,7 +40,6 @@ const { notificarCambioPlan } = require('../../services/planChangeNotifier');
 const {
   construirDatasetRevisionMIA,
   construirReviewRowMIA,
-  esTablaRevisionNoDisponible,
 } = require('../mia/alertReview');
 
 const {
@@ -50,7 +49,6 @@ const {
   USER_SELECT_ADMIN,
   limpiarBusquedaUsuario,
   escaparLike,
-  isMissingTableError,
   leerVentanaHoras,
   payloadVentanaHoras,
   normalizarAdminUserId,
@@ -335,31 +333,9 @@ module.exports = (app, supabase) => {
         .limit(limit);
 
       if (Number.isSafeInteger(userId) && userId > 0) digestItemsQuery = digestItemsQuery.eq('user_id', userId);
-      let digestItemsResult = await digestItemsQuery;
-
-      if (digestItemsResult.error && ['42703', 'PGRST204'].includes(digestItemsResult.error.code)) {
-        let fallbackDigestItemsQuery = supabase
-          .from('digest_items')
-          .select('digest_id, user_id, fecha, item_numero, alerta_id, score, motivo_seleccion, resumen_usado, tags_json')
-          .eq('fecha', fecha)
-          .order('digest_id', { ascending: false })
-          .order('item_numero', { ascending: true })
-          .limit(limit);
-        if (Number.isSafeInteger(userId) && userId > 0) fallbackDigestItemsQuery = fallbackDigestItemsQuery.eq('user_id', userId);
-        digestItemsResult = await fallbackDigestItemsQuery;
-      }
+      const digestItemsResult = await digestItemsQuery;
 
       if (digestItemsResult.error) {
-        if (isMissingTableError(digestItemsResult.error)) {
-          return res.json({
-            ok: true,
-            available: false,
-            reason: 'digest_items_no_disponible',
-            fecha,
-            items: [],
-            summary: {},
-          });
-        }
         throw digestItemsResult.error;
       }
 
@@ -406,13 +382,8 @@ module.exports = (app, supabase) => {
         if (result.error) throw result.error;
       }
 
-      let reviewsAvailable = true;
-      let reviews = reviewsResult.data || [];
-      if (reviewsResult.error) {
-        if (!esTablaRevisionNoDisponible(reviewsResult.error)) throw reviewsResult.error;
-        reviewsAvailable = false;
-        reviews = [];
-      }
+      if (reviewsResult.error) throw reviewsResult.error;
+      const reviews = reviewsResult.data || [];
 
       const dataset = construirDatasetRevisionMIA({
         digestItems,
@@ -427,7 +398,7 @@ module.exports = (app, supabase) => {
       return res.json({
         ok: true,
         available: true,
-        reviews_available: reviewsAvailable,
+        reviews_available: true,
         fecha,
         limit,
         only_unreviewed: onlyUnreviewed,
@@ -511,17 +482,7 @@ module.exports = (app, supabase) => {
         .select('*')
         .single();
 
-      if (error) {
-        if (esTablaRevisionNoDisponible(error)) {
-          return res.status(503).json({
-            ok: false,
-            available: false,
-            reason: 'mia_alert_reviews_no_disponible',
-            message: 'Falta crear la tabla mia_alert_reviews en Supabase.',
-          });
-        }
-        throw error;
-      }
+      if (error) throw error;
 
       await auditarAdmin(supabase, req, 'mia_alert_review.upsert', 'mia_alert_review', data.id || `${digestId}:${userId}:${alertaId}`, organizationId, {
         digest_id: digestId,
@@ -557,12 +518,7 @@ module.exports = (app, supabase) => {
       if (timeWindow) query = query.gte('created_at', timeWindow.since);
 
       const { data, error } = await query;
-      if (error) {
-        if (isMissingTableError(error)) {
-          return res.json({ ok: true, available: false, reason: 'mia_inbound_messages_no_disponible', items: [], ...payloadVentanaHoras(timeWindow) });
-        }
-        throw error;
-      }
+      if (error) throw error;
 
       return res.json({ ok: true, available: true, items: data || [], ...payloadVentanaHoras(timeWindow) });
     } catch (err) {
@@ -588,12 +544,7 @@ module.exports = (app, supabase) => {
       if (timeWindow) query = query.gte('created_at', timeWindow.since);
 
       const { data, error } = await query;
-      if (error) {
-        if (isMissingTableError(error)) {
-          return res.json({ ok: true, available: false, reason: 'mia_structured_memory_no_disponible', items: [], ...payloadVentanaHoras(timeWindow) });
-        }
-        throw error;
-      }
+      if (error) throw error;
 
       return res.json({ ok: true, available: true, items: data || [], ...payloadVentanaHoras(timeWindow) });
     } catch (err) {
@@ -617,12 +568,7 @@ module.exports = (app, supabase) => {
       if (status) query = query.eq('status', status);
 
       const { data, error } = await query;
-      if (error) {
-        if (isMissingTableError(error)) {
-          return res.json({ ok: true, available: false, reason: 'mia_outbox_no_disponible', items: [] });
-        }
-        throw error;
-      }
+      if (error) throw error;
 
       return res.json({ ok: true, available: true, items: data || [] });
     } catch (err) {
@@ -663,12 +609,7 @@ module.exports = (app, supabase) => {
       if (timeWindow) query = query.gte('created_at', timeWindow.since);
 
       const { data, error } = await query;
-      if (error) {
-        if (isMissingTableError(error)) {
-          return res.json({ ok: true, available: false, reason: 'mia_decisions_no_disponible', items: [], ...payloadVentanaHoras(timeWindow) });
-        }
-        throw error;
-      }
+      if (error) throw error;
 
       return res.json({ ok: true, available: true, items: data || [], ...payloadVentanaHoras(timeWindow) });
     } catch (err) {
@@ -696,12 +637,7 @@ module.exports = (app, supabase) => {
       if (timeWindow) query = query.gte('created_at', timeWindow.since);
 
       const { data, error } = await query;
-      if (error) {
-        if (isMissingTableError(error)) {
-          return res.json({ ok: true, available: false, reason: 'mia_actions_no_disponible', items: [], ...payloadVentanaHoras(timeWindow) });
-        }
-        throw error;
-      }
+      if (error) throw error;
 
       return res.json({ ok: true, available: true, items: data || [], ...payloadVentanaHoras(timeWindow) });
     } catch (err) {
@@ -727,12 +663,7 @@ module.exports = (app, supabase) => {
       if (Number.isInteger(userId) && userId > 0) query = query.eq('user_id', userId);
 
       const { data, error } = await query;
-      if (error) {
-        if (isMissingTableError(error)) {
-          return res.json({ ok: true, available: false, reason: 'mia_agent_cases_no_disponible', items: [] });
-        }
-        throw error;
-      }
+      if (error) throw error;
 
       return res.json({ ok: true, available: true, items: data || [] });
     } catch (err) {
@@ -781,12 +712,7 @@ module.exports = (app, supabase) => {
       if (organizationId) query = query.eq('organization_id', organizationId);
 
       const { data, error } = await query;
-      if (error) {
-        if (isMissingTableError(error)) {
-          return res.json({ ok: true, available: false, reason: 'mia_knowledge_documents_no_disponible', items: [] });
-        }
-        throw error;
-      }
+      if (error) throw error;
 
       return res.json({ ok: true, available: true, items: data || [] });
     } catch (err) {
@@ -887,12 +813,7 @@ module.exports = (app, supabase) => {
         .select('id, user_id, organization_id, status, priority, reason, assigned_to, assigned_to_admin_user_id, resolution_text, updated_at, closed_at')
         .single();
 
-      if (error) {
-        if (isMissingTableError(error)) {
-          return res.json({ ok: true, available: false, reason: 'mia_agent_cases_no_disponible' });
-        }
-        throw error;
-      }
+      if (error) throw error;
 
       await auditarAdmin(supabase, req, 'mia_agent_case.update', 'mia_agent_case', data.id, data.organization_id || null, {
         fields: Object.keys(patch).filter((field) => field !== 'updated_at'),
@@ -924,12 +845,7 @@ module.exports = (app, supabase) => {
         .eq('id', id)
         .maybeSingle();
 
-      if (caseError) {
-        if (isMissingTableError(caseError)) {
-          return res.json({ ok: true, available: false, reason: 'mia_agent_cases_no_disponible' });
-        }
-        throw caseError;
-      }
+      if (caseError) throw caseError;
       if (!caso?.id) return res.status(404).json({ error: 'caso_no_encontrado' });
 
       const { data: user, error: userError } = await supabase
@@ -1022,7 +938,7 @@ module.exports = (app, supabase) => {
         .eq('tipo', 'respuesta_consulta')
         .eq('estado', 'activa');
 
-      if (conversationError && !isMissingTableError(conversationError)) {
+      if (conversationError) {
         console.warn('[mia:agent_reply] No se pudo cerrar conversacion agente:', conversationError.message);
       }
 
@@ -1052,10 +968,7 @@ module.exports = (app, supabase) => {
 
       async function safeCount(query, key) {
         const { count, error } = await query;
-        if (error) {
-          if (isMissingTableError(error)) return { key, available: false, count: 0 };
-          throw error;
-        }
+        if (error) throw error;
         return { key, available: true, count: count || 0 };
       }
 
@@ -1117,7 +1030,6 @@ module.exports = (app, supabase) => {
       ]);
 
       const optional = (result, fallback = []) => {
-        if (result.error && isMissingTableError(result.error)) return fallback;
         if (result.error) throw result.error;
         return result.data || fallback;
       };

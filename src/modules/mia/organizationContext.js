@@ -1,9 +1,3 @@
-const MISSING_TABLE_CODES = new Set(['42P01', '42703', 'PGRST205']);
-
-function esTablaNoDisponible(error) {
-  return MISSING_TABLE_CODES.has(error?.code);
-}
-
 function normalizarOrganizationId(value) {
   const number = Number(value);
   return Number.isSafeInteger(number) && number > 0 ? number : null;
@@ -139,9 +133,7 @@ async function cargarOrganizationContextMIA(supabase, user = {}) {
     if (error) throw error;
     return construirOrganizationContext(data || null, organizationId);
   } catch (error) {
-    if (!esTablaNoDisponible(error)) {
-      console.warn('[mia:organization] No se pudo cargar organization context:', error.message);
-    }
+    console.warn('[mia:organization] No se pudo cargar organization context:', error.message);
     return {
       ...construirOrganizationContext(null, organizationId),
       available: false,

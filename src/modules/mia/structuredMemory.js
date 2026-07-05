@@ -1,8 +1,6 @@
 const crypto = require('crypto');
 const { conOrganizationId } = require('./organizationContext');
 
-const MISSING_TABLE_CODES = new Set(['42P01', '42703', 'PGRST205']);
-
 const TOPIC_RULES = [
   ['pac', /\b(pac|politica agraria comun|fega|feaga|feader|solicitud unica|sigpac|ecoregimen)\b/i],
   ['ayudas_maquinaria', /\b(tractor|tractores|maquinaria|maquina|maquinas|apero|aperos)\b/i],
@@ -12,10 +10,6 @@ const TOPIC_RULES = [
   ['porcino', /\b(porcino|cerdo|cerdos|cochino|cochinos)\b/i],
   ['vacuno', /\b(vacuno|vaca|vacas|bovino|bovinos)\b/i],
 ];
-
-function esTablaNoDisponible(error) {
-  return MISSING_TABLE_CODES.has(error?.code);
-}
 
 function normalizar(texto) {
   return String(texto || '')
@@ -140,16 +134,6 @@ async function registrarMemoriaEstructuradaMIA(supabase, options = {}) {
 
     return { ok: true, available: true, inserted, merged };
   } catch (error) {
-    if (esTablaNoDisponible(error)) {
-      return {
-        ok: true,
-        available: false,
-        inserted: 0,
-        merged: 0,
-        reason: 'mia_structured_memory_no_disponible',
-      };
-    }
-
     console.warn('[mia:structured_memory] No se pudo registrar memoria estructurada:', error.message);
     return {
       ok: false,

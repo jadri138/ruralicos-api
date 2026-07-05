@@ -8,7 +8,6 @@
 
 const { requireOrg } = require('../../middleware/requireAdmin');
 
-const MISSING_TABLE_CODES = new Set(['42P01', '42703', 'PGRST205']);
 const ROLES_ESCRITURA = new Set(['owner', 'admin']);
 
 // Bandas de facturacion: capacidad incluida, precio base/mes y €/socio adicional.
@@ -62,7 +61,7 @@ module.exports = (app, supabase) => {
       .from('users')
       .select('id', { count: 'exact', head: true })
       .eq('organization_id', orgId);
-    if (error && !MISSING_TABLE_CODES.has(error.code)) throw error;
+    if (error) throw error;
     return count || 0;
   }
 

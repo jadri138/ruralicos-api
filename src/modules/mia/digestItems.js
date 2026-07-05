@@ -1,9 +1,4 @@
-const MISSING_TABLE_CODES = new Set(['42P01', '42703', 'PGRST205']);
 const { conOrganizationId } = require('./organizationContext');
-
-function esTablaNoDisponible(error) {
-  return MISSING_TABLE_CODES.has(error?.code);
-}
 
 function resumenUsado(alerta = {}) {
   return String(alerta.resumen_final || alerta.resumen || alerta.titulo || '')
@@ -95,21 +90,6 @@ function scoreSeleccion(alerta = {}) {
   return normalizarNumero(alerta.similitud);
 }
 
-function limpiarRowsLegacy(rows = []) {
-  return rows.map((row) => {
-    const {
-      selection_score,
-      selection_action,
-      selection_reason,
-      selection_risk,
-      similarity_score,
-      selection_decision,
-      ...legacy
-    } = row;
-    return legacy;
-  });
-}
-
 function construirDigestItems({
   digestId,
   userId,
@@ -151,48 +131,6 @@ async function registrarDigestItemsMIA(supabase, options = {}) {
     if (error) throw error;
     return { ok: true, available: true, inserted: rows.length };
   } catch (error) {
-    if (error?.code === '42703') {
-      try {
-        const { error: legacyError } = await supabase
-          .from('digest_items')
-          .upsert(limpiarRowsLegacy(rows), { onConflict: 'digest_id,item_numero' });
-
-        if (legacyError) throw legacyError;
-        return {
-          ok: true,
-          available: true,
-          inserted: rows.length,
-          warning: 'digest_items_audit_columns_missing',
-        };
-      } catch (legacyError) {
-        if (esTablaNoDisponible(legacyError)) {
-          return {
-            ok: true,
-            available: false,
-            inserted: 0,
-            reason: 'digest_items_no_disponible',
-          };
-        }
-
-        console.warn('[mia:digest_items] No se pudieron registrar digest_items legacy:', legacyError.message);
-        return {
-          ok: false,
-          available: false,
-          inserted: 0,
-          error: legacyError.message,
-        };
-      }
-    }
-
-    if (esTablaNoDisponible(error)) {
-      return {
-        ok: true,
-        available: false,
-        inserted: 0,
-        reason: 'digest_items_no_disponible',
-      };
-    }
-
     console.warn('[mia:digest_items] No se pudieron registrar digest_items:', error.message);
     return {
       ok: false,
@@ -216,24 +154,6 @@ async function cargarDigestItemsMIA(supabase, digestId) {
     if (error) throw error;
     return data || [];
   } catch (error) {
-    if (error?.code === '42703') {
-      try {
-        const { data, error: legacyError } = await supabase
-          .from('digest_items')
-          .select('item_numero, alerta_id, score, motivo_seleccion, resumen_usado, tags_json')
-          .eq('digest_id', digestId)
-          .order('item_numero', { ascending: true });
-
-        if (legacyError) throw legacyError;
-        return data || [];
-      } catch (legacyError) {
-        if (esTablaNoDisponible(legacyError)) return null;
-        console.warn('[mia:digest_items] No se pudieron cargar digest_items legacy:', legacyError.message);
-        return null;
-      }
-    }
-
-    if (esTablaNoDisponible(error)) return null;
     console.warn('[mia:digest_items] No se pudieron cargar digest_items:', error.message);
     return null;
   }

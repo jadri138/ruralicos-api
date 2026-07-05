@@ -78,9 +78,12 @@ console.log('\n=== TESTS: mia webhook event ===\n');
 
   const supabase = crearSupabaseWebhookMock({ fallaExtendido: true });
   const id = await guardarWebhookEventSeguro(supabase, crearReqMock(), { ok: true, organization_id: 12 }, null);
-  assert(id === 2, 'Hace fallback legacy si la BD no tiene columnas nuevas');
-  assert(supabase.calls.length === 2, 'Reintenta una sola vez con columnas legacy');
-  assert(!Object.prototype.hasOwnProperty.call(supabase.calls[1].row, 'organization_id'), 'Fallback no manda columnas nuevas');
+  assert(id === null, 'Un error de esquema devuelve null sin lanzar');
+  assert(supabase.calls.length === 1, 'Ya no reintenta con columnas legacy');
+
+  const supabaseOk = crearSupabaseWebhookMock({ fallaExtendido: false });
+  const okId = await guardarWebhookEventSeguro(supabaseOk, crearReqMock(), { ok: true, organization_id: 12 }, null);
+  assert(okId === 1, 'Guarda el evento cuando la BD esta al dia');
 
   console.log(`\nResultados: ${passed} aprobados, ${failed} fallidos`);
   process.exit(failed > 0 ? 1 : 0);

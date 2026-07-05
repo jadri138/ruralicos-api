@@ -2,6 +2,7 @@
 const { checkCronToken } = require('../../middleware/cronToken');
 const { enviarWhatsAppAdmin, enviarDigestPro } = require('../../platform/whatsapp');
 const { getFechaMadridISO } = require('../../shared/fechaMadrid');
+const { getInternalBaseUrl } = require('../../shared/internalBaseUrl');
 const { evaluarRespuestaScraper } = require('../boletines/scraperRunQuality');
 const { evaluarSaludFuentes, construirMensajeFuentesCaidas } = require('../boletines/fuentesHealth');
 const { omitirScraperSiCapturado } = require('../boletines/scraperSkip');
@@ -73,8 +74,8 @@ const SCRAPER_FUENTES = {
   [FEGA_SCRAPE_PATH]: 'FEGA',
 };
 
-function getBaseUrl() {
-  return process.env.PUBLIC_BASE_URL || 'http://localhost:' + (process.env.PORT || 3000);
+function getBaseUrl(req) {
+  return getInternalBaseUrl(req);
 }
 
 function getScrapePaths() {
@@ -338,7 +339,7 @@ module.exports = function tareasRoutes(app, supabase) {
   app.get('/tareas/scrapers-diario', async (req, res) => {
     if (!checkCronToken(req, res)) return;
 
-    const baseUrl = getBaseUrl();
+    const baseUrl = getBaseUrl(req);
     const token = process.env.CRON_TOKEN;
     const scrapePaths = getScrapePaths();
     const fecha = /^\d{4}-\d{2}-\d{2}$/.test(req.query.fecha || '')
@@ -438,7 +439,7 @@ module.exports = function tareasRoutes(app, supabase) {
       return res.status(400).json({ error: 'Scraper no permitido', permitidos: pathsPermitidos });
     }
 
-    const baseUrl = getBaseUrl();
+    const baseUrl = getBaseUrl(req);
     const token = process.env.CRON_TOKEN;
     const fecha = /^\d{4}-\d{2}-\d{2}$/.test(req.query.fecha || '')
       ? req.query.fecha
@@ -503,7 +504,7 @@ module.exports = function tareasRoutes(app, supabase) {
   app.get('/tareas/complementarios-diario', async (req, res) => {
     if (!checkCronToken(req, res)) return;
 
-    const baseUrl = getBaseUrl();
+    const baseUrl = getBaseUrl(req);
     const token = process.env.CRON_TOKEN;
     const fecha = /^\d{4}-\d{2}-\d{2}$/.test(req.query.fecha || '')
       ? req.query.fecha
@@ -623,7 +624,7 @@ module.exports = function tareasRoutes(app, supabase) {
     if (!checkCronToken(req, res)) return;
 
     try {
-      const baseUrl = getBaseUrl();
+      const baseUrl = getBaseUrl(req);
       const token = process.env.CRON_TOKEN;
       const maxLoops = Number(process.env.PIPELINE_MAX_LOOPS || 40);
       const stepDelayMs = Number(process.env.PIPELINE_STEP_DELAY_MS || 800);

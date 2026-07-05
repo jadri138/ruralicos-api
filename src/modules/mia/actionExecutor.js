@@ -1,4 +1,3 @@
-const MISSING_TABLE_CODES = new Set(['42P01', '42703', 'PGRST205']);
 const { conOrganizationId } = require('./organizationContext');
 const { clasificarFeedbackDigest } = require('./feedbackClassifier');
 const HANDOFF_RISK_FLAGS = new Set([
@@ -11,10 +10,6 @@ const HANDOFF_RISK_FLAGS = new Set([
   'knowledge_evidence_weak',
   'policy_handoff_required',
 ]);
-
-function esTablaNoDisponible(error) {
-  return MISSING_TABLE_CODES.has(error?.code);
-}
 
 function normalizarTextoCaso(texto) {
   return String(texto || '')
@@ -79,18 +74,6 @@ function construirFeedbackRows({
       }, orgId);
     })
     .filter(Boolean);
-}
-
-function limpiarFeedbackRowsLegacy(rows = []) {
-  return rows.map((row) => {
-    const {
-      feedback_category,
-      feedback_confidence,
-      feedback_detail,
-      ...legacy
-    } = row;
-    return legacy;
-  });
 }
 
 function construirMemoriaLegacyRows({
@@ -170,13 +153,7 @@ async function ejecutarAccionesMIA(supabase, {
     const { error } = await supabase
       .from('alerta_feedback')
       .upsert(feedbackRows, { onConflict: 'user_id,digest_id,alerta_id' });
-    if (error) {
-      if (error.code !== '42703') throw error;
-      const { error: legacyError } = await supabase
-        .from('alerta_feedback')
-        .upsert(limpiarFeedbackRowsLegacy(feedbackRows), { onConflict: 'user_id,digest_id,alerta_id' });
-      if (legacyError) throw legacyError;
-    }
+    if (error) throw error;
 
     if (typeof aplicarFeedbackAlPerfil === 'function') {
       for (const row of feedbackRows) {
@@ -269,15 +246,6 @@ async function buscarCasoAgenteAbiertoMIA(supabase, row) {
 
     return { ok: true, available: true, item: existing || null };
   } catch (error) {
-    if (esTablaNoDisponible(error)) {
-      return {
-        ok: true,
-        available: false,
-        item: null,
-        reason: 'mia_agent_cases_no_disponible',
-      };
-    }
-
     console.warn('[mia:agent_cases] No se pudo buscar caso abierto:', error.message);
     return { ok: false, available: false, item: null, error: error.message };
   }
@@ -319,15 +287,6 @@ async function registrarCasoAgenteMIA(supabase, options = {}) {
     if (error) throw error;
     return { ok: true, available: true, created: true, id: data?.id || null };
   } catch (error) {
-    if (esTablaNoDisponible(error)) {
-      return {
-        ok: true,
-        available: false,
-        created: false,
-        reason: 'mia_agent_cases_no_disponible',
-      };
-    }
-
     console.warn('[mia:agent_cases] No se pudo registrar caso agente:', error.message);
     return { ok: false, available: false, created: false, error: error.message };
   }
@@ -414,17 +373,6 @@ async function abrirConversacionAgenteMIA(supabase, {
     if (error) throw error;
     return { ok: true, available: true, created: true, updated: false, id: data?.id || null };
   } catch (error) {
-    if (esTablaNoDisponible(error)) {
-      return {
-        ok: true,
-        available: false,
-        created: false,
-        updated: false,
-        id: null,
-        reason: 'user_conversations_no_disponible',
-      };
-    }
-
     console.warn('[mia:agent_conversation] No se pudo abrir conversacion agente:', error.message);
     return { ok: false, available: false, created: false, updated: false, id: null, error: error.message };
   }
@@ -432,7 +380,6 @@ async function abrirConversacionAgenteMIA(supabase, {
 
 module.exports = {
   construirFeedbackRows,
-  limpiarFeedbackRowsLegacy,
   construirMemoriaLegacyRows,
   construirCasoAgenteDesdeDecision,
   buscarCasoAgenteAbiertoMIA,

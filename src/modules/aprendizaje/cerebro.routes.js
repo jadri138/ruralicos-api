@@ -22,12 +22,6 @@ const {
 const DEFAULT_SELECT_LIMIT = 100;
 const DEFAULT_MAX_LOOPS = 1;
 const MAX_PREGUNTAS_EXPLORACION_DIA = 3;
-const MISSING_TABLE_CODES = new Set(['42P01', '42703', 'PGRST205']);
-
-function esTablaNoDisponible(error) {
-  return MISSING_TABLE_CODES.has(error?.code);
-}
-
 function clampNumber(value, fallback, min, max) {
   const n = Number(value);
   if (!Number.isFinite(n)) return fallback;
@@ -364,20 +358,15 @@ module.exports = function cerebroRoutes(app, supabase) {
 
     if (error) throw error;
 
-    let memoriasEstructuradas = [];
-    try {
-      const { data, error: structuredError } = await supabase
-        .from('mia_structured_memory')
-        .select('user_id, last_seen_at')
-        .is('incorporated_at', null)
-        .order('last_seen_at', { ascending: false })
-        .limit(2000);
+    const { data: memoriasEstructuradasData, error: structuredError } = await supabase
+      .from('mia_structured_memory')
+      .select('user_id, last_seen_at')
+      .is('incorporated_at', null)
+      .order('last_seen_at', { ascending: false })
+      .limit(2000);
 
-      if (structuredError) throw structuredError;
-      memoriasEstructuradas = data || [];
-    } catch (structuredError) {
-      if (!esTablaNoDisponible(structuredError)) throw structuredError;
-    }
+    if (structuredError) throw structuredError;
+    const memoriasEstructuradas = memoriasEstructuradasData || [];
 
     return [...new Set([
       ...(memoriasLegacy || []),

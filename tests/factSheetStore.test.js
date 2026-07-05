@@ -111,16 +111,16 @@ test('guarda con upsert por alerta y versiones', async () => {
   assert.strictEqual(upsert.options.onConflict, 'alerta_id,schema_version,builder_version');
 });
 
-test('degrada si la tabla no existe', async () => {
+test('un error de BD no lanza: falla controlado', async () => {
   const factSheet = construirFactSheetAlertaSync(alerta());
   const result = await guardarFactSheetShadow(fakeSupabase({
     error: { code: '42P01', message: 'missing table' },
   }), { factSheet });
 
-  assert.strictEqual(result.ok, true);
+  assert.strictEqual(result.ok, false);
   assert.strictEqual(result.available, false);
   assert.strictEqual(result.stored, false);
-  assert.strictEqual(result.reason, 'alert_fact_sheets_no_disponible');
+  assert.strictEqual(result.error, 'missing table');
 });
 
 test('rechaza entrada invalida sin escribir', async () => {

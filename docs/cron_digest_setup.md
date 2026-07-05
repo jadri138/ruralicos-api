@@ -22,7 +22,13 @@ Ese endpoint ejecuta, en orden:
 
 - `BASE_URL` (ej. `https://tu-api.onrender.com`)
 - `CRON_TOKEN` (debe coincidir con el del backend)
-- `PUBLIC_BASE_URL` en la API, apuntando al mismo servicio publico
+- `PUBLIC_BASE_URL` en la API para enlaces publicos
+- Opcional: `PIPELINE_INTERNAL_BASE_URL` en la API si quieres fijar el dominio
+  usado por autocalls internos del pipeline
+
+Recomendacion operativa: usa como `BASE_URL` el dominio que responda realmente
+a `/health` (por ejemplo el `.onrender.com`). No uses un dominio custom para el
+cron hasta que el DNS este activo.
 
 El backend valida token por header `x-cron-token` o Bearer token.
 El query string (`?token=...`) queda como compatibilidad local/opt-in.

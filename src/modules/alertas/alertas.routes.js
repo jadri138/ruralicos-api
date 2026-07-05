@@ -2,7 +2,7 @@
 //
 // Capa HTTP de alertas: registra los endpoints del pipeline
 // (/alertas, /alertas/clasificar, /alertas/resumir, /alertas/revisar,
-// /alertas/estado-pipeline, /alertas/procesar-ia...). La logica vive en
+// /alertas/estado-pipeline...). La logica vive en
 // alertas.service.js.
 const { checkCronToken, hasCronToken } = require('../../middleware/cronToken');
 const { llamarIA, parsearJSON } = require('../../platform/ia/llamarIA');
@@ -74,36 +74,6 @@ const {
   buildPromptClasificar,
   clasificarConReintento,
 } = require('./alertas.service');
-
-const INTELLIGENCE_COLUMNS = new Set([
-  'pre_score',
-  'pre_status',
-  'pre_reasons',
-  'candidate_level',
-  'decision_audit',
-  'taxonomy_tags',
-]);
-
-function limpiarPatchIntelligence(patch = {}) {
-  return Object.fromEntries(
-    Object.entries(patch).filter(([key]) => !INTELLIGENCE_COLUMNS.has(key))
-  );
-}
-
-async function actualizarAlertaCompatible(supabase, alertaId, patch) {
-  let result = await supabase.from('alertas').update(patch).eq('id', alertaId);
-  if (
-    result.error &&
-    ['42703', 'PGRST204'].includes(result.error.code) &&
-    Object.keys(patch).some((key) => INTELLIGENCE_COLUMNS.has(key))
-  ) {
-    result = await supabase
-      .from('alertas')
-      .update(limpiarPatchIntelligence(patch))
-      .eq('id', alertaId);
-  }
-  return result;
-}
 
 function patchPreclasificacion(preclassification, classification = null) {
   if (!preclassification) return {};
@@ -245,10 +215,9 @@ module.exports = function alertasRoutes(app, supabase) {
         const preclassification = preclasificaciones.get(String(item.id));
 
         if (!item.es_relevante) {
-          const { error: updError } = await actualizarAlertaCompatible(
-            supabase,
-            item.id,
-            {
+          const { error: updError } = await supabase
+            .from('alertas')
+            .update({
               estado_ia: 'descartado',
               resumen: 'NO IMPORTA',
               provincias: [],
@@ -257,8 +226,8 @@ module.exports = function alertasRoutes(app, supabase) {
               tipos_alerta: [],
               taxonomy_tags: [],
               ...patchPreclasificacion(preclassification, item),
-            }
-          );
+            })
+            .eq('id', item.id);
           if (updError) {
             erroresUpdate.push({ id: item.id, error: updError.message });
             continue;
@@ -267,10 +236,9 @@ module.exports = function alertasRoutes(app, supabase) {
           actualizadas++;
           idsActualizados.add(String(item.id));
         } else {
-          const { error: updError } = await actualizarAlertaCompatible(
-            supabase,
-            item.id,
-            {
+          const { error: updError } = await supabase
+            .from('alertas')
+            .update({
               estado_ia: 'pendiente_resumir',
               provincias: item.provincias ?? [],
               sectores: item.sectores ?? [],
@@ -278,8 +246,8 @@ module.exports = function alertasRoutes(app, supabase) {
               tipos_alerta: item.tipos_alerta ?? [],
               taxonomy_tags: item.taxonomy_tags ?? [],
               ...patchPreclasificacion(preclassification, item),
-            }
-          );
+            })
+            .eq('id', item.id);
           if (updError) {
             erroresUpdate.push({ id: item.id, error: updError.message });
             continue;
@@ -299,11 +267,10 @@ module.exports = function alertasRoutes(app, supabase) {
       for (const id of idsNoResueltos) {
         const preclassification = preclasificaciones.get(String(id));
         if (!preclassification) continue;
-        const { error: preError } = await actualizarAlertaCompatible(
-          supabase,
-          id,
-          patchPreclasificacion(preclassification)
-        );
+        const { error: preError } = await supabase
+          .from('alertas')
+          .update(patchPreclasificacion(preclassification))
+          .eq('id', id);
         if (preError) erroresUpdate.push({ id, fase: 'preclasificacion', error: preError.message });
       }
 
@@ -629,8 +596,8 @@ Responde UNICAMENTE con la ficha final. Sin JSON, sin explicaciones, sin nada ma
   });
 
   // ══════════════════════════════════════════════════════════════
-  // ENVÍO — /alertas/enviar-whatsapp
-  // Solo envía alertas con estado_ia = 'listo'
+  // LEGACY — /alertas/enviar-whatsapp
+  // Envio individual por alerta. El flujo actual usa digest por usuario.
   // Cron recomendado: 1 vez al día a la hora que quieras (ej: 08:00)
   // ══════════════════════════════════════════════════════════════
   const enviarWhatsAppHandler = async (req, res) => {
@@ -807,20 +774,4 @@ Responde UNICAMENTE con la ficha final. Sin JSON, sin explicaciones, sin nada ma
       error: 'Usa POST para reparar. GET queda para diagnostico con /alertas/estado-pipeline.',
     });
   });
-
-  // ══════════════════════════════════════════════════════════════
-  // LEGACY — /alertas/procesar-ia (deprecada)
-  // ══════════════════════════════════════════════════════════════
-  app.post('/alertas/procesar-ia', (req, res) => {
-    res.status(410).json({
-      error: 'Ruta deprecada. Usa el pipeline: /alertas/clasificar -> /alertas/resumir -> /alertas/revisar -> /alertas/deduplicar -> /alertas/preparar-digest -> /alertas/enviar-digest',
-    });
-  });
-  app.get('/alertas/procesar-ia', (req, res) => {
-    if (!checkCronToken(req, res)) return;
-    res.status(410).json({
-      error: 'Ruta deprecada. Usa el pipeline: /alertas/clasificar -> /alertas/resumir -> /alertas/revisar -> /alertas/deduplicar -> /alertas/preparar-digest -> /alertas/enviar-digest',
-    });
-  });
-
 };

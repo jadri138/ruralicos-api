@@ -30,7 +30,6 @@ module.exports = (app, supabase, ctx) => {
     limpiarCampoNombre,
     construirNombreLegal,
     summarizeMemory,
-    isMissingTableError,
     resetMiaProfile,
     deleteUserRows,
     deleteUserOwnedRows,

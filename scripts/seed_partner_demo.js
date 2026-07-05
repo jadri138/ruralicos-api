@@ -28,7 +28,6 @@ const { supabase } = require('../src/platform/supabase');
 // ──────────────────────────────────────────────────────────────────
 // Definicion de la cooperativa demo
 // ──────────────────────────────────────────────────────────────────
-const MISSING_TABLE_CODES = new Set(['42P01', '42703', 'PGRST205']);
 const DEMO_SLUG = 'coop-olivos';
 const DEMO_PHONE_PREFIX = '346000000'; // 9 chars; + 2 digitos = 11 (formato ES valido y claramente falso)
 const DEMO_PASSWORD = 'Olivos2026!';
@@ -313,32 +312,27 @@ async function seed() {
   console.log(`  ✓ ${digestRows.length} digests (ultimos 7 dias)`);
 
   // 7) Clientes propios (organization_clients). Se reescriben en cada seed.
-  //    Si la tabla no existe todavia (migracion sin aplicar), se avisa y se omite.
-  const { error: clientsProbe } = await supabase.from('organization_clients').select('id').limit(1);
-  if (clientsProbe && MISSING_TABLE_CODES.has(clientsProbe.code)) {
-    console.log('  ⚠ organization_clients no existe (aplica la migracion para sembrar clientes); omitido');
-  } else {
-    if (clientsProbe) throw clientsProbe;
-    await supabase.from('organization_clients').delete().eq('organization_id', orgId);
-    const clientRows = CLIENTES.map((c, idx) => ({
-      organization_id: orgId,
-      zone_id: c.zone != null ? zoneIds[c.zone] : null,
-      display_name: c.display_name,
-      first_name: c.first_name,
-      last_name: c.last_name,
-      phone: c.phone,
-      phone_normalized: c.phone,
-      email: c.email,
-      status: c.status,
-      client_type: c.client_type,
-      profile_json: c.profile,
-      preferences_json: c.preferences,
-      created_at: diasAtras(idx + 1).toISOString(),
-    }));
-    const { error: clientsErr } = await supabase.from('organization_clients').insert(clientRows);
-    if (clientsErr) throw clientsErr;
-    console.log(`  ✓ ${clientRows.length} clientes propios`);
-  }
+  //    El schema completo es obligatorio (baseline B1): si falta la tabla, el error corta el seed.
+  const { error: clientsDelError } = await supabase.from('organization_clients').delete().eq('organization_id', orgId);
+  if (clientsDelError) throw clientsDelError;
+  const clientRows = CLIENTES.map((c, idx) => ({
+    organization_id: orgId,
+    zone_id: c.zone != null ? zoneIds[c.zone] : null,
+    display_name: c.display_name,
+    first_name: c.first_name,
+    last_name: c.last_name,
+    phone: c.phone,
+    phone_normalized: c.phone,
+    email: c.email,
+    status: c.status,
+    client_type: c.client_type,
+    profile_json: c.profile,
+    preferences_json: c.preferences,
+    created_at: diasAtras(idx + 1).toISOString(),
+  }));
+  const { error: clientsErr } = await supabase.from('organization_clients').insert(clientRows);
+  if (clientsErr) throw clientsErr;
+  console.log(`  ✓ ${clientRows.length} clientes propios`);
 
   console.log('\n✅ Demo lista. Acceso al panel:');
   console.log(`   slug:     ${ORG.slug}`);
@@ -362,10 +356,10 @@ async function clean(slug, { purgeUsers }) {
   await supabase.from('digests').delete().eq('organization_id', orgId);
   console.log('  ✓ digests');
 
-  // Clientes propios (si la tabla existe).
+  // Clientes propios.
   const { error: clientsDelErr } = await supabase.from('organization_clients').delete().eq('organization_id', orgId);
-  if (clientsDelErr && !MISSING_TABLE_CODES.has(clientsDelErr.code)) throw clientsDelErr;
-  if (!clientsDelErr) console.log('  ✓ clientes propios');
+  if (clientsDelErr) throw clientsDelErr;
+  console.log('  ✓ clientes propios');
 
   // Members y zonas.
   await supabase.from('organization_members').delete().eq('organization_id', orgId);

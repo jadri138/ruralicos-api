@@ -9,14 +9,9 @@ const jwt = require('jsonwebtoken');
 const { requireAdmin } = require('../../middleware/requireAdmin');
 const { validarPassword } = require('../../shared/passwordPolicy');
 
-const MISSING_TABLE_CODES = new Set(['42P01', '42703', 'PGRST205']);
 const UNIQUE_VIOLATION = '23505';
 const ROLES_VALIDOS = new Set(['owner', 'admin', 'agent', 'viewer']);
 const STATUS_VALIDOS = new Set(['active', 'disabled']);
-
-function esTablaNoDisponible(error) {
-  return MISSING_TABLE_CODES.has(error?.code);
-}
 
 function normalizarEmail(value) {
   return String(value || '').trim().toLowerCase();
@@ -58,12 +53,7 @@ module.exports = (app, supabase) => {
         .eq('organization_id', organizationId)
         .order('created_at', { ascending: true });
 
-      if (error) {
-        if (esTablaNoDisponible(error)) {
-          return res.json({ ok: true, available: false, reason: 'organization_staff_no_disponible', items: [] });
-        }
-        throw error;
-      }
+      if (error) throw error;
 
       return res.json({ ok: true, available: true, items: (data || []).map(publicStaff) });
     } catch (err) {
@@ -105,12 +95,7 @@ module.exports = (app, supabase) => {
         .select('id')
         .eq('id', organizationId)
         .maybeSingle();
-      if (orgError) {
-        if (esTablaNoDisponible(orgError)) {
-          return res.json({ ok: true, available: false, reason: 'organizations_no_disponible' });
-        }
-        throw orgError;
-      }
+      if (orgError) throw orgError;
       if (!org) return res.status(404).json({ error: 'Cooperativa no encontrada' });
 
       const password_hash = await bcrypt.hash(password, 10);
@@ -122,9 +107,6 @@ module.exports = (app, supabase) => {
         .maybeSingle();
 
       if (error) {
-        if (esTablaNoDisponible(error)) {
-          return res.json({ ok: true, available: false, reason: 'organization_staff_no_disponible' });
-        }
         if (error.code === UNIQUE_VIOLATION) {
           return res.status(409).json({ error: 'Ya existe una cuenta con ese email' });
         }
@@ -186,12 +168,7 @@ module.exports = (app, supabase) => {
         .select(SELECT_COLS)
         .maybeSingle();
 
-      if (error) {
-        if (esTablaNoDisponible(error)) {
-          return res.json({ ok: true, available: false, reason: 'organization_staff_no_disponible' });
-        }
-        throw error;
-      }
+      if (error) throw error;
       if (!data) return res.status(404).json({ error: 'Cuenta no encontrada' });
 
       return res.json({ ok: true, item: publicStaff(data) });
@@ -216,12 +193,7 @@ module.exports = (app, supabase) => {
         .select('id, slug, name, kind, status, branding_json')
         .eq('id', organizationId)
         .maybeSingle();
-      if (error) {
-        if (esTablaNoDisponible(error)) {
-          return res.json({ ok: true, available: false, reason: 'organizations_no_disponible' });
-        }
-        throw error;
-      }
+      if (error) throw error;
       if (!org) return res.status(404).json({ error: 'Cooperativa no encontrada' });
 
       const adminId = req.admin?.sub || null;
@@ -287,12 +259,7 @@ module.exports = (app, supabase) => {
         .eq('id', staffId)
         .eq('organization_id', organizationId);
 
-      if (error) {
-        if (esTablaNoDisponible(error)) {
-          return res.json({ ok: true, available: false, reason: 'organization_staff_no_disponible' });
-        }
-        throw error;
-      }
+      if (error) throw error;
 
       return res.json({ ok: true });
     } catch (err) {

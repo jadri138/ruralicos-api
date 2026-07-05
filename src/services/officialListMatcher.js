@@ -90,10 +90,6 @@ function extraerLineaCoincidencia(texto, nombreNormalizado) {
   return textoLimpio.slice(Math.max(0, index - 180), index + nombreNormalizado.length + 420).slice(0, 2000);
 }
 
-function isMissingTableError(error) {
-  return error && ['42P01', '42703', 'PGRST205'].includes(error.code);
-}
-
 async function cargarUsuariosBuscables(supabase) {
   const { data, error } = await supabase
     .from('users')
@@ -141,9 +137,6 @@ async function guardarYEnviarCoincidencia(supabase, { alerta, user, linea, envia
     .select('id, enviado')
     .single();
 
-  if (error && isMissingTableError(error)) {
-    return { saved: false, missingTable: true, alreadySent: false, sent: false };
-  }
   if (error) throw error;
 
   if (!enviar || data?.enviado) {
@@ -202,7 +195,6 @@ async function cotejarListadosOficiales(supabase, opciones = {}) {
   let guardadas = 0;
   let enviados = 0;
   let yaEnviados = 0;
-  let missingTable = false;
   const resultados = [];
 
   for (const alerta of candidatas) {
@@ -219,7 +211,6 @@ async function cotejarListadosOficiales(supabase, opciones = {}) {
 
       coincidencias++;
       const resultado = await guardarYEnviarCoincidencia(supabase, { alerta, user, linea, enviar });
-      if (resultado.missingTable) missingTable = true;
       if (resultado.saved) guardadas++;
       if (resultado.sent) enviados++;
       if (resultado.alreadySent) yaEnviados++;
@@ -244,7 +235,6 @@ async function cotejarListadosOficiales(supabase, opciones = {}) {
     guardadas,
     enviados,
     ya_enviados: yaEnviados,
-    missing_table: missingTable ? 'Falta la tabla official_list_matches. Aplica la migracion operativa en Supabase.' : false,
     resultados,
   };
 }

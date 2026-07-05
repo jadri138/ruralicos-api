@@ -19,10 +19,6 @@ const {
   marcarRawDocumentSaltado,
 } = require('../../rawDocuments/rawDocuments.service');
 
-function isMissingTableError(error) {
-  return error && ['42P01', '42703', 'PGRST205'].includes(error.code);
-}
-
 async function insertarAlertaFega(supabase, fichero) {
   const titulo = `FEGA - Beneficiarios ayudas PAC ${fichero.ejercicio}`;
   const hoy = new Date().toISOString().slice(0, 10);
@@ -127,9 +123,6 @@ async function guardarCoincidencia(supabase, { ejercicio, fichero, match, enviar
     .select('id, enviado')
     .single();
 
-  if (error && isMissingTableError(error)) {
-    return { saved: false, missingTable: true, alreadySent: false };
-  }
   if (error) throw error;
 
   if (!enviar || data?.enviado) {
@@ -232,7 +225,6 @@ module.exports = function fegaRoutes(app, supabase) {
       const matches = buscarCoincidenciasEnTextos(textos, users);
 
       const resultados = [];
-      let missingTable = false;
       let enviados = 0;
       let yaEnviados = 0;
 
@@ -243,7 +235,6 @@ module.exports = function fegaRoutes(app, supabase) {
           match,
           enviar,
         });
-        if (resultado.missingTable) missingTable = true;
         if (resultado.sent) enviados++;
         if (resultado.alreadySent) yaEnviados++;
         resultados.push({ user_id: match.user_id, user_name: match.user_name, ...resultado });
@@ -269,7 +260,6 @@ module.exports = function fegaRoutes(app, supabase) {
         coincidencias: matches.length,
         enviados,
         ya_enviados: yaEnviados,
-        missing_table: missingTable ? 'Falta la tabla official_list_matches. Aplica la migracion operativa para guardar y evitar duplicados.' : false,
         resultados,
       });
     } catch (err) {

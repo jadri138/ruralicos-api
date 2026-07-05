@@ -25,7 +25,13 @@ Frecuencia recomendada:
 Minimas:
 
 - `CRON_TOKEN=tu_token`
-- `PUBLIC_BASE_URL=https://TU-SERVICIO.onrender.com`
+- `PUBLIC_BASE_URL=https://TU-SERVICIO.onrender.com` o tu dominio publico si ya resuelve DNS
+- Opcional: `PIPELINE_INTERNAL_BASE_URL=https://TU-SERVICIO.onrender.com`
+
+`PUBLIC_BASE_URL` se usa para enlaces publicos. Las llamadas internas del
+pipeline usan por defecto el host real de la peticion; si quieres fijarlas de
+forma explicita en Render, usa `PIPELINE_INTERNAL_BASE_URL`. No apuntes el cron
+ni la URL interna a un dominio custom hasta verificar que `/health` responde.
 
 Para boletines provinciales complementarios:
 
@@ -59,5 +65,6 @@ Requiere `ADMIN_ALERT_PHONE` (o `ADMIN_ALERT_PHONES`) configurado.
 - [ ] Esquema operativo aplicado en Supabase.
 - [ ] `CRON_TOKEN` configurado en la API y en el Cron Job.
 - [ ] `PUBLIC_BASE_URL` configurado en la API.
+- [ ] Si usas dominio custom, `https://tu-dominio/health` responde; si no, usa el dominio `.onrender.com`.
 - [ ] Cron Job en Render con `curl -fsS -H "x-cron-token: $CRON_TOKEN" "$BASE_URL/tareas/pipeline-diario"`.
 - [ ] Si activas FEGA con envios individuales, comprobar antes identidad legal en `users` y `official_list_matches`.

@@ -4,15 +4,10 @@ const { requireOrg } = require('../../middleware/requireAdmin');
 const { normalizePhone } = require('../../shared/phoneNormalizer');
 const { enviarWhatsAppDirecto } = require('../../platform/whatsapp');
 
-const MISSING_TABLE_CODES = new Set(['42P01', '42703', 'PGRST205']);
 const UNIQUE_VIOLATION = '23505';
 const WRITE_ROLES = new Set(['owner', 'admin']);
 const STATUSES = new Set(['active', 'inactive', 'prospect']);
 const CLIENT_TYPES = new Set(['socio', 'cliente', 'prospecto']);
-
-function isMissingTable(error) {
-  return MISSING_TABLE_CODES.has(error?.code);
-}
 
 function canWrite(req) {
   return WRITE_ROLES.has(req.org?.memberRole);
@@ -277,13 +272,8 @@ module.exports = (app, supabase) => {
           .maybeSingle(),
       ]);
 
-      if (clientsResult.error) {
-        if (isMissingTable(clientsResult.error)) {
-          return res.json({ ok: true, available: false, items: [], limits: { current: 0, max: null } });
-        }
-        throw clientsResult.error;
-      }
-      if (zonesResult.error && !isMissingTable(zonesResult.error)) throw zonesResult.error;
+      if (clientsResult.error) throw clientsResult.error;
+      if (zonesResult.error) throw zonesResult.error;
 
       const zonesById = new Map((zonesResult.data || []).map((zone) => [Number(zone.id), zone]));
       const items = (clientsResult.data || [])
@@ -327,7 +317,6 @@ module.exports = (app, supabase) => {
         .maybeSingle();
 
       if (error) {
-        if (isMissingTable(error)) return res.json({ ok: true, available: false });
         if (error.code === UNIQUE_VIOLATION) return res.status(409).json({ error: 'Ya existe un cliente con ese telefono o email en esta cooperativa' });
         throw error;
       }
@@ -359,7 +348,6 @@ module.exports = (app, supabase) => {
         .maybeSingle();
 
       if (error) {
-        if (isMissingTable(error)) return res.json({ ok: true, available: false });
         if (error.code === UNIQUE_VIOLATION) return res.status(409).json({ error: 'Ya existe un cliente con ese telefono o email en esta cooperativa' });
         throw error;
       }
@@ -388,7 +376,6 @@ module.exports = (app, supabase) => {
         .maybeSingle();
 
       if (error) {
-        if (isMissingTable(error)) return res.json({ ok: true, available: false });
         throw error;
       }
       if (!data) return res.status(404).json({ error: 'Cliente no encontrado' });

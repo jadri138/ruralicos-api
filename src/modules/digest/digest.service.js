@@ -272,9 +272,8 @@ function norm(str) {
 
 const intersecta = (a, b) => a.some((x) => b.includes(x));
 
-const ALERTA_DIGEST_SELECT_LEGACY =
-  'id, titulo, url, fecha, region, fuente, resumen, resumen_final, contenido, provincias, sectores, subsectores, tipos_alerta, estado_ia, duplicado_de, organization_id, embedding_generated_at, created_at';
-const ALERTA_DIGEST_SELECT = `${ALERTA_DIGEST_SELECT_LEGACY}, taxonomy_tags`;
+const ALERTA_DIGEST_SELECT =
+  'id, titulo, url, fecha, region, fuente, resumen, resumen_final, contenido, provincias, sectores, subsectores, tipos_alerta, estado_ia, duplicado_de, organization_id, embedding_generated_at, created_at, taxonomy_tags';
 const ALERTA_DIGEST_SELECT_WITH_EMBEDDING = `${ALERTA_DIGEST_SELECT}, embedding`;
 
 function getMaxAlertasDigestUsuario(user = {}) {
@@ -329,7 +328,6 @@ function aplicarFiltroFechaAlertas(query, { fecha, desde, hasta } = {}) {
 }
 
 async function cargarAlertasListasDigest(supabase, options = {}) {
-  let selectBase = ALERTA_DIGEST_SELECT;
   let query = supabase
     .from('alertas')
     .select(ALERTA_DIGEST_SELECT_WITH_EMBEDDING)
@@ -337,22 +335,10 @@ async function cargarAlertasListasDigest(supabase, options = {}) {
   query = aplicarFiltroFechaAlertas(query, options);
   let { data, error } = await query;
 
-  if (error && /taxonomy_tags/i.test(error.message || '')) {
-    selectBase = ALERTA_DIGEST_SELECT_LEGACY;
-    let legacy = supabase
-      .from('alertas')
-      .select(`${ALERTA_DIGEST_SELECT_LEGACY}, embedding`)
-      .eq('estado_ia', 'listo');
-    legacy = aplicarFiltroFechaAlertas(legacy, options);
-    const result = await legacy;
-    data = result.data;
-    error = result.error;
-  }
-
   if (error && /embedding/i.test(error.message || '')) {
     let fallback = supabase
       .from('alertas')
-      .select(selectBase)
+      .select(ALERTA_DIGEST_SELECT)
       .eq('estado_ia', 'listo');
     fallback = aplicarFiltroFechaAlertas(fallback, options);
     const result = await fallback;

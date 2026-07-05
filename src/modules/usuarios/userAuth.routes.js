@@ -73,9 +73,10 @@ module.exports = (app, supabase) => {
   });
 
   /**
-   * PRIMER ACCESO: POST /first-login
+   * LEGACY - PRIMER ACCESO: POST /first-login
    * body: { phone } => { token }
    * Solo si el usuario existe y NO tiene password_hash (null/empty).
+   * Desactivado por defecto: usar recuperacion de contrasena.
    */
   app.post('/first-login', loginLimiter, async (req, res) => {
     try {

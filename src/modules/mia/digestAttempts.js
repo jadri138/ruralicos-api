@@ -1,9 +1,3 @@
-const MISSING_TABLE_CODES = new Set(['42P01', '42703', 'PGRST205']);
-
-function esTablaNoDisponible(error) {
-  return MISSING_TABLE_CODES.has(error?.code);
-}
-
 function normalizarEntero(value, fallback = 0) {
   const number = Number(value);
   return Number.isFinite(number) && number >= 0 ? Math.floor(number) : fallback;
@@ -108,10 +102,6 @@ async function registrarDigestAttempt(supabase, input = {}) {
       row,
     };
   } catch (error) {
-    if (esTablaNoDisponible(error)) {
-      return { ok: true, available: false, reason: 'digest_attempts_no_disponible' };
-    }
-
     console.warn('[digest_attempts] No se pudo registrar intento:', error.message);
     return { ok: false, available: false, error: error.message };
   }
@@ -144,10 +134,6 @@ async function actualizarDigestAttemptPorDigest(supabase, digestId, patch = {}) 
     if (error) throw error;
     return { ok: true, available: true };
   } catch (error) {
-    if (esTablaNoDisponible(error)) {
-      return { ok: true, available: false, reason: 'digest_attempts_no_disponible' };
-    }
-
     console.warn('[digest_attempts] No se pudo actualizar intento:', error.message);
     return { ok: false, available: false, error: error.message };
   }

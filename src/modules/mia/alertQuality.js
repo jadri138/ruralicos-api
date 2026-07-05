@@ -1,5 +1,3 @@
-const MISSING_TABLE_CODES = new Set(['42P01', '42703', 'PGRST205']);
-
 const CRITICAL_ALERT_FLAGS = new Set([
   'duplicada',
   'descartada',
@@ -42,10 +40,6 @@ const FUENTES_SCRAPER_ESPERADAS = [
   'FEGA',
   'BOTHA',
 ];
-
-function esTablaNoDisponible(error) {
-  return MISSING_TABLE_CODES.has(error?.code);
-}
 
 function clamp(value, min = 0, max = 100) {
   return Math.max(min, Math.min(max, Number(value || 0)));
@@ -1145,25 +1139,18 @@ async function selectSeguro(supabase, table, select, {
   limit = 1000,
   fecha = null,
 } = {}) {
-  try {
-    let query = supabase
-      .from(table)
-      .select(select)
-      .order(orderColumn, { ascending: false })
-      .limit(limit);
+  let query = supabase
+    .from(table)
+    .select(select)
+    .order(orderColumn, { ascending: false })
+    .limit(limit);
 
-    if (fecha && table === 'alertas') query = query.eq('fecha', fecha);
-    else if (since) query = query.gte(timeColumn, since);
+  if (fecha && table === 'alertas') query = query.eq('fecha', fecha);
+  else if (since) query = query.gte(timeColumn, since);
 
-    const { data, error } = await query;
-    if (error) throw error;
-    return { available: true, data: data || [] };
-  } catch (error) {
-    if (esTablaNoDisponible(error)) {
-      return { available: false, data: [], reason: `${table}_no_disponible` };
-    }
-    throw error;
-  }
+  const { data, error } = await query;
+  if (error) throw error;
+  return { available: true, data: data || [] };
 }
 
 async function generarReporteCalidadOperativaMIA(supabase, {

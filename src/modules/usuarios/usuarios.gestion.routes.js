@@ -24,7 +24,6 @@ module.exports = (app, supabase, ctx) => {
     limpiarCampoNombre,
     construirNombreLegal,
     summarizeMemory,
-    isMissingTableError,
     resetMiaProfile,
     deleteUserRows,
     deleteUserOwnedRows,
@@ -85,7 +84,8 @@ module.exports = (app, supabase, ctx) => {
   });
 
 
-  // Legacy — se mantienen por compatibilidad con integraciones existentes
+  // Legacy — rutas antiguas de cambio de plan por telefono.
+  // Se mantienen por compatibilidad con integraciones existentes.
   app.post('/users/upgrade-to-pro', requireAdminOrCron, async (req, res) => {
     const result = await cambiarPlanUsuarioPorTelefono(req.body?.phone, 'cooperativa');
     if (!result.ok) return res.status(result.status).json({ error: result.error });
@@ -167,7 +167,7 @@ module.exports = (app, supabase, ctx) => {
 
   // --------------------------------------------------
   // GUARDAR PREFERENCIAS USANDO TELÉFONO
-  // Ruta legacy — la validación de límites por plan está en preferences.js
+  // Ruta legacy — la validacion de limites por plan esta en preferences.js
   // --------------------------------------------------
   app.put('/users/preferences', requireOwnerPhoneOrAdminOrCron, async (req, res) => {
     let { phone } = req.body;

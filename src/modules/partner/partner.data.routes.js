@@ -9,14 +9,9 @@
 const { requireOrg } = require('../../middleware/requireAdmin');
 const { normalizePhone, LONGITUD_TELEFONO } = require('../../shared/phoneNormalizer');
 
-const MISSING_TABLE_CODES = new Set(['42P01', '42703', 'PGRST205']);
 const ROLES_SOCIO = new Set(['admin', 'agent', 'viewer', 'member']);
 const ROLES_ESCRITURA = new Set(['owner', 'admin']);
 const SETTINGS_EDITABLES = new Set(['contact_name', 'contact_phone', 'contact_email', 'notes']);
-
-function esTablaNoDisponible(error) {
-  return MISSING_TABLE_CODES.has(error?.code);
-}
 
 function puedeEscribir(req) {
   return ROLES_ESCRITURA.has(req.org?.memberRole);
@@ -74,11 +69,11 @@ module.exports = (app, supabase) => {
           : Promise.resolve({ data: [], error: null }),
       ]);
       for (const result of [digByOrg, digByUsers]) {
-        if (result.error && !esTablaNoDisponible(result.error)) throw result.error;
+        if (result.error) throw result.error;
       }
       const digestIds = new Set();
-      for (const d of digByOrg.error ? [] : digByOrg.data || []) digestIds.add(Number(d.id));
-      for (const d of digByUsers.error ? [] : digByUsers.data || []) digestIds.add(Number(d.id));
+      for (const d of digByOrg.data || []) digestIds.add(Number(d.id));
+      for (const d of digByUsers.data || []) digestIds.add(Number(d.id));
       const digestsEnviados7d = digestIds.size;
 
       const nuevos7d = (socios || []).filter((u) => u.created_at && u.created_at >= hace7dias).length;
@@ -135,7 +130,7 @@ module.exports = (app, supabase) => {
       ]);
 
       if (error) throw error;
-      if (membersResult.error && !esTablaNoDisponible(membersResult.error)) {
+      if (membersResult.error) {
         console.warn('[partner] organization_members no disponible:', membersResult.error.message);
       }
 
@@ -307,10 +302,7 @@ module.exports = (app, supabase) => {
           .eq('id', zoneId)
           .eq('organization_id', orgId)
           .maybeSingle();
-        if (zoneError) {
-          if (esTablaNoDisponible(zoneError)) return res.json({ ok: true, available: false });
-          throw zoneError;
-        }
+        if (zoneError) throw zoneError;
         if (!zone) return res.status(400).json({ error: 'La zona no pertenece a la cooperativa' });
       }
 
@@ -338,11 +330,7 @@ module.exports = (app, supabase) => {
         .upsert(upsertRow, { onConflict: 'organization_id,user_id' })
         .select('user_id, role, status, zone_id')
         .maybeSingle();
-      if (error) {
-        // Si la columna zone_id aun no existe, la asignacion de zona no esta disponible.
-        if (esTablaNoDisponible(error)) return res.json({ ok: true, available: false });
-        throw error;
-      }
+      if (error) throw error;
 
       return res.json({ ok: true, member: data || { user_id: userId, ...upsertRow } });
     } catch (err) {
@@ -378,7 +366,7 @@ module.exports = (app, supabase) => {
         .eq('user_id', userId)
         .select('user_id, role, status, zone_id')
         .maybeSingle();
-      if (memberResult.error && !esTablaNoDisponible(memberResult.error)) throw memberResult.error;
+      if (memberResult.error) throw memberResult.error;
 
       const { data: user, error: updError } = await supabase
         .from('users')
@@ -435,10 +423,7 @@ module.exports = (app, supabase) => {
       ]);
 
       for (const result of [byOrg, byUsers]) {
-        if (result.error) {
-          if (esTablaNoDisponible(result.error)) return res.json({ ok: true, items: [] });
-          throw result.error;
-        }
+        if (result.error) throw result.error;
       }
 
       const byDigestId = new Map();
@@ -462,10 +447,10 @@ module.exports = (app, supabase) => {
           : Promise.resolve({ data: [], error: null }),
       ]);
       if (usersResult.error) throw usersResult.error;
-      if (clientsResult.error && !esTablaNoDisponible(clientsResult.error)) throw clientsResult.error;
+      if (clientsResult.error) throw clientsResult.error;
 
       const userById = new Map((usersResult.data || []).map((u) => [Number(u.id), u]));
-      const clientById = new Map((clientsResult.error ? [] : clientsResult.data || []).map((c) => [Number(c.id), c]));
+      const clientById = new Map((clientsResult.data || []).map((c) => [Number(c.id), c]));
 
       function resolveRecipient(d) {
         const clientId = Number(d.organization_client_id);

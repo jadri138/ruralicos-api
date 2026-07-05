@@ -1,9 +1,4 @@
-const MISSING_TABLE_CODES = new Set(['42P01', '42703', 'PGRST205']);
 const { conOrganizationId } = require('./organizationContext');
-
-function esTablaNoDisponible(error) {
-  return MISSING_TABLE_CODES.has(error?.code);
-}
 
 function construirAccionesDesdeDecision({
   decision = {},
@@ -132,10 +127,6 @@ async function registrarDecisionMIA(supabase, {
     if (error) throw error;
     return { ok: true, available: true, id: data?.id || null };
   } catch (error) {
-    if (esTablaNoDisponible(error)) {
-      return { ok: true, available: false, id: null, reason: 'mia_decisions_no_disponible' };
-    }
-
     console.warn('[mia:decision_store] No se pudo registrar decision:', error.message);
     return { ok: false, available: false, id: null, error: error.message };
   }
@@ -159,10 +150,6 @@ async function registrarAccionesMIA(supabase, { decisionId = null, acciones = []
     if (error) throw error;
     return { ok: true, available: true, inserted: rows.length };
   } catch (error) {
-    if (esTablaNoDisponible(error)) {
-      return { ok: true, available: false, inserted: 0, reason: 'mia_actions_no_disponible' };
-    }
-
     console.warn('[mia:decision_store] No se pudieron registrar acciones:', error.message);
     return { ok: false, available: false, inserted: 0, error: error.message };
   }
@@ -208,9 +195,7 @@ async function actualizarDecisionResultadoMIA(supabase, decisionId, resultJson =
     if (error) throw error;
     return true;
   } catch (error) {
-    if (!esTablaNoDisponible(error)) {
-      console.warn('[mia:decision_store] No se pudo actualizar resultado decision:', error.message);
-    }
+    console.warn('[mia:decision_store] No se pudo actualizar resultado decision:', error.message);
     return false;
   }
 }
@@ -239,9 +224,7 @@ async function actualizarAccionesPorTipoMIA(supabase, {
     if (error) throw error;
     return true;
   } catch (error) {
-    if (!esTablaNoDisponible(error)) {
-      console.warn('[mia:decision_store] No se pudieron actualizar acciones:', error.message);
-    }
+    console.warn('[mia:decision_store] No se pudieron actualizar acciones:', error.message);
     return false;
   }
 }

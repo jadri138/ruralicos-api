@@ -101,10 +101,6 @@ function crearContextoUsuarios(supabase) {
     }, {});
   }
 
-  function isMissingTableError(error) {
-    return error && ['42P01', '42703', 'PGRST205'].includes(error.code);
-  }
-
   async function resetMiaProfile(userId) {
     const { error } = await supabase
       .from('users')
@@ -127,7 +123,7 @@ function crearContextoUsuarios(supabase) {
       .delete()
       .eq('user_id', userId);
 
-    if (error && !isMissingTableError(error)) throw error;
+    if (error) throw error;
   }
 
   async function deleteUserOwnedRows(userId) {
@@ -172,7 +168,6 @@ function crearContextoUsuarios(supabase) {
     }
 
     const { data, error } = await query;
-    if (error && isMissingTableError(error)) return [];
     if (error) throw error;
     return data || [];
   }
@@ -284,7 +279,6 @@ function crearContextoUsuarios(supabase) {
     limpiarCampoNombre,
     construirNombreLegal,
     summarizeMemory,
-    isMissingTableError,
     resetMiaProfile,
     deleteUserRows,
     deleteUserOwnedRows,

@@ -1,6 +1,5 @@
 const crypto = require('crypto');
 
-const MISSING_TABLE_CODES = new Set(['42P01', '42703', 'PGRST205']);
 const DEFAULT_FALLBACK_DEDUPE_MS = 2 * 60 * 1000;
 
 function normalizarTextoFingerprint(texto) {
@@ -53,10 +52,6 @@ function crearIdentidadMensajeMIA({ source = 'ultramsg', telefono, texto, ultra 
     text_hash: sha256(textoNormalizado),
     fingerprint_bucket: fallbackBucket,
   };
-}
-
-function esTablaMiaInboundNoDisponible(error) {
-  return MISSING_TABLE_CODES.has(error?.code);
 }
 
 async function buscarInboundExistente(supabase, identity) {
@@ -184,16 +179,6 @@ async function registrarInboundMIA(supabase, {
       identity,
     };
   } catch (error) {
-    if (esTablaMiaInboundNoDisponible(error)) {
-      return {
-        ok: true,
-        available: false,
-        duplicate: false,
-        reason: 'mia_inbound_messages_no_disponible',
-        identity,
-      };
-    }
-
     console.warn('[mia:inbound] No se pudo registrar mensaje entrante:', error.message);
     return {
       ok: false,
@@ -226,9 +211,7 @@ async function actualizarInboundMIA(supabase, inboundId, patch = {}) {
     if (error) throw error;
     return true;
   } catch (error) {
-    if (!esTablaMiaInboundNoDisponible(error)) {
-      console.warn('[mia:inbound] No se pudo actualizar mensaje entrante:', error.message);
-    }
+    console.warn('[mia:inbound] No se pudo actualizar mensaje entrante:', error.message);
     return false;
   }
 }

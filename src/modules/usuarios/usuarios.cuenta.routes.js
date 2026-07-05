@@ -28,7 +28,6 @@ module.exports = (app, supabase, ctx) => {
     limpiarCampoNombre,
     construirNombreLegal,
     summarizeMemory,
-    isMissingTableError,
     resetMiaProfile,
     deleteUserRows,
     deleteUserOwnedRows,
@@ -511,7 +510,7 @@ module.exports = (app, supabase, ctx) => {
         .order('created_at', { ascending: false })
         .limit(capabilities.detail_access ? 200 : 50);
 
-      if (memoriesError && !isMissingTableError(memoriesError)) {
+      if (memoriesError) {
         console.error('Error en GET /me/memory:', memoriesError.message);
         return res.status(500).json({ error: 'Error consultando memoria' });
       }

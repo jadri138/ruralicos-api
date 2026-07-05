@@ -6,12 +6,6 @@ const {
 const { extraerUltraMsg } = require('../../shared/ultramsgParser');
 const { normalizarOrganizationId } = require('./organizationContext');
 
-const MISSING_SCHEMA_CODES = new Set(['42P01', '42703', 'PGRST204', 'PGRST205']);
-
-function isMissingSchemaError(error) {
-  return Boolean(error && MISSING_SCHEMA_CODES.has(error.code));
-}
-
 function normalizarId(value) {
   const id = Number(value);
   return Number.isSafeInteger(id) && id > 0 ? id : null;
@@ -101,26 +95,8 @@ async function guardarWebhookEventSeguro(supabase, req, result = null, error = n
 
     if (!insertError) return data?.id || null;
 
-    if (!isMissingSchemaError(insertError)) {
-      console.warn('[webhook_events] No se pudo guardar evento:', insertError.message);
-      return null;
-    }
-
-    if (insertError.code === '42P01' || insertError.code === 'PGRST205') return null;
-
-    const legacyRow = construirWebhookEventRow(req, result, error, { extended: false });
-    const { data: legacyData, error: legacyError } = await supabase
-      .from('webhook_events')
-      .insert(legacyRow)
-      .select('id')
-      .single();
-
-    if (legacyError) {
-      console.warn('[webhook_events] No se pudo guardar evento legacy:', legacyError.message);
-      return null;
-    }
-
-    return legacyData?.id || null;
+    console.warn('[webhook_events] No se pudo guardar evento:', insertError.message);
+    return null;
   } catch (err) {
     console.warn('[webhook_events] Error inesperado guardando evento:', err.message);
     return null;
@@ -130,5 +106,4 @@ async function guardarWebhookEventSeguro(supabase, req, result = null, error = n
 module.exports = {
   construirWebhookEventRow,
   guardarWebhookEventSeguro,
-  isMissingSchemaError,
 };

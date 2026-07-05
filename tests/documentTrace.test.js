@@ -141,15 +141,15 @@ test('Supabase ausente devuelve fallback seguro', async () => {
   assert.strictEqual(trace.status, 'missing_supabase_client');
 });
 
-test('degrada tabla ausente sin lanzar', async () => {
+test('un error de BD no lanza: falla controlado', async () => {
   const trace = await resolverDocumentTrace(fakeSupabase([], { code: '42P01', message: 'missing table' }), {
     alerta: { id: 42 },
   });
 
-  assert.strictEqual(trace.ok, true);
+  assert.strictEqual(trace.ok, false);
   assert.strictEqual(trace.available, false);
   assert.strictEqual(trace.found, false);
-  assert.strictEqual(trace.status, 'raw_documents_no_disponible');
+  assert.strictEqual(trace.status, 'raw_documents_error');
 });
 
 process.on('beforeExit', () => {

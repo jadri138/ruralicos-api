@@ -1,7 +1,5 @@
 const { evaluarRelevanciaExperta } = require('./expertRelevance');
 
-const MISSING_TABLE_CODES = new Set(['42P01', '42703', 'PGRST204', 'PGRST205']);
-
 const REVIEW_VERDICTS = new Set([
   'buena',
   'dudosa',
@@ -32,10 +30,6 @@ const REASON_CODES = new Set([
   'interes_real',
   'muy_accionable',
 ]);
-
-function esTablaRevisionNoDisponible(error) {
-  return Boolean(error && MISSING_TABLE_CODES.has(error.code));
-}
 
 function limpiarTexto(value, max = 500) {
   const limpio = String(value || '').replace(/\s+/g, ' ').trim();
@@ -324,7 +318,6 @@ module.exports = {
   REVIEW_VERDICTS,
   EXPECTED_ACTIONS,
   REASON_CODES,
-  esTablaRevisionNoDisponible,
   normalizarVerdict,
   normalizarExpectedAction,
   normalizarReasonCodes,

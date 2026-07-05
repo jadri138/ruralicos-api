@@ -2,13 +2,8 @@
 
 const { requireOrg } = require('../../middleware/requireAdmin');
 
-const MISSING_TABLE_CODES = new Set(['42P01', '42703', 'PGRST205']);
 const ROLES_INSIGHTS = new Set(['owner', 'admin']);
 const EVENT_TYPES = new Set(['page_view', 'panel_click', 'filter_apply', 'action']);
-
-function esTablaNoDisponible(error) {
-  return MISSING_TABLE_CODES.has(error?.code);
-}
 
 function puedeVerInsights(req) {
   return ROLES_INSIGHTS.has(req.org?.memberRole);
@@ -311,8 +306,8 @@ async function fetchOrgClicks(supabase, orgId, memberIds, since, limit) {
     .order('created_at', { ascending: false })
     .limit(limit);
 
-  if (byOrg.error && !esTablaNoDisponible(byOrg.error)) return byOrg;
-  if (!memberIds.length) return byOrg.error ? { data: [], error: byOrg.error } : byOrg;
+  if (byOrg.error) return byOrg;
+  if (!memberIds.length) return byOrg;
 
   const byMembers = await supabase
     .from('alerta_clicks')
@@ -322,11 +317,10 @@ async function fetchOrgClicks(supabase, orgId, memberIds, since, limit) {
     .order('created_at', { ascending: false })
     .limit(limit);
 
-  if (byMembers.error && byOrg.error) return byMembers;
-  if (byMembers.error && !byOrg.error) return byOrg;
+  if (byMembers.error) return byOrg;
 
   const byId = new Map();
-  for (const click of byOrg.error ? [] : byOrg.data || []) byId.set(String(click.id), click);
+  for (const click of byOrg.data || []) byId.set(String(click.id), click);
   for (const click of byMembers.data || []) byId.set(String(click.id), click);
 
   return {
@@ -368,10 +362,7 @@ module.exports = (app, supabase) => {
           user_agent: userAgent,
         });
 
-      if (error) {
-        if (esTablaNoDisponible(error)) return res.json({ ok: true, available: false });
-        throw error;
-      }
+      if (error) throw error;
 
       return res.status(201).json({ ok: true, available: true });
     } catch (err) {
@@ -412,12 +403,12 @@ module.exports = (app, supabase) => {
       ]);
 
       if (membersError) throw membersError;
-      if (memberRowsError && !esTablaNoDisponible(memberRowsError)) throw memberRowsError;
-      if (zonesResult.error && !esTablaNoDisponible(zonesResult.error)) throw zonesResult.error;
-      if (clientsResult.error && !esTablaNoDisponible(clientsResult.error)) throw clientsResult.error;
+      if (memberRowsError) throw memberRowsError;
+      if (zonesResult.error) throw zonesResult.error;
+      if (clientsResult.error) throw clientsResult.error;
 
       const safeMembers = members || [];
-      const safeClients = clientsResult.error ? [] : clientsResult.data || [];
+      const safeClients = clientsResult.data || [];
       const clientInsights = buildClientInsights(safeClients, zonesResult.data || []);
       const memberIds = safeMembers.map((member) => Number(member.id)).filter(Number.isSafeInteger);
 
@@ -442,12 +433,12 @@ module.exports = (app, supabase) => {
       ]);
 
       for (const result of [clicksResult, feedbacksResult, digestsResult]) {
-        if (result.error && !esTablaNoDisponible(result.error)) throw result.error;
+        if (result.error) throw result.error;
       }
 
-      const clicks = clicksResult.error ? [] : clicksResult.data || [];
-      const feedbacks = feedbacksResult.error ? [] : feedbacksResult.data || [];
-      const digests = digestsResult.error ? [] : digestsResult.data || [];
+      const clicks = clicksResult.data || [];
+      const feedbacks = feedbacksResult.data || [];
+      const digests = digestsResult.data || [];
       const daily = crearSerieDiaria(days);
       const dailyByDate = new Map(daily.map((item) => [item.date, item]));
 

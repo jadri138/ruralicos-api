@@ -1,12 +1,6 @@
 const { evaluarRespuestaMIA } = require('./replyGuard');
 const { respuestaTieneEvidenciaTrazable } = require('./policy');
 
-const MISSING_TABLE_CODES = new Set(['42P01', '42703', 'PGRST205']);
-
-function esTablaNoDisponible(error) {
-  return MISSING_TABLE_CODES.has(error?.code);
-}
-
 function redondear(value, digits = 2) {
   const factor = 10 ** digits;
   return Math.round(Number(value || 0) * factor) / factor;
@@ -264,22 +258,15 @@ function construirAnswerAuditMIA({
 }
 
 async function selectSeguro(supabase, table, select, { since, limit = 500 } = {}) {
-  try {
-    const { data, error } = await supabase
-      .from(table)
-      .select(select)
-      .gte('created_at', since)
-      .order('created_at', { ascending: false })
-      .limit(limit);
+  const { data, error } = await supabase
+    .from(table)
+    .select(select)
+    .gte('created_at', since)
+    .order('created_at', { ascending: false })
+    .limit(limit);
 
-    if (error) throw error;
-    return { available: true, data: data || [] };
-  } catch (error) {
-    if (esTablaNoDisponible(error)) {
-      return { available: false, data: [], reason: `${table}_no_disponible` };
-    }
-    throw error;
-  }
+  if (error) throw error;
+  return { available: true, data: data || [] };
 }
 
 async function generarAnswerAuditMIA(supabase, { hours = 72, limit = 500 } = {}) {

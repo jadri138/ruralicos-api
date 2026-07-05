@@ -1,12 +1,6 @@
 const crypto = require('crypto');
 const { normalizarOrganizationId } = require('../mia/organizationContext');
 
-const MISSING_SCHEMA_CODES = new Set(['42P01', '42703', 'PGRST204', 'PGRST205']);
-
-function isMissingSchemaError(error) {
-  return Boolean(error && MISSING_SCHEMA_CODES.has(error.code));
-}
-
 function normalizarId(value) {
   const id = Number(value);
   return Number.isSafeInteger(id) && id > 0 ? id : null;
@@ -65,10 +59,6 @@ async function registrarAdminAuditLog(supabase, options = {}) {
     if (error) throw error;
     return { ok: true, available: true, inserted: true, id: data?.id || null };
   } catch (error) {
-    if (isMissingSchemaError(error)) {
-      return { ok: true, available: false, inserted: false, reason: 'admin_audit_log_no_disponible' };
-    }
-
     console.warn('[admin:audit] No se pudo registrar auditoria:', error.message);
     return { ok: false, available: false, inserted: false, error: error.message };
   }

@@ -40,7 +40,6 @@ const { notificarCambioPlan } = require('../../services/planChangeNotifier');
 const {
   construirDatasetRevisionMIA,
   construirReviewRowMIA,
-  esTablaRevisionNoDisponible,
 } = require('../mia/alertReview');
 
 const {
@@ -50,7 +49,6 @@ const {
   USER_SELECT_ADMIN,
   limpiarBusquedaUsuario,
   escaparLike,
-  isMissingTableError,
   leerVentanaHoras,
   payloadVentanaHoras,
   normalizarAdminUserId,
@@ -189,14 +187,6 @@ module.exports = (app, supabase) => {
       if (enviadoRaw === 'false') query = query.eq('enviado', false);
 
       const { data, error } = await query;
-      if (error && isMissingTableError(error)) {
-        return res.json({
-          ok: true,
-          missing_table: true,
-          message: 'Falta la tabla official_list_matches. Aplica la migracion operativa en Supabase.',
-          matches: [],
-        });
-      }
       if (error) return res.status(500).json({ error: error.message });
 
       return res.json({ ok: true, matches: data || [] });

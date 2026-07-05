@@ -1,4 +1,3 @@
-const MISSING_TABLE_CODES = new Set(['42P01', '42703', 'PGRST205']);
 const DEFAULT_MAX_ATTEMPTS = 5;
 const DEFAULT_BASE_RETRY_MS = 5 * 60 * 1000;
 const DEFAULT_MAX_RETRY_MS = 60 * 60 * 1000;
@@ -9,10 +8,6 @@ const {
   formatearRespuestaWhatsAppMIA,
 } = require('./replyGuard');
 const { conOrganizationId, obtenerMiaBranding } = require('./organizationContext');
-
-function esTablaNoDisponible(error) {
-  return MISSING_TABLE_CODES.has(error?.code);
-}
 
 function getMaxAttempts() {
   const value = Number(process.env.MIA_OUTBOX_MAX_ATTEMPTS || DEFAULT_MAX_ATTEMPTS);
@@ -124,9 +119,6 @@ async function buscarOutboxExistenteMIA(supabase, row) {
     if (error) throw error;
     return { ok: true, available: true, item: data || null };
   } catch (error) {
-    if (esTablaNoDisponible(error)) {
-      return { ok: true, available: false, item: null, reason: 'mia_outbox_no_disponible' };
-    }
     console.warn('[mia:outbox] No se pudo buscar outbox existente:', error.message);
     return { ok: false, available: false, item: null, error: error.message };
   }
@@ -170,16 +162,6 @@ async function encolarRespuestaMIA(supabase, options = {}) {
     if (error) throw error;
     return { ok: true, available: true, queued: true, id: data?.id || null, body: row.body };
   } catch (error) {
-    if (esTablaNoDisponible(error)) {
-      return {
-        ok: true,
-        available: false,
-        queued: false,
-        reason: 'mia_outbox_no_disponible',
-        body: row.body,
-      };
-    }
-
     console.warn('[mia:outbox] No se pudo encolar respuesta:', error.message);
     return { ok: false, available: false, queued: false, error: error.message, body: row.body };
   }
@@ -208,7 +190,7 @@ async function reclamarOutboxParaEnvio(supabase, id) {
     if (!data) return { ok: true, available: true, claimed: false, reason: 'outbox_no_reclamable' };
     return { ok: true, available: true, claimed: true, item: data };
   } catch (error) {
-    if (!esTablaNoDisponible(error)) console.warn('[mia:outbox] No se pudo marcar sending:', error.message);
+    console.warn('[mia:outbox] No se pudo marcar sending:', error.message);
     return { ok: false, available: false, claimed: false, error: error.message };
   }
 }
@@ -234,7 +216,7 @@ async function marcarOutboxSent(supabase, id) {
     if (error) throw error;
     return true;
   } catch (error) {
-    if (!esTablaNoDisponible(error)) console.warn('[mia:outbox] No se pudo marcar sent:', error.message);
+    console.warn('[mia:outbox] No se pudo marcar sent:', error.message);
     return false;
   }
 }
@@ -260,7 +242,7 @@ async function marcarOutboxFailed(supabase, id, errorMessage, attempts = null) {
     if (error) throw error;
     return true;
   } catch (error) {
-    if (!esTablaNoDisponible(error)) console.warn('[mia:outbox] No se pudo marcar failed:', error.message);
+    console.warn('[mia:outbox] No se pudo marcar failed:', error.message);
     return false;
   }
 }
@@ -302,14 +284,11 @@ async function recuperarOutboxSendingAtascadoMIA(supabase, { timeoutMs = getSend
         .eq('status', 'sending');
 
       if (!error) updates.push(item.id);
-      else if (!esTablaNoDisponible(error)) console.warn('[mia:outbox] No se pudo recuperar sending atascado:', error.message);
+      else console.warn('[mia:outbox] No se pudo recuperar sending atascado:', error.message);
     }
 
     return { ok: true, available: true, recovered: updates.length, ids: updates };
   } catch (error) {
-    if (esTablaNoDisponible(error)) {
-      return { ok: true, available: false, recovered: 0, ids: [], reason: 'mia_outbox_no_disponible' };
-    }
     console.warn('[mia:outbox] No se pudieron recuperar envios atascados:', error.message);
     return { ok: false, available: false, recovered: 0, ids: [], error: error.message };
   }
@@ -331,9 +310,6 @@ async function cargarOutboxPendiente(supabase, limit = 20) {
     if (error) throw error;
     return { ok: true, available: true, items: data || [] };
   } catch (error) {
-    if (esTablaNoDisponible(error)) {
-      return { ok: true, available: false, items: [], reason: 'mia_outbox_no_disponible' };
-    }
     return { ok: false, available: false, items: [], error: error.message };
   }
 }
@@ -478,54 +454,37 @@ async function generarOutboxHealthMIA(supabase, { hours = 72, limit = 1000 } = {
   const safeLimit = Math.max(50, Math.min(5000, Number(limit) || 1000));
   const since = new Date(Date.now() - safeHours * 60 * 60 * 1000).toISOString();
 
-  try {
-    const recovery = await recuperarOutboxSendingAtascadoMIA(supabase, { limit: 200 });
-    const select = 'id, decision_id, inbound_id, user_id, channel, to_phone, body, status, attempts, last_error, next_attempt_at, sent_at, created_at, updated_at';
-    const [pendingResult, recentResult] = await Promise.all([
-      supabase
-        .from('mia_outbox')
-        .select(select)
-        .in('status', ['queued', 'failed', 'sending'])
-        .order('created_at', { ascending: true })
-        .limit(safeLimit),
-      supabase
-        .from('mia_outbox')
-        .select(select)
-        .gte('created_at', since)
-        .order('created_at', { ascending: false })
-        .limit(safeLimit),
-    ]);
+  const recovery = await recuperarOutboxSendingAtascadoMIA(supabase, { limit: 200 });
+  const select = 'id, decision_id, inbound_id, user_id, channel, to_phone, body, status, attempts, last_error, next_attempt_at, sent_at, created_at, updated_at';
+  const [pendingResult, recentResult] = await Promise.all([
+    supabase
+      .from('mia_outbox')
+      .select(select)
+      .in('status', ['queued', 'failed', 'sending'])
+      .order('created_at', { ascending: true })
+      .limit(safeLimit),
+    supabase
+      .from('mia_outbox')
+      .select(select)
+      .gte('created_at', since)
+      .order('created_at', { ascending: false })
+      .limit(safeLimit),
+  ]);
 
-    if (pendingResult.error) throw pendingResult.error;
-    if (recentResult.error) throw recentResult.error;
+  if (pendingResult.error) throw pendingResult.error;
+  if (recentResult.error) throw recentResult.error;
 
-    const byId = new Map();
-    for (const item of [...(pendingResult.data || []), ...(recentResult.data || [])]) {
-      byId.set(item.id, item);
-    }
-
-    return {
-      available: true,
-      since,
-      recovered_stuck: recovery.recovered || 0,
-      ...calcularOutboxHealthMIA([...byId.values()]),
-    };
-  } catch (error) {
-    if (esTablaNoDisponible(error)) {
-      return {
-        ok: true,
-        available: false,
-        reason: 'mia_outbox_no_disponible',
-        since,
-        score: 0,
-        metrics: {},
-        breakdown: {},
-        samples: {},
-        recommendations: [],
-      };
-    }
-    throw error;
+  const byId = new Map();
+  for (const item of [...(pendingResult.data || []), ...(recentResult.data || [])]) {
+    byId.set(item.id, item);
   }
+
+  return {
+    available: true,
+    since,
+    recovered_stuck: recovery.recovered || 0,
+    ...calcularOutboxHealthMIA([...byId.values()]),
+  };
 }
 
 module.exports = {

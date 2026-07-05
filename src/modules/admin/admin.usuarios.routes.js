@@ -40,7 +40,6 @@ const { notificarCambioPlan } = require('../../services/planChangeNotifier');
 const {
   construirDatasetRevisionMIA,
   construirReviewRowMIA,
-  esTablaRevisionNoDisponible,
 } = require('../mia/alertReview');
 
 const {
@@ -50,7 +49,6 @@ const {
   USER_SELECT_ADMIN,
   limpiarBusquedaUsuario,
   escaparLike,
-  isMissingTableError,
   leerVentanaHoras,
   payloadVentanaHoras,
   normalizarAdminUserId,
@@ -153,12 +151,7 @@ module.exports = (app, supabase) => {
         .select('id, name, slug, kind, status, branding_json, settings_json, created_at, updated_at')
         .order('name', { ascending: true });
 
-      if (error) {
-        if (isMissingTableError(error)) {
-          return res.json({ ok: true, available: false, reason: 'organizations_no_disponible', items: [] });
-        }
-        throw error;
-      }
+      if (error) throw error;
 
       return res.json({ ok: true, available: true, items: data || [] });
     } catch (err) {
@@ -177,12 +170,7 @@ module.exports = (app, supabase) => {
         .select('id, name, slug, kind, status, branding_json, settings_json, created_at, updated_at')
         .single();
 
-      if (error) {
-        if (isMissingTableError(error)) {
-          return res.json({ ok: true, available: false, reason: 'organizations_no_disponible' });
-        }
-        throw error;
-      }
+      if (error) throw error;
 
       await auditarAdmin(supabase, req, 'organization.create', 'organization', data.id, data.id, {
         name: data.name,
@@ -215,12 +203,7 @@ module.exports = (app, supabase) => {
         .select('id, name, slug, kind, status, branding_json, settings_json, created_at, updated_at')
         .single();
 
-      if (error) {
-        if (isMissingTableError(error)) {
-          return res.json({ ok: true, available: false, reason: 'organizations_no_disponible' });
-        }
-        throw error;
-      }
+      if (error) throw error;
 
       await auditarAdmin(supabase, req, 'organization.update', 'organization', data.id, data.id, {
         fields: Object.keys(patch).filter((field) => field !== 'updated_at'),
@@ -254,7 +237,7 @@ module.exports = (app, supabase) => {
       ]);
 
       if (error) throw error;
-      if (membersResult.error && !isMissingTableError(membersResult.error)) {
+      if (membersResult.error) {
         console.warn('[admin:organizations] No se pudo cargar organization_members:', membersResult.error.message);
       }
 
@@ -317,8 +300,8 @@ module.exports = (app, supabase) => {
         .select('organization_id, user_id, role, status')
         .maybeSingle();
 
-      const memberAvailable = !memberResult.error || !isMissingTableError(memberResult.error);
-      if (memberResult.error && !isMissingTableError(memberResult.error)) {
+      const memberAvailable = !memberResult.error;
+      if (memberResult.error) {
         console.warn('[admin:organizations] No se pudo actualizar organization_members:', memberResult.error.message);
       }
 
@@ -334,7 +317,7 @@ module.exports = (app, supabase) => {
         user,
         member: memberResult.data || null,
         member_available: memberAvailable,
-        member_error: memberResult.error && !isMissingTableError(memberResult.error) ? memberResult.error.message : null,
+        member_error: memberResult.error ? memberResult.error.message : null,
       });
     } catch (err) {
       console.error('Error en POST /admin/organizations/:id/users/:userId:', err);
@@ -371,9 +354,7 @@ module.exports = (app, supabase) => {
         .select('organization_id, user_id, role, status')
         .maybeSingle();
 
-      if (memberResult.error && !isMissingTableError(memberResult.error)) {
-        throw memberResult.error;
-      }
+      if (memberResult.error) throw memberResult.error;
 
       const { data: user, error: userError } = await supabase
         .from('users')
@@ -397,7 +378,7 @@ module.exports = (app, supabase) => {
         user,
         member: memberResult.data || null,
         member_available: !memberResult.error,
-        member_error: memberResult.error && !isMissingTableError(memberResult.error) ? memberResult.error.message : null,
+        member_error: memberResult.error ? memberResult.error.message : null,
       });
     } catch (err) {
       console.error('Error en DELETE /admin/organizations/:id/users/:userId:', err);

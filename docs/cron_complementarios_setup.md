@@ -36,7 +36,7 @@ Tambien puede lanzarse puntualmente:
 curl -fsS -H "x-cron-token: $CRON_TOKEN" "$BASE_URL/tareas/pipeline-diario?fega=true&ejercicio=2024"
 ```
 
-El endpoint antiguo queda como herramienta manual:
+El endpoint auxiliar queda disponible como herramienta manual:
 
 ```bash
 curl -fsS -H "x-cron-token: $CRON_TOKEN" "$BASE_URL/tareas/complementarios-diario"

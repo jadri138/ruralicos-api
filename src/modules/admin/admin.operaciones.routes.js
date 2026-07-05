@@ -40,7 +40,6 @@ const { notificarCambioPlan } = require('../../services/planChangeNotifier');
 const {
   construirDatasetRevisionMIA,
   construirReviewRowMIA,
-  esTablaRevisionNoDisponible,
 } = require('../mia/alertReview');
 
 const {
@@ -50,7 +49,6 @@ const {
   USER_SELECT_ADMIN,
   limpiarBusquedaUsuario,
   escaparLike,
-  isMissingTableError,
   leerVentanaHoras,
   payloadVentanaHoras,
   normalizarAdminUserId,
@@ -272,12 +270,7 @@ app.post('/admin/tareas/scrapers-diario', requireAdmin, async (req, res) => {
         .order('started_at', { ascending: false })
         .limit(2000);
 
-      if (error) {
-        if (isMissingTableError(error)) {
-          return res.json({ ok: true, available: false, reason: 'scraper_runs_no_disponible', fuentes: [] });
-        }
-        throw error;
-      }
+      if (error) throw error;
 
       const porFuente = new Map();
       for (const run of data || []) {

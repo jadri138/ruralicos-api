@@ -1,5 +1,3 @@
-const MISSING_TABLE_CODES = new Set(['42P01', '42703', 'PGRST205']);
-
 const TRACE_RELATION = 'raw_documents.inserted_alerta_id -> alertas.id';
 
 const DEFAULT_SELECT = [
@@ -60,10 +58,6 @@ function extraerOrganizationId(input = {}) {
     input.rawDocument?.organizationId ??
     input.organization?.id;
   return normalizarId(raw);
-}
-
-function esTablaNoDisponible(error) {
-  return MISSING_TABLE_CODES.has(error?.code);
 }
 
 function recortarTexto(value, max = 420) {
@@ -221,26 +215,10 @@ async function ejecutarSelectRawDocuments(supabase, alertaId, { select = DEFAULT
 
 async function cargarRawDocumentsPorAlerta(supabase, alertaId, options = {}) {
   try {
-    let result = await ejecutarSelectRawDocuments(supabase, alertaId, options);
-
-    if (result.error && result.error.code === '42703' && options.select !== FALLBACK_SELECT) {
-      result = await ejecutarSelectRawDocuments(supabase, alertaId, {
-        ...options,
-        select: FALLBACK_SELECT,
-      });
-    }
-
+    const result = await ejecutarSelectRawDocuments(supabase, alertaId, options);
     if (result.error) throw result.error;
     return { available: true, data: result.data || [], error: null };
   } catch (error) {
-    if (esTablaNoDisponible(error)) {
-      return {
-        available: false,
-        data: [],
-        error: null,
-        reason: 'raw_documents_no_disponible',
-      };
-    }
     return {
       available: false,
       data: [],
@@ -280,7 +258,7 @@ async function resolverDocumentTrace(supabase, input = {}, options = {}) {
   if (!loaded.available) {
     return {
       ...base,
-      ok: loaded.reason === 'raw_documents_no_disponible',
+      ok: false,
       available: false,
       status: loaded.reason,
       reason: loaded.reason,
@@ -355,7 +333,6 @@ module.exports = {
   normalizarId,
   extraerAlertaId,
   extraerOrganizationId,
-  esTablaNoDisponible,
   sourceUrl,
   evidenceAvailable,
   relationMatches,

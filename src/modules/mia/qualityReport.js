@@ -1,5 +1,3 @@
-const MISSING_TABLE_CODES = new Set(['42P01', '42703', 'PGRST205']);
-
 const RISK_WEIGHTS = {
   knowledge_lookup_failed: 18,
   digest_missing: 16,
@@ -15,10 +13,6 @@ const RISK_WEIGHTS = {
   policy_handoff_required: 4,
   policy_clarification_requested: 1,
 };
-
-function esTablaNoDisponible(error) {
-  return MISSING_TABLE_CODES.has(error?.code);
-}
 
 function porcentaje(part, total) {
   if (!total) return 0;
@@ -295,23 +289,15 @@ function construirQualityReportMIA({
 }
 
 async function selectSeguro(supabase, table, select, { since, limit = 500 } = {}) {
-  try {
-    let query = supabase
-      .from(table)
-      .select(select)
-      .gte('created_at', since)
-      .order('created_at', { ascending: false })
-      .limit(limit);
+  const { data, error } = await supabase
+    .from(table)
+    .select(select)
+    .gte('created_at', since)
+    .order('created_at', { ascending: false })
+    .limit(limit);
 
-    const { data, error } = await query;
-    if (error) throw error;
-    return { available: true, data: data || [] };
-  } catch (error) {
-    if (esTablaNoDisponible(error)) {
-      return { available: false, data: [], reason: `${table}_no_disponible` };
-    }
-    throw error;
-  }
+  if (error) throw error;
+  return { available: true, data: data || [] };
 }
 
 async function generarQualityReportMIA(supabase, { hours = 24, limit = 500 } = {}) {

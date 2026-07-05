@@ -1,9 +1,3 @@
-const MISSING_TABLE_CODES = new Set(['42P01', '42703', 'PGRST205']);
-
-function esTablaNoDisponible(error) {
-  return MISSING_TABLE_CODES.has(error?.code);
-}
-
 function texto(value, max = 500) {
   const normalized = String(value || '').replace(/\s+/g, ' ').trim();
   return normalized ? normalized.slice(0, max) : null;
@@ -78,15 +72,6 @@ async function registrarDigestCandidateDecisions(supabase, input = {}) {
     if (error) throw error;
     return { ok: true, available: true, stored: rows.length, rows };
   } catch (error) {
-    if (esTablaNoDisponible(error)) {
-      return {
-        ok: true,
-        available: false,
-        stored: 0,
-        reason: 'digest_candidate_decisions_no_disponible',
-        rows,
-      };
-    }
     console.warn('[digest_candidate_decisions] No se pudo guardar auditoria:', error.message);
     return { ok: false, available: false, stored: 0, error: error.message, rows };
   }
@@ -116,9 +101,6 @@ async function vincularDigestCandidateDecisions(supabase, {
     if (error) throw error;
     return { ok: true, available: true };
   } catch (error) {
-    if (esTablaNoDisponible(error)) {
-      return { ok: true, available: false, reason: 'digest_candidate_decisions_no_disponible' };
-    }
     return { ok: false, available: false, error: error.message };
   }
 }

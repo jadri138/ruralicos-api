@@ -5,7 +5,6 @@ const {
   inferirPolarity,
 } = require('./structuredMemory');
 
-const MISSING_TABLE_CODES = new Set(['42P01', '42703', 'PGRST205']);
 const PROFILE_VERSION = 'mia_user_profile_v1';
 
 const TOPIC_ALIASES = {
@@ -28,10 +27,6 @@ const TOPIC_ALIASES = {
   normativa_general: ['normativa', 'norma', 'orden', 'decreto', 'resolucion'],
   general: [],
 };
-
-function esTablaNoDisponible(error) {
-  return MISSING_TABLE_CODES.has(error?.code);
-}
 
 function normalizar(texto) {
   return String(texto || '')
@@ -450,9 +445,6 @@ async function selectOptional(supabase, table, select, userId, { limit = 100, or
     if (error) throw error;
     return { available: true, data: data || [] };
   } catch (error) {
-    if (esTablaNoDisponible(error)) {
-      return { available: false, data: [], reason: `${table}_no_disponible` };
-    }
     console.warn(`[mia:user_profile] No se pudo leer ${table}:`, error.message);
     return { available: false, data: [], error: error.message };
   }

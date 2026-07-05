@@ -41,7 +41,6 @@ const { notificarCambioPlan } = require('../../services/planChangeNotifier');
 const {
   construirDatasetRevisionMIA,
   construirReviewRowMIA,
-  esTablaRevisionNoDisponible,
 } = require('../mia/alertReview');
 
 const PLANES_VALIDOS = ['free', 'corral', 'agricultor', 'cooperativa'];
@@ -55,10 +54,6 @@ function limpiarBusquedaUsuario(value) {
 
 function escaparLike(value) {
   return limpiarBusquedaUsuario(value).replace(/[\\%_]/g, '\\$&');
-}
-
-function isMissingTableError(error) {
-  return error && ['42P01', '42703', 'PGRST204', 'PGRST205'].includes(error.code);
 }
 
 function leerVentanaHoras(query = {}, { maxHours = 720 } = {}) {
@@ -299,7 +294,6 @@ module.exports = {
   USER_SELECT_ADMIN,
   limpiarBusquedaUsuario,
   escaparLike,
-  isMissingTableError,
   leerVentanaHoras,
   payloadVentanaHoras,
   normalizarAdminUserId,

@@ -5,12 +5,6 @@ const {
 } = require('../../platform/ia/embeddings');
 const { generarContextoNarrativo } = require('./cerebro');
 
-const MISSING_TABLE_CODES = new Set(['42P01', '42703', 'PGRST205']);
-
-function esTablaNoDisponible(error) {
-  return MISSING_TABLE_CODES.has(error?.code);
-}
-
 function vectorToSql(vector) {
   if (!Array.isArray(vector)) throw new Error('Vector invalido');
   return `[${vector.map((n) => Number(n)).join(',')}]`;
@@ -171,25 +165,15 @@ async function actualizarPerfilUsuarioMIA(supabase, userId, options = {}) {
   if (errMemorias) throw errMemorias;
 
   const memoriasLista = memorias || [];
-  let memoriasEstructuradas = [];
-  let structuredMemoryAvailable = true;
-  try {
-    const { data, error } = await supabase
-      .from('mia_structured_memory')
-      .select('id, memory_type, topic, detail, polarity, confidence, incorporated_at, created_at, last_seen_at')
-      .eq('user_id', user.id)
-      .order('last_seen_at', { ascending: false })
-      .limit(1500);
+  const { data: memoriasEstructuradasData, error: errMemoriasEstructuradas } = await supabase
+    .from('mia_structured_memory')
+    .select('id, memory_type, topic, detail, polarity, confidence, incorporated_at, created_at, last_seen_at')
+    .eq('user_id', user.id)
+    .order('last_seen_at', { ascending: false })
+    .limit(1500);
 
-    if (error) throw error;
-    memoriasEstructuradas = data || [];
-  } catch (error) {
-    if (esTablaNoDisponible(error)) {
-      structuredMemoryAvailable = false;
-    } else {
-      throw error;
-    }
-  }
+  if (errMemoriasEstructuradas) throw errMemoriasEstructuradas;
+  const memoriasEstructuradas = memoriasEstructuradasData || [];
 
   const memoriasConAlerta = memoriasLista.filter((m) =>
     m.alerta_id && ['feedback_positivo', 'feedback_negativo'].includes(m.tipo)
@@ -317,7 +301,7 @@ async function actualizarPerfilUsuarioMIA(supabase, userId, options = {}) {
       .update({ incorporated_at: new Date().toISOString() })
       .in('id', memoriaEstructuradaIdsPendientes);
 
-    if (errMarcadoEstructurado && !esTablaNoDisponible(errMarcadoEstructurado)) {
+    if (errMarcadoEstructurado) {
       console.warn(`[mia:perfil] No se pudieron marcar memorias estructuradas incorporadas user ${user.id}:`, errMarcadoEstructurado.message);
     }
   }
@@ -328,7 +312,7 @@ async function actualizarPerfilUsuarioMIA(supabase, userId, options = {}) {
     perfil_version: perfilVersion,
     memorias_usadas: memoriasLista.length,
     memorias_estructuradas_usadas: memoriasEstructuradas.length,
-    mia_structured_memory_available: structuredMemoryAvailable,
+    mia_structured_memory_available: true,
     feedbacks_positivos_usados: feedbacksPositivosUsados,
     feedbacks_negativos_usados: feedbacksNegativosUsados,
     memorias_textuales_usadas: textoMemoria ? (memoriasLista.length - memoriasConAlerta.length) + memoriasEstructuradas.length : 0,

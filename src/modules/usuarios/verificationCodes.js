@@ -1,12 +1,7 @@
 const crypto = require('crypto');
 
-const MISSING_SCHEMA_CODES = new Set(['42P01', '42703', 'PGRST204', 'PGRST205']);
 const PURPOSES = new Set(['phone_verification', 'password_reset']);
 const DEFAULT_MAX_ATTEMPTS = 5;
-
-function isMissingSchemaError(error) {
-  return Boolean(error && MISSING_SCHEMA_CODES.has(error.code));
-}
 
 function normalizePurpose(purpose) {
   const value = String(purpose || '').trim().toLowerCase();
@@ -57,7 +52,6 @@ async function markPreviousCodesConsumed(supabase, { userId, purpose }) {
     .eq('purpose', normalizedPurpose)
     .is('consumed_at', null);
 
-  if (error && isMissingSchemaError(error)) return { ok: true, available: false };
   if (error) throw error;
   return { ok: true, available: true };
 }
@@ -77,7 +71,6 @@ async function storeVerificationCode(supabase, { userId, phone, purpose, code, e
   };
 
   const { error } = await supabase.from('verification_codes').insert([row]);
-  if (error && isMissingSchemaError(error)) return { ok: true, available: false };
   if (error) throw error;
   return { ok: true, available: true };
 }
@@ -130,7 +123,7 @@ async function incrementAttempts(supabase, row, attempts) {
     .update(patch)
     .eq('id', row.id);
 
-  if (error && !isMissingSchemaError(error)) throw error;
+  if (error) throw error;
 }
 
 async function verifyStoredCode(supabase, { userId, phone, purpose, code, maxAttempts = DEFAULT_MAX_ATTEMPTS }) {
@@ -147,7 +140,6 @@ async function verifyStoredCode(supabase, { userId, phone, purpose, code, maxAtt
     .order('created_at', { ascending: false })
     .limit(1);
 
-  if (error && isMissingSchemaError(error)) return { ok: false, available: false };
   if (error) throw error;
 
   const row = Array.isArray(data) ? data[0] : data;
@@ -172,7 +164,7 @@ async function verifyStoredCode(supabase, { userId, phone, purpose, code, maxAtt
     })
     .eq('id', row.id);
 
-  if (consumeError && !isMissingSchemaError(consumeError)) throw consumeError;
+  if (consumeError) throw consumeError;
 
   return { ok: true, available: true };
 }
@@ -206,6 +198,5 @@ module.exports = {
   storeVerificationCodeOrLegacy,
   verifyStoredCode,
   verifyStoredCodeOrLegacy,
-  isMissingSchemaError,
   normalizePurpose,
 };
