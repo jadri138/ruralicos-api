@@ -337,8 +337,11 @@ assert.ok(
 );
 
 const tareasRoutes = fs.readFileSync(path.join(__dirname, '..', 'src/modules/tareas/tareas.routes.js'), 'utf8');
+const tareasHelpers = fs.readFileSync(path.join(__dirname, '..', 'src/modules/tareas/tareas.helpers.js'), 'utf8');
+const pipelineRunner = fs.readFileSync(path.join(__dirname, '..', 'src/modules/tareas/pipelineRunner.js'), 'utf8');
 assert.ok(
-  tareasRoutes.includes("'x-cron-token': token") && !/new URLSearchParams\(\{\s*token/.test(tareasRoutes),
+  tareasHelpers.includes("'x-cron-token': token") &&
+    !/new URLSearchParams\(\{\s*token/.test(tareasRoutes + tareasHelpers + pipelineRunner),
   'Las llamadas internas del pipeline deben pasar CRON_TOKEN por header, no por query string'
 );
 
