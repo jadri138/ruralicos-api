@@ -17,7 +17,7 @@ process.env.CRON_TOKEN = process.env.CRON_TOKEN || 'token-de-test-suficiente';
 process.env.PIPELINE_SCRAPE_PATHS = '/scrape-test-oficial';
 
 const assert = require('assert');
-const { ejecutarPipelineTick } = require('../src/modules/tareas/pipelineRunner');
+const { ejecutarPipelineTick, crearEjecutorHttp } = require('../src/modules/tareas/pipelineRunner');
 const { crearPipelineJobsStore } = require('../src/modules/tareas/pipelineJobs');
 
 let passed = 0;
@@ -445,6 +445,112 @@ async function main() {
     assert(!ejecutar.paths().includes('/scrape-test-oficial'), 'scrapers ya completado no se repite');
     // clasificar SI se re-ejecuta.
     assert(ejecutar.paths().includes('/alertas/clasificar'), 'clasificar se reintenta tras el reset');
+  });
+
+  await test('reset reabre un job running con el heartbeat rancio (claim colgado tras un corte)', async () => {
+    const store = crearStoreFake({
+      job: {
+        status: 'running',
+        claimed_by: 'tick-muerto',
+        heartbeat_at: new Date(0).toISOString(), // epoch: rancio frente a cualquier now > staleMs
+        stages_json: { scrapers: { status: 'completed', attempts: 1 } },
+      },
+    });
+    const ctx = contexto();
+    const ejecutar = crearEjecutar({});
+    const reloj = crearReloj(10 * 60 * 1000); // now = 10 min => heartbeat rancio con staleMs de 5 min
+
+    const r = await ejecutarPipelineTick(
+      {},
+      {
+        fecha: FECHA,
+        reset: true,
+        staleMs: 5 * 60 * 1000,
+        budgetMs: 10_000_000,
+        maxLoops: 5,
+        stepDelayMs: 0,
+        ...inyectables({ store, ejecutar, reloj, ...ctx }),
+      }
+    );
+
+    assert.strictEqual(store.log.reabierto, true, 'un running con heartbeat rancio + reset debe reabrirse');
+    assert.strictEqual(r.tick, 'completed');
+    // La fase ya completada no se repite tras el reset.
+    assert(!ejecutar.paths().includes('/scrape-test-oficial'), 'no repite scrapers ya completado');
+  });
+
+  await test('reset NO reabre un running con heartbeat fresco (no pisa un tick vivo)', async () => {
+    const store = crearStoreFake({
+      job: { status: 'running', claimed_by: 'tick-vivo', heartbeat_at: new Date(9 * 60 * 1000).toISOString() },
+      reclamarDevuelveNull: true, // el tick vivo tiene el claim: reclamar falla
+    });
+    const ctx = contexto();
+    const ejecutar = crearEjecutar({});
+    const reloj = crearReloj(10 * 60 * 1000); // now - heartbeat = 1 min < staleMs 5 min => fresco
+
+    const r = await ejecutarPipelineTick(
+      {},
+      {
+        fecha: FECHA,
+        reset: true,
+        staleMs: 5 * 60 * 1000,
+        ...inyectables({ store, ejecutar, reloj, ...ctx }),
+      }
+    );
+
+    assert.strictEqual(store.log.reabierto, false, 'un running fresco NO se reabre aunque venga reset');
+    assert.strictEqual(r.tick, 'already_running');
+    assert.strictEqual(ejecutar.llamadas.length, 0, 'no ejecuta ninguna fase');
+  });
+
+  await test('la reserva de presupuesto frena antes de arrancar una request que no cabe', async () => {
+    const store = crearStoreFake();
+    const ctx = contexto();
+    const reloj = crearReloj(0);
+    const ejecutar = crearEjecutar({ reloj, avanceMs: 30 }); // cada llamada consume 30ms
+
+    const r = await ejecutarPipelineTick(
+      {},
+      {
+        fecha: FECHA,
+        budgetMs: 100,
+        reservaMs: 50, // no arranca nada si quedan < 50ms hasta el deadline
+        maxLoops: 5,
+        stepDelayMs: 0,
+        ...inyectables({ store, ejecutar, reloj, ...ctx }),
+      }
+    );
+
+    // scrapers(omitido, t=0) -> cotejar(t=30) -> reparar(t=60) -> clasificar: 60+50 >= 100 => pausa
+    assert.strictEqual(r.tick, 'budget_exhausted');
+    assert.strictEqual(r.job.current_stage, 'clasificar', 'para en clasificar por la reserva, no la arranca');
+  });
+
+  await test('crearEjecutorHttp: aborta y no cuelga cuando una request supera el timeout', async () => {
+    const originalFetch = global.fetch;
+    // fetch que solo termina si se aborta su signal (imita una fuente colgada).
+    global.fetch = (_url, opts) =>
+      new Promise((_resolve, reject) => {
+        const signal = opts && opts.signal;
+        const fail = () => reject(Object.assign(new Error('The operation was aborted'), { name: 'AbortError' }));
+        if (signal) {
+          if (signal.aborted) return fail();
+          signal.addEventListener('abort', fail);
+        }
+      });
+
+    try {
+      const ejecutar = crearEjecutorHttp({
+        baseUrl: 'http://api.test',
+        token: 'x',
+        fecha: FECHA,
+        httpRetries: 0,
+        httpTimeoutMs: 20,
+      });
+      await assert.rejects(() => ejecutar('/alertas/clasificar'), /timeout tras 20ms/);
+    } finally {
+      global.fetch = originalFetch;
+    }
   });
 
   // --- Store real (crearPipelineJobsStore) contra un fake de supabase ---------

@@ -79,6 +79,7 @@ function crearEjecutorHttp({
   opciones = {},
   httpRetries = Number(process.env.PIPELINE_HTTP_RETRIES || 3),
   httpRetryDelayMs = Number(process.env.PIPELINE_HTTP_RETRY_DELAY_MS || 5000),
+  httpTimeoutMs = Number(process.env.PIPELINE_HTTP_TIMEOUT_MS || 20000),
   sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 }) {
   const scrapePaths = getPipelineScrapePaths({
@@ -100,8 +101,13 @@ function crearEjecutorHttp({
     const url = buildUrl(path);
 
     for (let attempt = 1; attempt <= httpRetries + 1; attempt++) {
+      // Timeout duro por request: sin esto, una fuente que acepta la conexion y
+      // no responde cuelga el tick indefinidamente y Render lo mata a los ~55s
+      // ANTES de que se escriba ningun checkpoint (job huerfano en 'running').
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), httpTimeoutMs);
       try {
-        const response = await fetch(url, buildCronFetchOptions(token, method));
+        const response = await fetch(url, buildCronFetchOptions(token, method, { signal: controller.signal }));
         const body = await readResponseBody(response);
 
         if (!response.ok) {
@@ -114,13 +120,23 @@ function crearEjecutorHttp({
         }
 
         return { path, status: response.status, body };
-      } catch (err) {
+      } catch (rawErr) {
+        // Un corte por timeout llega como AbortError: lo normalizamos a un error
+        // claro y NO reintentable en el mismo tick (reintentar 3x20s reventaria
+        // el presupuesto). La fase de scrapers lo captura y sigue; las demas lo
+        // reintentan en el SIGUIENTE tick (la cadencia del cron hace de backoff).
+        const err = (rawErr && (rawErr.name === 'AbortError' || controller.signal.aborted))
+          ? Object.assign(new Error(`${path}: timeout tras ${httpTimeoutMs}ms`), { retryable: false, timeout: true })
+          : rawErr;
+
         const canRetry = attempt <= httpRetries && isRetryableError(err);
         if (!canRetry) throw err;
 
         const delay = httpRetryDelayMs * attempt;
         console.warn(`[pipeline-tick] ${path} fallo transitorio (${err.message}). Reintento ${attempt}/${httpRetries} en ${delay}ms`);
         await sleep(delay);
+      } finally {
+        clearTimeout(timer);
       }
     }
     return null; // inalcanzable
@@ -156,7 +172,13 @@ async function ejecutarPipelineTick(supabase, opcionesTick = {}) {
     reset = false,
     force = false,
     budgetMs = Number(process.env.PIPELINE_TICK_BUDGET_MS || 55000),
-    staleMs = Number(process.env.PIPELINE_TICK_STALE_MS || 15 * 60 * 1000),
+    // Reserva de presupuesto: no se arranca una request nueva si no cabe entera
+    // antes del deadline. Asi ninguna llamada rebasa el timeout de proxy de
+    // Render (~55s). En prod se pone = PIPELINE_HTTP_TIMEOUT_MS; 0 = comportamiento
+    // antiguo (los tests inyectan reloj y no lo necesitan).
+    reservaMs = Number(process.env.PIPELINE_TICK_RESERVE_MS || 0),
+    httpTimeoutMs = Number(process.env.PIPELINE_HTTP_TIMEOUT_MS || 20000),
+    staleMs = Number(process.env.PIPELINE_TICK_STALE_MS || 5 * 60 * 1000),
     maxAttempts = Number(process.env.PIPELINE_STAGE_MAX_ATTEMPTS || 3),
     maxLoops = Number(process.env.PIPELINE_MAX_LOOPS || 40),
     stepDelayMs = Number(process.env.PIPELINE_STEP_DELAY_MS || 800),
@@ -180,7 +202,13 @@ async function ejecutarPipelineTick(supabase, opcionesTick = {}) {
 
   let job = await store.obtenerOCrear({ kind, fecha, shadow, options: jobOptions });
 
-  if (reset && JOB_STATUS_TERMINAL.has(job.status)) {
+  // reset reabre un job para reintentar el dia. Ademas de los terminales
+  // (failed/aborted), rescata un 'running' con el heartbeat rancio: un tick que
+  // murio sin liberar el claim (p.ej. corte de Render a los 55s). No toca un
+  // running vivo (heartbeat fresco) para no pisar un tick en marcha.
+  const heartbeatMs = job.heartbeat_at ? new Date(job.heartbeat_at).getTime() : 0;
+  const heartbeatRancio = !job.heartbeat_at || (ahora() - heartbeatMs) > staleMs;
+  if (reset && (JOB_STATUS_TERMINAL.has(job.status) || (job.status === 'running' && heartbeatRancio))) {
     job = await store.reabrir({ jobId: job.id });
   }
 
@@ -210,7 +238,7 @@ async function ejecutarPipelineTick(supabase, opcionesTick = {}) {
   const stages = construirStagesPipeline(opcionesJob);
   const stagesState = { ...(claimed.stages_json || {}) };
   const deadline = ahora() + budgetMs;
-  const ejecutar = ejecutarParam || crearEjecutorHttp({ baseUrl, token, fecha, opciones: opcionesJob, sleep });
+  const ejecutar = ejecutarParam || crearEjecutorHttp({ baseUrl, token, fecha, opciones: opcionesJob, httpTimeoutMs, sleep });
 
   // Tras un reset, las fases failed/aborted vuelven a pending con el contador
   // de vueltas y los flags de bloqueo limpios (si no, re-abortarian al instante).
@@ -228,7 +256,8 @@ async function ejecutarPipelineTick(supabase, opcionesTick = {}) {
   }
 
   const nowISO = () => new Date(ahora()).toISOString();
-  const quedaPresupuesto = () => ahora() < deadline;
+  // Reserva: exige que quepa una request entera (reservaMs) antes del deadline.
+  const quedaPresupuesto = () => ahora() + reservaMs < deadline;
 
   async function checkpoint(currentStage, extraPatch = {}) {
     await store.guardar({
@@ -433,6 +462,15 @@ async function ejecutarPipelineTick(supabase, opcionesTick = {}) {
   // --- Bucle principal de fases --------------------------------------------
 
   try {
+    // Checkpoint inicial: sella current_stage y renueva el heartbeat ANTES de la
+    // primera fase. Si el proceso muere aqui (Render, deploy, OOM), el job queda
+    // reanudable/observable en vez de huerfano en 'running' con current_stage
+    // null (estado que ni el reset rescataba).
+    const primeraPendiente = stages.find(
+      (s) => ![STAGE_COMPLETED, STAGE_SKIPPED, STAGE_SHADOW_SKIPPED].includes((stagesState[s.name] || {}).status)
+    );
+    await checkpoint(primeraPendiente ? primeraPendiente.name : null);
+
     for (const stageDef of stages) {
       const state = stagesState[stageDef.name] || { status: STAGE_PENDING, attempts: 0 };
       stagesState[stageDef.name] = state;

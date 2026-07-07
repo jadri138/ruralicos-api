@@ -24,15 +24,32 @@ contaminar el vigia de salud de fuentes) y sus `pipeline_runs` van con el stage
 prefijado `shadow:*`. Sirve para validar la orquestacion corriendo en paralelo a
 los crons reales, sin efectos hacia el usuario.
 
-Cron de sombra en Render (cada 10 min en la ventana ~6:00–13:00 peninsular, que
-es cuando se publican los boletines):
+Cron de sombra en Render (cada 10 min). **Render corre los crons en UTC**, asi
+que la ventana se pone en UTC: `6-14` cubre la franja de publicacion de boletines
+(~8:00–15:00 peninsular en verano) **con margen para que, si un tick muere, el
+siguiente lo recupere dentro de la ventana** (ver heartbeat rancio abajo):
 
 ```cron
-*/10 6-13 * * * curl -fsS -H "x-cron-token: $CRON_TOKEN" "$BASE_URL/tareas/pipeline-tick"
+*/10 6-14 * * * curl -fsS -H "x-cron-token: $CRON_TOKEN" "$BASE_URL/tareas/pipeline-tick"
 ```
 
 `BASE_URL` debe ser el dominio que responde de verdad a `/health` (el
-`.onrender.com`, no un dominio custom sin DNS). `CRON_TOKEN` igual al del backend.
+`.onrender.com`, no un dominio custom sin DNS). `CRON_TOKEN` igual al del backend
+**y presente en el env del propio servicio de cron** (si falta, el tick responde
+403 y la sombra no arranca nunca).
+
+### Resiliencia de un tick (por que no se cuelga)
+
+Cada request HTTP del tick lleva un **timeout duro** (`PIPELINE_HTTP_TIMEOUT_MS`,
+20s): una fuente que acepta la conexion y no responde se corta, se registra como
+error y el dia sigue — no cuelga el tick ni provoca que Render lo mate sin
+checkpoint. Ademas, el tick reserva `PIPELINE_TICK_RESERVE_MS` de presupuesto para
+no arrancar una request que no quepa entera antes del deadline, y hace un
+**checkpoint inicial** nada mas reclamar el job (sella `current_stage` antes de la
+primera fase). Si aun asi un tick muere sin liberar el claim, el siguiente lo roba
+cuando el heartbeat pasa de rancio (`PIPELINE_TICK_STALE_MS`, 5 min < intervalo del
+cron), o se fuerza con `?reset=true` (que ahora tambien reabre un `running`
+colgado, no solo failed/aborted).
 
 ### Inspeccion
 
@@ -78,7 +95,9 @@ Ver `.env.example` (seccion "Runner de pipeline con checkpoints"):
 | --- | --- | --- |
 | `PIPELINE_TICK_SHADOW` | `true` | Sombra on/off. `false` = cutover real. |
 | `PIPELINE_TICK_BUDGET_MS` | `55000` | Presupuesto por tick (≈ timeout de proxy de Render). |
-| `PIPELINE_TICK_STALE_MS` | `900000` | Antiguedad del heartbeat tras la que otro tick roba un claim colgado. |
+| `PIPELINE_HTTP_TIMEOUT_MS` | `20000` | Timeout duro por request HTTP del tick (evita cuelgues). |
+| `PIPELINE_TICK_RESERVE_MS` | `0` | Reserva de presupuesto: no arranca una request que no quepa antes del deadline. Ponlo `= PIPELINE_HTTP_TIMEOUT_MS`. |
+| `PIPELINE_TICK_STALE_MS` | `300000` | Antiguedad del heartbeat tras la que otro tick roba un claim colgado (y umbral de reset sobre `running`). < intervalo del cron. |
 | `PIPELINE_STAGE_MAX_ATTEMPTS` | `3` | Reintentos por fase antes de `failed` (el cron hace de backoff). |
 
 Reutiliza tambien las compartidas con `pipeline-diario`: `PIPELINE_MAX_LOOPS`,
