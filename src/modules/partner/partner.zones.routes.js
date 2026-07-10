@@ -5,6 +5,8 @@
 // Escritura (crear/editar/borrar) limitada a roles owner/admin (puedeEscribir).
 
 const { requireOrg } = require('../../middleware/requireAdmin');
+const { orgClient } = require('./tenantClient');
+const { responderError } = require('../../shared/responderError');
 
 const UNIQUE_VIOLATION = '23505';
 const ROLES_ESCRITURA = new Set(['owner', 'admin']);
@@ -46,12 +48,11 @@ module.exports = (app, supabase) => {
   // ──────────────────────────────────────────────────────────────────
   app.get('/partner/zones', requireOrg, async (req, res) => {
     try {
-      const orgId = req.org.organizationId;
+      const db = orgClient(supabase, req);
 
-      const { data: zones, error } = await supabase
+      const { data: zones, error } = await db
         .from('organization_zones')
         .select('id, name, color, notes')
-        .eq('organization_id', orgId)
         .order('name', { ascending: true });
 
       if (error) throw error;
@@ -59,10 +60,9 @@ module.exports = (app, supabase) => {
       const clientCounts = new Map();
       const memberCounts = new Map();
 
-      const { data: clients, error: clientsError } = await supabase
+      const { data: clients, error: clientsError } = await db
         .from('organization_clients')
-        .select('zone_id, status')
-        .eq('organization_id', orgId);
+        .select('zone_id, status');
       if (clientsError) throw clientsError;
       for (const client of clients || []) {
         if (client.zone_id != null && client.status !== 'inactive') {
@@ -71,10 +71,9 @@ module.exports = (app, supabase) => {
         }
       }
 
-      const { data: members, error: membersError } = await supabase
+      const { data: members, error: membersError } = await db
         .from('organization_members')
-        .select('zone_id')
-        .eq('organization_id', orgId);
+        .select('zone_id');
       if (membersError) throw membersError;
       for (const member of members || []) {
         if (member.zone_id != null) {
@@ -92,8 +91,7 @@ module.exports = (app, supabase) => {
         })),
       });
     } catch (err) {
-      console.error('Error en GET /partner/zones:', err);
-      return res.status(500).json({ error: err.message });
+      return responderError(req, res, err);
     }
   });
 
@@ -104,14 +102,13 @@ module.exports = (app, supabase) => {
     try {
       if (!puedeEscribir(req)) return res.status(403).json({ error: 'Tu rol no permite crear zonas' });
 
-      const orgId = req.org.organizationId;
+      const db = orgClient(supabase, req);
       const name = normalizarNombre(req.body?.name);
       if (!name) return res.status(400).json({ error: 'Nombre de zona requerido' });
 
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from('organization_zones')
         .insert({
-          organization_id: orgId,
           name,
           color: normalizarColor(req.body?.color),
           notes: normalizarNotas(req.body?.notes),
@@ -126,8 +123,7 @@ module.exports = (app, supabase) => {
 
       return res.status(201).json({ ok: true, item: zonaPublica(data) });
     } catch (err) {
-      console.error('Error en POST /partner/zones:', err);
-      return res.status(500).json({ error: err.message });
+      return responderError(req, res, err);
     }
   });
 
@@ -138,7 +134,7 @@ module.exports = (app, supabase) => {
     try {
       if (!puedeEscribir(req)) return res.status(403).json({ error: 'Tu rol no permite editar zonas' });
 
-      const orgId = req.org.organizationId;
+      const db = orgClient(supabase, req);
       const zoneId = Number(req.params.id);
       if (!Number.isSafeInteger(zoneId) || zoneId <= 0) return res.status(400).json({ error: 'zone id invalido' });
 
@@ -155,11 +151,10 @@ module.exports = (app, supabase) => {
         updates.notes = normalizarNotas(req.body.notes);
       }
 
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from('organization_zones')
         .update(updates)
         .eq('id', zoneId)
-        .eq('organization_id', orgId)
         .select('id, name, color, notes')
         .maybeSingle();
 
@@ -171,8 +166,7 @@ module.exports = (app, supabase) => {
 
       return res.json({ ok: true, item: zonaPublica(data) });
     } catch (err) {
-      console.error('Error en PATCH /partner/zones/:id:', err);
-      return res.status(500).json({ error: err.message });
+      return responderError(req, res, err);
     }
   });
 
@@ -183,16 +177,15 @@ module.exports = (app, supabase) => {
     try {
       if (!puedeEscribir(req)) return res.status(403).json({ error: 'Tu rol no permite borrar zonas' });
 
-      const orgId = req.org.organizationId;
+      const db = orgClient(supabase, req);
       const zoneId = Number(req.params.id);
       if (!Number.isSafeInteger(zoneId) || zoneId <= 0) return res.status(400).json({ error: 'zone id invalido' });
 
       // El FK `on delete set null` deja a los socios de la zona sin zona automaticamente.
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from('organization_zones')
         .delete()
         .eq('id', zoneId)
-        .eq('organization_id', orgId)
         .select('id')
         .maybeSingle();
 
@@ -201,8 +194,7 @@ module.exports = (app, supabase) => {
 
       return res.json({ ok: true });
     } catch (err) {
-      console.error('Error en DELETE /partner/zones/:id:', err);
-      return res.status(500).json({ error: err.message });
+      return responderError(req, res, err);
     }
   });
 };

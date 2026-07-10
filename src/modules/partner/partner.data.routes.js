@@ -7,6 +7,8 @@
 // agent/viewer son de solo lectura.
 
 const { requireOrg } = require('../../middleware/requireAdmin');
+const { orgClient } = require('./tenantClient');
+const { responderError } = require('../../shared/responderError');
 const { normalizePhone, LONGITUD_TELEFONO } = require('../../shared/phoneNormalizer');
 
 const ROLES_SOCIO = new Set(['admin', 'agent', 'viewer', 'member']);
@@ -35,11 +37,8 @@ function socioPublico(user, member, zone) {
 
 module.exports = (app, supabase) => {
   // Carga los ids de socios de la organizacion (helper reutilizado).
-  async function idsSociosDeOrg(organizationId) {
-    const { data, error } = await supabase
-      .from('users')
-      .select('id')
-      .eq('organization_id', organizationId);
+  async function idsSociosDeOrg(db) {
+    const { data, error } = await db.from('users').select('id');
     if (error) throw error;
     return (data || []).map((u) => Number(u.id));
   }
@@ -49,23 +48,24 @@ module.exports = (app, supabase) => {
   // ──────────────────────────────────────────────────────────────────
   app.get('/partner/overview', requireOrg, async (req, res) => {
     try {
-      const orgId = req.org.organizationId;
+      const db = orgClient(supabase, req);
       const hace7dias = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString();
 
-      const { data: socios, error: errSocios } = await supabase
+      const { data: socios, error: errSocios } = await db
         .from('users')
-        .select('id, subscription, created_at')
-        .eq('organization_id', orgId);
+        .select('id, subscription, created_at');
       if (errSocios) throw errSocios;
 
       const ids = (socios || []).map((u) => Number(u.id));
 
       // Mensajes enviados en 7 dias: a clientes propios (organization_id) o a usuarios
       // vinculados (user_id). Se mezclan ids para no duplicar ni exigir usuarios B2C.
+      // sinTenant deliberado: los digests B2C de un socio vinculado llevan
+      // organization_id null; los ids ya salen de la consulta scoped de arriba.
       const [digByOrg, digByUsers] = await Promise.all([
-        supabase.from('digests').select('id').eq('organization_id', orgId).eq('enviado', true).gte('created_at', hace7dias),
+        db.from('digests').select('id').eq('enviado', true).gte('created_at', hace7dias),
         ids.length
-          ? supabase.from('digests').select('id').in('user_id', ids).eq('enviado', true).gte('created_at', hace7dias)
+          ? db.sinTenant.from('digests').select('id').in('user_id', ids).eq('enviado', true).gte('created_at', hace7dias)
           : Promise.resolve({ data: [], error: null }),
       ]);
       for (const result of [digByOrg, digByUsers]) {
@@ -87,8 +87,7 @@ module.exports = (app, supabase) => {
         },
       });
     } catch (err) {
-      console.error('Error en GET /partner/overview:', err);
-      return res.status(500).json({ error: err.message });
+      return responderError(req, res, err);
     }
   });
 
@@ -99,7 +98,7 @@ module.exports = (app, supabase) => {
   // ──────────────────────────────────────────────────────────────────
   app.get('/partner/members', requireOrg, async (req, res) => {
     try {
-      const orgId = req.org.organizationId;
+      const db = orgClient(supabase, req);
 
       // organization_members: rol/estado y, por separado, la asignacion de zona.
       // La consulta de zona puede fallar si la columna no existe todavia (pre-migracion)
@@ -110,23 +109,13 @@ module.exports = (app, supabase) => {
         zoneAssignResult,
         zonesResult,
       ] = await Promise.all([
-        supabase
+        db
           .from('users')
           .select('id, name, legal_name, phone, email, subscription, organization_id, created_at')
-          .eq('organization_id', orgId)
           .order('created_at', { ascending: false }),
-        supabase
-          .from('organization_members')
-          .select('user_id, role, status')
-          .eq('organization_id', orgId),
-        supabase
-          .from('organization_members')
-          .select('user_id, zone_id')
-          .eq('organization_id', orgId),
-        supabase
-          .from('organization_zones')
-          .select('id, name, color')
-          .eq('organization_id', orgId),
+        db.from('organization_members').select('user_id, role, status'),
+        db.from('organization_members').select('user_id, zone_id'),
+        db.from('organization_zones').select('id, name, color'),
       ]);
 
       if (error) throw error;
@@ -186,8 +175,7 @@ module.exports = (app, supabase) => {
 
       return res.json({ ok: true, items });
     } catch (err) {
-      console.error('Error en GET /partner/members:', err);
-      return res.status(500).json({ error: err.message });
+      return responderError(req, res, err);
     }
   });
 
@@ -199,7 +187,8 @@ module.exports = (app, supabase) => {
     try {
       if (!puedeEscribir(req)) return res.status(403).json({ error: 'Tu rol no permite dar de alta socios' });
 
-      const orgId = req.org.organizationId;
+      const db = orgClient(supabase, req);
+      const orgId = db.organizationId;
       const phone = normalizePhone(req.body?.phone || '');
       const role = ROLES_SOCIO.has(req.body?.role) ? req.body.role : 'member';
 
@@ -207,7 +196,9 @@ module.exports = (app, supabase) => {
         return res.status(400).json({ error: 'Telefono no valido' });
       }
 
-      const { data: user, error: findError } = await supabase
+      // sinTenant deliberado: el alta busca un usuario GLOBAL por telefono (aun
+      // sin cooperativa) para vincularlo; una consulta scoped nunca lo veria.
+      const { data: user, error: findError } = await db.sinTenant
         .from('users')
         .select('id, name, legal_name, phone, email, subscription, organization_id, created_at')
         .eq('phone', phone)
@@ -224,7 +215,9 @@ module.exports = (app, supabase) => {
         return res.status(409).json({ error: 'Ese socio ya pertenece a otra cooperativa.' });
       }
 
-      const { data: updated, error: updError } = await supabase
+      // sinTenant deliberado: la vinculacion transiciona el usuario de "sin org"
+      // a esta org; el guard de arriba garantiza que no pisa otra cooperativa.
+      const { data: updated, error: updError } = await db.sinTenant
         .from('users')
         .update({ organization_id: orgId })
         .eq('id', user.id)
@@ -232,10 +225,9 @@ module.exports = (app, supabase) => {
         .single();
       if (updError) throw updError;
 
-      const memberResult = await supabase
+      const memberResult = await db
         .from('organization_members')
         .upsert({
-          organization_id: orgId,
           user_id: user.id,
           role,
           status: 'active',
@@ -249,8 +241,7 @@ module.exports = (app, supabase) => {
         item: socioPublico(updated, memberResult.data),
       });
     } catch (err) {
-      console.error('Error en POST /partner/members:', err);
-      return res.status(500).json({ error: err.message });
+      return responderError(req, res, err);
     }
   });
 
@@ -262,7 +253,7 @@ module.exports = (app, supabase) => {
     try {
       if (!puedeEscribir(req)) return res.status(403).json({ error: 'Tu rol no permite editar socios' });
 
-      const orgId = req.org.organizationId;
+      const db = orgClient(supabase, req);
       const userId = Number(req.params.userId);
       if (!Number.isSafeInteger(userId) || userId <= 0) return res.status(400).json({ error: 'user id invalido' });
 
@@ -285,22 +276,20 @@ module.exports = (app, supabase) => {
       }
 
       // El socio debe pertenecer a esta org.
-      const { data: user, error: findError } = await supabase
+      const { data: user, error: findError } = await db
         .from('users')
         .select('id')
         .eq('id', userId)
-        .eq('organization_id', orgId)
         .maybeSingle();
       if (findError) throw findError;
       if (!user) return res.status(404).json({ error: 'Socio no pertenece a esta cooperativa' });
 
       // La zona (si se asigna una) debe ser de esta cooperativa.
       if (hasZone && zoneId != null) {
-        const { data: zone, error: zoneError } = await supabase
+        const { data: zone, error: zoneError } = await db
           .from('organization_zones')
           .select('id')
           .eq('id', zoneId)
-          .eq('organization_id', orgId)
           .maybeSingle();
         if (zoneError) throw zoneError;
         if (!zone) return res.status(400).json({ error: 'La zona no pertenece a la cooperativa' });
@@ -308,7 +297,6 @@ module.exports = (app, supabase) => {
 
       // Construye la fila a upsertar. Si solo cambia la zona, conserva el rol actual.
       const upsertRow = {
-        organization_id: orgId,
         user_id: userId,
         status: 'active',
         updated_at: new Date().toISOString(),
@@ -316,16 +304,15 @@ module.exports = (app, supabase) => {
       if (hasRole) upsertRow.role = role;
       if (hasZone) upsertRow.zone_id = zoneId;
       if (!hasRole) {
-        const { data: current } = await supabase
+        const { data: current } = await db
           .from('organization_members')
           .select('role')
-          .eq('organization_id', orgId)
           .eq('user_id', userId)
           .maybeSingle();
         upsertRow.role = current?.role || 'member';
       }
 
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from('organization_members')
         .upsert(upsertRow, { onConflict: 'organization_id,user_id' })
         .select('user_id, role, status, zone_id')
@@ -334,8 +321,7 @@ module.exports = (app, supabase) => {
 
       return res.json({ ok: true, member: data || { user_id: userId, ...upsertRow } });
     } catch (err) {
-      console.error('Error en PATCH /partner/members/:userId:', err);
-      return res.status(500).json({ error: err.message });
+      return responderError(req, res, err);
     }
   });
 
@@ -346,33 +332,30 @@ module.exports = (app, supabase) => {
     try {
       if (!puedeEscribir(req)) return res.status(403).json({ error: 'Tu rol no permite dar de baja socios' });
 
-      const orgId = req.org.organizationId;
+      const db = orgClient(supabase, req);
       const userId = Number(req.params.userId);
       if (!Number.isSafeInteger(userId) || userId <= 0) return res.status(400).json({ error: 'user id invalido' });
 
-      const { data: existingUser, error: findError } = await supabase
+      const { data: existingUser, error: findError } = await db
         .from('users')
         .select('id')
         .eq('id', userId)
-        .eq('organization_id', orgId)
         .maybeSingle();
       if (findError) throw findError;
       if (!existingUser) return res.status(404).json({ error: 'Socio no pertenece a esta cooperativa' });
 
-      const memberResult = await supabase
+      const memberResult = await db
         .from('organization_members')
         .update({ status: 'inactive', updated_at: new Date().toISOString() })
-        .eq('organization_id', orgId)
         .eq('user_id', userId)
         .select('user_id, role, status, zone_id')
         .maybeSingle();
       if (memberResult.error) throw memberResult.error;
 
-      const { data: user, error: updError } = await supabase
+      const { data: user, error: updError } = await db
         .from('users')
         .update({ organization_id: null })
         .eq('id', userId)
-        .eq('organization_id', orgId)
         .select('id')
         .maybeSingle();
       if (updError) throw updError;
@@ -384,8 +367,7 @@ module.exports = (app, supabase) => {
         member_available: !memberResult.error,
       });
     } catch (err) {
-      console.error('Error en DELETE /partner/members/:userId:', err);
-      return res.status(500).json({ error: err.message });
+      return responderError(req, res, err);
     }
   });
 
@@ -397,12 +379,12 @@ module.exports = (app, supabase) => {
   // ──────────────────────────────────────────────────────────────────
   app.get('/partner/digests', requireOrg, async (req, res) => {
     try {
-      const orgId = req.org.organizationId;
+      const db = orgClient(supabase, req);
       const limit = Math.max(1, Math.min(200, Number(req.query.limit || 50)));
       const from = String(req.query.from || '').trim();
       const to = String(req.query.to || '').trim();
 
-      const ids = await idsSociosDeOrg(orgId);
+      const ids = await idsSociosDeOrg(db);
 
       const baseSelect = 'id, user_id, organization_client_id, fecha, mensaje, enviado, enviado_at, created_at, alerta_ids';
       const applyRange = (q) => {
@@ -415,10 +397,12 @@ module.exports = (app, supabase) => {
       // Los mensajes de la cooperativa pueden ir a clientes propios (organization_id)
       // o a usuarios Ruralicos vinculados (user_id). Se consultan por ambas vias y se
       // mezclan por id para no exigir que el cliente sea ademas usuario B2C.
+      // sinTenant deliberado en byUsers: los digests B2C llevan organization_id
+      // null; los ids salen de la consulta scoped de socios de la org.
       const [byOrg, byUsers] = await Promise.all([
-        applyRange(supabase.from('digests').select(baseSelect).eq('organization_id', orgId)),
+        applyRange(db.from('digests').select(baseSelect)),
         ids.length
-          ? applyRange(supabase.from('digests').select(baseSelect).in('user_id', ids))
+          ? applyRange(db.sinTenant.from('digests').select(baseSelect).in('user_id', ids))
           : Promise.resolve({ data: [], error: null }),
       ]);
 
@@ -440,10 +424,10 @@ module.exports = (app, supabase) => {
 
       const [usersResult, clientsResult] = await Promise.all([
         userIds.length
-          ? supabase.from('users').select('id, name, legal_name, phone').in('id', userIds)
+          ? db.from('users').select('id, name, legal_name, phone').in('id', userIds)
           : Promise.resolve({ data: [], error: null }),
         clientIds.length
-          ? supabase.from('organization_clients').select('id, display_name, phone').eq('organization_id', orgId).in('id', clientIds)
+          ? db.from('organization_clients').select('id, display_name, phone').in('id', clientIds)
           : Promise.resolve({ data: [], error: null }),
       ]);
       if (usersResult.error) throw usersResult.error;
@@ -483,8 +467,7 @@ module.exports = (app, supabase) => {
 
       return res.json({ ok: true, items });
     } catch (err) {
-      console.error('Error en GET /partner/digests:', err);
-      return res.status(500).json({ error: err.message });
+      return responderError(req, res, err);
     }
   });
 
@@ -493,11 +476,10 @@ module.exports = (app, supabase) => {
   // ──────────────────────────────────────────────────────────────────
   app.get('/partner/branding', requireOrg, async (req, res) => {
     try {
-      const orgId = req.org.organizationId;
-      const { data, error } = await supabase
+      const db = orgClient(supabase, req);
+      const { data, error } = await db
         .from('organizations')
         .select('id, slug, name, kind, status, branding_json, settings_json')
-        .eq('id', orgId)
         .maybeSingle();
       if (error) throw error;
       if (!data) return res.status(404).json({ error: 'Cooperativa no encontrada' });
@@ -516,8 +498,7 @@ module.exports = (app, supabase) => {
         },
       });
     } catch (err) {
-      console.error('Error en GET /partner/branding:', err);
-      return res.status(500).json({ error: err.message });
+      return responderError(req, res, err);
     }
   });
 
@@ -529,11 +510,10 @@ module.exports = (app, supabase) => {
     try {
       if (!puedeEscribir(req)) return res.status(403).json({ error: 'Tu rol no permite editar la marca' });
 
-      const orgId = req.org.organizationId;
-      const { data: current, error: curError } = await supabase
+      const db = orgClient(supabase, req);
+      const { data: current, error: curError } = await db
         .from('organizations')
         .select('branding_json, settings_json')
-        .eq('id', orgId)
         .maybeSingle();
       if (curError) throw curError;
       if (!current) return res.status(404).json({ error: 'Cooperativa no encontrada' });
@@ -564,18 +544,16 @@ module.exports = (app, supabase) => {
         return res.status(400).json({ error: 'No hay cambios validos para guardar' });
       }
 
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from('organizations')
         .update(updates)
-        .eq('id', orgId)
         .select('id, slug, name, branding_json, settings_json')
         .single();
       if (error) throw error;
 
       return res.json({ ok: true, organization: data });
     } catch (err) {
-      console.error('Error en PATCH /partner/branding:', err);
-      return res.status(500).json({ error: err.message });
+      return responderError(req, res, err);
     }
   });
 };

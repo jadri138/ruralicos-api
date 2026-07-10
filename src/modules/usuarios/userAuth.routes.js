@@ -3,8 +3,15 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const rateLimit = require('express-rate-limit');
 const { requireAuth } = require('../../middleware/requireAdmin');
+const { bumpTokenVersion } = require('../../middleware/credentialVersion');
+const { validarBody, escalarCorto } = require('../../middleware/validate');
 const { normalizePhone, LONGITUD_TELEFONO } = require('../../shared/phoneNormalizer');
 const { validarPassword } = require('../../shared/passwordPolicy');
+
+// Validacion de borde (tipos y tamanos); la presencia/formato la decide el handler.
+const bodyLogin = { phone: escalarCorto(32, 'telefono'), password: escalarCorto(200, 'contrasena') };
+const bodyPhone = { phone: escalarCorto(32, 'telefono') };
+const bodyPassword = { password: escalarCorto(200, 'contrasena') };
 
 module.exports = (app, supabase) => {
   const loginLimiter = rateLimit({
@@ -19,7 +26,7 @@ module.exports = (app, supabase) => {
    * LOGIN POR TELÉFONO: POST /login-phone
    * body: { phone, password } => { token }
    */
-  app.post('/login-phone', loginLimiter, async (req, res) => {
+  app.post('/login-phone', loginLimiter, validarBody(bodyLogin), async (req, res) => {
     try {
       let { phone, password } = req.body || {};
       if (!phone || !password) {
@@ -33,7 +40,7 @@ module.exports = (app, supabase) => {
 
       const { data: user, error } = await supabase
         .from('users')
-        .select('id, phone, password_hash, phone_verified')
+        .select('id, phone, password_hash, phone_verified, token_version')
         .eq('phone', normalizedPhone)
         .maybeSingle();
 
@@ -60,7 +67,7 @@ module.exports = (app, supabase) => {
       }
 
       const token = jwt.sign(
-        { sub: user.id, phone: user.phone, role: 'user' },
+        { sub: user.id, phone: user.phone, role: 'user', tv: Number(user.token_version || 0) },
         process.env.JWT_SECRET,
         { expiresIn: '7d' }
       );
@@ -78,7 +85,7 @@ module.exports = (app, supabase) => {
    * Solo si el usuario existe y NO tiene password_hash (null/empty).
    * Desactivado por defecto: usar recuperacion de contrasena.
    */
-  app.post('/first-login', loginLimiter, async (req, res) => {
+  app.post('/first-login', loginLimiter, validarBody(bodyPhone), async (req, res) => {
     try {
       const legacyFirstLoginEnabled = String(process.env.ENABLE_LEGACY_FIRST_LOGIN || 'false').toLowerCase() === 'true';
       if (!legacyFirstLoginEnabled) {
@@ -129,7 +136,7 @@ module.exports = (app, supabase) => {
    * header: Authorization: Bearer <token>
    * body: { password } => { ok: true }
    */
-  app.post('/set-password', requireAuth, async (req, res) => {
+  app.post('/set-password', requireAuth, validarBody(bodyPassword), async (req, res) => {
     try {
       const { password } = req.body || {};
       if (!password) return res.status(400).json({ error: 'Falta la nueva contraseña' });
@@ -157,7 +164,19 @@ module.exports = (app, supabase) => {
         return res.status(500).json({ error: 'Error guardando contraseña' });
       }
 
-      return res.json({ ok: true });
+      // Revoca todas las sesiones anteriores (version de credencial) y emite
+      // un token fresco para que ESTA sesion siga viva tras el cambio.
+      const nuevaVersion = await bumpTokenVersion(supabase, 'user', userId);
+      let token = null;
+      if (req.user.role === 'user' && nuevaVersion !== null) {
+        token = jwt.sign(
+          { sub: userId, phone: req.user.phone, role: 'user', tv: nuevaVersion },
+          process.env.JWT_SECRET,
+          { expiresIn: '7d' }
+        );
+      }
+
+      return res.json({ ok: true, ...(token ? { token } : {}) });
     } catch (err) {
       console.error('Error en /set-password:', err);
       return res.status(500).json({ error: 'Error interno' });

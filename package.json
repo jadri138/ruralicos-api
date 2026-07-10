@@ -9,9 +9,11 @@
     "start": "node src/server.js",
     "test": "npm run lint && npm run test:local && npm run check:core",
     "lint": "eslint \"src/**/*.js\" \"scripts/**/*.js\" \"tests/**/*.js\"",
+    "audit:high": "npm audit --audit-level=high",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "rutas:inventario": "node scripts/inventario_rutas.js",
+    "openapi:generar": "node scripts/generar_openapi.js",
     "workflow:digest": "node scripts/run_digest_workflow.js",
     "backfill:intelligence": "node scripts/backfill_alert_intelligence.js",
     "knowledge:ingest": "node scripts/ingest_mia_knowledge.js",
@@ -19,6 +21,7 @@
     "test:local": "node scripts/run_tests.js"
   },
   "dependencies": {
+    "@sentry/node": "^10.64.0",
     "@supabase/supabase-js": "^2.45.0",
     "axios": "^1.13.2",
     "bcryptjs": "^3.0.3",
@@ -32,7 +35,8 @@
     "jsonwebtoken": "^9.0.2",
     "node-fetch": "^2.7.0",
     "openai": "^6.35.0",
-    "pdf-parse": "^2.4.5"
+    "pdf-parse": "^2.4.5",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "eslint": "^9.39.4",

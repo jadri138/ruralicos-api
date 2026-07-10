@@ -21,6 +21,9 @@ jobs:
       - name: Instalar dependencias
         run: npm ci
 
+      - name: Audit seguridad alto
+        run: npm run audit:high
+
       - name: Lint (eslint, detecta referencias no definidas)
         run: npm run lint
 

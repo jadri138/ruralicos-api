@@ -51,6 +51,28 @@ cuando el heartbeat pasa de rancio (`PIPELINE_TICK_STALE_MS`, 5 min < intervalo 
 cron), o se fuerza con `?reset=true` (que ahora tambien reabre un `running`
 colgado, no solo failed/aborted).
 
+### Preflight de la base URL interna
+
+Antes de crear o reclamar el job, el tick comprueba que `baseUrl/health` responde
+(timeout `PIPELINE_PREFLIGHT_TIMEOUT_MS`, 5s). Si no responde, el tick devuelve
+**503 `preflight_failed`** con el motivo y NO toca el job. Esto convierte en error
+visible el fallo que atasco la sombra el 2026-07-07/08: un `BASE_URL` de cron que
+aceptaba la conexion y nunca respondia dejaba el primer self-fetch colgado para
+siempre, con el job huerfano en `running` y `stages_json` vacio.
+
+Recomendado ademas: fijar `PIPELINE_INTERNAL_BASE_URL=https://<servicio>.onrender.com`
+en el env del servicio API. Con ella los self-fetch dejan de depender del Host
+de la peticion del cron (y por tanto del `BASE_URL` que use cada cron).
+
+### Verificar que el deploy lleva el fix
+
+El sintoma de un deploy VIEJO (pre `0e1177e`) es inconfundible: el job del dia
+acumula `ticks` pero `current_stage` sigue `null` y `stages_json` vacio `{}`.
+Con el codigo nuevo, el PRIMER tick sella `current_stage='scrapers'` nada mas
+reclamar (checkpoint inicial). Si tras un tick `current_stage` sigue null,
+Render no esta corriendo `main`: hace falta redeploy manual (o revisar por que
+fallo el auto-deploy).
+
 ### Inspeccion
 
 ```bash
@@ -85,7 +107,14 @@ Tras varios dias de sombra limpia (job completa, sin abortos, los `shadow:*`
    `scraper_runs`.
 2. Retirar los crons sueltos / `pipeline-diario` para que no se solapen envios.
 
-El cutover es reversible: vuelve a `shadow=true` si algo no cuadra.
+**Interlock automatico:** con `PIPELINE_TICK_SHADOW=false` en el env del
+servicio, `/tareas/pipeline-diario` responde **410 jubilado** y no ejecuta nada
+— aunque el cron viejo siga configurado, no puede duplicar envios. En emergencia
+(runner caido y hay que sacar el dia con el monolito) se reactiva puntualmente
+con `.../pipeline-diario?force_legacy=true`.
+
+El cutover es reversible: vuelve a `shadow=true` si algo no cuadra (eso tambien
+reactiva `pipeline-diario`).
 
 ## Variables de entorno
 
@@ -98,6 +127,7 @@ Ver `.env.example` (seccion "Runner de pipeline con checkpoints"):
 | `PIPELINE_HTTP_TIMEOUT_MS` | `20000` | Timeout duro por request HTTP del tick (evita cuelgues). |
 | `PIPELINE_TICK_RESERVE_MS` | `0` | Reserva de presupuesto: no arranca una request que no quepa antes del deadline. Ponlo `= PIPELINE_HTTP_TIMEOUT_MS`. |
 | `PIPELINE_TICK_STALE_MS` | `300000` | Antiguedad del heartbeat tras la que otro tick roba un claim colgado (y umbral de reset sobre `running`). < intervalo del cron. |
+| `PIPELINE_PREFLIGHT_TIMEOUT_MS` | `5000` | Timeout del preflight `baseUrl/health` antes de reclamar el job. |
 | `PIPELINE_STAGE_MAX_ATTEMPTS` | `3` | Reintentos por fase antes de `failed` (el cron hace de backoff). |
 
 Reutiliza tambien las compartidas con `pipeline-diario`: `PIPELINE_MAX_LOOPS`,

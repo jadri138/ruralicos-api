@@ -1,0 +1,4439 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Ruralicos API",
+    "version": "1.0.0",
+    "description": "Alertas de subvenciones y ayudas rurales por WhatsApp. Generado por introspeccion con scripts/generar_openapi.js — regenerar tras cambiar rutas. Todas las rutas aceptan tambien el prefijo /v1 (alias del contrato v1)."
+  },
+  "servers": [
+    {
+      "url": "https://ruralicos-api.onrender.com/v1",
+      "description": "Produccion (prefijo v1 recomendado)"
+    },
+    {
+      "url": "https://ruralicos-api.onrender.com",
+      "description": "Produccion (rutas legacy sin prefijo)"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerUser": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Token de usuario (POST /login-phone)"
+      },
+      "bearerOrg": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Token de cooperativa (POST /partner/login)"
+      },
+      "bearerAdmin": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Token de admin (POST /admin/login)"
+      },
+      "cronToken": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "x-cron-token",
+        "description": "Token de tareas internas/cron"
+      }
+    }
+  },
+  "paths": {
+    "/": {
+      "get": {
+        "tags": [
+          "tracking"
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/a/{token}": {
+      "get": {
+        "tags": [
+          "tracking"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/alertas/{id}": {
+      "patch": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/alertas/{id}/reprocesar": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/audit-log": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/boletines/estado": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/cerebro/diagnostico/{userId}": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/cerebro/explorar/{userId}": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/cerebro/perfil/actualizar/{userId}": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/dashboard": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/digest/why-not-sent": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/digest/why-sent": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/digests": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/login": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/mia/actions": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/mia/activity": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/mia/agent-cases": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/mia/agent-cases/{id}": {
+      "patch": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/mia/agent-cases/{id}/reply": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/mia/alert-review": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/mia/answer-audit": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/mia/backfill-profiles": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/mia/console": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/mia/decisions": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/mia/dry-run-digest": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/mia/embeddings-alertas": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/mia/evals": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/mia/inbound": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/mia/knowledge-documents": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/mia/knowledge-search": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/mia/knowledge-upload": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/mia/outbox": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/mia/outbox-health": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/mia/outbox/send-pending": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/mia/overview": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/mia/profile": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/mia/quality-report": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/mia/recalculate": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/mia/replay-candidates": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/mia/replay-webhook-events": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/mia/run-cycle": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/mia/structured-memory": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/mia/user": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/official-list-matches": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/official-list-matches/{id}": {
+      "patch": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/operations/alerts-quality": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/operations/data-quality": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/operations/health-deep": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/operations/scrapers-quality": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/organizations": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/organizations/{id}": {
+      "patch": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/organizations/{id}/impersonate": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/organizations/{id}/staff": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/organizations/{id}/staff/{staffId}": {
+      "delete": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "staffId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "staffId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/organizations/{id}/users": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/organizations/{id}/users/{userId}": {
+      "delete": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/pipeline-runs": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/scraper-runs": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/send-broadcast": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/tareas/pipeline-diario": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/tareas/scraper": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/tareas/scrapers-diario": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/users": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/users/{id}": {
+      "patch": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/users/{id}/diagnostico-digest": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/users/{id}/preview-digest": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/users/search": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/whatsapp-logs": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/alerta/{token}": {
+      "get": {
+        "tags": [
+          "tracking"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/alertas": {
+      "get": {
+        "tags": [
+          "alertas"
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "alertas"
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/alertas/clasificar": {
+      "get": {
+        "tags": [
+          "alertas"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "alertas"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/alertas/deduplicar": {
+      "get": {
+        "tags": [
+          "alertas"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "alertas"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/alertas/diagnosticar-digest": {
+      "get": {
+        "tags": [
+          "alertas"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/alertas/enviar-digest": {
+      "get": {
+        "tags": [
+          "alertas"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "alertas"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/alertas/enviar-resumen-free": {
+      "get": {
+        "tags": [
+          "alertas"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "alertas"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/alertas/enviar-whatsapp": {
+      "get": {
+        "tags": [
+          "alertas"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "alertas"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/alertas/estado-pipeline": {
+      "get": {
+        "tags": [
+          "alertas"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/alertas/generar-resumen-free": {
+      "get": {
+        "tags": [
+          "alertas"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "alertas"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/alertas/preparar-digest": {
+      "get": {
+        "tags": [
+          "alertas"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "alertas"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/alertas/preview-digest": {
+      "get": {
+        "tags": [
+          "alertas"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "alertas"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/alertas/reparar-pendientes-ia": {
+      "get": {
+        "tags": [
+          "alertas"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "alertas"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/alertas/resumir": {
+      "get": {
+        "tags": [
+          "alertas"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "alertas"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/alertas/revisar": {
+      "get": {
+        "tags": [
+          "alertas"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "alertas"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/alertas/revisar-final": {
+      "get": {
+        "tags": [
+          "alertas"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "alertas"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/cerebro/ciclo-diario": {
+      "get": {
+        "tags": [
+          "aprendizaje/ia"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "aprendizaje/ia"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/cerebro/diagnostico/usuario/{userId}": {
+      "get": {
+        "tags": [
+          "aprendizaje/ia"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/cerebro/embeddings/inicializar": {
+      "get": {
+        "tags": [
+          "aprendizaje/ia"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "aprendizaje/ia"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/cerebro/explorar/{userId}": {
+      "get": {
+        "tags": [
+          "aprendizaje/ia"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "aprendizaje/ia"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/cerebro/perfil/actualizar/{userId}": {
+      "get": {
+        "tags": [
+          "aprendizaje/ia"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "aprendizaje/ia"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/cerebro/perfil/backfill": {
+      "get": {
+        "tags": [
+          "aprendizaje/ia"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "aprendizaje/ia"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/clicks/recientes": {
+      "get": {
+        "tags": [
+          "tracking"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/embeddings/actualizar-perfil/{userId}": {
+      "get": {
+        "tags": [
+          "aprendizaje/ia"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "aprendizaje/ia"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/embeddings/ciclo-completo": {
+      "get": {
+        "tags": [
+          "aprendizaje/ia"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "aprendizaje/ia"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/embeddings/generar-alertas": {
+      "get": {
+        "tags": [
+          "aprendizaje/ia"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "aprendizaje/ia"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/embeddings/test": {
+      "post": {
+        "tags": [
+          "aprendizaje/ia"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/feedback/diagnostico": {
+      "get": {
+        "tags": [
+          "feedback"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/feedback/enviar-digest-prueba": {
+      "get": {
+        "tags": [
+          "feedback"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "feedback"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/feedback/parse": {
+      "post": {
+        "tags": [
+          "feedback"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/feedback/perfil": {
+      "get": {
+        "tags": [
+          "feedback"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/feedback/simular-respuesta": {
+      "get": {
+        "tags": [
+          "feedback"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/first-login": {
+      "post": {
+        "tags": [
+          "usuarios"
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": [
+          "otros"
+        ],
+        "summary": "Salud del servicio (sin auth)",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/login-phone": {
+      "post": {
+        "tags": [
+          "usuarios"
+        ],
+        "summary": "Login de usuario por telefono. Devuelve JWT (7 dias)",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "phone": {
+                    "type": "string",
+                    "description": ""
+                  },
+                  "password": {
+                    "type": "string",
+                    "description": ""
+                  }
+                },
+                "required": [
+                  "phone",
+                  "password"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "token": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me": {
+      "delete": {
+        "tags": [
+          "usuarios"
+        ],
+        "summary": "Borrado de cuenta y datos (derecho al olvido)",
+        "security": [
+          {
+            "bearerUser": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "usuarios"
+        ],
+        "summary": "Perfil del usuario autenticado",
+        "security": [
+          {
+            "bearerUser": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "usuarios"
+        ],
+        "security": [
+          {
+            "bearerUser": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/me/alertas": {
+      "get": {
+        "tags": [
+          "usuarios"
+        ],
+        "security": [
+          {
+            "bearerUser": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/me/export": {
+      "get": {
+        "tags": [
+          "usuarios"
+        ],
+        "summary": "Exportacion de datos (portabilidad RGPD)",
+        "security": [
+          {
+            "bearerUser": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/me/memory": {
+      "delete": {
+        "tags": [
+          "usuarios"
+        ],
+        "security": [
+          {
+            "bearerUser": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "usuarios"
+        ],
+        "security": [
+          {
+            "bearerUser": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/me/memory/{id}": {
+      "delete": {
+        "tags": [
+          "usuarios"
+        ],
+        "security": [
+          {
+            "bearerUser": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/me/plan": {
+      "put": {
+        "tags": [
+          "usuarios"
+        ],
+        "security": [
+          {
+            "bearerUser": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/me/preferences": {
+      "get": {
+        "tags": [
+          "usuarios"
+        ],
+        "security": [
+          {
+            "bearerUser": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "usuarios"
+        ],
+        "security": [
+          {
+            "bearerUser": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/me/verify-phone": {
+      "post": {
+        "tags": [
+          "usuarios"
+        ],
+        "security": [
+          {
+            "bearerUser": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/partner/branding": {
+      "get": {
+        "tags": [
+          "partner"
+        ],
+        "security": [
+          {
+            "bearerOrg": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "partner"
+        ],
+        "security": [
+          {
+            "bearerOrg": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/partner/branding/{slug}": {
+      "get": {
+        "tags": [
+          "partner"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/partner/clients": {
+      "get": {
+        "tags": [
+          "partner"
+        ],
+        "security": [
+          {
+            "bearerOrg": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "partner"
+        ],
+        "security": [
+          {
+            "bearerOrg": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/partner/clients/{id}": {
+      "delete": {
+        "tags": [
+          "partner"
+        ],
+        "security": [
+          {
+            "bearerOrg": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "partner"
+        ],
+        "security": [
+          {
+            "bearerOrg": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/partner/digests": {
+      "get": {
+        "tags": [
+          "partner"
+        ],
+        "security": [
+          {
+            "bearerOrg": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/partner/events": {
+      "post": {
+        "tags": [
+          "partner"
+        ],
+        "security": [
+          {
+            "bearerOrg": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/partner/insights": {
+      "get": {
+        "tags": [
+          "partner"
+        ],
+        "security": [
+          {
+            "bearerOrg": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/partner/login": {
+      "post": {
+        "tags": [
+          "partner"
+        ],
+        "summary": "Login del panel de cooperativa. Devuelve JWT org (12 h)",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "description": ""
+                  },
+                  "password": {
+                    "type": "string",
+                    "description": ""
+                  }
+                },
+                "required": [
+                  "email",
+                  "password"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/partner/me": {
+      "get": {
+        "tags": [
+          "partner"
+        ],
+        "security": [
+          {
+            "bearerOrg": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/partner/members": {
+      "get": {
+        "tags": [
+          "partner"
+        ],
+        "security": [
+          {
+            "bearerOrg": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "partner"
+        ],
+        "security": [
+          {
+            "bearerOrg": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/partner/members/{userId}": {
+      "delete": {
+        "tags": [
+          "partner"
+        ],
+        "security": [
+          {
+            "bearerOrg": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "partner"
+        ],
+        "security": [
+          {
+            "bearerOrg": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/partner/overview": {
+      "get": {
+        "tags": [
+          "partner"
+        ],
+        "security": [
+          {
+            "bearerOrg": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/partner/plan": {
+      "get": {
+        "tags": [
+          "partner"
+        ],
+        "security": [
+          {
+            "bearerOrg": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "partner"
+        ],
+        "security": [
+          {
+            "bearerOrg": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/partner/zones": {
+      "get": {
+        "tags": [
+          "partner"
+        ],
+        "security": [
+          {
+            "bearerOrg": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "partner"
+        ],
+        "security": [
+          {
+            "bearerOrg": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/partner/zones/{id}": {
+      "delete": {
+        "tags": [
+          "partner"
+        ],
+        "security": [
+          {
+            "bearerOrg": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "partner"
+        ],
+        "security": [
+          {
+            "bearerOrg": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/password-reset": {
+      "post": {
+        "tags": [
+          "usuarios"
+        ],
+        "summary": "Inicia el reseteo de contrasena (codigo por WhatsApp)",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "phone": {
+                    "type": "string",
+                    "description": ""
+                  }
+                },
+                "required": [
+                  "phone"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/password-reset/verify": {
+      "post": {
+        "tags": [
+          "usuarios"
+        ],
+        "summary": "Completa el reseteo (revoca las sesiones anteriores)",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "phone": {
+                    "type": "string",
+                    "description": ""
+                  },
+                  "code": {
+                    "type": "string",
+                    "description": ""
+                  },
+                  "password": {
+                    "type": "string",
+                    "description": ""
+                  }
+                },
+                "required": [
+                  "phone",
+                  "code",
+                  "password"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/register": {
+      "post": {
+        "tags": [
+          "usuarios"
+        ],
+        "summary": "Alta de usuario (envia codigo de verificacion por WhatsApp)",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "phone": {
+                    "type": "string",
+                    "description": "Telefono movil espanol"
+                  },
+                  "password": {
+                    "type": "string",
+                    "description": "Debe cumplir la politica de contrasenas"
+                  },
+                  "first_name": {
+                    "type": "string",
+                    "description": "Nombre"
+                  },
+                  "last_name_1": {
+                    "type": "string",
+                    "description": "Primer apellido"
+                  },
+                  "last_name_2": {
+                    "type": "string",
+                    "description": "Segundo apellido (opcional)"
+                  },
+                  "email": {
+                    "type": "string",
+                    "description": "Opcional"
+                  },
+                  "subscription": {
+                    "type": "string",
+                    "enum": [
+                      "corral",
+                      "agricultor",
+                      "cooperativa"
+                    ]
+                  },
+                  "preferences": {
+                    "type": "object"
+                  },
+                  "preferencias_extra": {
+                    "type": "string",
+                    "description": "Contexto libre (opcional)"
+                  }
+                },
+                "required": [
+                  "phone",
+                  "password",
+                  "first_name",
+                  "last_name_1"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/scrape-boa-oficial": {
+      "get": {
+        "tags": [
+          "scrapers (cron)"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/scrape-bocan": {
+      "get": {
+        "tags": [
+          "scrapers (cron)"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/scrape-bocan-oficial": {
+      "get": {
+        "tags": [
+          "scrapers (cron)"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/scrape-bocant": {
+      "get": {
+        "tags": [
+          "scrapers (cron)"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/scrape-bocant-oficial": {
+      "get": {
+        "tags": [
+          "scrapers (cron)"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/scrape-bocce": {
+      "get": {
+        "tags": [
+          "scrapers (cron)"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/scrape-bocce-oficial": {
+      "get": {
+        "tags": [
+          "scrapers (cron)"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/scrape-bocm": {
+      "get": {
+        "tags": [
+          "scrapers (cron)"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/scrape-bocm-oficial": {
+      "get": {
+        "tags": [
+          "scrapers (cron)"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/scrape-bocyl-oficial": {
+      "get": {
+        "tags": [
+          "scrapers (cron)"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/scrape-boe-oficial": {
+      "get": {
+        "tags": [
+          "scrapers (cron)"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/scrape-bog-oficial": {
+      "get": {
+        "tags": [
+          "scrapers (cron)"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/scrape-boib": {
+      "get": {
+        "tags": [
+          "scrapers (cron)"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/scrape-boib-oficial": {
+      "get": {
+        "tags": [
+          "scrapers (cron)"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/scrape-boja-oficial": {
+      "get": {
+        "tags": [
+          "scrapers (cron)"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/scrape-bome": {
+      "get": {
+        "tags": [
+          "scrapers (cron)"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/scrape-bome-oficial": {
+      "get": {
+        "tags": [
+          "scrapers (cron)"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/scrape-bon": {
+      "get": {
+        "tags": [
+          "scrapers (cron)"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/scrape-bon-oficial": {
+      "get": {
+        "tags": [
+          "scrapers (cron)"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/scrape-bopa": {
+      "get": {
+        "tags": [
+          "scrapers (cron)"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/scrape-bopa-oficial": {
+      "get": {
+        "tags": [
+          "scrapers (cron)"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/scrape-boph-oficial": {
+      "get": {
+        "tags": [
+          "scrapers (cron)"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/scrape-bopt-oficial": {
+      "get": {
+        "tags": [
+          "scrapers (cron)"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/scrape-bopv": {
+      "get": {
+        "tags": [
+          "scrapers (cron)"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/scrape-bopv-oficial": {
+      "get": {
+        "tags": [
+          "scrapers (cron)"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/scrape-bopz-oficial": {
+      "get": {
+        "tags": [
+          "scrapers (cron)"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/scrape-bor": {
+      "get": {
+        "tags": [
+          "scrapers (cron)"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/scrape-bor-oficial": {
+      "get": {
+        "tags": [
+          "scrapers (cron)"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/scrape-borm-oficial": {
+      "get": {
+        "tags": [
+          "scrapers (cron)"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/scrape-botha": {
+      "get": {
+        "tags": [
+          "scrapers (cron)"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/scrape-botha-oficial": {
+      "get": {
+        "tags": [
+          "scrapers (cron)"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/scrape-docm-oficial": {
+      "get": {
+        "tags": [
+          "scrapers (cron)"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/scrape-doe-oficial": {
+      "get": {
+        "tags": [
+          "scrapers (cron)"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/scrape-dog": {
+      "get": {
+        "tags": [
+          "scrapers (cron)"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/scrape-dogc": {
+      "get": {
+        "tags": [
+          "scrapers (cron)"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/scrape-dogv": {
+      "get": {
+        "tags": [
+          "scrapers (cron)"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/scrape-fega-beneficiarios": {
+      "get": {
+        "tags": [
+          "scrapers (cron)"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/set-password": {
+      "post": {
+        "tags": [
+          "usuarios"
+        ],
+        "summary": "Cambia la contrasena (revoca las demas sesiones; devuelve token fresco)",
+        "security": [
+          {
+            "bearerUser": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "password": {
+                    "type": "string",
+                    "description": ""
+                  }
+                },
+                "required": [
+                  "password"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/stats": {
+      "get": {
+        "tags": [
+          "otros"
+        ],
+        "summary": "Metricas publicas redondeadas para la web",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/tareas/complementarios-diario": {
+      "get": {
+        "tags": [
+          "tareas (cron)"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/tareas/cotejar-listados-oficiales": {
+      "get": {
+        "tags": [
+          "tareas (cron)"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/tareas/mia-outbox": {
+      "all": {
+        "tags": [
+          "tareas (cron)"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/tareas/pipeline-diario": {
+      "get": {
+        "tags": [
+          "tareas (cron)"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/tareas/pipeline-jobs": {
+      "get": {
+        "tags": [
+          "tareas (cron)"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/tareas/pipeline-tick": {
+      "all": {
+        "tags": [
+          "tareas (cron)"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/tareas/retencion-datos": {
+      "all": {
+        "tags": [
+          "tareas (cron)"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/tareas/salud-fuentes": {
+      "get": {
+        "tags": [
+          "tareas (cron)"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/tareas/scraper": {
+      "get": {
+        "tags": [
+          "tareas (cron)"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/tareas/scrapers-diario": {
+      "get": {
+        "tags": [
+          "tareas (cron)"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/taxonomy/parse": {
+      "post": {
+        "tags": [
+          "otros"
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/taxonomy/suggest": {
+      "get": {
+        "tags": [
+          "otros"
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/users": {
+      "get": {
+        "tags": [
+          "usuarios"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/users/{id}": {
+      "delete": {
+        "tags": [
+          "usuarios"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/users/cambiar-plan": {
+      "post": {
+        "tags": [
+          "usuarios"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/users/downgrade-to-free": {
+      "post": {
+        "tags": [
+          "usuarios"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/users/get-preferences": {
+      "post": {
+        "tags": [
+          "usuarios"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/users/preferences": {
+      "put": {
+        "tags": [
+          "usuarios"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/users/upgrade-to-pro": {
+      "post": {
+        "tags": [
+          "usuarios"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/verify-phone": {
+      "post": {
+        "tags": [
+          "usuarios"
+        ],
+        "summary": "Confirma el telefono con el codigo recibido",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "phone": {
+                    "type": "string",
+                    "description": ""
+                  },
+                  "code": {
+                    "type": "string",
+                    "description": "Codigo de 6 digitos"
+                  }
+                },
+                "required": [
+                  "phone",
+                  "code"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/verify-phone/request": {
+      "post": {
+        "tags": [
+          "usuarios"
+        ],
+        "summary": "Reenvia un codigo de verificacion",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "phone": {
+                    "type": "string",
+                    "description": ""
+                  }
+                },
+                "required": [
+                  "phone"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/webhooks/ultramsg/feedback": {
+      "all": {
+        "tags": [
+          "feedback"
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    }
+  }
+}

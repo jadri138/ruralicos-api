@@ -7,17 +7,20 @@ const { evaluarRespuestaScraper } = require('../boletines/scraperRunQuality');
 const { evaluarSaludFuentes, construirMensajeFuentesCaidas } = require('../boletines/fuentesHealth');
 const { omitirScraperSiCapturado } = require('../boletines/scraperSkip');
 const { cotejarListadosOficiales } = require('../../services/officialListMatcher');
+const { purgarPorRetencion } = require('../../services/retencionDatos');
 const {
   cargarOutboxPendiente,
   procesarOutboxItemMIA,
   generarOutboxHealthMIA,
 } = require('../mia/outbox');
+const { digestIdDeOutboxItem, procesarResultadoDigestOutbox } = require('../digest/digestOutbox');
 
 const {
   FEGA_SCRAPE_PATH,
   getScrapePaths,
   getComplementaryScrapePaths,
   boolValue,
+  pipelineDiarioJubilado,
   getAllowedScraperPaths,
   getPipelineScrapePaths,
   appendQuery,
@@ -63,6 +66,7 @@ module.exports = function tareasRoutes(app, supabase) {
         return res.status(500).json({ success: false, error: pendientes.error || 'mia_outbox_error' });
       }
 
+      const digestDelayMs = Math.max(0, Number(process.env.DIGEST_DELAY_MS || 3000));
       const resultados = [];
       for (const item of pendientes.items || []) {
         if (dryRun) {
@@ -78,6 +82,16 @@ module.exports = function tareasRoutes(app, supabase) {
         }
 
         const result = await procesarOutboxItemMIA(supabase, item, enviarDigestPro);
+
+        // Items del digest diario (DIGEST_VIA_OUTBOX): reflejar el resultado en
+        // digests/digest_attempts y espaciar los envios (delay anti-ban).
+        if (digestIdDeOutboxItem(item)) {
+          await procesarResultadoDigestOutbox(supabase, item, result);
+          if (result.status === 'sent' && digestDelayMs > 0) {
+            await new Promise((resolve) => setTimeout(resolve, digestDelayMs));
+          }
+        }
+
         resultados.push(result);
       }
 
@@ -102,6 +116,26 @@ module.exports = function tareasRoutes(app, supabase) {
       });
     } catch (err) {
       console.error('Error en /tareas/mia-outbox', err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // Retencion de datos (cumplimiento): purga logs operativos segun la politica
+  // de docs/CUMPLIMIENTO.md. Doble seguro: borra SOLO si RETENTION_ENABLED=true
+  // en el env Y ?dry_run=false explicito; en cualquier otro caso solo informa.
+  // Cron recomendado: semanal.
+  app.all('/tareas/retencion-datos', async (req, res) => {
+    if (!checkCronToken(req, res)) return;
+
+    try {
+      const habilitado = boolValue(process.env.RETENTION_ENABLED, false);
+      const dryRunPedido = boolValue(req.query.dry_run ?? req.body?.dry_run, true);
+      const dryRun = !habilitado || dryRunPedido;
+
+      const resultado = await purgarPorRetencion(supabase, { dryRun });
+      return res.json({ success: true, habilitado, ...resultado });
+    } catch (err) {
+      console.error('Error en /tareas/retencion-datos', err);
       return res.status(500).json({ success: false, error: err.message });
     }
   });
@@ -483,7 +517,10 @@ module.exports = function tareasRoutes(app, supabase) {
         },
       });
 
-      const httpStatus = resultado.tick === 'aborted' ? 409 : resultado.tick === 'failed' ? 500 : 200;
+      const httpStatus =
+        resultado.tick === 'preflight_failed' ? 503 :
+        resultado.tick === 'aborted' ? 409 :
+        resultado.tick === 'failed' ? 500 : 200;
       return res.status(httpStatus).json(resultado);
     } catch (err) {
       console.error('Error en /tareas/pipeline-tick', err);
@@ -510,6 +547,17 @@ module.exports = function tareasRoutes(app, supabase) {
 
   app.get('/tareas/pipeline-diario', async (req, res) => {
     if (!checkCronToken(req, res)) return;
+
+    // Interlock de cutover: con el tick en real este endpoint queda jubilado
+    // (evita envios duplicados si el cron viejo sigue configurado en Render).
+    if (pipelineDiarioJubilado(process.env, req.query)) {
+      return res.status(410).json({
+        success: false,
+        error:
+          'pipeline-diario jubilado: el pipeline corre en real via /tareas/pipeline-tick ' +
+          '(PIPELINE_TICK_SHADOW=false). Reactivacion puntual de emergencia: ?force_legacy=true.',
+      });
+    }
 
     try {
       const baseUrl = getBaseUrl(req);

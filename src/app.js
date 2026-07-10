@@ -20,6 +20,7 @@ const { enviarWhatsAppTodos } = require('./platform/whatsapp');
 const { getFechaMadridISO } = require('./shared/fechaMadrid');
 const { hasCronToken } = require('./middleware/cronToken');
 const { requireAdmin } = require('./middleware/requireAdmin');
+const { requestContext } = require('./middleware/requestContext');
 const registrarRutas = require('./routes');
 
 
@@ -30,8 +31,23 @@ app.set('trust proxy', 1);
    PROTECCIONES DE SEGURIDAD
 --------------------------------------------------- */
 
+// Correlacion: cada peticion recibe un request_id (cabecera x-request-id) que
+// responderError incluye en los errores 5xx para cruzarlos con los logs.
+app.use(requestContext);
+
 // Seguridad HTTP
 app.use(helmet());
+
+// Versionado del API: /v1/* es un ALIAS del contrato actual (la v1 implicita).
+// Aditivo: las rutas sin prefijo siguen funcionando igual; los clientes migran
+// a /v1 a su ritmo y una futura /v2 podra montarse sin romper a nadie.
+// Debe ir ANTES de cualquier ruta o middleware que mire req.path.
+app.use((req, res, next) => {
+  if (req.url === '/v1' || req.url.startsWith('/v1/') || req.url.startsWith('/v1?')) {
+    req.url = req.url.slice(3) || '/';
+  }
+  next();
+});
 
 // CORS: solo permitir orígenes seguros
 const allowedOrigins = [

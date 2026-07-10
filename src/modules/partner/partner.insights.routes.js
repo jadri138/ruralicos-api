@@ -1,6 +1,8 @@
 // src/modules/partner/partner.insights.routes.js
 
 const { requireOrg } = require('../../middleware/requireAdmin');
+const { orgClient } = require('./tenantClient');
+const { responderError } = require('../../shared/responderError');
 
 const ROLES_INSIGHTS = new Set(['owner', 'admin']);
 const EVENT_TYPES = new Set(['page_view', 'panel_click', 'filter_apply', 'action']);
@@ -296,12 +298,11 @@ function buildMemberInsights({ members, memberRows, zones, clicks, feedbacks, di
     .slice(0, 20);
 }
 
-async function fetchOrgClicks(supabase, orgId, memberIds, since, limit) {
+async function fetchOrgClicks(db, memberIds, since, limit) {
   const baseSelect = 'id, user_id, digest_id, alerta_id, url_destino, created_at, users(id, name, legal_name, phone, email, subscription), alertas(id, titulo, fuente)';
-  const byOrg = await supabase
+  const byOrg = await db
     .from('alerta_clicks')
     .select(baseSelect)
-    .eq('organization_id', orgId)
     .gte('created_at', since)
     .order('created_at', { ascending: false })
     .limit(limit);
@@ -309,7 +310,9 @@ async function fetchOrgClicks(supabase, orgId, memberIds, since, limit) {
   if (byOrg.error) return byOrg;
   if (!memberIds.length) return byOrg;
 
-  const byMembers = await supabase
+  // sinTenant deliberado: los clicks B2C de socios vinculados llevan
+  // organization_id null; memberIds sale de la consulta scoped de users.
+  const byMembers = await db.sinTenant
     .from('alerta_clicks')
     .select(baseSelect)
     .in('user_id', memberIds)
@@ -329,9 +332,11 @@ async function fetchOrgClicks(supabase, orgId, memberIds, since, limit) {
   };
 }
 
-async function fetchOrgRowsByUserIds(supabase, table, select, memberIds, since, limit, dateColumn = 'created_at') {
+// sinTenant deliberado: filas B2C (feedback, digests) de socios vinculados
+// llevan organization_id null; memberIds sale de la consulta scoped de users.
+async function fetchOrgRowsByUserIds(db, table, select, memberIds, since, limit, dateColumn = 'created_at') {
   if (!memberIds.length) return { data: [], error: null };
-  return supabase
+  return db.sinTenant
     .from(table)
     .select(select)
     .in('user_id', memberIds)
@@ -348,10 +353,9 @@ module.exports = (app, supabase) => {
 
       const metadata = safeObject(req.body?.metadata_json || req.body?.metadata);
       const userAgent = String(req.headers['user-agent'] || '').slice(0, 500);
-      const { error } = await supabase
+      const { error } = await orgClient(supabase, req)
         .from('organization_panel_events')
         .insert({
-          organization_id: req.org.organizationId,
           staff_id: req.org.impersonatedBy ? null : req.org.staffId,
           event_type: eventType,
           route: safeText(req.body?.route, null, 160),
@@ -366,8 +370,7 @@ module.exports = (app, supabase) => {
 
       return res.status(201).json({ ok: true, available: true });
     } catch (err) {
-      console.error('Error en POST /partner/events:', err);
-      return res.status(500).json({ error: err.message });
+      return responderError(req, res, err);
     }
   });
 
@@ -375,29 +378,21 @@ module.exports = (app, supabase) => {
     try {
       if (!puedeVerInsights(req)) return res.status(403).json({ error: 'Tu rol no permite ver insights' });
 
-      const orgId = req.org.organizationId;
+      const db = orgClient(supabase, req);
       const days = clampNumber(req.query.days, 7, 90, 30);
       const limit = clampNumber(req.query.limit, 20, 500, 120);
       const since = isoDesdeDias(days);
 
       const [{ data: members, error: membersError }, { data: memberRows, error: memberRowsError }, zonesResult, clientsResult] = await Promise.all([
-        supabase
+        db
           .from('users')
           .select('id, name, legal_name, phone, email, subscription, created_at')
-          .eq('organization_id', orgId)
           .order('created_at', { ascending: false }),
-        supabase
-          .from('organization_members')
-          .select('user_id, role, status, zone_id')
-          .eq('organization_id', orgId),
-        supabase
-          .from('organization_zones')
-          .select('id, name, color')
-          .eq('organization_id', orgId),
-        supabase
+        db.from('organization_members').select('user_id, role, status, zone_id'),
+        db.from('organization_zones').select('id, name, color'),
+        db
           .from('organization_clients')
           .select('id, zone_id, display_name, status, client_type, profile_json, preferences_json, last_digest_at, last_interaction_at, created_at')
-          .eq('organization_id', orgId)
           .order('created_at', { ascending: false })
           .limit(1000),
       ]);
@@ -413,9 +408,9 @@ module.exports = (app, supabase) => {
       const memberIds = safeMembers.map((member) => Number(member.id)).filter(Number.isSafeInteger);
 
       const [clicksResult, feedbacksResult, digestsResult] = await Promise.all([
-        fetchOrgClicks(supabase, orgId, memberIds, since, limit * 4),
+        fetchOrgClicks(db, memberIds, since, limit * 4),
         fetchOrgRowsByUserIds(
-          supabase,
+          db,
           'alerta_feedback',
           'id, user_id, digest_id, alerta_id, valor, raw_text, created_at, users(id, name, legal_name, phone, email, subscription), alertas(id, titulo, fuente)',
           memberIds,
@@ -423,7 +418,7 @@ module.exports = (app, supabase) => {
           limit * 3
         ),
         fetchOrgRowsByUserIds(
-          supabase,
+          db,
           'digests',
           'id, user_id, fecha, enviado, enviado_at, created_at, alerta_ids',
           memberIds,
@@ -501,8 +496,7 @@ module.exports = (app, supabase) => {
         recent_clicks: clicks.slice(0, limit).map(publicClick),
       });
     } catch (err) {
-      console.error('Error en GET /partner/insights:', err);
-      return res.status(500).json({ error: err.message });
+      return responderError(req, res, err);
     }
   });
 };

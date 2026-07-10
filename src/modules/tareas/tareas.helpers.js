@@ -88,6 +88,15 @@ function uniquePaths(paths) {
   return Array.from(new Set(paths.filter(Boolean)));
 }
 
+// Cutover C1: cuando el tick corre en real (PIPELINE_TICK_SHADOW=false), el
+// monolitico /tareas/pipeline-diario queda jubilado para que un cron viejo que
+// nadie retiro no duplique envios de WhatsApp. force_legacy=true lo reactiva
+// puntualmente (emergencia con el runner caido).
+function pipelineDiarioJubilado(env = process.env, query = {}) {
+  const tickEnReal = !boolValue(env.PIPELINE_TICK_SHADOW, true);
+  return tickEnReal && !boolValue(query.force_legacy, false);
+}
+
 function getAllowedScraperPaths() {
   return uniquePaths([
     ...SCRAPE_PATHS_DEFAULT,
@@ -207,6 +216,7 @@ module.exports = {
   getComplementaryScrapePaths,
   boolValue,
   uniquePaths,
+  pipelineDiarioJubilado,
   getAllowedScraperPaths,
   getPipelineScrapePaths,
   appendQuery,

@@ -300,7 +300,7 @@ async function cargarOutboxPendiente(supabase, limit = 20) {
     const maxAttempts = getMaxAttempts();
     const { data, error } = await supabase
       .from('mia_outbox')
-      .select('id, decision_id, inbound_id, user_id, channel, to_phone, body, status, attempts, last_error, next_attempt_at, created_at')
+      .select('id, decision_id, inbound_id, user_id, channel, to_phone, body, status, attempts, last_error, next_attempt_at, created_at, metadata_json')
       .in('status', ['queued', 'failed'])
       .lte('next_attempt_at', new Date().toISOString())
       .lt('attempts', maxAttempts)

@@ -23,7 +23,7 @@ module.exports = (app, supabase) => {
 
       const { data: admins, error } = await supabase
         .from('admin_users')
-        .select('id, username, password_hash')
+        .select('id, username, password_hash, token_version')
         .eq('username', username)
         .limit(1);
 
@@ -48,6 +48,7 @@ module.exports = (app, supabase) => {
           sub: admin.id,
           username: admin.username,
           role: 'admin',
+          tv: Number(admin.token_version || 0),
         },
         process.env.JWT_SECRET,
         { expiresIn: '8h' }

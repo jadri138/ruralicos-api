@@ -4,6 +4,7 @@
 // diagnostico (/feedback/parse, /feedback/perfil, /feedback/diagnostico...).
 // La logica vive en feedback.service.js.
 const { checkCronToken } = require('../../middleware/cronToken');
+const { responderError } = require('../../shared/responderError');
 const crypto = require('crypto');
 const { getFechaMadridISO, getRangoDiaMadridUTC } = require('../../shared/fechaMadrid');
 const { normalizePhone } = require('../../shared/phoneNormalizer');
@@ -913,13 +914,14 @@ function feedbackRoutes(app, supabase) {
 
       return res.json(result);
     } catch (err) {
-      console.error('Error en /webhooks/ultramsg/feedback:', err);
+      // El detalle queda en inbound/webhook_events y en el log del servidor;
+      // al llamador (UltraMsg, un tercero) solo le viaja un error generico.
       await actualizarInboundMIA(supabase, inboundMIA?.id, {
         status: 'failed',
         error_msg: err.message,
       });
       await guardarWebhookEvent(req, null, err);
-      return res.status(500).json({ error: err.message });
+      return responderError(req, res, err);
     }
   });
 }

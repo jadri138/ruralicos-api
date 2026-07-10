@@ -8,6 +8,8 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const rateLimit = require('express-rate-limit');
 const { requireOrg } = require('../../middleware/requireAdmin');
+const { validarBody, escalarCorto } = require('../../middleware/validate');
+const { orgClient } = require('./tenantClient');
 
 const TOKEN_TTL = '12h';
 
@@ -46,6 +48,7 @@ function firmarTokenOrg(staff) {
       organization_id: staff.organization_id,
       member_role: staff.member_role || 'viewer',
       name: staff.name || null,
+      tv: Number(staff.token_version || 0),
     },
     process.env.JWT_SECRET,
     { expiresIn: TOKEN_TTL }
@@ -90,7 +93,10 @@ module.exports = (app, supabase) => {
   // ──────────────────────────────────────────────────────────────────
   // POST /partner/login   body: { email, password }
   // ──────────────────────────────────────────────────────────────────
-  app.post('/partner/login', loginLimiter, async (req, res) => {
+  app.post('/partner/login', loginLimiter, validarBody({
+    email: escalarCorto(320, 'email'),
+    password: escalarCorto(200, 'contrasena'),
+  }), async (req, res) => {
     try {
       const email = normalizarEmail(req.body?.email);
       const password = String(req.body?.password || '');
@@ -101,7 +107,7 @@ module.exports = (app, supabase) => {
 
       const { data: staff, error } = await supabase
         .from('organization_staff')
-        .select('id, organization_id, email, name, password_hash, member_role, status')
+        .select('id, organization_id, email, name, password_hash, member_role, status, token_version')
         .eq('email', email)
         .maybeSingle();
 
@@ -167,17 +173,17 @@ module.exports = (app, supabase) => {
   app.get('/partner/me', requireOrg, async (req, res) => {
     try {
       const { staffId, organizationId, memberRole, impersonatedBy } = req.org;
+      const db = orgClient(supabase, req);
 
       const [{ data: staff }, { data: org, error: orgError }] = await Promise.all([
-        supabase
+        db
           .from('organization_staff')
           .select('id, organization_id, email, name, member_role, status')
           .eq('id', staffId)
           .maybeSingle(),
-        supabase
+        db
           .from('organizations')
           .select('id, slug, name, kind, status, branding_json')
-          .eq('id', organizationId)
           .maybeSingle(),
       ]);
 

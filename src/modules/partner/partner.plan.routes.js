@@ -7,6 +7,8 @@
 // devuelve al frontend para que no haya precios duplicados/desfasados.
 
 const { requireOrg } = require('../../middleware/requireAdmin');
+const { orgClient } = require('./tenantClient');
+const { responderError } = require('../../shared/responderError');
 
 const ROLES_ESCRITURA = new Set(['owner', 'admin']);
 
@@ -56,26 +58,24 @@ function calcularPrecio(band, socios) {
 }
 
 module.exports = (app, supabase) => {
-  async function contarSocios(orgId) {
-    const { count, error } = await supabase
+  async function contarSocios(db) {
+    const { count, error } = await db
       .from('users')
-      .select('id', { count: 'exact', head: true })
-      .eq('organization_id', orgId);
+      .select('id', { count: 'exact', head: true });
     if (error) throw error;
     return count || 0;
   }
 
-  async function construirRespuestaPlan(req, orgId) {
-    const { data: org, error } = await supabase
+  async function construirRespuestaPlan(req, db) {
+    const { data: org, error } = await db
       .from('organizations')
       .select('id, name, settings_json')
-      .eq('id', orgId)
       .maybeSingle();
     if (error) throw error;
     if (!org) return null;
 
     const settings = org.settings_json && typeof org.settings_json === 'object' ? org.settings_json : {};
-    const socios = await contarSocios(orgId);
+    const socios = await contarSocios(db);
     const currentBand = bandByKey(settings.billing_band);
 
     return {
@@ -94,12 +94,11 @@ module.exports = (app, supabase) => {
   // GET /partner/plan — plan actual + consumo + catalogo de bandas.
   app.get('/partner/plan', requireOrg, async (req, res) => {
     try {
-      const plan = await construirRespuestaPlan(req, req.org.organizationId);
+      const plan = await construirRespuestaPlan(req, orgClient(supabase, req));
       if (!plan) return res.status(404).json({ error: 'Cooperativa no encontrada' });
       return res.json(plan);
     } catch (err) {
-      console.error('Error en GET /partner/plan:', err);
-      return res.status(500).json({ error: err.message });
+      return responderError(req, res, err);
     }
   });
 
@@ -115,11 +114,10 @@ module.exports = (app, supabase) => {
         return res.status(400).json({ error: 'Plan no valido' });
       }
 
-      const orgId = req.org.organizationId;
-      const { data: current, error: curError } = await supabase
+      const db = orgClient(supabase, req);
+      const { data: current, error: curError } = await db
         .from('organizations')
         .select('settings_json')
-        .eq('id', orgId)
         .maybeSingle();
       if (curError) throw curError;
       if (!current) return res.status(404).json({ error: 'Cooperativa no encontrada' });
@@ -127,17 +125,15 @@ module.exports = (app, supabase) => {
       const baseSettings = current.settings_json && typeof current.settings_json === 'object' ? current.settings_json : {};
       const settings = { ...baseSettings, billing_band: band };
 
-      const { error: updError } = await supabase
+      const { error: updError } = await db
         .from('organizations')
-        .update({ settings_json: settings, updated_at: new Date().toISOString() })
-        .eq('id', orgId);
+        .update({ settings_json: settings, updated_at: new Date().toISOString() });
       if (updError) throw updError;
 
-      const plan = await construirRespuestaPlan(req, orgId);
+      const plan = await construirRespuestaPlan(req, db);
       return res.json(plan);
     } catch (err) {
-      console.error('Error en POST /partner/plan:', err);
-      return res.status(500).json({ error: err.message });
+      return responderError(req, res, err);
     }
   });
 };

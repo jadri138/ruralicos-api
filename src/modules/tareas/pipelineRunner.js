@@ -143,6 +143,30 @@ function crearEjecutorHttp({
   };
 }
 
+// Preflight: comprueba que la base URL interna responde a /health antes de
+// tocar el job. Un host que acepta la conexion y nunca responde (p.ej. dominio
+// custom sin origen detras) colgaba el primer self-fetch del tick sin dejar
+// rastro; con esto el fallo de configuracion es inmediato y visible en la
+// respuesta del cron, y el job del dia ni se crea ni se reclama.
+async function verificarBaseUrlInterna(baseUrl, { timeoutMs = 5000, fetchImpl = fetch } = {}) {
+  if (!baseUrl) return { ok: false, error: 'base URL interna vacia' };
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetchImpl(`${baseUrl}/health`, { signal: controller.signal });
+    if (!response.ok) return { ok: false, error: `/health devolvio ${response.status}` };
+    return { ok: true };
+  } catch (err) {
+    const motivo = err?.name === 'AbortError' || controller.signal.aborted
+      ? `sin respuesta tras ${timeoutMs}ms`
+      : String(err?.message || err);
+    return { ok: false, error: `no responde: ${motivo}` };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function progresoBody(body) {
   return Number(
     body?.actualizadas ??
@@ -185,7 +209,9 @@ async function ejecutarPipelineTick(supabase, opcionesTick = {}) {
     baseUrl = '',
     token = process.env.CRON_TOKEN,
     jobOptions = {},
+    preflightTimeoutMs = Number(process.env.PIPELINE_PREFLIGHT_TIMEOUT_MS || 5000),
     // Inyectables (tests)
+    preflight = undefined,
     store: storeParam = null,
     ejecutar: ejecutarParam = null,
     avisarAdmin = enviarWhatsAppAdmin,
@@ -196,6 +222,20 @@ async function ejecutarPipelineTick(supabase, opcionesTick = {}) {
     sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     ahora = () => Date.now(),
   } = opcionesTick;
+
+  // Preflight de la base URL interna. Solo en modo real: los tests inyectan
+  // `ejecutar` y no hacen self-fetch. Inyectable via opcionesTick.preflight.
+  const comprobarBase = preflight !== undefined
+    ? preflight
+    : (ejecutarParam ? null : () => verificarBaseUrlInterna(baseUrl, { timeoutMs: preflightTimeoutMs }));
+  if (comprobarBase) {
+    const salud = await comprobarBase();
+    if (!salud?.ok) {
+      const motivo = `base URL interna no utilizable (${baseUrl || 'vacia'}): ${salud?.error || 'sin detalle'}`;
+      console.error(`[pipeline-tick] preflight fallido: ${motivo}`);
+      return { ok: false, tick: 'preflight_failed', fecha, shadow, error: motivo };
+    }
+  }
 
   const store = storeParam || crearPipelineJobsStore(supabase);
   const tickId = nuevoTickId();
@@ -588,4 +628,5 @@ module.exports = {
   crearEjecutorHttp,
   ejecutarPipelineTick,
   consultarPipelineJobs,
+  verificarBaseUrlInterna,
 };

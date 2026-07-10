@@ -16,10 +16,34 @@ const { actualizarPerfilUsuarioMIASafe } = require('../aprendizaje/miaProfile');
 const { notificarCambioPlan } = require('../../services/planChangeNotifier');
 const { validarPassword } = require('../../shared/passwordPolicy');
 const { maskPhone } = require('../../shared/pii');
+const { validarBody, escalarCorto } = require('../../middleware/validate');
+const { bumpTokenVersion } = require('../../middleware/credentialVersion');
 const {
   storeVerificationCodeOrLegacy,
   verifyStoredCodeOrLegacy,
 } = require('./verificationCodes');
+
+// Validacion de borde (tipos y tamanos); presencia y formato siguen en cada
+// handler para conservar sus mensajes. Los objetos son loose: el resto de
+// campos (preferences, etc.) pasan tal cual.
+const campoTelefono = escalarCorto(32, 'telefono');
+const campoCodigo = escalarCorto(16, 'codigo');
+const campoPassword = escalarCorto(200, 'contrasena');
+const bodyRegistro = {
+  phone: campoTelefono,
+  password: campoPassword,
+  name: escalarCorto(200, 'nombre'),
+  first_name: escalarCorto(120, 'nombre'),
+  firstName: escalarCorto(120, 'nombre'),
+  last_name_1: escalarCorto(120, 'apellido'),
+  lastName1: escalarCorto(120, 'apellido'),
+  last_name_2: escalarCorto(120, 'apellido'),
+  lastName2: escalarCorto(120, 'apellido'),
+  email: escalarCorto(320, 'email'),
+  subscription: escalarCorto(40, 'plan'),
+  preferencias_extra: escalarCorto(4000, 'preferencias_extra'),
+  preferenciasExtra: escalarCorto(4000, 'preferencias_extra'),
+};
 
 module.exports = (app, supabase, ctx) => {
   const {
@@ -47,7 +71,7 @@ module.exports = (app, supabase, ctx) => {
   // --------------------------------------------------
   // REGISTRAR USUARIO (web + bot) + CÓDIGO VERIFICACIÓN + PASSWORD HASH
   // --------------------------------------------------
-  app.post('/register', registerLimiter, async (req, res) => {
+  app.post('/register', registerLimiter, validarBody(bodyRegistro), async (req, res) => {
     let {
       phone,
       name,
@@ -268,7 +292,7 @@ module.exports = (app, supabase, ctx) => {
   // --------------------------------------------------
   // VERIFICAR TELÉFONO CON CÓDIGO
   // --------------------------------------------------
-  app.post('/verify-phone', accountLimiter, async (req, res) => {
+  app.post('/verify-phone', accountLimiter, validarBody({ phone: campoTelefono, code: campoCodigo }), async (req, res) => {
     let { phone, code } = req.body;
 
     if (!phone || !code) {
@@ -352,7 +376,7 @@ module.exports = (app, supabase, ctx) => {
   // REENVIAR CODIGO DE VERIFICACION DE TELEFONO
   // POST /verify-phone/request
   // --------------------------------------------------
-  app.post('/verify-phone/request', accountLimiter, async (req, res) => {
+  app.post('/verify-phone/request', accountLimiter, validarBody({ phone: campoTelefono }), async (req, res) => {
     let { phone } = req.body;
 
     if (!phone) {
@@ -416,7 +440,7 @@ module.exports = (app, supabase, ctx) => {
   // RECUPERAR CONTRASENA: ENVIAR CODIGO POR WHATSAPP
   // POST /password-reset
   // --------------------------------------------------
-  app.post('/password-reset', accountLimiter, async (req, res) => {
+  app.post('/password-reset', accountLimiter, validarBody({ phone: campoTelefono }), async (req, res) => {
     let { phone } = req.body;
 
     if (!phone) {
@@ -485,7 +509,7 @@ module.exports = (app, supabase, ctx) => {
   // RECUPERAR CONTRASEÑA: VERIFICAR CÓDIGO Y CAMBIAR PASSWORD
   // POST /password-reset/verify
   // --------------------------------------------------
-  app.post('/password-reset/verify', accountLimiter, async (req, res) => {
+  app.post('/password-reset/verify', accountLimiter, validarBody({ phone: campoTelefono, code: campoCodigo, password: campoPassword }), async (req, res) => {
     let { phone, code, password } = req.body;
 
     if (!phone || !code || !password) {
@@ -554,6 +578,10 @@ module.exports = (app, supabase, ctx) => {
         console.error('Error actualizando password_hash en reset:', updateError);
         return res.status(500).json({ error: 'Error cambiando contraseña' });
       }
+
+      // Revoca todas las sesiones anteriores: quien resetea la contrasena
+      // (p.ej. por robo de movil) deja fuera cualquier token viejo.
+      await bumpTokenVersion(supabase, 'user', user.id);
 
       // 5) Log opcional
       await supabase.from('logs').insert([

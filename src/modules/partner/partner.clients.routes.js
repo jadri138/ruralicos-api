@@ -1,6 +1,8 @@
 // src/modules/partner/partner.clients.routes.js
 
 const { requireOrg } = require('../../middleware/requireAdmin');
+const { orgClient } = require('./tenantClient');
+const { responderError } = require('../../shared/responderError');
 const { normalizePhone } = require('../../shared/phoneNormalizer');
 const { enviarWhatsAppDirecto } = require('../../platform/whatsapp');
 
@@ -124,15 +126,14 @@ function mensajeBienvenida(nombre, brand) {
 
 // Envia (best-effort, no bloqueante) el WhatsApp de bienvenida si el cliente tiene
 // telefono y no ha desactivado WhatsApp. Nunca rompe el alta si el envio falla.
-async function enviarBienvenidaCliente(supabase, orgId, client) {
+async function enviarBienvenidaCliente(db, client) {
   try {
     const prefs = client.preferences_json && typeof client.preferences_json === 'object' ? client.preferences_json : {};
     if (!client.phone_normalized || prefs.whatsapp_enabled === false) return;
 
-    const { data: org } = await supabase
+    const { data: org } = await db
       .from('organizations')
       .select('name, branding_json')
-      .eq('id', orgId)
       .maybeSingle();
 
     const brand = brandNameFromOrg(org);
@@ -245,7 +246,7 @@ function buildPayload(req, { partial = false } = {}) {
 module.exports = (app, supabase) => {
   app.get('/partner/clients', requireOrg, async (req, res) => {
     try {
-      const orgId = req.org.organizationId;
+      const db = orgClient(supabase, req);
       const filters = {
         q: String(req.query.q || '').trim().toLowerCase(),
         status: String(req.query.status || '').trim(),
@@ -255,21 +256,13 @@ module.exports = (app, supabase) => {
       };
 
       const [clientsResult, zonesResult, organizationResult] = await Promise.all([
-        supabase
+        db
           .from('organization_clients')
           .select('id, organization_id, zone_id, display_name, first_name, last_name, phone, phone_normalized, email, status, client_type, profile_json, preferences_json, notes, last_digest_at, last_interaction_at, created_at, updated_at')
-          .eq('organization_id', orgId)
           .order('created_at', { ascending: false })
           .limit(1000),
-        supabase
-          .from('organization_zones')
-          .select('id, name, color')
-          .eq('organization_id', orgId),
-        supabase
-          .from('organizations')
-          .select('settings_json')
-          .eq('id', orgId)
-          .maybeSingle(),
+        db.from('organization_zones').select('id, name, color'),
+        db.from('organizations').select('settings_json').maybeSingle(),
       ]);
 
       if (clientsResult.error) throw clientsResult.error;
@@ -295,8 +288,7 @@ module.exports = (app, supabase) => {
         },
       });
     } catch (err) {
-      console.error('Error en GET /partner/clients:', err);
-      return res.status(500).json({ error: err.message });
+      return responderError(req, res, err);
     }
   });
 
@@ -304,13 +296,13 @@ module.exports = (app, supabase) => {
     try {
       if (!canWrite(req)) return res.status(403).json({ error: 'Tu rol no permite crear clientes' });
 
+      const db = orgClient(supabase, req);
       const payload = {
         ...buildPayload(req),
-        organization_id: req.org.organizationId,
         created_by_staff_id: req.org.impersonatedBy ? null : req.org.staffId,
       };
 
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from('organization_clients')
         .insert(payload)
         .select('id, organization_id, zone_id, display_name, first_name, last_name, phone, phone_normalized, email, status, client_type, profile_json, preferences_json, notes, last_digest_at, last_interaction_at, created_at, updated_at')
@@ -322,12 +314,11 @@ module.exports = (app, supabase) => {
       }
 
       // Bienvenida por WhatsApp (best-effort, no bloquea la respuesta del alta).
-      enviarBienvenidaCliente(supabase, req.org.organizationId, data);
+      enviarBienvenidaCliente(db, data);
 
       return res.status(201).json({ ok: true, item: publicClient(data) });
     } catch (err) {
-      console.error('Error en POST /partner/clients:', err);
-      return res.status(err.status || 500).json({ error: err.message });
+      return responderError(req, res, err);
     }
   });
 
@@ -339,11 +330,10 @@ module.exports = (app, supabase) => {
       if (!Number.isSafeInteger(clientId) || clientId <= 0) return res.status(400).json({ error: 'client id invalido' });
 
       const payload = buildPayload(req, { partial: true });
-      const { data, error } = await supabase
+      const { data, error } = await orgClient(supabase, req)
         .from('organization_clients')
         .update(payload)
         .eq('id', clientId)
-        .eq('organization_id', req.org.organizationId)
         .select('id, organization_id, zone_id, display_name, first_name, last_name, phone, phone_normalized, email, status, client_type, profile_json, preferences_json, notes, last_digest_at, last_interaction_at, created_at, updated_at')
         .maybeSingle();
 
@@ -355,8 +345,7 @@ module.exports = (app, supabase) => {
 
       return res.json({ ok: true, item: publicClient(data) });
     } catch (err) {
-      console.error('Error en PATCH /partner/clients/:id:', err);
-      return res.status(err.status || 500).json({ error: err.message });
+      return responderError(req, res, err);
     }
   });
 
@@ -367,11 +356,10 @@ module.exports = (app, supabase) => {
       const clientId = Number(req.params.id);
       if (!Number.isSafeInteger(clientId) || clientId <= 0) return res.status(400).json({ error: 'client id invalido' });
 
-      const { data, error } = await supabase
+      const { data, error } = await orgClient(supabase, req)
         .from('organization_clients')
         .update({ status: 'inactive', updated_at: new Date().toISOString() })
         .eq('id', clientId)
-        .eq('organization_id', req.org.organizationId)
         .select('id')
         .maybeSingle();
 
@@ -382,8 +370,7 @@ module.exports = (app, supabase) => {
 
       return res.json({ ok: true });
     } catch (err) {
-      console.error('Error en DELETE /partner/clients/:id:', err);
-      return res.status(500).json({ error: err.message });
+      return responderError(req, res, err);
     }
   });
 };

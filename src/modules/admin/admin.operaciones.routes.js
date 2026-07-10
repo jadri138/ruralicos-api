@@ -375,11 +375,14 @@ app.post('/admin/tareas/scrapers-diario', requireAdmin, async (req, res) => {
         ? req.query.fecha
         : getFechaMadridISO();
       const { inicio, fin } = getRangoDiaMadridUTC(fecha);
+      const estadosPendientesIA = ['pendiente_clasificar', 'pendiente_resumir', 'pendiente_revisar'];
 
       const [
         alertasTotal,
         alertasListas,
         alertasPendientesIA,
+        alertasDescartadas,
+        alertasDuplicadas,
         alertasConEmbedding,
         digestsPreparados,
         digestsEnviados,
@@ -394,7 +397,9 @@ app.post('/admin/tareas/scrapers-diario', requireAdmin, async (req, res) => {
       ] = await Promise.all([
         countQuery(supabase.from('alertas').select('id', { count: 'exact', head: true }).eq('fecha', fecha)),
         countQuery(supabase.from('alertas').select('id', { count: 'exact', head: true }).eq('fecha', fecha).eq('estado_ia', 'listo').is('duplicado_de', null)),
-        countQuery(supabase.from('alertas').select('id', { count: 'exact', head: true }).eq('fecha', fecha).neq('estado_ia', 'listo')),
+        countQuery(supabase.from('alertas').select('id', { count: 'exact', head: true }).eq('fecha', fecha).in('estado_ia', estadosPendientesIA)),
+        countQuery(supabase.from('alertas').select('id', { count: 'exact', head: true }).eq('fecha', fecha).eq('estado_ia', 'descartado')),
+        countQuery(supabase.from('alertas').select('id', { count: 'exact', head: true }).eq('fecha', fecha).eq('estado_ia', 'duplicado')),
         countQuery(supabase.from('alertas').select('id', { count: 'exact', head: true }).eq('fecha', fecha).not('embedding', 'is', null)),
         countQuery(supabase.from('digests').select('id', { count: 'exact', head: true }).eq('fecha', fecha)),
         countQuery(supabase.from('digests').select('id', { count: 'exact', head: true }).eq('fecha', fecha).eq('enviado', true)),
@@ -427,6 +432,8 @@ app.post('/admin/tareas/scrapers-diario', requireAdmin, async (req, res) => {
           alertas_total: alertasTotal,
           alertas_listas: alertasListas,
           alertas_pendientes_ia: alertasPendientesIA,
+          alertas_descartadas: alertasDescartadas,
+          alertas_duplicadas: alertasDuplicadas,
           alertas_con_embedding: alertasConEmbedding,
           digests_preparados: digestsPreparados,
           digests_enviados: digestsEnviados,

@@ -36,6 +36,7 @@ const { getFechaMadridISO, getRangoDiaMadridUTC } = require('../../shared/fechaM
 const { leerPerfilIntereses, ordenarAlertasPorPerfil, clasificarPrioridadAlerta, pesoPrioridad } = require('../aprendizaje');
 const { similitudCoseno }          = require('../../platform/ia/embeddings');
 const { registrarDigestItemsMIA }  = require('../mia/digestItems');
+const { digestViaOutboxHabilitado, encolarDigestsPendientes } = require('./digestOutbox');
 const {
   actualizarDigestAttemptPorDigest,
   registrarDigestAttempt,
@@ -1348,6 +1349,26 @@ module.exports = function digestRoutes(app, supabase) {
         ? req.query.fecha
         : getFechaMadridISO();
       const DELAY_MS = parseInt(process.env.DIGEST_DELAY_MS || '3000', 10);
+
+      // Via cola (DIGEST_VIA_OUTBOX=true): encola los pendientes en mia_outbox
+      // y el drenador de /tareas/mia-outbox los envia con reintentos/backoff.
+      // El envio sincrono de abajo queda como comportamiento por defecto hasta
+      // el cutover (misma filosofia de rollout que pipeline-tick).
+      if (digestViaOutboxHabilitado()) {
+        const encolado = await encolarDigestsPendientes(supabase, { fecha: hoy });
+        return res.json({
+          success: encolado.errores.length === 0,
+          via: 'outbox',
+          fecha: hoy,
+          total: encolado.total,
+          // El pipeline lee `enviados` para el progreso de la fase: encolar
+          // cuenta como procesado (el envio real lo reporta mia_outbox).
+          enviados: encolado.encolados,
+          ya_encolados: encolado.ya_encolados,
+          sin_telefono: encolado.sin_telefono,
+          errores: encolado.errores,
+        });
+      }
 
       // 1) Digests pendientes de hoy
       const { data: digests, error } = await supabase

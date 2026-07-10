@@ -7,7 +7,9 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { requireAdmin } = require('../../middleware/requireAdmin');
+const { bumpTokenVersion } = require('../../middleware/credentialVersion');
 const { validarPassword } = require('../../shared/passwordPolicy');
+const { responderError } = require('../../shared/responderError');
 
 const UNIQUE_VIOLATION = '23505';
 const ROLES_VALIDOS = new Set(['owner', 'admin', 'agent', 'viewer']);
@@ -57,8 +59,7 @@ module.exports = (app, supabase) => {
 
       return res.json({ ok: true, available: true, items: (data || []).map(publicStaff) });
     } catch (err) {
-      console.error('Error en GET /admin/organizations/:id/staff:', err);
-      return res.status(500).json({ error: err.message });
+      return responderError(req, res, err);
     }
   });
 
@@ -115,8 +116,7 @@ module.exports = (app, supabase) => {
 
       return res.status(201).json({ ok: true, item: publicStaff(data) });
     } catch (err) {
-      console.error('Error en POST /admin/organizations/:id/staff:', err);
-      return res.status(500).json({ error: err.message });
+      return responderError(req, res, err);
     }
   });
 
@@ -171,10 +171,14 @@ module.exports = (app, supabase) => {
       if (error) throw error;
       if (!data) return res.status(404).json({ error: 'Cuenta no encontrada' });
 
+      // Cambio de contrasena o desactivacion: revoca las sesiones vivas del staff.
+      if (updates.password_hash || updates.status === 'disabled') {
+        await bumpTokenVersion(supabase, 'org', staffId);
+      }
+
       return res.json({ ok: true, item: publicStaff(data) });
     } catch (err) {
-      console.error('Error en PATCH /admin/organizations/:id/staff/:staffId:', err);
-      return res.status(500).json({ error: err.message });
+      return responderError(req, res, err);
     }
   });
 
@@ -239,8 +243,7 @@ module.exports = (app, supabase) => {
         },
       });
     } catch (err) {
-      console.error('Error en POST /admin/organizations/:id/impersonate:', err);
-      return res.status(500).json({ error: err.message });
+      return responderError(req, res, err);
     }
   });
 
@@ -263,8 +266,7 @@ module.exports = (app, supabase) => {
 
       return res.json({ ok: true });
     } catch (err) {
-      console.error('Error en DELETE /admin/organizations/:id/staff/:staffId:', err);
-      return res.status(500).json({ error: err.message });
+      return responderError(req, res, err);
     }
   });
 };

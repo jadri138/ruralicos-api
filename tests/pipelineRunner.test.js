@@ -17,7 +17,7 @@ process.env.CRON_TOKEN = process.env.CRON_TOKEN || 'token-de-test-suficiente';
 process.env.PIPELINE_SCRAPE_PATHS = '/scrape-test-oficial';
 
 const assert = require('assert');
-const { ejecutarPipelineTick, crearEjecutorHttp } = require('../src/modules/tareas/pipelineRunner');
+const { ejecutarPipelineTick, crearEjecutorHttp, verificarBaseUrlInterna } = require('../src/modules/tareas/pipelineRunner');
 const { crearPipelineJobsStore } = require('../src/modules/tareas/pipelineJobs');
 
 let passed = 0;
@@ -551,6 +551,63 @@ async function main() {
     } finally {
       global.fetch = originalFetch;
     }
+  });
+
+  // --- Preflight de la base URL interna ---------------------------------------
+
+  console.log('\n--- preflight base URL interna ---\n');
+
+  await test('preflight fallido: devuelve preflight_failed sin crear ni reclamar el job', async () => {
+    const store = crearStoreFake();
+    const r = await ejecutarPipelineTick(
+      {},
+      {
+        fecha: FECHA,
+        store,
+        preflight: async () => ({ ok: false, error: 'no responde: sin respuesta tras 5000ms' }),
+      }
+    );
+
+    assert.strictEqual(r.ok, false);
+    assert.strictEqual(r.tick, 'preflight_failed');
+    assert(/no responde/.test(r.error), 'el motivo del preflight debe llegar en la respuesta');
+    assert.strictEqual(store.log.reclamos, 0, 'no debe reclamar el job');
+    assert.strictEqual(store.log.guardados.length, 0, 'no debe escribir checkpoints');
+    assert.strictEqual(store.job.status, 'pending', 'el job no debe cambiar de estado');
+  });
+
+  await test('verificarBaseUrlInterna: ok cuando /health responde 200', async () => {
+    const urls = [];
+    const salud = await verificarBaseUrlInterna('https://api.example.com', {
+      timeoutMs: 1000,
+      fetchImpl: async (url) => {
+        urls.push(url);
+        return { ok: true, status: 200 };
+      },
+    });
+    assert.strictEqual(salud.ok, true);
+    assert.deepStrictEqual(urls, ['https://api.example.com/health']);
+  });
+
+  await test('verificarBaseUrlInterna: un host que nunca responde corta por timeout', async () => {
+    const salud = await verificarBaseUrlInterna('https://colgado.example.com', {
+      timeoutMs: 30,
+      // Imita el fetch real: solo termina cuando se aborta via signal.
+      fetchImpl: (url, { signal }) => new Promise((_, reject) => {
+        signal.addEventListener('abort', () => {
+          reject(Object.assign(new Error('This operation was aborted'), { name: 'AbortError' }));
+        });
+      }),
+    });
+    assert.strictEqual(salud.ok, false);
+    assert(/sin respuesta tras 30ms/.test(salud.error), `motivo inesperado: ${salud.error}`);
+  });
+
+  await test('verificarBaseUrlInterna: base URL vacia falla sin llamar a fetch', async () => {
+    let llamado = false;
+    const salud = await verificarBaseUrlInterna('', { fetchImpl: async () => { llamado = true; } });
+    assert.strictEqual(salud.ok, false);
+    assert.strictEqual(llamado, false);
   });
 
   // --- Store real (crearPipelineJobsStore) contra un fake de supabase ---------
