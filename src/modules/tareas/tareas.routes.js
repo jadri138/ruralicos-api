@@ -501,7 +501,7 @@ module.exports = function tareasRoutes(app, supabase) {
         shadow,
         reset: boolValue(req.query.reset, false),
         force: boolValue(req.query.force, false),
-        budgetMs: Math.max(5000, Math.min(10 * 60 * 1000, Number(req.query.budget_ms || process.env.PIPELINE_TICK_BUDGET_MS || 55000))),
+        budgetMs: Math.max(5000, Math.min(10 * 60 * 1000, Number(req.query.budget_ms || process.env.PIPELINE_TICK_BUDGET_MS || 50000))),
         baseUrl: getBaseUrl(req),
         token: process.env.CRON_TOKEN,
         jobOptions: {

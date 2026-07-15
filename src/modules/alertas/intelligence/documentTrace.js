@@ -20,7 +20,6 @@ const DEFAULT_SELECT = [
   'capture_status',
   'capture_reason',
   'metadata_json',
-  'organization_id',
   'inserted_alerta_id',
   'created_at',
   'updated_at',

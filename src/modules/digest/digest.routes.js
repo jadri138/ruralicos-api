@@ -458,12 +458,12 @@ module.exports = function digestRoutes(app, supabase) {
             fecha: hoy,
             kind: 'daily',
             status: 'skipped_existing',
-            digestId: digestExistente.id,
             totalAlertasDia,
             trasQualityGate: alertas.length,
             metadata: {
               plan: plan.nombre,
               enviado: Boolean(digestExistente.enviado),
+              existing_digest_id: digestExistente.id,
             },
           });
           saltados++;

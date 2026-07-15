@@ -195,13 +195,13 @@ async function ejecutarPipelineTick(supabase, opcionesTick = {}) {
     shadow = false,
     reset = false,
     force = false,
-    budgetMs = Number(process.env.PIPELINE_TICK_BUDGET_MS || 55000),
+    budgetMs = Number(process.env.PIPELINE_TICK_BUDGET_MS || 50000),
+    httpTimeoutMs = Number(process.env.PIPELINE_HTTP_TIMEOUT_MS || 20000),
     // Reserva de presupuesto: no se arranca una request nueva si no cabe entera
     // antes del deadline. Asi ninguna llamada rebasa el timeout de proxy de
-    // Render (~55s). En prod se pone = PIPELINE_HTTP_TIMEOUT_MS; 0 = comportamiento
-    // antiguo (los tests inyectan reloj y no lo necesitan).
-    reservaMs = Number(process.env.PIPELINE_TICK_RESERVE_MS || 0),
-    httpTimeoutMs = Number(process.env.PIPELINE_HTTP_TIMEOUT_MS || 20000),
+    // Render (~55s). Por defecto coincide con el timeout duro; los tests pueden
+    // inyectar 0 cuando usan un reloj sintetico.
+    reservaMs = undefined,
     staleMs = Number(process.env.PIPELINE_TICK_STALE_MS || 5 * 60 * 1000),
     maxAttempts = Number(process.env.PIPELINE_STAGE_MAX_ATTEMPTS || 3),
     maxLoops = Number(process.env.PIPELINE_MAX_LOOPS || 40),
@@ -222,6 +222,10 @@ async function ejecutarPipelineTick(supabase, opcionesTick = {}) {
     sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     ahora = () => Date.now(),
   } = opcionesTick;
+
+  const reservaTickMs = reservaMs === undefined
+    ? Number(process.env.PIPELINE_TICK_RESERVE_MS || (ejecutarParam ? 0 : httpTimeoutMs))
+    : Number(reservaMs);
 
   // Preflight de la base URL interna. Solo en modo real: los tests inyectan
   // `ejecutar` y no hacen self-fetch. Inyectable via opcionesTick.preflight.
@@ -296,8 +300,9 @@ async function ejecutarPipelineTick(supabase, opcionesTick = {}) {
   }
 
   const nowISO = () => new Date(ahora()).toISOString();
-  // Reserva: exige que quepa una request entera (reservaMs) antes del deadline.
-  const quedaPresupuesto = () => ahora() + reservaMs < deadline;
+  // Reserva: exige que quepa una request entera antes del deadline. Los tests
+  // con ejecutor inyectado conservan 0 salvo que indiquen otra reserva.
+  const quedaPresupuesto = () => ahora() + reservaTickMs < deadline;
 
   async function checkpoint(currentStage, extraPatch = {}) {
     await store.guardar({

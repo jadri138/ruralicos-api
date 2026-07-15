@@ -40,6 +40,7 @@ function fakeSupabase({ digests = [], users = [], insertError = null } = {}) {
       in() { return chain; },
       or() { return chain; },
       order() { return chain; },
+      limit() { return chain; },
       insert(row) {
         inserts.push({ table, row });
         const error = typeof insertError === 'function' ? insertError(row) : insertError;
@@ -51,7 +52,13 @@ function fakeSupabase({ digests = [], users = [], insertError = null } = {}) {
       },
       maybeSingle() { return Promise.resolve({ data: null, error: null }); },
       then(resolve) {
-        const data = table === 'digests' ? digests : table === 'users' ? users : [];
+        const data = table === 'digests'
+          ? digests
+          : table === 'users'
+            ? users
+            : table === 'digest_attempts'
+              ? [{ id: 900, kind: 'daily', status: 'generated', created_at: '2026-07-08T09:00:00Z' }]
+              : [];
         resolve({ data, error: null });
       },
     };
@@ -141,6 +148,8 @@ async function main() {
     const updDigest = supabase.updates.find((u) => u.table === 'digests');
     assert.strictEqual(updDigest.patch.enviado, true);
     assert(updDigest.patch.enviado_at, 'sella enviado_at');
+    const updAttempt = supabase.updates.find((u) => u.table === 'digest_attempts');
+    assert.strictEqual(updAttempt.patch.status, 'sent');
   });
 
   await test('fallo con reintentos pendientes: anota error pero NO cierra el attempt', async () => {
@@ -165,6 +174,8 @@ async function main() {
       status: 'failed', retryable: false, error: 'numero bloqueado',
     });
     assert.strictEqual(r.marcado, 'failed_final');
+    const updAttempt = supabase.updates.find((u) => u.table === 'digest_attempts');
+    assert.strictEqual(updAttempt.patch.status, 'failed');
   });
 
   await test('item ajeno al digest: no toca nada', async () => {

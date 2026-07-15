@@ -107,6 +107,31 @@ async function registrarDigestAttempt(supabase, input = {}) {
   }
 }
 
+function seleccionarDigestAttemptCanonico(attempts = []) {
+  const statusPriority = {
+    rescued: 60,
+    generated: 50,
+    evaluating: 40,
+    sent: 30,
+    failed: 20,
+    skipped_existing: 10,
+    no_send: 0,
+  };
+
+  return [...attempts]
+    .filter((attempt) => attempt?.id)
+    .sort((a, b) => {
+      // Un rescate sustituye al intento diario sin coincidencias. Si por datos
+      // historicos ambos quedaron enlazados al mismo digest, solo el rescate
+      // representa el envio real.
+      const rescueDiff = Number(b.kind === 'rescue') - Number(a.kind === 'rescue');
+      if (rescueDiff !== 0) return rescueDiff;
+      const statusDiff = (statusPriority[b.status] ?? -1) - (statusPriority[a.status] ?? -1);
+      if (statusDiff !== 0) return statusDiff;
+      return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
+    })[0] || null;
+}
+
 async function actualizarDigestAttemptPorDigest(supabase, digestId, patch = {}) {
   if (!supabase || !digestId) {
     return { ok: false, available: false, reason: 'invalid_digest_attempt_update' };
@@ -126,13 +151,26 @@ async function actualizarDigestAttemptPorDigest(supabase, digestId, patch = {}) 
   row.updated_at = new Date().toISOString();
 
   try {
+    const { data: attempts, error: lookupError } = await supabase
+      .from('digest_attempts')
+      .select('id, kind, status, created_at')
+      .eq('digest_id', digestId)
+      .order('created_at', { ascending: false })
+      .limit(20);
+
+    if (lookupError) throw lookupError;
+    const canonical = seleccionarDigestAttemptCanonico(attempts);
+    if (!canonical) {
+      return { ok: false, available: true, reason: 'digest_attempt_not_found' };
+    }
+
     const { error } = await supabase
       .from('digest_attempts')
       .update(row)
-      .eq('digest_id', digestId);
+      .eq('id', canonical.id);
 
     if (error) throw error;
-    return { ok: true, available: true };
+    return { ok: true, available: true, id: canonical.id };
   } catch (error) {
     console.warn('[digest_attempts] No se pudo actualizar intento:', error.message);
     return { ok: false, available: false, error: error.message };
@@ -143,4 +181,5 @@ module.exports = {
   actualizarDigestAttemptPorDigest,
   construirDigestAttemptRow,
   registrarDigestAttempt,
+  seleccionarDigestAttemptCanonico,
 };

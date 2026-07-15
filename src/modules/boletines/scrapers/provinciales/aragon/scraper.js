@@ -11,10 +11,9 @@ const {
 
 const { esProvincialRelevante } = require('../shared/provincialFilter');
 
-const BOPZ_BASE = 'https://boletin.dpz.es';
-const BOPZ_PORTADA = `${BOPZ_BASE}/BOPZ/`;
+const BOPZ_DEFAULT_BASES = ['https://bop.dpz.es', 'https://boletin.dpz.es'];
 const BOPH_BASE = 'https://bop.dphuesca.es';
-const BOPH_DIA = `${BOPH_BASE}/index.php/mod.menus/mem.detalle/idmenu.50004/seccion.portal/chk.bcf2d2adca169242e8c4578dcc86d6cf.html`;
+const BOPH_PORTADA = `${BOPH_BASE}/publica/consulta-de-bops/`;
 const BOPT_BASE = 'https://236ws.dpteruel.es';
 const BOPT_DIA = `${BOPT_BASE}/DPT/bopt.nsf/inicio.xsp`;
 
@@ -41,6 +40,14 @@ function decodeLatin1(buffer) {
   return Buffer.from(buffer).toString('latin1');
 }
 
+function bopzBases(env = process.env) {
+  const configured = String(env.BOPZ_BASE_URLS || '')
+    .split(',')
+    .map((value) => value.trim().replace(/\/+$/, ''))
+    .filter((value) => /^https:\/\//i.test(value));
+  return [...new Set([...configured, ...BOPZ_DEFAULT_BASES])];
+}
+
 async function getHtml(url, options = {}) {
   const timeout = Number(options.timeout || process.env.BOP_ARAGON_HTML_TIMEOUT_MS || 45000);
   const attempts = Math.max(1, Number(options.attempts || process.env.BOP_ARAGON_HTML_ATTEMPTS || 2));
@@ -48,13 +55,18 @@ async function getHtml(url, options = {}) {
 
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
-      const { data } = await axios.get(url, {
+      const extraHeaders = {};
+      if (options.referer) extraHeaders.Referer = options.referer;
+      if (options.cookie) extraHeaders.Cookie = options.cookie;
+      const response = await axios.get(url, {
         responseType: 'arraybuffer',
         timeout,
         httpsAgent: options.insecure ? agenteResilienteInseguro : agenteResiliente,
-        headers: cabecerasNavegador({ Referer: options.referer }),
+        headers: cabecerasNavegador(extraHeaders),
       });
-      return options.latin1 ? decodeLatin1(data) : Buffer.from(data).toString('utf8');
+      const { data } = response;
+      const html = options.latin1 ? decodeLatin1(data) : Buffer.from(data).toString('utf8');
+      return options.withHeaders ? { html, headers: response.headers } : html;
     } catch (err) {
       lastError = err;
       if (attempt < attempts) {
@@ -94,7 +106,7 @@ function fechaTextoAISO(texto) {
     return mes ? `${match[3]}-${mes}-${dia}` : null;
   }
 
-  match = normal.match(/\b(\d{1,2})-(\d{1,2})-(\d{4})\b/);
+  match = normal.match(/\b(\d{1,2})[-/](\d{1,2})[-/](\d{4})\b/);
   if (match) {
     return `${match[3]}-${String(match[2]).padStart(2, '0')}-${String(match[1]).padStart(2, '0')}`;
   }
@@ -109,7 +121,7 @@ function generarTitulo(fuente, titulo, fecha) {
   return `${fuente} - ${normalizarEspacios(titulo).slice(0, 180)} (${fecha})`;
 }
 
-function extraerBopzSumario(html) {
+function extraerBopzSumario(html, { baseUrl = BOPZ_DEFAULT_BASES[0] } = {}) {
   const $ = cheerio.load(html);
   const numBop = $('input[name="numBop"]').toArray().map((el) => $(el).attr('value')).find(Boolean) || '';
   const fechaPub = $('input[name="fechaPub"]').toArray().map((el) => $(el).attr('value')).find(Boolean) || '';
@@ -123,7 +135,7 @@ function extraerBopzSumario(html) {
     if (!id || !titulo) return;
 
     const organismo = normalizarEspacios($(el).closest('.row').prevAll('.row').first().text());
-    const pagina = `${BOPZ_BASE}/BOPZ/obtenerContenidoEdicto.do?idEdicto=${encodeURIComponent(id)}&numBop=${encodeURIComponent(numBop)}&fechaPub=${encodeURIComponent(fechaPub)}`;
+    const pagina = `${baseUrl}/BOPZ/obtenerContenidoEdicto.do?idEdicto=${encodeURIComponent(id)}&numBop=${encodeURIComponent(numBop)}&fechaPub=${encodeURIComponent(fechaPub)}`;
 
     docs.push({
       id,
@@ -142,24 +154,37 @@ function extraerBopzSumario(html) {
 }
 
 async function obtenerDocumentosBopzConTexto(fechaISO) {
-  let html;
-  try {
-    html = await getHtml(BOPZ_PORTADA, {
-      insecure: true,
-      latin1: true,
-      timeout: Number(process.env.BOPZ_HTML_TIMEOUT_MS || 40000),
-      attempts: Number(process.env.BOPZ_HTML_ATTEMPTS || 3),
-    });
-  } catch (error) {
-    // Fuente del BOPZ caida o timeout (boletin.dpz.es): log operativo claro y se
-    // propaga para que la ejecucion quede marcada como error diagnosticable.
-    // La IP conocida distingue "DNS irresoluble" de "conexion bloqueada/lenta".
-    const ip = ipConocida('boletin.dpz.es');
-    error.message = `${error.message} [BOPZ ip=${ip ? `${ip.ip} (${ip.origen})` : 'sin resolver'}]`;
+  let html = '';
+  let baseUrl = '';
+  const errores = [];
+
+  // La Diputacion publica el mismo BOP bajo dos hostnames. Desde Render el
+  // hostname historico lleva dias agotando el timeout aunque ambos respondan
+  // desde otras redes; probarlos por separado evita perder toda la fuente.
+  for (const candidateBase of bopzBases()) {
+    try {
+      html = await getHtml(`${candidateBase}/BOPZ/`, {
+        insecure: true,
+        latin1: true,
+        timeout: Number(process.env.BOPZ_HTML_TIMEOUT_MS || 15000),
+        attempts: Number(process.env.BOPZ_HTML_ATTEMPTS || 1),
+      });
+      baseUrl = candidateBase;
+      break;
+    } catch (error) {
+      const hostname = new URL(candidateBase).hostname;
+      const ip = ipConocida(hostname);
+      errores.push(`${hostname}: ${error.message} [ip=${ip ? `${ip.ip} (${ip.origen})` : 'sin resolver'}]`);
+    }
+  }
+
+  if (!html || !baseUrl) {
+    const error = new Error(`ningun endpoint oficial respondio (${errores.join(' | ')})`);
     console.error(`[BOPZ] Error operativo obteniendo el sumario/portada: ${error.message}`);
     throw error;
   }
-  const candidatos = extraerBopzSumario(html);
+
+  const candidatos = extraerBopzSumario(html, { baseUrl });
   console.log(`[BOPZ] ${candidatos.length} documentos detectados en el sumario`);
 
   if (fechaISO && candidatos[0]?.fecha && candidatos[0].fecha !== fechaISO) return [];
@@ -172,7 +197,7 @@ async function obtenerDocumentosBopzConTexto(fechaISO) {
     try {
       htmlDetalle = await getHtml(doc.urlHtml, {
         insecure: true,
-        referer: BOPZ_PORTADA,
+        referer: `${baseUrl}/BOPZ/`,
         latin1: true,
         timeout: Number(process.env.BOPZ_DETAIL_TIMEOUT_MS || 45000),
         attempts: Number(process.env.BOPZ_DETAIL_ATTEMPTS || 2),
@@ -201,7 +226,7 @@ async function obtenerDocumentosBopzConTexto(fechaISO) {
   return docs;
 }
 
-function extraerBophEntradas(html) {
+function extraerBophEntradasLegacy(html) {
   const $ = cheerio.load(html);
   const texto = normalizarEspacios($('body').text());
   const fecha = fechaTextoAISO(texto) || '';
@@ -238,9 +263,119 @@ function extraerBophEntradas(html) {
   return docs;
 }
 
+function extraerCookieHeader(headers = {}) {
+  const setCookie = headers['set-cookie'];
+  const values = Array.isArray(setCookie) ? setCookie : (setCookie ? [setCookie] : []);
+  return values
+    .map((value) => String(value).split(';')[0].trim())
+    .filter(Boolean)
+    .join('; ');
+}
+
+function extraerBophListadoUrl(html) {
+  const $ = cheerio.load(html);
+  const href = $('a[href*="/publica/consulta-de-bops/buscador/BOP-"]').first().attr('href');
+  return absoluteUrl(href, BOPH_BASE);
+}
+
+function extraerBophTotalPaginas(html) {
+  const $ = cheerio.load(html);
+  let total = 1;
+  $('a[href*="page="]').each((_, element) => {
+    const page = Number((($(element).attr('href') || '').match(/[?&]page=(\d+)/) || [])[1]);
+    if (Number.isFinite(page)) total = Math.max(total, page);
+  });
+  return total;
+}
+
+function extraerBophPdfUrl(html) {
+  const $ = cheerio.load(html);
+  const href = $('a[href*="Documentos-Anuncios-en-PDF"], a[href$=".pdf"]')
+    .toArray()
+    .map((element) => $(element).attr('href'))
+    .find(Boolean);
+  return absoluteUrl(href, BOPH_BASE);
+}
+
+function extraerBophEntradas(html) {
+  const $ = cheerio.load(html);
+  const texto = normalizarEspacios($('body').text());
+  const boletin = (texto.match(/BOP\s*(?:n[uú]m\.?|n[ºo]\.?|numero)?\s*(\d+)/i) || [])[1] || '';
+  const docs = [];
+
+  $('li.elementoListado').each((_, element) => {
+    const item = $(element);
+    const link = item.find('a.enlace_elemento[href]').first();
+    const titulo = normalizarEspacios(item.find('h3.titulo_elemento').first().text() || link.attr('title'));
+    const href = link.attr('href') || '';
+    const fecha = fechaTextoAISO(item.find('.fecha_elemento').first().text()) || fechaTextoAISO(texto) || '';
+    const organismo = normalizarEspacios(item.find('.campo_1').first().text());
+    const seccion = normalizarEspacios(item.find('.campo_2').first().text());
+    const idOficial = normalizarEspacios(item.find('.campo_3').first().text());
+    if (!titulo || !href) return;
+
+    const url = absoluteUrl(href, BOPH_BASE);
+    docs.push({
+      titulo,
+      url,
+      urlHtml: url,
+      urlPdf: '',
+      fecha,
+      boletin,
+      idOficial,
+      organismo,
+      seccion,
+      contexto: normalizarEspacios(`${organismo} ${seccion} ${titulo}`),
+    });
+  });
+
+  return docs.length > 0 ? docs : extraerBophEntradasLegacy(html);
+}
+
 async function obtenerDocumentosBophConTexto(fechaISO) {
-  const html = await getHtml(BOPH_DIA, { latin1: true });
-  const candidatos = extraerBophEntradas(html);
+  const portadaResponse = await getHtml(BOPH_PORTADA, { withHeaders: true });
+  const portadaHtml = portadaResponse.html;
+  let cookie = extraerCookieHeader(portadaResponse.headers);
+  const listadoUrl = extraerBophListadoUrl(portadaHtml);
+  if (!listadoUrl) throw new Error('BOPH no publico enlace al boletin del dia');
+
+  const listadoResponse = await getHtml(listadoUrl, { withHeaders: true, cookie });
+  const primeraPagina = listadoResponse.html;
+  cookie = extraerCookieHeader(listadoResponse.headers) || cookie;
+  const paginas = Math.min(20, extraerBophTotalPaginas(primeraPagina));
+  const candidatosPorId = new Map(
+    extraerBophEntradas(primeraPagina).map((doc) => [doc.idOficial || doc.url, doc])
+  );
+
+  // El buscador se sirve desde varios nodos con instantaneas de paginacion
+  // distintas: la misma pagina puede devolver 15 elementos pero solapar cuatro
+  // con la anterior. Recorremos unas pocas instantaneas y unimos por ID oficial
+  // para no perder anuncios (observado en produccion el 15-07-2026: 31 vs 35).
+  let pasadasSinNuevos = 0;
+  for (let pasada = 0; pasada < 6 && pasadasSinNuevos < 3; pasada++) {
+    const totalAntes = candidatosPorId.size;
+    let cookiePasada = cookie;
+
+    if (pasada > 0) {
+      // Sesion nueva para poder caer en otra instantanea/nodo del buscador.
+      const refresco = await getHtml(listadoUrl, { withHeaders: true });
+      cookiePasada = extraerCookieHeader(refresco.headers);
+      for (const doc of extraerBophEntradas(refresco.html)) {
+        candidatosPorId.set(doc.idOficial || doc.url, doc);
+      }
+    }
+
+    for (let page = 2; page <= paginas; page++) {
+      const separador = listadoUrl.includes('?') ? '&' : '?';
+      const pageHtml = await getHtml(`${listadoUrl}${separador}reloaded&page=${page}`, { cookie: cookiePasada });
+      for (const doc of extraerBophEntradas(pageHtml)) {
+        candidatosPorId.set(doc.idOficial || doc.url, doc);
+      }
+    }
+    pasadasSinNuevos = candidatosPorId.size === totalAntes ? pasadasSinNuevos + 1 : 0;
+  }
+
+  const candidatos = [...candidatosPorId.values()];
 
   if (fechaISO && candidatos[0]?.fecha && candidatos[0].fecha !== fechaISO) return [];
 
@@ -254,14 +389,22 @@ async function obtenerDocumentosBophConTexto(fechaISO) {
     }
 
     let texto = doc.contexto;
+    let urlPdf = '';
     try {
-      texto = (await getPdfText(doc.urlPdf, { referer: BOPH_DIA })).slice(0, 15000) || doc.contexto;
+      const detalleHtml = await getHtml(doc.urlHtml, { referer: listadoUrl });
+      urlPdf = extraerBophPdfUrl(detalleHtml);
+      if (urlPdf) {
+        texto = (await getPdfText(urlPdf, { referer: doc.urlHtml })).slice(0, 15000) || doc.contexto;
+      } else {
+        texto = htmlATexto(detalleHtml).slice(0, 15000) || doc.contexto;
+      }
     } catch {
       texto = doc.contexto;
     }
 
     docs.push({
       ...doc,
+      urlPdf,
       titulo: generarTitulo('BOPH', doc.titulo, doc.fecha),
       texto,
       _relevante: true,
@@ -335,4 +478,14 @@ module.exports = {
   obtenerDocumentosBopzConTexto,
   obtenerDocumentosBophConTexto,
   obtenerDocumentosBoptConTexto,
+  __testing: {
+    bopzBases,
+    fechaTextoAISO,
+    extraerBopzSumario,
+    extraerBophListadoUrl,
+    extraerBophTotalPaginas,
+    extraerBophPdfUrl,
+    extraerBophEntradas,
+    extraerCookieHeader,
+  },
 };

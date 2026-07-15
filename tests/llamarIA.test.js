@@ -39,6 +39,24 @@ function respuestaError(status, body = '{"error":{"message":"boom"}}') {
   };
 }
 
+function respuestaIncompleta(id = 'resp_incomplete_1') {
+  return {
+    ok: true,
+    status: 200,
+    json: async () => ({
+      id,
+      status: 'incomplete',
+      incomplete_details: { reason: 'max_output_tokens' },
+      usage: {
+        input_tokens: 100,
+        output_tokens: 500,
+        output_tokens_details: { reasoning_tokens: 500 },
+        total_tokens: 600,
+      },
+    }),
+  };
+}
+
 function fakeFetch(secuencia) {
   const llamadas = [];
   const fetchImpl = async (url, opts) => {
@@ -75,6 +93,32 @@ async function main() {
     const texto = await llamarIA('p', 'i', 'gpt-5-nano', { ...OPTS_RAPIDAS, fetchImpl });
     assert.strictEqual(texto, 'segundo intento');
     assert.strictEqual(llamadas.length, 2);
+    assert.deepStrictEqual(JSON.parse(llamadas[0].opts.body).reasoning, { effort: 'minimal' });
+  });
+
+  await test('reintenta una respuesta incomplete y amplia el presupuesto de salida', async () => {
+    const { fetchImpl, llamadas } = fakeFetch([
+      respuestaIncompleta('resp_budget'),
+      respuestaOk('{"ok":true}'),
+    ]);
+    const texto = await llamarIA('p', 'i', 'gpt-5-nano', {
+      ...OPTS_RAPIDAS,
+      fetchImpl,
+      maxOutputTokens: 500,
+    });
+    assert.strictEqual(texto, '{"ok":true}');
+    assert.strictEqual(llamadas.length, 2);
+    assert.strictEqual(JSON.parse(llamadas[0].opts.body).max_output_tokens, 500);
+    assert.strictEqual(JSON.parse(llamadas[1].opts.body).max_output_tokens, 4000);
+  });
+
+  await test('explica el motivo y response_id si una respuesta incomplete no puede reintentarse', async () => {
+    const { fetchImpl, llamadas } = fakeFetch([respuestaIncompleta('resp_sin_margen')]);
+    await assert.rejects(
+      () => llamarIA('p', 'i', 'gpt-5-nano', { retries: 0, retryDelayMs: 1, fetchImpl }),
+      /max_output_tokens.*resp_sin_margen/
+    );
+    assert.strictEqual(llamadas.length, 1);
   });
 
   await test('reintenta en error de red y termina bien', async () => {

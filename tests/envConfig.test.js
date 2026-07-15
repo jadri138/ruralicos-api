@@ -22,7 +22,7 @@ const ENV_COMPLETO = {
   JWT_SECRET: 'un-secreto-suficientemente-largo',
   CRON_TOKEN: 'token-cron-largo',
   OPENAI_API_KEY: 'sk-test',
-  PUBLIC_BASE_URL: 'https://api.ruralicos.es',
+  PUBLIC_BASE_URL: 'https://ruralicos-api.onrender.com',
   ULTRAMSG_INSTANCE_ID: 'instance',
   ULTRAMSG_TOKEN: 'token',
   ULTRAMSG_WEBHOOK_TOKEN: 'webhook',
@@ -51,7 +51,7 @@ test('detecta variables criticas ausentes', () => {
 test('detecta formatos invalidos (URL sin http, secretos cortos)', () => {
   const r = validarEntorno({
     ...ENV_COMPLETO,
-    PUBLIC_BASE_URL: 'api.ruralicos.es',
+    PUBLIC_BASE_URL: 'ruralicos-api.onrender.com',
     JWT_SECRET: 'corto',
   });
   assert.strictEqual(r.ok, false);

@@ -1,3 +1,5 @@
+const RETIRED_HOSTS = new Set(['api.ruralicos.es']);
+
 function normalizarBaseUrl(value) {
   const text = String(value || '').trim().replace(/\/+$/, '');
   if (!text) return '';
@@ -5,6 +7,7 @@ function normalizarBaseUrl(value) {
   try {
     const url = new URL(text);
     if (!['http:', 'https:'].includes(url.protocol)) return '';
+    if (RETIRED_HOSTS.has(url.hostname.toLowerCase())) return '';
     return url.toString().replace(/\/+$/, '');
   } catch {
     return '';

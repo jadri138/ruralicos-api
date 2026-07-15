@@ -123,9 +123,9 @@ Ver `.env.example` (seccion "Runner de pipeline con checkpoints"):
 | Variable | Default | Que hace |
 | --- | --- | --- |
 | `PIPELINE_TICK_SHADOW` | `true` | Sombra on/off. `false` = cutover real. |
-| `PIPELINE_TICK_BUDGET_MS` | `55000` | Presupuesto por tick (≈ timeout de proxy de Render). |
+| `PIPELINE_TICK_BUDGET_MS` | `50000` | Presupuesto por tick con margen frente al timeout de proxy de Render. |
 | `PIPELINE_HTTP_TIMEOUT_MS` | `20000` | Timeout duro por request HTTP del tick (evita cuelgues). |
-| `PIPELINE_TICK_RESERVE_MS` | `0` | Reserva de presupuesto: no arranca una request que no quepa antes del deadline. Ponlo `= PIPELINE_HTTP_TIMEOUT_MS`. |
+| `PIPELINE_TICK_RESERVE_MS` | `PIPELINE_HTTP_TIMEOUT_MS` | Reserva de presupuesto: no arranca una request que no quepa antes del deadline. |
 | `PIPELINE_TICK_STALE_MS` | `300000` | Antiguedad del heartbeat tras la que otro tick roba un claim colgado (y umbral de reset sobre `running`). < intervalo del cron. |
 | `PIPELINE_PREFLIGHT_TIMEOUT_MS` | `5000` | Timeout del preflight `baseUrl/health` antes de reclamar el job. |
 | `PIPELINE_STAGE_MAX_ATTEMPTS` | `3` | Reintentos por fase antes de `failed` (el cron hace de backoff). |

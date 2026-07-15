@@ -39,6 +39,15 @@ test('normaliza URL valida y quita barra final', () => {
   assert.strictEqual(normalizarBaseUrl('https://ruralicos-api.onrender.com///'), 'https://ruralicos-api.onrender.com');
   assert.strictEqual(normalizarBaseUrl('ftp://ruralicos-api.onrender.com'), '');
   assert.strictEqual(normalizarBaseUrl('no-es-url'), '');
+  assert.strictEqual(normalizarBaseUrl('https://api.ruralicos.es'), '', 'rechaza el dominio retirado');
+});
+
+test('un override retirado cae al host real de la peticion', () => {
+  const req = fakeReq({ host: 'ruralicos-api.onrender.com' });
+  assert.strictEqual(
+    getInternalBaseUrl(req, { PIPELINE_INTERNAL_BASE_URL: 'https://api.ruralicos.es' }),
+    'https://ruralicos-api.onrender.com'
+  );
 });
 
 test('construye base desde request y x-forwarded-proto', () => {
@@ -54,7 +63,7 @@ test('PIPELINE_INTERNAL_BASE_URL gana si esta configurada', () => {
   const req = fakeReq({ host: 'ruralicos-api.onrender.com' });
   const env = {
     PIPELINE_INTERNAL_BASE_URL: 'https://internal.example.com/',
-    PUBLIC_BASE_URL: 'https://api.ruralicos.es',
+    PUBLIC_BASE_URL: 'https://public.example.com',
   };
 
   assert.strictEqual(getInternalBaseUrl(req, env), 'https://internal.example.com');
@@ -66,7 +75,7 @@ test('sin override usa host real de la peticion antes que PUBLIC_BASE_URL', () =
     'x-forwarded-proto': 'https',
   });
   const env = {
-    PUBLIC_BASE_URL: 'https://api.ruralicos.es',
+    PUBLIC_BASE_URL: 'https://public.example.com',
   };
 
   assert.strictEqual(getInternalBaseUrl(req, env), 'https://ruralicos-api.onrender.com');
@@ -74,8 +83,8 @@ test('sin override usa host real de la peticion antes que PUBLIC_BASE_URL', () =
 
 test('sin request cae a PUBLIC_BASE_URL y despues localhost', () => {
   assert.strictEqual(
-    getInternalBaseUrl(null, { PUBLIC_BASE_URL: 'https://api.ruralicos.es/' }),
-    'https://api.ruralicos.es'
+    getInternalBaseUrl(null, { PUBLIC_BASE_URL: 'https://ruralicos-api.onrender.com/' }),
+    'https://ruralicos-api.onrender.com'
   );
   assert.strictEqual(getInternalBaseUrl(null, { PORT: 4000 }), 'http://localhost:4000');
 });

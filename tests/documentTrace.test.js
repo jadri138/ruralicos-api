@@ -1,5 +1,6 @@
 const assert = require('assert');
 const {
+  DEFAULT_SELECT,
   TRACE_RELATION,
   crearTraceDesdeRawDocument,
   resolverDocumentTrace,
@@ -59,6 +60,10 @@ function fakeSupabase(rows = [], error = null) {
 }
 
 console.log('\n=== TESTS: document trace ===\n');
+
+test('la consulta usa solo columnas que existen en raw_documents', () => {
+  assert.strictEqual(DEFAULT_SELECT.includes('organization_id'), false);
+});
 
 test('documento encontrado devuelve resumen de trazabilidad documental', () => {
   const rawDocument = {

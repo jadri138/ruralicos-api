@@ -6,6 +6,7 @@ const {
   actualizarDigestAttemptPorDigest,
   construirDigestAttemptRow,
   registrarDigestAttempt,
+  seleccionarDigestAttemptCanonico,
 } = require('../src/modules/mia/digestAttempts');
 
 function test(name, fn) {
@@ -159,8 +160,50 @@ test('devuelve el id estable del intento cuando Supabase permite select', async 
   assert.strictEqual(calls[1].columns, 'id');
 });
 
-test('actualiza intento asociado a digest enviado', async () => {
-  const supabase = fakeSupabase();
+test('elige el intento de rescate como envio canonico si hay enlaces historicos duplicados', () => {
+  const attempt = seleccionarDigestAttemptCanonico([
+    { id: 10, kind: 'daily', status: 'sent', created_at: '2026-07-10T10:00:00Z' },
+    { id: 11, kind: 'rescue', status: 'sent', created_at: '2026-07-10T09:00:00Z' },
+  ]);
+  assert.strictEqual(attempt.id, 11);
+});
+
+test('actualiza solo el intento canonico asociado a un digest enviado', async () => {
+  const calls = [];
+  const supabase = {
+    from(table) {
+      return {
+        select(columns) {
+          calls.push({ op: 'select', table, columns });
+          return this;
+        },
+        eq(column, value) {
+          calls.push({ op: 'eq', table, column, value });
+          if (this._updating) return Promise.resolve({ error: null });
+          return this;
+        },
+        order(column, options) {
+          calls.push({ op: 'order', table, column, options });
+          return this;
+        },
+        limit(value) {
+          calls.push({ op: 'limit', table, value });
+          return Promise.resolve({
+            data: [
+              { id: 10, kind: 'daily', status: 'no_send', created_at: '2026-07-10T10:00:00Z' },
+              { id: 11, kind: 'rescue', status: 'rescued', created_at: '2026-07-10T09:00:00Z' },
+            ],
+            error: null,
+          });
+        },
+        update(row) {
+          calls.push({ op: 'update', table, row });
+          this._updating = true;
+          return this;
+        },
+      };
+    },
+  };
   const result = await actualizarDigestAttemptPorDigest(supabase, 77, {
     status: 'sent',
     motivoNoEnvio: null,
@@ -168,14 +211,10 @@ test('actualiza intento asociado a digest enviado', async () => {
   });
 
   assert.strictEqual(result.ok, true);
-  assert.strictEqual(supabase.calls[0].op, 'update');
-  assert.strictEqual(supabase.calls[0].row.status, 'sent');
-  assert.deepStrictEqual(supabase.calls[1], {
-    op: 'eq',
-    table: 'digest_attempts',
-    column: 'digest_id',
-    value: 77,
-  });
+  assert.strictEqual(result.id, 11);
+  assert(calls.some((call) => call.op === 'eq' && call.column === 'digest_id' && call.value === 77));
+  assert(calls.some((call) => call.op === 'update' && call.row.status === 'sent'));
+  assert(calls.some((call) => call.op === 'eq' && call.column === 'id' && call.value === 11));
 });
 
 test('digest implementa rescate semanal y auditoria de no-envios', () => {
@@ -213,4 +252,5 @@ test('digest implementa rescate semanal y auditoria de no-envios', () => {
   assert(source.includes('registrarDigestAttempt'), 'Debe auditar preparacion/no-envio');
   assert(source.includes('actualizarDigestAttemptPorDigest'), 'Debe auditar resultado de envio');
   assert(source.includes('sin_alertas_hoy_rescate_semanal_generado'), 'Debe explicar rescate por silencio');
+  assert(source.includes('existing_digest_id: digestExistente.id'), 'Un cron repetido referencia el digest sin enlazar otro intento');
 });

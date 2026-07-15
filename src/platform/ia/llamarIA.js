@@ -79,10 +79,19 @@ async function llamarIA(prompt, instructions, model = 'gpt-4o-mini', options = {
     throw new Error('Modelo OpenAI invalido');
   }
 
+  const task = String(options?.task || 'generic').slice(0, 80);
   const body = { model, input: prompt, instructions };
   if (options?.textFormat) body.text = { format: options.textFormat };
   if (options?.maxOutputTokens) body.max_output_tokens = options.maxOutputTokens;
-  if (options?.reasoning) body.reasoning = options.reasoning;
+  if (options?.reasoning) {
+    body.reasoning = options.reasoning;
+  } else if (model === 'gpt-5-nano') {
+    // Estas tareas estructuradas no necesitan razonamiento medio. Reducirlo
+    // evita agotar max_output_tokens antes de producir el JSON visible.
+    body.reasoning = {
+      effort: String(process.env.IA_GPT5_NANO_REASONING_EFFORT || 'minimal'),
+    };
+  }
 
   const fetchImpl = options?.fetchImpl || _fetch;
   const timeoutMs = Number(options?.timeoutMs) || numeroEnv('IA_TIMEOUT_MS', 90000, 5000, 600000);
@@ -90,11 +99,10 @@ async function llamarIA(prompt, instructions, model = 'gpt-4o-mini', options = {
     ? Math.max(0, Math.min(5, Number(options.retries)))
     : numeroEnv('IA_HTTP_RETRIES', 2, 0, 5);
   const retryDelayMs = Number(options?.retryDelayMs) || numeroEnv('IA_HTTP_RETRY_DELAY_MS', 2000, 100, 60000);
-  const task = String(options?.task || 'generic').slice(0, 80);
-
   const startedAt = Date.now();
   let attempt = 0;
   let lastError = null;
+  let lastResponseMeta = null;
 
   while (attempt <= retries) {
     attempt += 1;
@@ -131,10 +139,50 @@ async function llamarIA(prompt, instructions, model = 'gpt-4o-mini', options = {
     }
 
     const aiJson = await aiRes.json();
+    lastResponseMeta = {
+      httpStatus: aiRes.status,
+      responseId: aiJson?.id ?? null,
+      responseStatus: aiJson?.status ?? null,
+      incompleteReason: aiJson?.incomplete_details?.reason ?? null,
+      inputTokens: aiJson?.usage?.input_tokens ?? null,
+      outputTokens: aiJson?.usage?.output_tokens ?? null,
+      reasoningTokens: aiJson?.usage?.output_tokens_details?.reasoning_tokens ?? null,
+      totalTokens: aiJson?.usage?.total_tokens ?? null,
+    };
+
+    if (aiJson?.status === 'incomplete') {
+      const reason = lastResponseMeta.incompleteReason || 'sin_motivo';
+      lastError = new Error(
+        `Respuesta OpenAI incompleta: ${reason}` +
+        (lastResponseMeta.responseId ? ` (response_id=${lastResponseMeta.responseId})` : '')
+      );
+      lastError.status = aiRes.status;
+
+      if (reason === 'max_output_tokens' && attempt <= retries) {
+        const currentMax = Number(body.max_output_tokens || 0);
+        body.max_output_tokens = Math.min(
+          32000,
+          Math.max(4000, currentMax ? currentMax * 2 : 8000)
+        );
+        await sleep(retryDelayMs * attempt);
+        continue;
+      }
+      break;
+    }
+
     const contenido = extraerTextoRespuesta(aiJson);
 
     if (!contenido) {
-      lastError = new Error('La IA no devolvió texto');
+      lastError = new Error(
+        'La IA no devolvio texto' +
+        (lastResponseMeta.responseStatus ? ` (status=${lastResponseMeta.responseStatus})` : '') +
+        (lastResponseMeta.responseId ? ` (response_id=${lastResponseMeta.responseId})` : '')
+      );
+      lastError.status = aiRes.status;
+      if (attempt <= retries) {
+        await sleep(retryDelayMs * attempt);
+        continue;
+      }
       break;
     }
 
@@ -148,6 +196,10 @@ async function llamarIA(prompt, instructions, model = 'gpt-4o-mini', options = {
       input_tokens: aiJson?.usage?.input_tokens ?? null,
       output_tokens: aiJson?.usage?.output_tokens ?? null,
       total_tokens: aiJson?.usage?.total_tokens ?? null,
+      reasoning_tokens: aiJson?.usage?.output_tokens_details?.reasoning_tokens ?? null,
+      response_id: aiJson?.id ?? null,
+      response_status: aiJson?.status ?? null,
+      incomplete_reason: aiJson?.incomplete_details?.reason ?? null,
       error_msg: null,
     });
 
@@ -158,12 +210,16 @@ async function llamarIA(prompt, instructions, model = 'gpt-4o-mini', options = {
     task,
     model,
     status: 'error',
-    http_status: lastError?.status ?? null,
+    http_status: lastResponseMeta?.httpStatus ?? lastError?.status ?? null,
     attempts: attempt,
     duration_ms: Date.now() - startedAt,
-    input_tokens: null,
-    output_tokens: null,
-    total_tokens: null,
+    input_tokens: lastResponseMeta?.inputTokens ?? null,
+    output_tokens: lastResponseMeta?.outputTokens ?? null,
+    total_tokens: lastResponseMeta?.totalTokens ?? null,
+    reasoning_tokens: lastResponseMeta?.reasoningTokens ?? null,
+    response_id: lastResponseMeta?.responseId ?? null,
+    response_status: lastResponseMeta?.responseStatus ?? null,
+    incomplete_reason: lastResponseMeta?.incompleteReason ?? null,
     error_msg: String(lastError?.message || 'error desconocido').slice(0, 800),
   });
 

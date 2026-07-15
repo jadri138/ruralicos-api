@@ -7,6 +7,7 @@
 const { requireAdmin } = require('../../middleware/requireAdmin');
 const { normalizePhone } = require('../../shared/phoneNormalizer');
 const { getFechaMadridISO, getRangoDiaMadridUTC } = require('../../shared/fechaMadrid');
+const { normalizarBaseUrl } = require('../../shared/internalBaseUrl');
 const { actualizarPerfilUsuarioMIA } = require('../aprendizaje/miaProfile');
 const { enviarDigestPro } = require('../../platform/whatsapp');
 const {
@@ -113,8 +114,16 @@ function resumenUsuarioSugerido(user) {
   };
 }
 
-function getPublicBaseUrl() {
-  return process.env.PUBLIC_BASE_URL || `http://localhost:${process.env.PORT || 3000}`;
+function getPublicBaseUrl(env = process.env) {
+  const configured = normalizarBaseUrl(env.PUBLIC_BASE_URL);
+  if (configured) return configured;
+
+  const renderUrl = normalizarBaseUrl(env.RENDER_EXTERNAL_URL);
+  if (renderUrl) return renderUrl;
+
+  return env.NODE_ENV === 'production'
+    ? 'https://ruralicos-api.onrender.com'
+    : `http://localhost:${env.PORT || 3000}`;
 }
 
 function crearSlugOrganizacion(value) {
