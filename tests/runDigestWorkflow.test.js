@@ -52,5 +52,16 @@ test('permite fijar fecha para pasos diarios', () => {
   assert(script.includes("conFecha('/alertas/preparar-digest')"), 'preparar digest debe aceptar fecha');
 });
 
+test('permite completar la preparacion segura usuario a usuario', () => {
+  assert(
+    script.includes('const PREPARAR_DIGEST_MAX_LOOPS = Number(process.env.PREPARAR_DIGEST_MAX_LOOPS || 200)'),
+    'preparar digest necesita mas vueltas que el resto de fases'
+  );
+  assert(
+    script.includes('PREPARAR_DIGEST_MAX_LOOPS\n  );'),
+    'la preparacion debe usar su limite especifico'
+  );
+});
+
 console.log(`\nResultados runDigestWorkflow: ${passed} aprobados, ${failed} fallidos`);
 if (failed > 0) process.exit(1);

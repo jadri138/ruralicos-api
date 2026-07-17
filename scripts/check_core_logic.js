@@ -278,8 +278,10 @@ assert.ok(
   'El digest no debe preparar/enviar a telefonos marcados como no verificados'
 );
 assert.ok(
-  digestRoutes.includes("PREPARAR_DIGEST_BATCH_SIZE', 50"),
-  'El batch por defecto de preparar digest debe ser suficiente para usuarios de pago'
+  digestRoutes.includes("PREPARAR_DIGEST_BATCH_SIZE', 1") &&
+  digestRoutes.includes(".in('status', estadosAttemptTerminales)") &&
+  digestRoutes.includes('usuarios_evaluados_batch: usuariosEvaluados'),
+  'La preparacion debe avanzar usuario a usuario, dentro del timeout y sin repetir usuarios resueltos'
 );
 assert.ok(
   digestRoutes.includes('DIGEST_RESCUE_AFTER_DAYS') &&

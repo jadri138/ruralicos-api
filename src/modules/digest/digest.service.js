@@ -69,7 +69,10 @@ function numeroConfig(name, fallback, min = 0, max = Number.MAX_SAFE_INTEGER) {
   return Math.max(min, Math.min(max, number));
 }
 
-const PREPARAR_DIGEST_BATCH_SIZE = numeroConfig('PREPARAR_DIGEST_BATCH_SIZE', 50, 1, 200);
+// Un digest puede requerir varias llamadas IA. En Render una request larga se
+// corta antes de terminar y el workflow nunca alcanza /enviar-digest. Procesar
+// un usuario por request mantiene cada lote reintentable e idempotente.
+const PREPARAR_DIGEST_BATCH_SIZE = numeroConfig('PREPARAR_DIGEST_BATCH_SIZE', 1, 1, 50);
 const DIGEST_LOCAL_FALLBACK = (process.env.DIGEST_LOCAL_FALLBACK || 'true').toLowerCase() !== 'false';
 const DIGEST_QUALITY_GATE = (process.env.DIGEST_QUALITY_GATE || 'true').toLowerCase() !== 'false';
 // DIGEST_INCLUDE_REVIEW (default false, prudente): si es true, el motor de seleccion puede

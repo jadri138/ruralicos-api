@@ -420,6 +420,36 @@ module.exports = function digestRoutes(app, supabase) {
         .eq('fecha', hoy);
 
       const digestsPorUsuario = new Map((digestsExistentes || []).map((d) => [d.user_id, d]));
+      const estadosAttemptTerminales = [
+        'no_send',
+        'generated',
+        'rescued',
+        'sent',
+        'skipped_existing',
+        'failed',
+      ];
+      let usuariosAttemptTerminal = new Set();
+
+      if (!force) {
+        const { data: attemptsTerminales, error: errAttemptsTerminales } = await supabase
+          .from('digest_attempts')
+          .select('user_id, status')
+          .eq('fecha', hoy)
+          .in('status', estadosAttemptTerminales);
+
+        if (errAttemptsTerminales) {
+          return res.status(500).json({ error: errAttemptsTerminales.message });
+        }
+
+        usuariosAttemptTerminal = new Set((attemptsTerminales || []).map((attempt) => attempt.user_id));
+      }
+
+      const usuariosPendientes = usuarios.filter((user) => {
+        const digestExistente = digestsPorUsuario.get(user.id);
+        if (force) return !digestExistente?.enviado;
+        return !digestExistente && !usuariosAttemptTerminal.has(user.id);
+      });
+      const usuariosBatch = usuariosPendientes.slice(0, limiteDigests);
       const userIds = usuarios.map((user) => user.id).filter(Boolean);
       const fechaCorteRescate = sumarDiasFechaISO(hoy, -DIGEST_RESCUE_AFTER_DAYS);
       const desdeRescate = sumarDiasFechaISO(hoy, -(DIGEST_RESCUE_LOOKBACK_DAYS - 1));
@@ -437,10 +467,11 @@ module.exports = function digestRoutes(app, supabase) {
       let sinTelefono = 0;
       let fallbackLocal = 0;
       const errores  = [];
+      let usuariosEvaluados = 0;
 
       // 4) Procesar usuario a usuario
-      for (const user of usuarios) {
-        if (generados >= limiteDigests) break;
+      for (const user of usuariosBatch) {
+        usuariosEvaluados++;
 
         // Ya tiene digest hoy → saltar
         // Con force=true se rehace solo si aun no fue enviado.
@@ -1315,9 +1346,11 @@ module.exports = function digestRoutes(app, supabase) {
         alertas_disponibles:  alertas.length,
         alertas_descartadas_calidad: alertasDescartadasCalidad.length,
         usuarios_procesados:  usuarios.length,
+        usuarios_evaluados_batch: usuariosEvaluados,
+        usuarios_pendientes: Math.max(0, usuariosPendientes.length - usuariosEvaluados),
         limite_digests:       limiteDigests,
-        procesadas:           generados,
-        actualizadas:         generados,
+        procesadas:           usuariosEvaluados,
+        actualizadas:         usuariosEvaluados,
         digests_generados:    generados,
         rescates_generados:   rescatados,
         usuarios_sin_alertas: sinAlertas,

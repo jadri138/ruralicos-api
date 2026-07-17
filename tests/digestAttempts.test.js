@@ -226,7 +226,9 @@ test('digest implementa rescate semanal y auditoria de no-envios', () => {
     '\n' +
     fs.readFileSync(path.join(dir, 'digest.service.js'), 'utf8');
 
-  assert(source.includes("const PREPARAR_DIGEST_BATCH_SIZE = numeroConfig('PREPARAR_DIGEST_BATCH_SIZE', 50"), 'El batch por defecto debe subir de 5 a 50');
+  assert(source.includes("const PREPARAR_DIGEST_BATCH_SIZE = numeroConfig('PREPARAR_DIGEST_BATCH_SIZE', 1"), 'El batch debe caber dentro del timeout de Render');
+  assert(source.includes(".in('status', estadosAttemptTerminales)"), 'Debe omitir usuarios ya resueltos en lotes anteriores');
+  assert(source.includes('usuarios_evaluados_batch: usuariosEvaluados'), 'El progreso debe contar usuarios evaluados, tengan o no digest');
   assert(source.includes('DIGEST_RESCUE_AFTER_DAYS'), 'Debe existir umbral de rescate semanal');
   assert(source.includes('generarMensajeDigestRescate'), 'Debe existir mensaje de rescate');
   assert(source.includes('DIGEST_RESCUE_MESSAGE_MAX_CHARS'), 'El mensaje de rescate debe tener limite propio');

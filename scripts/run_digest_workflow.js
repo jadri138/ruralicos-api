@@ -11,6 +11,7 @@
  *   RUN_OFFICIAL_LISTS=true
  *   RUN_REPAIR=true
  *   MAX_LOOPS=40
+ *   PREPARAR_DIGEST_MAX_LOOPS=200
  *   STEP_DELAY_MS=800
  *   HTTP_RETRIES=3
  *   HTTP_RETRY_DELAY_MS=5000
@@ -27,6 +28,7 @@ const RUN_SCRAPERS = parseBool(process.env.RUN_SCRAPERS, true);
 const RUN_OFFICIAL_LISTS = parseBool(process.env.RUN_OFFICIAL_LISTS, true);
 const RUN_REPAIR = parseBool(process.env.RUN_REPAIR, true);
 const MAX_LOOPS = Number(process.env.MAX_LOOPS || 40);
+const PREPARAR_DIGEST_MAX_LOOPS = Number(process.env.PREPARAR_DIGEST_MAX_LOOPS || 200);
 const STEP_DELAY_MS = Number(process.env.STEP_DELAY_MS || 800);
 const HTTP_RETRIES = Number(process.env.HTTP_RETRIES || 3);
 const HTTP_RETRY_DELAY_MS = Number(process.env.HTTP_RETRY_DELAY_MS || 5000);
@@ -114,13 +116,13 @@ async function hit(path, { method = 'GET' } = {}) {
   }
 }
 
-async function runBatchedStep(name, path, options = {}) {
+async function runBatchedStep(name, path, options = {}, maxLoops = MAX_LOOPS) {
   let loops = 0;
   let total = 0;
   let totalProgress = 0;
   let lastBody = null;
 
-  while (loops < MAX_LOOPS) {
+  while (loops < maxLoops) {
     loops++;
     const body = await hit(path, options);
     const procesadas = Number(body?.procesadas ?? 0);
@@ -145,9 +147,9 @@ async function runBatchedStep(name, path, options = {}) {
     await sleep(STEP_DELAY_MS);
   }
 
-  if (loops === MAX_LOOPS) {
+  if (loops === maxLoops) {
     throw new Error(
-      `[${name}] alcanzo MAX_LOOPS=${MAX_LOOPS}. No se prepara digest incompleto. ` +
+      `[${name}] alcanzo MAX_LOOPS=${maxLoops}. No se prepara digest incompleto. ` +
       `Total candidatas=${total}, actualizaciones=${totalProgress}. Ultima respuesta: ${JSON.stringify(lastBody)}`
     );
   }
@@ -196,7 +198,12 @@ async function main() {
   const deduplicar = await runSingleStep('deduplicar', conFecha('/alertas/deduplicar'));
   const miaEmbeddings = await runOptionalStep('mia-embeddings', '/cerebro/embeddings/inicializar?limit=100&maxLoops=10');
   const miaCicloPreDigest = await runOptionalStep('mia-ciclo-pre-digest', '/cerebro/ciclo-diario?explorar=false&limit=100&maxLoops=1');
-  const prepararDigest = await runBatchedStep('preparar-digest', conFecha('/alertas/preparar-digest'));
+  const prepararDigest = await runBatchedStep(
+    'preparar-digest',
+    conFecha('/alertas/preparar-digest'),
+    {},
+    PREPARAR_DIGEST_MAX_LOOPS
+  );
   const enviarDigest = await runSingleStep('enviar-digest', conFecha('/alertas/enviar-digest'));
   const miaCicloPostDigest = await runOptionalStep('mia-ciclo-post-digest', '/cerebro/ciclo-diario?explorar=false&limit=100&maxLoops=1');
 
