@@ -1,10 +1,9 @@
 // src/routes/boe.js
 //
 // Scraper BOE. Captura bruta: se registran en raw_documents TODOS los items del
-// sumario con título y alguna URL, ANTES de filtrar por departamento. El filtro
-// por ministerio/departamento pasa a ser una preclasificación barata: lo que no
-// pasa queda como skipped_by_rule (no se borra). Solo se descarga el HTML y se
-// inserta en alertas para los departamentos relevantes (sin cambios de coste).
+// sumario con título y alguna URL, ANTES de filtrar. El departamento aporta
+// contexto, pero un título rural explícito también puede pasar aunque pertenezca
+// a otro ministerio. Lo descartado queda como skipped_by_rule (no se borra).
 
 const { XMLParser } = require('fast-xml-parser');
 const cheerio = require('cheerio');
@@ -17,8 +16,14 @@ const {
   marcarRawDocumentInsertado,
   marcarRawDocumentSaltado,
 } = require('../rawDocuments/rawDocuments.service');
+const {
+  PREFILTER_ACTION,
+  crearPrefiltroRural,
+  evaluarPrefiltroRural,
+} = require('../scrapers/shared/ruralFilter');
 
 const xmlParser = new XMLParser({ ignoreAttributes: false });
+const prefiltroRuralBoe = crearPrefiltroRural();
 
 // Ministerios / departamentos "del campo".
 const DEPT_RELEVANTE_REGEX =
@@ -177,15 +182,21 @@ async function fetchHtmlPorDefecto(url_html) {
   }
 }
 
-// Núcleo: registrar (bruto) → preclasificar por departamento → insertar (alertas).
+// Núcleo: evaluar y registrar (bruto) → combinar título + departamento → insertar.
 // Separado de la ruta para testearlo con un supabase falso y sin red.
 async function procesarItemsBoe(supabase, items, opciones = {}) {
   const fechaISO = opciones.fechaISO || null;
   const deptRelevante = opciones.deptRelevante || esDepartamentoRelevante;
   const fetchHtml = opciones.fetchHtml || fetchHtmlPorDefecto;
+  const prefiltroRural = opciones.prefiltroRural || prefiltroRuralBoe;
 
-  // 1) Registrar TODOS los items en raw_documents (nada se pierde).
-  const itemsConRaw = await registrarRawDocuments(supabase, items, { fuente: 'BOE' });
+  // 1) Evaluar el título y registrar TODOS los items junto con esa decisión.
+  // rawDocuments.service guarda _prefiltro_rural en metadata_json.prefiltro_rural.
+  const itemsEvaluados = (Array.isArray(items) ? items : []).map((item) => ({
+    ...item,
+    _prefiltro_rural: evaluarPrefiltroRural(prefiltroRural, item.titulo),
+  }));
+  const itemsConRaw = await registrarRawDocuments(supabase, itemsEvaluados, { fuente: 'BOE' });
 
   let nuevas = 0;
   let duplicadas = 0;
@@ -194,9 +205,29 @@ async function procesarItemsBoe(supabase, items, opciones = {}) {
 
   for (const item of itemsConRaw) {
     const region = item.region || 'NACIONAL';
+    const decisionTitulo = item._prefiltro_rural;
+    const departamentoRural = deptRelevante(region);
+    const tituloRural =
+      decisionTitulo.action === PREFILTER_ACTION.PASS
+      || (
+        decisionTitulo.action === PREFILTER_ACTION.REVIEW
+        && decisionTitulo.positiveSignals.length > 0
+      );
 
-    // 2) Preclasificación barata por departamento (no se borra: se marca).
-    if (!deptRelevante(region)) {
+    // 2) Un descarte fuerte del título prevalece incluso en un departamento
+    // rural. En cualquier otro caso, el departamento es contexto, no una barrera:
+    // un título con señales rurales puede continuar hacia las capas posteriores.
+    if (decisionTitulo.action === PREFILTER_ACTION.DISCARD) {
+      saltadasFiltro++;
+      await marcarRawDocumentSaltado(
+        supabase,
+        item.raw_document_id,
+        `prefiltro_rural_${decisionTitulo.reasonCode}`
+      );
+      continue;
+    }
+
+    if (!departamentoRural && !tituloRural) {
       saltadasFiltro++;
       await marcarRawDocumentSaltado(supabase, item.raw_document_id, 'departamento_no_relevante');
       continue;
@@ -234,7 +265,7 @@ async function procesarItemsBoe(supabase, items, opciones = {}) {
       continue;
     }
 
-    // 4) Descargar contenido HTML del BOE (solo departamentos relevantes).
+    // 4) Descargar contenido HTML únicamente para los items que van a insertarse.
     let contenidoPlano = item.titulo;
     if (item.url_html) {
       const texto = await fetchHtml(item.url_html);

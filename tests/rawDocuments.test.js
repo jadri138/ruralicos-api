@@ -304,6 +304,85 @@ async function main() {
     assert.strictEqual(supabase._stores.alertas[0].contenido, textoOficial);
   });
 
+  await test('BOE combina el prefiltro del titulo con el departamento y audita la decision', async () => {
+    const supabase = crearSupabaseMemoria();
+    const items = [
+      {
+        titulo: 'Ley de medidas urgentes de apoyo al sector agrario y forestal',
+        url: 'https://boe/presidencia-rural',
+        url_pdf: 'https://boe/presidencia-rural',
+        fecha: '2026-06-17',
+        region: 'MINISTERIO DE LA PRESIDENCIA',
+      },
+      {
+        titulo: 'Medidas fiscales para explotaciones agrarias',
+        url: 'https://boe/hacienda-rural',
+        url_pdf: 'https://boe/hacienda-rural',
+        fecha: '2026-06-17',
+        region: 'MINISTERIO DE HACIENDA',
+      },
+      {
+        titulo: 'Resolución tributaria de carácter general',
+        url: 'https://boe/hacienda-general',
+        url_pdf: 'https://boe/hacienda-general',
+        fecha: '2026-06-17',
+        region: 'MINISTERIO DE HACIENDA',
+      },
+      {
+        titulo: 'Proceso selectivo para personal funcionario',
+        url: 'https://boe/agricultura-empleo',
+        url_pdf: 'https://boe/agricultura-empleo',
+        fecha: '2026-06-17',
+        region: 'MINISTERIO DE AGRICULTURA, PESCA Y ALIMENTACIÓN',
+      },
+    ];
+
+    const stats = await boe.procesarItemsBoe(supabase, items, {
+      fechaISO: '2026-06-17',
+      fetchHtml: async () => null,
+    });
+
+    assert.strictEqual(stats.nuevas, 2);
+    assert.strictEqual(stats.saltadasFiltro, 2);
+    assert.strictEqual(supabase._stores.raw_documents.length, 4, 'ningún item desaparece');
+
+    const alertas = supabase._stores.alertas;
+    assert.strictEqual(alertas.length, 2);
+    assert(alertas.find((alerta) => alerta.url === 'https://boe/presidencia-rural'));
+    assert(alertas.find((alerta) => alerta.url === 'https://boe/hacienda-rural'));
+    assert(alertas.every((alerta) => alerta.estado_ia === 'pendiente_clasificar'));
+
+    const raws = supabase._stores.raw_documents;
+    const presidenciaRural = raws.find((raw) => raw.url === 'https://boe/presidencia-rural');
+    const haciendaRural = raws.find((raw) => raw.url === 'https://boe/hacienda-rural');
+    const haciendaGeneral = raws.find((raw) => raw.url === 'https://boe/hacienda-general');
+    const empleoAgricultura = raws.find((raw) => raw.url === 'https://boe/agricultura-empleo');
+
+    assert.strictEqual(presidenciaRural.capture_status, 'inserted');
+    assert.strictEqual(haciendaRural.capture_status, 'inserted');
+    assert.strictEqual(haciendaGeneral.capture_status, 'skipped_by_rule');
+    assert.strictEqual(haciendaGeneral.capture_reason, 'departamento_no_relevante');
+    assert.strictEqual(empleoAgricultura.capture_status, 'skipped_by_rule');
+    assert.strictEqual(
+      empleoAgricultura.capture_reason,
+      'prefiltro_rural_strong_non_rural_signal'
+    );
+
+    for (const raw of raws) {
+      const decision = raw.metadata_json.prefiltro_rural;
+      assert(['pass', 'review', 'discard'].includes(decision.action));
+      assert(Array.isArray(decision.positiveSignals));
+      assert(Array.isArray(decision.negativeSignals));
+      assert.strictEqual(typeof decision.reasonCode, 'string');
+    }
+
+    assert(presidenciaRural.metadata_json.prefiltro_rural.positiveSignals.includes('agrari'));
+    assert(haciendaRural.metadata_json.prefiltro_rural.positiveSignals.includes('agrari'));
+    assert.strictEqual(haciendaGeneral.metadata_json.prefiltro_rural.action, 'review');
+    assert.deepStrictEqual(haciendaGeneral.metadata_json.prefiltro_rural.positiveSignals, []);
+    assert.strictEqual(empleoAgricultura.metadata_json.prefiltro_rural.action, 'discard');
+  });
+
   await test('BOE registra todos los items; departamento no relevante -> skipped_by_rule (no se pierde)', async () => {
     const supabase = crearSupabaseMemoria();
     const items = [
@@ -336,6 +415,15 @@ async function main() {
     assert.strictEqual(soloHtml.capture_reason, 'sin_url_pdf');
 
     assert.strictEqual(supabase._stores.alertas.length, 1);
+
+    const segundaEjecucion = await boe.procesarItemsBoe(supabase, items, {
+      fechaISO: '2026-06-17',
+      fetchHtml: async () => null,
+    });
+    assert.strictEqual(segundaEjecucion.nuevas, 0);
+    assert.strictEqual(segundaEjecucion.duplicadas, 1);
+    assert.strictEqual(raws.length, 3, 'la repetición no duplica raw_documents con URL');
+    assert.strictEqual(pac.capture_status, 'inserted', 'el raw original conserva su alerta enlazada');
   });
 
   console.log(`\nResultados raw_documents: ${passed} aprobados, ${failed} fallidos`);
