@@ -8,6 +8,7 @@ const {
 } = require('../scrapers/DOE/doeScraper');
 const { getFechaMadridISO, getFechaMadridYYYYMMDD } = require('../../../shared/fechaMadrid');
 const { procesarConFiltroRural } = require('./shared/procesarConFiltroRural');
+const { crearFiltroRural } = require('./shared/registrarBoletinRuta');
 const {
   registrarRawDocuments,
   marcarRawDocumentSaltado,
@@ -18,7 +19,7 @@ function formatearFecha(fecha) {
   return `${fecha.slice(0, 4)}-${fecha.slice(4, 6)}-${fecha.slice(6, 8)}`;
 }
 
-const EXCLUIR_FUERTE = [
+const SENALES_NEGATIVAS = [
   'boletín oficial de la provincia', 'ayuntamiento', 'diputación',
   'presupuesto', 'recurso contencioso', 'nombramiento',
 ];
@@ -34,11 +35,10 @@ function normalizar(s) {
     .replace(/\p{Diacritic}/gu, '');
 }
 
-function esRuralRelevante(texto) {
-  const t = normalizar(texto);
-  if (EXCLUIR_FUERTE.some((k) => t.includes(normalizar(k)))) return false;
-  return INCLUIR_RURAL.some((k) => t.includes(normalizar(k)));
-}
+const esRuralRelevante = crearFiltroRural({
+  excluir: SENALES_NEGATIVAS,
+  incluir: INCLUIR_RURAL,
+});
 
 function generarTituloDoe(texto, fechaSQL) {
   const t = (texto || '').replace(/\r/g, '').trim();

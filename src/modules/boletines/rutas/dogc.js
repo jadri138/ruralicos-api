@@ -6,7 +6,7 @@
 const { obtenerDocumentosDogcConTexto, getFechaHoyISO } = require('../scrapers/DOGC/dogcScraper');
 const { registrarBoletinRuta, crearFiltroRural } = require('./shared/registrarBoletinRuta');
 
-const EXCLUIR_FUERTE = [
+const SENALES_NEGATIVAS = [
   'ayuntamiento', 'ajuntament', 'diputacio', 'diputacion',
   'pressupost', 'presupuesto', 'modificacio de credits',
   'recurs contenciós', 'tribunal superior de justicia',
@@ -27,7 +27,7 @@ const INCLUIR_RURAL = [
   'denominaci d\'origen', 'denominacion de origen',
 ];
 
-const esRuralRelevante = crearFiltroRural({ excluir: EXCLUIR_FUERTE, incluir: INCLUIR_RURAL });
+const esRuralRelevante = crearFiltroRural({ excluir: SENALES_NEGATIVAS, incluir: INCLUIR_RURAL });
 
 module.exports = function dogcRoutes(app, supabase) {
   registrarBoletinRuta(app, supabase, {

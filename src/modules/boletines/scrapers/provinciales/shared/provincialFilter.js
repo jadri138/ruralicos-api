@@ -1,4 +1,4 @@
-const { normalizar } = require('../../shared/ruralFilter');
+const { crearPrefiltroRural } = require('../../shared/ruralFilter');
 
 const INCLUIR_PROVINCIAL = [
   'agricultur',
@@ -97,19 +97,10 @@ const EXCLUIR_PROVINCIAL = [
   'parcela urbana',
 ];
 
-function contieneAlguna(textoNormalizado, palabras) {
-  return palabras.some((palabra) => {
-    const p = normalizar(palabra);
-    if (p === 'pac') return /(^| )pac( |$)/.test(textoNormalizado);
-    return textoNormalizado.includes(p);
-  });
-}
-
-function esProvincialRelevante(texto) {
-  const t = normalizar(texto);
-  if (contieneAlguna(t, EXCLUIR_PROVINCIAL)) return false;
-  return contieneAlguna(t, INCLUIR_PROVINCIAL);
-}
+const esProvincialRelevante = crearPrefiltroRural({
+  excluir: EXCLUIR_PROVINCIAL,
+  incluir: INCLUIR_PROVINCIAL,
+});
 
 module.exports = {
   esProvincialRelevante,

@@ -1,7 +1,7 @@
 const { getFechaHoyYYYYMMDD, obtenerDocumentosDocmPorFecha } = require('../scrapers/DOCM/docmScraper');
 const { registrarBoletinRuta, crearFiltroRural } = require('./shared/registrarBoletinRuta');
 
-const EXCLUIR_FUERTE = [
+const SENALES_NEGATIVAS = [
   'ayuntamiento', 'diputacion', 'presupuesto',
   'recurso contencioso', 'edicto', 'nombramiento',
 ];
@@ -13,7 +13,7 @@ const INCLUIR_RURAL = [
   'sanidad animal', 'caza', 'viticult', 'vitivinicol', 'olivar',
 ];
 
-const esRuralRelevante = crearFiltroRural({ excluir: EXCLUIR_FUERTE, incluir: INCLUIR_RURAL });
+const esRuralRelevante = crearFiltroRural({ excluir: SENALES_NEGATIVAS, incluir: INCLUIR_RURAL });
 
 module.exports = function docmRoutes(app, supabase) {
   registrarBoletinRuta(app, supabase, {

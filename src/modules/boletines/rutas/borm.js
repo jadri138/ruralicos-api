@@ -1,7 +1,7 @@
 const { getFechaHoyYYYYMMDD, obtenerDocumentosBormPorFecha } = require('../scrapers/BORM/bormScraper');
 const { registrarBoletinRuta, crearFiltroRural } = require('./shared/registrarBoletinRuta');
 
-const EXCLUIR_FUERTE = [
+const SENALES_NEGATIVAS = [
   'ayuntamiento', 'diputacion', 'presupuesto',
   'recurso contencioso', 'edicto', 'nombramiento',
 ];
@@ -14,7 +14,7 @@ const INCLUIR_RURAL = [
   'huerta', 'frutas', 'horticultur', 'citric', 'regant',
 ];
 
-const esRuralRelevante = crearFiltroRural({ excluir: EXCLUIR_FUERTE, incluir: INCLUIR_RURAL });
+const esRuralRelevante = crearFiltroRural({ excluir: SENALES_NEGATIVAS, incluir: INCLUIR_RURAL });
 
 module.exports = function bormRoutes(app, supabase) {
   registrarBoletinRuta(app, supabase, {

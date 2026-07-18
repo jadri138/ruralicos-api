@@ -58,6 +58,14 @@ function normalizarRawDocument(doc, opciones = {}) {
   const urlPdf = primerValor(d.urlPdf, d.url_pdf);
   const titulo = primerValor(d.titulo, d.title);
   const textoRaw = primerValor(d.texto_raw, d.texto, d.contenido);
+  const metadataJson =
+    d.metadata_json && typeof d.metadata_json === 'object'
+      ? { ...d.metadata_json }
+      : {};
+
+  if (d._prefiltro_rural && typeof d._prefiltro_rural === 'object') {
+    metadataJson.prefiltro_rural = d._prefiltro_rural;
+  }
 
   return {
     fuente: primerValor(opciones.fuente, d.fuente),
@@ -77,8 +85,7 @@ function normalizarRawDocument(doc, opciones = {}) {
     scraper_run_id: primerValor(d.scraper_run_id, opciones.scraperRunId),
     capture_status: CAPTURE_STATUS.DETECTED,
     capture_reason: null,
-    metadata_json:
-      d.metadata_json && typeof d.metadata_json === 'object' ? d.metadata_json : {},
+    metadata_json: metadataJson,
   };
 }
 

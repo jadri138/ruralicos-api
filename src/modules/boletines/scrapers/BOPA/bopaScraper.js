@@ -13,6 +13,7 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
 const { esTextoErrorPortal } = require('../shared/portalErrorText');
+const { evaluarPrefiltroRural } = require('../shared/ruralFilter');
 const { extraerTextoPdf } = require('../../../../shared/pdfExtractor');
 
 // Texto minimo para considerar que una disposicion trae contenido oficial util.
@@ -206,10 +207,11 @@ async function obtenerDocumentosBopaConTexto(fechaISO, esRuralRelevante, deps = 
   let sinEvidencia = 0;
 
   // Captura bruta: se devuelven TODOS los detectados anotados con `_relevante`; el
-  // texto solo se descarga para los relevantes (coste idéntico al de antes).
+  // El texto se descarga para pass/review; solo discard evita la descarga.
   for (const doc of todos) {
-    if (!esRuralRelevante(doc.titulo)) {
-      resultado.push({ ...doc, _relevante: false });
+    const decision = evaluarPrefiltroRural(esRuralRelevante, doc.titulo);
+    if (decision.action === 'discard') {
+      resultado.push({ ...doc, _prefiltro_rural: decision, _relevante: false });
       continue;
     }
 
@@ -221,6 +223,7 @@ async function obtenerDocumentosBopaConTexto(fechaISO, esRuralRelevante, deps = 
         ...doc,
         texto: evidencia.texto,
         ...(evidencia.urlPdf ? { urlPdf: evidencia.urlPdf } : {}),
+        _prefiltro_rural: decision,
         _relevante: true,
       });
       continue;
@@ -234,6 +237,7 @@ async function obtenerDocumentosBopaConTexto(fechaISO, esRuralRelevante, deps = 
       ...doc,
       texto: '',
       texto_raw: evidencia.texto_original || '',
+      _prefiltro_rural: decision,
       _relevante: true,
       _sin_evidencia: true,
       _estado_ia: 'needs_evidence',

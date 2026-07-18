@@ -6,7 +6,7 @@
 const { obtenerDocumentosDogvConTexto, getFechaHoyISO } = require('../scrapers/DOGV/dogvScraper');
 const { registrarBoletinRuta, crearFiltroRural } = require('./shared/registrarBoletinRuta');
 
-const EXCLUIR_FUERTE = [
+const SENALES_NEGATIVAS = [
   'ayuntamiento', 'ajuntament', 'diputacio', 'diputacion',
   'pressupost', 'presupuesto', 'modificacio de credits',
   'recurso contencioso', 'tribunal superior',
@@ -30,7 +30,7 @@ const INCLUIR_RURAL = [
   'conselleria de agricultura',
 ];
 
-const esRuralRelevante = crearFiltroRural({ excluir: EXCLUIR_FUERTE, incluir: INCLUIR_RURAL });
+const esRuralRelevante = crearFiltroRural({ excluir: SENALES_NEGATIVAS, incluir: INCLUIR_RURAL });
 
 module.exports = function dogvRoutes(app, supabase) {
   registrarBoletinRuta(app, supabase, {

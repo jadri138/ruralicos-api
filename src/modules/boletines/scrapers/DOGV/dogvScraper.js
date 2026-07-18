@@ -8,6 +8,7 @@
 
 const axios   = require('axios');
 const cheerio = require('cheerio');
+const { evaluarPrefiltroRural } = require('../shared/ruralFilter');
 
 const BASE = 'https://dogv.gva.es/dogv-portal';
 const DATOS = 'https://dogv.gva.es/datos';
@@ -66,9 +67,8 @@ async function obtenerTextoDisposicion(id) {
 // Función principal exportada
 // ─────────────────────────────────────────────
 // Devuelve TODOS los documentos detectados (captura bruta auditable), cada uno
-// anotado con `_relevante`. El texto completo solo se descarga para los relevantes
-// (coste idéntico al de antes); los no relevantes se devuelven sin texto para que
-// la ruta los registre como skipped_by_rule sin perderlos.
+// anotado con `_prefiltro_rural`. El texto completo se descarga para pass/review;
+// los discard se devuelven sin texto para que la ruta los registre sin perderlos.
 async function obtenerDocumentosDogvConTexto(fechaISO, esRuralRelevante, deps = {}) {
   const listar = deps.obtenerDocumentosHoy || obtenerDocumentosHoy;
   const traerTexto = deps.obtenerTextoDisposicion || obtenerTextoDisposicion;
@@ -78,9 +78,17 @@ async function obtenerDocumentosDogvConTexto(fechaISO, esRuralRelevante, deps = 
   for (const doc of disposiciones) {
     const titulo = (doc.titulo || '').replace(/\s+/g, ' ').trim().slice(0, 250);
     const urlPdf = doc.urlPdf ? `${DATOS}${doc.urlPdf}` : '';
+    const decision = evaluarPrefiltroRural(esRuralRelevante, titulo);
 
-    if (!esRuralRelevante(titulo)) {
-      resultado.push({ titulo, url: urlPdf, urlPdf, fecha: fechaISO, _relevante: false });
+    if (decision.action === 'discard') {
+      resultado.push({
+        titulo,
+        url: urlPdf,
+        urlPdf,
+        fecha: fechaISO,
+        _prefiltro_rural: decision,
+        _relevante: false,
+      });
       continue;
     }
 
@@ -93,6 +101,7 @@ async function obtenerDocumentosDogvConTexto(fechaISO, esRuralRelevante, deps = 
       urlPdf: urlPdf,
       fecha:  fechaISO,
       texto:  texto || titulo,
+      _prefiltro_rural: decision,
       _relevante: true,
     });
   }

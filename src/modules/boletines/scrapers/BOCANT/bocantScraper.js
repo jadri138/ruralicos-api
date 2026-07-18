@@ -12,6 +12,7 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
 const { PDFParse } = require('pdf-parse');
+const { evaluarPrefiltroRural } = require('../shared/ruralFilter');
 
 const BASE = 'https://boc.cantabria.es/boces';
 const DELAY_MS = 350;
@@ -192,17 +193,23 @@ async function obtenerDocumentosBocantConTexto(fechaISO, esRuralRelevante) {
   const resultado = [];
 
   // Captura bruta: se devuelven TODOS los detectados anotados con `_relevante`; el
-  // PDF solo se descarga para los relevantes (coste idéntico al de antes).
+  // El PDF se descarga para pass/review; solo discard evita la descarga.
   for (const doc of todos) {
     const textoFiltro = `${doc.organo} ${doc.titulo}`;
-    if (!esRuralRelevante(textoFiltro)) {
-      resultado.push({ ...doc, _relevante: false });
+    const decision = evaluarPrefiltroRural(esRuralRelevante, textoFiltro);
+    if (decision.action === 'discard') {
+      resultado.push({ ...doc, _prefiltro_rural: decision, _relevante: false });
       continue;
     }
 
     await sleep(DELAY_MS);
     const texto = await obtenerTextoPdf(doc.url);
-    resultado.push({ ...doc, texto: texto || textoFiltro, _relevante: true });
+    resultado.push({
+      ...doc,
+      texto: texto || textoFiltro,
+      _prefiltro_rural: decision,
+      _relevante: true,
+    });
   }
 
   console.log(`[BOCANT] ${resultado.length} documentos detectados (captura bruta) de ${todos.length}`);

@@ -116,11 +116,12 @@ async function obtenerDocumentosBogConTexto(fechaISO) {
   const candidatos = parsearSumarioBog(html, url);
 
   // Captura bruta: se devuelven TODOS los detectados anotados con `_relevante`; el
-  // texto solo se descarga para los relevantes (coste idéntico al de antes).
+  // El texto se descarga para pass/review; solo discard evita la descarga.
   const docs = [];
   for (const doc of candidatos) {
-    if (!esProvincialRelevante(doc.contexto)) {
-      docs.push({ ...doc, _relevante: false });
+    const decision = esProvincialRelevante(doc.contexto);
+    if (decision.action === 'discard') {
+      docs.push({ ...doc, _prefiltro_rural: decision, _relevante: false });
       continue;
     }
 
@@ -135,6 +136,7 @@ async function obtenerDocumentosBogConTexto(fechaISO) {
       ...doc,
       titulo: `BOG - ${doc.titulo.slice(0, 180)} (${doc.fecha})`,
       texto,
+      _prefiltro_rural: decision,
       _relevante: true,
     });
   }

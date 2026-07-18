@@ -6,6 +6,7 @@
 
 const axios = require('axios');
 const cheerio = require('cheerio');
+const { evaluarPrefiltroRural } = require('../shared/ruralFilter');
 
 const BASE = 'https://bomemelilla.es';
 const DELAY_MS = 300;
@@ -126,17 +127,23 @@ async function obtenerDocumentosBomeConTexto(fechaISO, esRuralRelevante) {
 
   const resultado = [];
   // Captura bruta: se devuelven TODOS los detectados anotados con `_relevante`; el
-  // texto solo se descarga para los relevantes (coste idéntico al de antes).
+  // El texto se descarga para pass/review; solo discard evita la descarga.
   for (const doc of todos) {
     const textoBase = `${doc.organismo} ${doc.titulo}`;
-    if (!esRuralRelevante(textoBase)) {
-      resultado.push({ ...doc, _relevante: false });
+    const decision = evaluarPrefiltroRural(esRuralRelevante, textoBase);
+    if (decision.action === 'discard') {
+      resultado.push({ ...doc, _prefiltro_rural: decision, _relevante: false });
       continue;
     }
 
     await sleep(DELAY_MS);
     const texto = await obtenerTextoArticulo(doc.url);
-    resultado.push({ ...doc, texto: texto || textoBase, _relevante: true });
+    resultado.push({
+      ...doc,
+      texto: texto || textoBase,
+      _prefiltro_rural: decision,
+      _relevante: true,
+    });
   }
 
   console.log(`[BOME] ${resultado.length} documentos detectados (captura bruta) de ${todos.length}`);

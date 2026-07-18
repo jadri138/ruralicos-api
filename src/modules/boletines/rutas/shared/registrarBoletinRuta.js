@@ -14,22 +14,11 @@
 const { checkCronToken } = require('../../../../middleware/cronToken');
 const { procesarBoletinPreclasificado } = require('./procesarBoletinPreclasificado');
 const { procesarConFiltroRural } = require('./procesarConFiltroRural');
+const { crearPrefiltroRural } = require('../../scrapers/shared/ruralFilter');
 
-function normalizar(s) {
-  return (s || '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
-}
-
-// Filtro rural por listas de keywords (excluir gana a incluir).
-function crearFiltroRural({ excluir = [], incluir = [] } = {}) {
-  const excluirNorm = excluir.map(normalizar);
-  const incluirNorm = incluir.map(normalizar);
-
-  return function esRuralRelevante(texto) {
-    const t = normalizar(texto);
-    if (excluirNorm.some((k) => t.includes(k))) return false;
-    return incluirNorm.some((k) => t.includes(k));
-  };
-}
+// Alias conservado para no obligar a cada ruta a conocer la implementación.
+// La función devuelta ya no es booleana: produce pass/review/discard.
+const crearFiltroRural = crearPrefiltroRural;
 
 function registrarBoletinRuta(app, supabase, config) {
   const {

@@ -8,6 +8,7 @@
 
 const axios   = require('axios');
 const cheerio = require('cheerio');
+const { evaluarPrefiltroRural } = require('../shared/ruralFilter');
 
 const BASE_REST  = 'https://portaldogc.gencat.cat/eadop-rest/api/dogc';
 const BASE_HTML  = 'https://dogc.gencat.cat/es/document-del-dogc/';
@@ -145,10 +146,16 @@ async function obtenerDocumentosDogcConTexto(fechaISO, esRuralRelevante, deps = 
 
   // Captura bruta: se devuelven TODOS los documentos detectados (incluidos los que
   // no tienen URL, que antes se descartaban en silencio) anotados con `_relevante`.
-  // El texto solo se descarga para los relevantes (coste idéntico al de antes).
+  // El texto se descarga para pass/review; solo discard evita la descarga.
   for (const doc of todos) {
-    if (!esRuralRelevante(doc.titulo)) {
-      resultado.push({ ...doc, fecha: fechaISO, _relevante: false });
+    const decision = evaluarPrefiltroRural(esRuralRelevante, doc.titulo);
+    if (decision.action === 'discard') {
+      resultado.push({
+        ...doc,
+        fecha: fechaISO,
+        _prefiltro_rural: decision,
+        _relevante: false,
+      });
       continue;
     }
 
@@ -159,7 +166,13 @@ async function obtenerDocumentosDogcConTexto(fechaISO, esRuralRelevante, deps = 
       if (contenidoHtml.length > 100) texto = contenidoHtml;
     }
 
-    resultado.push({ ...doc, fecha: fechaISO, texto, _relevante: true });
+    resultado.push({
+      ...doc,
+      fecha: fechaISO,
+      texto,
+      _prefiltro_rural: decision,
+      _relevante: true,
+    });
   }
 
   console.log(`[DOGC] ${resultado.length} documentos detectados (captura bruta)`);

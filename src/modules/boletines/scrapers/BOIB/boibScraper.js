@@ -9,6 +9,7 @@
 
 const axios = require('axios');
 const cheerio = require('cheerio');
+const { evaluarPrefiltroRural } = require('../shared/ruralFilter');
 
 const BASE = 'https://www.caib.es';
 const LISTING_URL = `${BASE}/eboibfront/es/`;
@@ -176,16 +177,22 @@ async function obtenerDocumentosBoibConTexto(fechaISO, esRuralRelevante) {
   const resultado = [];
 
   // Captura bruta: se devuelven TODOS los detectados anotados con `_relevante`; el
-  // texto solo se descarga para los relevantes (coste idéntico al de antes).
+  // El texto se descarga para pass/review; solo discard evita la descarga.
   for (const doc of todos) {
-    if (!esRuralRelevante(doc.titulo)) {
-      resultado.push({ ...doc, _relevante: false });
+    const decision = evaluarPrefiltroRural(esRuralRelevante, doc.titulo);
+    if (decision.action === 'discard') {
+      resultado.push({ ...doc, _prefiltro_rural: decision, _relevante: false });
       continue;
     }
 
     await sleep(DELAY_MS);
     const texto = await obtenerTextoDocumento(doc.url);
-    resultado.push({ ...doc, texto: texto || doc.titulo, _relevante: true });
+    resultado.push({
+      ...doc,
+      texto: texto || doc.titulo,
+      _prefiltro_rural: decision,
+      _relevante: true,
+    });
   }
 
   console.log(`[BOIB] ${resultado.length} documentos detectados (captura bruta) de ${todos.length}`);

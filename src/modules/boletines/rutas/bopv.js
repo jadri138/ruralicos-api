@@ -6,7 +6,7 @@
 const { obtenerDocumentosBopvConTexto, getFechaHoyISO } = require('../scrapers/BOPV/bopvScraper');
 const { registrarBoletinRuta, crearFiltroRural } = require('./shared/registrarBoletinRuta');
 
-const EXCLUIR_FUERTE = [
+const SENALES_NEGATIVAS = [
   'ayuntamiento', 'udal', 'diputacion foral',
   'nombramiento', 'nombra', 'cese', 'personal eventual',
   'oposicion', 'concurso', 'puesto de trabajo', 'provision',
@@ -30,7 +30,7 @@ const INCLUIR_RURAL = [
   'desarrollo rural',
 ];
 
-const esRuralRelevante = crearFiltroRural({ excluir: EXCLUIR_FUERTE, incluir: INCLUIR_RURAL });
+const esRuralRelevante = crearFiltroRural({ excluir: SENALES_NEGATIVAS, incluir: INCLUIR_RURAL });
 
 module.exports = function bopvRoutes(app, supabase) {
   registrarBoletinRuta(app, supabase, {

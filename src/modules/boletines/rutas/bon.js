@@ -7,7 +7,7 @@ const { obtenerDocumentosBonConTexto } = require('../scrapers/BON/bonScraper');
 const { getFechaMadridISO } = require('../../../shared/fechaMadrid');
 const { registrarBoletinRuta, crearFiltroRural } = require('./shared/registrarBoletinRuta');
 
-const EXCLUIR_FUERTE = [
+const SENALES_NEGATIVAS = [
   'ayuntamiento', 'concejo', 'mancomunidad',
   'presupuesto', 'plantilla organica',
   'recurso contencioso', 'tribunal superior',
@@ -31,7 +31,7 @@ const INCLUIR_RURAL = [
   'departamento de desarrollo rural',
 ];
 
-const esRuralRelevante = crearFiltroRural({ excluir: EXCLUIR_FUERTE, incluir: INCLUIR_RURAL });
+const esRuralRelevante = crearFiltroRural({ excluir: SENALES_NEGATIVAS, incluir: INCLUIR_RURAL });
 
 module.exports = function bonRoutes(app, supabase) {
   registrarBoletinRuta(app, supabase, {

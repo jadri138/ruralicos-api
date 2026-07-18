@@ -6,7 +6,7 @@
 const { obtenerDocumentosBoibConTexto, getFechaHoyISO } = require('../scrapers/BOIB/boibScraper');
 const { registrarBoletinRuta, crearFiltroRural } = require('./shared/registrarBoletinRuta');
 
-const EXCLUIR_FUERTE = [
+const SENALES_NEGATIVAS = [
   'ayuntamiento', 'ajuntament', 'consell insular',
   'presupuesto', 'pressupost', 'modificacion de credito', 'modificacio de credit',
   'recurso contencioso', 'tribunal superior',
@@ -30,7 +30,7 @@ const INCLUIR_RURAL = [
   'conselleria de agricultura', 'conselleria d agricultura',
 ];
 
-const esRuralRelevante = crearFiltroRural({ excluir: EXCLUIR_FUERTE, incluir: INCLUIR_RURAL });
+const esRuralRelevante = crearFiltroRural({ excluir: SENALES_NEGATIVAS, incluir: INCLUIR_RURAL });
 
 module.exports = function boibRoutes(app, supabase) {
   registrarBoletinRuta(app, supabase, {

@@ -15,6 +15,7 @@ const cheerio = require('cheerio');
 const { PDFParse } = require('pdf-parse');
 const { axiosGetWithRetry, cabecerasNavegador } = require('../../../../platform/httpClient');
 const { agenteResiliente, ipConocida } = require('../../../../platform/dnsResiliente');
+const { evaluarPrefiltroRural } = require('../shared/ruralFilter');
 
 const BASE = 'https://www.ceuta.es';
 const BOCCE_URL = `${BASE}/ceuta/bocce`;
@@ -204,11 +205,13 @@ async function obtenerDocumentosBocceConTexto(fechaISO, esRuralRelevante) {
     await sleep(DELAY_MS);
     const texto = await obtenerTextoPdf(boletin.url);
     const textoFiltro = `${boletin.titulo} ${extraerSumario(texto)}`;
+    const decision = evaluarPrefiltroRural(esRuralRelevante, textoFiltro);
 
     resultado.push({
       ...boletin,
       texto: texto || textoFiltro,
-      _relevante: esRuralRelevante(textoFiltro),
+      _prefiltro_rural: decision,
+      _relevante: decision.action !== 'discard',
     });
   }
 

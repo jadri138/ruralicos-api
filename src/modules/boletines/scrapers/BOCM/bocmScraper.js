@@ -11,6 +11,7 @@
 
 const axios = require('axios');
 const cheerio = require('cheerio');
+const { evaluarPrefiltroRural } = require('../shared/ruralFilter');
 
 const BASE = 'https://www.bocm.es';
 
@@ -115,15 +116,20 @@ async function obtenerDocumentosBocmConTexto(fechaISO, esRuralRelevante) {
 
   // Captura bruta: se devuelven TODOS los detectados anotados con `_relevante`
   // (filtro por título + nombre del organismo). El texto solo se descarga para los
-  // relevantes (coste idéntico al de antes).
+  // documentos pass/review; solo discard evita la descarga.
   const resultado = [];
   for (const doc of todos) {
-    if (!esRuralRelevante(`${doc.titulo} ${doc.organismo}`)) {
+    const decision = evaluarPrefiltroRural(
+      esRuralRelevante,
+      `${doc.titulo} ${doc.organismo}`
+    );
+    if (decision.action === 'discard') {
       resultado.push({
         titulo: doc.titulo,
         url: doc.urlHtml,
         organismo: doc.organismo,
         fecha: doc.fecha,
+        _prefiltro_rural: decision,
         _relevante: false,
       });
       continue;
@@ -137,6 +143,7 @@ async function obtenerDocumentosBocmConTexto(fechaISO, esRuralRelevante) {
       organismo: doc.organismo,
       fecha: doc.fecha,
       texto: texto || doc.titulo,
+      _prefiltro_rural: decision,
       _relevante: true,
     });
   }

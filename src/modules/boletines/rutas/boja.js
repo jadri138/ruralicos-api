@@ -13,22 +13,15 @@
 
 const { checkCronToken } = require('../../../middleware/cronToken');
 const { getFechaHoyYYYYMMDD, obtenerDocumentosBojaPorFecha } = require('../scrapers/BOJA/bojaScraper');
-const { insertarAlertasBoletin } = require('./shared/insertarAlertasBoletin');
-const {
-  registrarRawDocuments,
-  marcarRawDocumentSaltado,
-} = require('../rawDocuments/rawDocuments.service');
+const { procesarConFiltroRural } = require('./shared/procesarConFiltroRural');
+const { crearFiltroRural } = require('./shared/registrarBoletinRuta');
 
 const REGION = 'Andalucía';
 
 // ─────────────────────────────────────────────
 // Filtro de relevancia rural
 // ─────────────────────────────────────────────
-function normalizar(s) {
-  return (s || '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
-}
-
-const EXCLUIR_FUERTE = [
+const SENALES_NEGATIVAS = [
   'boletin oficial de la provincia',
   'ayuntamiento', 'diputacion',
   'presupuesto', 'modificacion de creditos',
@@ -45,57 +38,22 @@ const INCLUIR_RURAL = [
   'caza', 'monte', 'aprovechamiento',
 ];
 
-function esRuralRelevante(texto) {
-  const t = normalizar(texto);
-  if (EXCLUIR_FUERTE.some(k => t.includes(normalizar(k)))) return false;
-  return INCLUIR_RURAL.some(k => t.includes(normalizar(k)));
-}
+const esRuralRelevante = crearFiltroRural({
+  excluir: SENALES_NEGATIVAS,
+  incluir: INCLUIR_RURAL,
+});
 
 // ─────────────────────────────────────────────
 // Núcleo: registrar (bruto) → filtrar (rural) → insertar (alertas).
 // Separado de la ruta para poder testearlo con un supabase falso.
 // ─────────────────────────────────────────────
 async function procesarDocumentosBoja(supabase, docs) {
-  const docsConRaw = await registrarRawDocuments(supabase, docs, {
+  return procesarConFiltroRural(supabase, docs, {
     fuente: 'BOJA',
     region: REGION,
-  });
-
-  let saltadasFiltro = 0;
-  const docsInsertables = [];
-
-  for (const doc of docsConRaw) {
-    // Filtro rural: texto + título + sección + organismo
-    const bolsa = [
-      String(doc.texto || '').slice(0, 3500),
-      doc.titulo,
-      doc.seccion,
-      doc.organismo,
-    ].join(' ');
-
-    if (!esRuralRelevante(bolsa)) {
-      saltadasFiltro++;
-      await marcarRawDocumentSaltado(supabase, doc.raw_document_id, 'rural_filter_no_match');
-      continue;
-    }
-
-    docsInsertables.push(doc);
-  }
-
-  const { nuevas, duplicadas, errores } = await insertarAlertasBoletin(supabase, docsInsertables, {
-    fuente: 'BOJA',
-    region: REGION,
+    esRuralRelevante,
     contenido: (doc) => doc.texto,
   });
-
-  return {
-    totales: docs.length,
-    documentos_insertables: docs.length - saltadasFiltro,
-    nuevas,
-    duplicadas,
-    errores,
-    saltadasFiltro,
-  };
 }
 
 // ─────────────────────────────────────────────

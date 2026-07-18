@@ -5,7 +5,7 @@
 const { obtenerDocumentosBomeConTexto, getFechaHoyISO } = require('../scrapers/BOME/bomeScraper');
 const { registrarBoletinRuta, crearFiltroRural } = require('./shared/registrarBoletinRuta');
 
-const EXCLUIR_FUERTE = [
+const SENALES_NEGATIVAS = [
   'ayuntamiento', 'administracion publica', 'presidencia e igualdad',
   'oposicion', 'concurso', 'provision de un puesto', 'aspirantes',
   'relacion provisional', 'relacion definitiva', 'nombramiento', 'cese',
@@ -26,7 +26,7 @@ const INCLUIR_RURAL = [
   'medio ambiente', 'desarrollo rural',
 ];
 
-const esRuralRelevante = crearFiltroRural({ excluir: EXCLUIR_FUERTE, incluir: INCLUIR_RURAL });
+const esRuralRelevante = crearFiltroRural({ excluir: SENALES_NEGATIVAS, incluir: INCLUIR_RURAL });
 
 module.exports = function bomeRoutes(app, supabase) {
   registrarBoletinRuta(app, supabase, {

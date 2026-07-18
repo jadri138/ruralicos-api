@@ -7,6 +7,7 @@ const {
 } = require('../scrapers/boa/boaPdf');
 const { getFechaMadridISO, getFechaMadridYYYYMMDD } = require('../../../shared/fechaMadrid');
 const { procesarConFiltroRural } = require('./shared/procesarConFiltroRural');
+const { crearFiltroRural } = require('./shared/registrarBoletinRuta');
 const {
   registrarRawDocuments,
   marcarRawDocumentSaltado,
@@ -29,7 +30,7 @@ function normalizar(s) {
 }
 
 // Ruido típico BOA/BOP (ayuntamientos, presupuestos, edictos, recursos...)
-const EXCLUIR_FUERTE = [
+const SENALES_NEGATIVAS = [
   'bop', 'boletin oficial de la provincia',
   'ayuntamiento', 'comarca', 'diputacion',
   'seccion sexta', 'sección sexta',
@@ -54,15 +55,10 @@ const INCLUIR_RURAL = [
   'caza', 'jabal', 'jabalí',
 ];
 
-function esRuralRelevante(texto) {
-  const t = normalizar(texto);
-
-  // Excluir gana siempre
-  if (EXCLUIR_FUERTE.some((k) => t.includes(normalizar(k)))) return false;
-
-  // Incluir: al menos una señal rural
-  return INCLUIR_RURAL.some((k) => t.includes(normalizar(k)));
-}
+const esRuralRelevante = crearFiltroRural({
+  excluir: SENALES_NEGATIVAS,
+  incluir: INCLUIR_RURAL,
+});
 
 // Título dinámico: intenta coger una línea “humana” del inicio
 function generarTituloBoa(texto, fechaSQL) {

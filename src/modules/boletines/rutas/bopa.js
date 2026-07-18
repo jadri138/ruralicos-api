@@ -6,7 +6,7 @@
 const { obtenerDocumentosBopaConTexto, getFechaHoyISO } = require('../scrapers/BOPA/bopaScraper');
 const { registrarBoletinRuta, crearFiltroRural } = require('./shared/registrarBoletinRuta');
 
-const EXCLUIR_FUERTE = [
+const SENALES_NEGATIVAS = [
   'ayuntamiento', 'concejo', 'mancomunidad',
   'presupuesto municipal', 'modificacion de credito',
   'recurso contencioso', 'tribunal superior',
@@ -31,7 +31,7 @@ const INCLUIR_RURAL = [
   'industria alimentaria',
 ];
 
-const esRuralRelevante = crearFiltroRural({ excluir: EXCLUIR_FUERTE, incluir: INCLUIR_RURAL });
+const esRuralRelevante = crearFiltroRural({ excluir: SENALES_NEGATIVAS, incluir: INCLUIR_RURAL });
 
 module.exports = function bopaRoutes(app, supabase) {
   registrarBoletinRuta(app, supabase, {

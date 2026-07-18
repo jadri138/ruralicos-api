@@ -9,6 +9,9 @@ const {
   registrarRawDocuments,
   marcarRawDocumentSaltado,
 } = require('../src/modules/boletines/rawDocuments/rawDocuments.service');
+const {
+  crearPrefiltroRural,
+} = require('../src/modules/boletines/scrapers/shared/ruralFilter');
 
 let passed = 0;
 let failed = 0;
@@ -160,12 +163,7 @@ function crearSupabaseMemoria() {
   return { from, _stores: stores };
 }
 
-// Filtro rural de prueba: excluye 'ayuntamiento'; incluye señales rurales.
-function esRuralRelevante(texto) {
-  const t = (texto || '').toLowerCase();
-  if (t.includes('ayuntamiento')) return false;
-  return t.includes('agr') || t.includes('subvenc') || t.includes('rural');
-}
+const esRuralRelevante = crearPrefiltroRural();
 
 console.log('\n=== TESTS: procesarConFiltroRural (captura bruta bloque) ===\n');
 
@@ -177,7 +175,7 @@ async function main() {
 
     const docs = [
       { titulo: 'Ayudas agricultura', url: 'u-rural', texto: 'subvenciones agrícolas', seccion: '', organismo: '' },
-      { titulo: 'Pleno municipal', url: 'u-noural', texto: 'sesión del ayuntamiento', seccion: '', organismo: '' },
+      { titulo: 'Bolsa de empleo', url: 'u-noural', texto: 'convocatoria del ayuntamiento', seccion: '', organismo: '' },
       { titulo: 'Subvención agraria', url: 'u-dup', texto: 'subvención agraria', seccion: '', organismo: '' },
       { titulo: 'Sin url', url: null, texto: 'ayuda agrícola', seccion: '', organismo: '' },
     ];
@@ -207,6 +205,7 @@ async function main() {
     const noRural = raws.find((r) => r.url === 'u-noural');
     assert.strictEqual(noRural.capture_status, 'skipped_by_rule');
     assert.strictEqual(noRural.capture_reason, 'rural_filter_no_match');
+    assert.strictEqual(noRural.metadata_json.prefiltro_rural.action, 'discard');
 
     const dup = raws.find((r) => r.url === 'u-dup');
     assert.strictEqual(dup.capture_status, 'duplicate');
@@ -215,6 +214,30 @@ async function main() {
     assert.strictEqual(sinUrl.capture_status, 'missing_url');
 
     assert.strictEqual(supabase._stores.alertas.length, 2, 'solo se inserta 1 alerta nueva');
+  });
+
+  await test('señal administrativa + materia forestal entra como review y queda auditada', async () => {
+    const supabase = crearSupabaseMemoria();
+    const stats = await procesarConFiltroRural(supabase, [{
+      titulo: 'Ayuntamiento de X',
+      url: 'u-forestal',
+      texto: 'Aprobación inicial del instrumento de gestión forestal',
+    }], {
+      fuente: 'TEST',
+      region: 'Testland',
+      esRuralRelevante,
+      contenido: (doc) => doc.texto,
+    });
+
+    assert.strictEqual(stats.nuevas, 1);
+    assert.deepStrictEqual(stats.prefiltro, { pass: 0, review: 1, discard: 0 });
+    assert.strictEqual(stats.saltadasFiltro, 0);
+
+    const raw = supabase._stores.raw_documents[0];
+    assert.strictEqual(raw.capture_status, 'inserted');
+    assert.strictEqual(raw.metadata_json.prefiltro_rural.action, 'review');
+    assert(raw.metadata_json.prefiltro_rural.positiveSignals.includes('forest'));
+    assert(raw.metadata_json.prefiltro_rural.negativeSignals.includes('ayuntamiento'));
   });
 
   await test('sin PDF (BOA/DOE): registrado y marcado skipped_by_rule / sin_pdf', async () => {

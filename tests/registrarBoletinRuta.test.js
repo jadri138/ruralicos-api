@@ -159,16 +159,25 @@ async function main() {
     assert.throws(() => registrarBoletinRuta(fakeApp(), {}, configBase({ obtenerDocs: null })), /obtenerDocs/);
   });
 
-  await test('crearFiltroRural: excluir gana, incluir requiere match, acentos normalizados', () => {
+  await test('crearFiltroRural devuelve pass/review/discard con señales auditables', () => {
     const filtro = crearFiltroRural({
       excluir: ['ayuntamiento', 'oposición'],
       incluir: ['ganader', 'regadío'],
     });
-    assert.strictEqual(filtro('Ayudas a la ganadería extensiva'), true);
-    assert.strictEqual(filtro('Plan de regadio de la comarca'), true);
-    assert.strictEqual(filtro('Ganadería: oposicion al cuerpo de veterinarios'), false);
-    assert.strictEqual(filtro('Presupuesto del AYUNTAMIENTO ganadero'), false);
-    assert.strictEqual(filtro('Convocatoria de empleo público'), false);
+    assert.strictEqual(filtro('Ayudas a la ganadería extensiva').action, 'pass');
+    assert.strictEqual(filtro('Plan de regadio de la comarca').action, 'pass');
+    assert.strictEqual(
+      filtro('Ganadería: oposición al cuerpo de veterinarios').action,
+      'discard'
+    );
+
+    const contradictoria = filtro('Presupuesto del AYUNTAMIENTO ganadero');
+    assert.strictEqual(contradictoria.action, 'review');
+    assert(contradictoria.positiveSignals.includes('ganader'));
+    assert(contradictoria.negativeSignals.includes('ayuntamiento'));
+    assert.strictEqual(contradictoria.reasonCode, 'conflicting_signals');
+
+    assert.strictEqual(filtro('Convocatoria de empleo público').action, 'discard');
   });
 
   console.log(`\nResultados registrarBoletinRuta: ${passed} aprobados, ${failed} fallidos`);

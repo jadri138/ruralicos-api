@@ -6,7 +6,7 @@
 const { obtenerDocumentosBocantConTexto, getFechaHoyISO } = require('../scrapers/BOCANT/bocantScraper');
 const { registrarBoletinRuta, crearFiltroRural } = require('./shared/registrarBoletinRuta');
 
-const EXCLUIR_FUERTE = [
+const SENALES_NEGATIVAS = [
   'ayuntamiento', 'mancomunidad',
   'presupuesto', 'modificacion de credito',
   'recurso contencioso', 'tribunal superior',
@@ -32,7 +32,7 @@ const INCLUIR_RURAL = [
   'direccion general de agricultura',
 ];
 
-const esRuralRelevante = crearFiltroRural({ excluir: EXCLUIR_FUERTE, incluir: INCLUIR_RURAL });
+const esRuralRelevante = crearFiltroRural({ excluir: SENALES_NEGATIVAS, incluir: INCLUIR_RURAL });
 
 module.exports = function bocantRoutes(app, supabase) {
   registrarBoletinRuta(app, supabase, {

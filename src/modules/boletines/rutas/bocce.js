@@ -5,7 +5,7 @@
 const { obtenerDocumentosBocceConTexto, getFechaHoyISO } = require('../scrapers/BOCCE/bocceScraper');
 const { registrarBoletinRuta, crearFiltroRural } = require('./shared/registrarBoletinRuta');
 
-const EXCLUIR_FUERTE = [
+const SENALES_NEGATIVAS = [
   'ayuntamiento', 'administracion publica', 'presidencia',
   'oposicion', 'concurso', 'proceso selectivo', 'bolsa de empleo',
   'aspirantes', 'relacion provisional', 'relacion definitiva',
@@ -28,7 +28,7 @@ const INCLUIR_RURAL = [
   'medio ambiente', 'desarrollo rural',
 ];
 
-const esRuralRelevante = crearFiltroRural({ excluir: EXCLUIR_FUERTE, incluir: INCLUIR_RURAL });
+const esRuralRelevante = crearFiltroRural({ excluir: SENALES_NEGATIVAS, incluir: INCLUIR_RURAL });
 
 module.exports = function bocceRoutes(app, supabase) {
   registrarBoletinRuta(app, supabase, {

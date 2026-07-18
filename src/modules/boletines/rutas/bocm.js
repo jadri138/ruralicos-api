@@ -6,7 +6,7 @@
 const { obtenerDocumentosBocmConTexto, getFechaHoyISO } = require('../scrapers/BOCM/bocmScraper');
 const { registrarBoletinRuta, crearFiltroRural } = require('./shared/registrarBoletinRuta');
 
-const EXCLUIR_FUERTE = [
+const SENALES_NEGATIVAS = [
   'ayuntamiento', 'mancomunidad', 'municipio',
   'presupuesto municipal', 'modificacion presupuestaria',
   'recurso contencioso', 'tribunal superior',
@@ -35,7 +35,7 @@ const INCLUIR_RURAL = [
   'medio ambiente, agricultura',
 ];
 
-const esRuralRelevante = crearFiltroRural({ excluir: EXCLUIR_FUERTE, incluir: INCLUIR_RURAL });
+const esRuralRelevante = crearFiltroRural({ excluir: SENALES_NEGATIVAS, incluir: INCLUIR_RURAL });
 
 module.exports = function bocmRoutes(app, supabase) {
   registrarBoletinRuta(app, supabase, {

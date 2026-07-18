@@ -1,6 +1,7 @@
 const cheerio = require('cheerio');
 const { htmlATexto } = require('../../../../../../shared/htmlParser');
 const { axiosGetWithRetry } = require('../../../../../../platform/httpClient');
+const { evaluarPrefiltroRural } = require('../../../shared/ruralFilter');
 
 const BASE = 'https://www.araba.eus';
 const PORTADA = `${BASE}/BOTHA/Inicio/SGBO5001.aspx`;
@@ -113,6 +114,10 @@ function parsearSumario(html, esRuralRelevante) {
     const key = idOficial || url || titulo;
     if (vistos.has(key)) return;
     vistos.add(key);
+    const decision = evaluarPrefiltroRural(
+      esRuralRelevante,
+      `${titulo} ${contexto}`
+    );
 
     docs.push({
       titulo,
@@ -125,7 +130,8 @@ function parsearSumario(html, esRuralRelevante) {
       organismo: detectarOrganismo(contexto),
       seccion: detectarSeccion(contexto),
       texto: contexto || titulo,
-      _relevante: esRuralRelevante(`${titulo} ${contexto}`),
+      _prefiltro_rural: decision,
+      _relevante: decision.action !== 'discard',
     });
   });
 
@@ -207,8 +213,8 @@ async function obtenerDocumentosBothaConTexto(fechaISO, esRuralRelevante) {
     return [];
   }
 
-  // El texto solo se descarga para los relevantes (coste idéntico al de antes); los
-  // no relevantes se devuelven tal cual para que la ruta los registre como skipped.
+  // El texto se descarga para pass/review. Los discard se devuelven tal cual para
+  // que la ruta los registre como skipped.
   const resultado = [];
   for (const doc of docs) {
     if (doc._relevante === false) {
