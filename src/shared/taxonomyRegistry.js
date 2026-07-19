@@ -8,6 +8,10 @@ const {
   canonicalSubsector,
   canonicalTipoAlerta,
 } = require('./preferenceCanonical');
+const {
+  TAXONOMY_COHERENCE_VERSION,
+  repararClasificacionSectorialSegura,
+} = require('./sectorTaxonomy');
 
 const LEGACY_SECTORS = new Set(['agricultura', 'ganaderia', 'mixto', 'otros']);
 const LEGACY_ALERT_TYPES = new Set([
@@ -34,6 +38,11 @@ function lista(value) {
 
 function dedupe(values = []) {
   return [...new Set(values.filter(Boolean))];
+}
+
+function listasIguales(a = [], b = []) {
+  return Array.isArray(a) && Array.isArray(b) &&
+    a.length === b.length && a.every((value, index) => value === b[index]);
 }
 
 function aliasesCanonicos(type, value) {
@@ -87,26 +96,44 @@ function construirTaxonomyTags(alerta = {}, clasificacion = {}) {
 }
 
 function normalizarClasificacionCanonica(alerta = {}, clasificacion = {}) {
-  const sectores = dedupe(
+  const sectoresCanonicos = dedupe(
     lista(clasificacion.sectores)
       .map(canonicalSector)
       .filter((value) => LEGACY_SECTORS.has(value))
   );
-  const subsectores = dedupe(
+  const subsectoresCanonicos = dedupe(
     lista(clasificacion.subsectores)
       .map(canonicalSubsector)
       .filter(Boolean)
   );
+  const reparacionSectorial = repararClasificacionSectorialSegura({
+    ...clasificacion,
+    sectores: sectoresCanonicos,
+    subsectores: subsectoresCanonicos,
+  });
+  const sectores = reparacionSectorial.clasificacion.sectores;
+  const subsectores = reparacionSectorial.clasificacion.subsectores;
   const tiposAlerta = dedupe(
     lista(clasificacion.tipos_alerta)
       .map(canonicalTipoAlerta)
       .filter((value) => LEGACY_ALERT_TYPES.has(value))
   );
+  const validacionAnterior = clasificacion.taxonomy_validation;
+  const conservarReparacionAnterior =
+    validacionAnterior?.version === TAXONOMY_COHERENCE_VERSION &&
+    validacionAnterior.status === 'repaired' &&
+    reparacionSectorial.diagnostico.status === 'coherent' &&
+    listasIguales(validacionAnterior.sectores_resultantes, sectores) &&
+    listasIguales(validacionAnterior.subsectores_normalizados, subsectores);
+  const taxonomyValidation = conservarReparacionAnterior
+    ? validacionAnterior
+    : reparacionSectorial.diagnostico;
   const normalized = {
     ...clasificacion,
     sectores,
     subsectores,
     tipos_alerta: tiposAlerta,
+    taxonomy_validation: taxonomyValidation,
   };
 
   return {

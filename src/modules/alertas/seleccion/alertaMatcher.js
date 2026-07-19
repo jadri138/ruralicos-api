@@ -5,6 +5,14 @@ const {
   canonicalSubsector,
   canonicalTipoAlerta,
 } = require('../../../shared/preferenceCanonical');
+const {
+  clasificarAmbitoSectorialAlerta,
+  diagnosticarCoherenciaTaxonomicaAlerta,
+  inferirSectoresDesdeSubsectores,
+  sectoresDerivadosAlerta,
+  subsectoresDerivadosAlerta,
+  taxonomyTagsAlerta,
+} = require('../../../shared/sectorTaxonomy');
 
 function norm(str) {
   return (str || '')
@@ -16,67 +24,6 @@ function norm(str) {
 }
 
 const intersecta = (a, b) => a.some((x) => b.includes(x));
-const SUBSECTORES_GANADERIA = new Set([
-  'ovino',
-  'vacuno',
-  'caprino',
-  'porcino',
-  'avicultura',
-  'cunicultura',
-  'equinocultura',
-  'apicultura',
-  'bienestar_animal',
-  'sanidad_animal',
-  'transporte_animales',
-  'razas_autoctonas',
-  'ganaderia_precision',
-  'bioseguridad',
-]);
-const SUBSECTORES_AGRICULTURA = new Set([
-  'trigo',
-  'cebada',
-  'cereal',
-  'maiz',
-  'arroz',
-  'hortalizas',
-  'frutales',
-  'hortofruticola',
-  'olivar',
-  'trufas',
-  'vinedo',
-  'almendro',
-  'citricos',
-  'frutos_secos',
-  'leguminosas',
-  'patata',
-  'fitosanitarios',
-  'jovenes_agricultores',
-  'maquinaria',
-  'agricultura_precision',
-  'cultivos_industriales',
-  'semillas',
-  'viveros',
-  'floricultura',
-  'agua',
-]);
-const SUBSECTORES_TRANSVERSALES = new Set([
-  'seguros_agrarios',
-  'desarrollo_rural',
-  'modernizacion_explotaciones',
-  'forrajes',
-  'forestal',
-  'medio_ambiente',
-  'energia',
-  'financiacion',
-  'pac',
-  'registro_explotaciones',
-  'calidad_diferenciada',
-  'agroindustria',
-  'comercializacion',
-  'formacion',
-  'infraestructuras',
-  'fauna_silvestre',
-]);
 const TIPOS_ALERTA_POR_FEATURE = {
   plazos: ['concepto:plazo'],
   formacion: ['concepto:formacion'],
@@ -92,23 +39,6 @@ function listaCanonica(value, canonicalizer) {
 
 function dedupe(values = []) {
   return [...new Set((values || []).filter(Boolean))];
-}
-
-function inferirSectoresDesdeSubsectores(subsectores = []) {
-  const normalizados = listaCanonica(subsectores, canonicalSubsector);
-  let agricultura = false;
-  let ganaderia = false;
-
-  for (const subsector of normalizados) {
-    if (SUBSECTORES_TRANSVERSALES.has(subsector)) continue;
-    if (SUBSECTORES_AGRICULTURA.has(subsector)) agricultura = true;
-    if (SUBSECTORES_GANADERIA.has(subsector)) ganaderia = true;
-  }
-
-  return [
-    ...(agricultura ? ['agricultura'] : []),
-    ...(ganaderia ? ['ganaderia'] : []),
-  ];
 }
 
 function obtenerSectorImplicitoUsuario(user = {}) {
@@ -127,17 +57,6 @@ function obtenerSectorImplicitoUsuario(user = {}) {
       ? 'explicito'
       : (sectoresInferidos.length > 0 ? 'subsectores' : 'abierto'),
   };
-}
-
-function clasificarAmbitoSectorialAlerta(sectores = []) {
-  const normalizados = listaCanonica(sectores, canonicalSector);
-  const agricultura = normalizados.includes('agricultura');
-  const ganaderia = normalizados.includes('ganaderia');
-
-  if (normalizados.includes('mixto') || (agricultura && ganaderia)) return 'mixto';
-  if (agricultura) return 'agricultura';
-  if (ganaderia) return 'ganaderia';
-  return 'neutral';
 }
 
 function diagnosticarBarreraSectorialUsuario(alerta = {}, user = {}, options = {}) {
@@ -170,32 +89,12 @@ function diagnosticarBarreraSectorialUsuario(alerta = {}, user = {}, options = {
   };
 }
 
-function taxonomyTagsAlerta(alerta = {}) {
-  return Array.isArray(alerta.taxonomy_tags)
-    ? alerta.taxonomy_tags.map(norm).filter(Boolean)
-    : [];
-}
-
 function valoresTaxonomiaPorPrefijo(alerta = {}, prefijo = '', canonicalizer = norm) {
   const prefix = norm(prefijo);
   return taxonomyTagsAlerta(alerta)
     .filter((tag) => tag.startsWith(prefix))
     .map((tag) => canonicalizer(tag.slice(prefix.length)))
     .filter(Boolean);
-}
-
-function sectoresDerivadosAlerta(alerta = {}) {
-  return dedupe([
-    ...listaCanonica(alerta.sectores, canonicalSector),
-    ...valoresTaxonomiaPorPrefijo(alerta, 'sector:', canonicalSector),
-  ]);
-}
-
-function subsectoresDerivadosAlerta(alerta = {}) {
-  return dedupe([
-    ...listaCanonica(alerta.subsectores, canonicalSubsector),
-    ...valoresTaxonomiaPorPrefijo(alerta, 'subsector:', canonicalSubsector),
-  ]);
 }
 
 function tiposDerivadosAlerta(alerta = {}) {
@@ -545,6 +444,9 @@ function diagnosticarAlertaUsuario(alerta, user, options = {}) {
   });
   if (diagnosticoTaxonomia) return diagnosticoTaxonomia;
 
+  const diagnosticoCoherencia = diagnosticarCoherenciaTaxonomicaAlerta(alerta);
+  if (diagnosticoCoherencia) return diagnosticoCoherencia;
+
   const ayudaGeneralConInteresUsuario = esConvocatoriaAyudaGeneral(alerta) &&
     usuarioAceptaAyudasGenerales(tiposUserActivos);
 
@@ -605,6 +507,7 @@ module.exports = {
   alertaCoincideConUsuario,
   clasificarAmbitoSectorialAlerta,
   diagnosticarBarreraSectorialUsuario,
+  diagnosticarCoherenciaTaxonomicaAlerta,
   diagnosticarTaxonomiaDerivadaAlerta,
   diagnosticarTaxonomiaMinimaAlerta,
   diagnosticarAlertaUsuario,
