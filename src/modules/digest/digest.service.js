@@ -28,6 +28,7 @@ const { enviarDigestPro }          = require('../../platform/whatsapp');
 const { getPlan }                  = require('../../config/planes');
 const {
   alertaCoincideConUsuario,
+  diagnosticarBarreraSectorialUsuario,
   diagnosticarAlertaUsuario,
   diagnosticarTaxonomiaDerivadaAlerta,
 } = require('../alertas/seleccion/alertaMatcher');
@@ -179,6 +180,7 @@ const MOTIVOS_SIN_COINCIDENCIA_PERFIL = new Set([
   'alerta_sin_taxonomia',
   'alerta_sin_sector_clasificado',
   'sector_no_coincide',
+  'sector_inferido_no_coincide',
   'subsector_no_coincide',
   'tipo_alerta_no_coincide',
   'matcher_no_coincide',
@@ -2023,11 +2025,11 @@ function seleccionarAlertasRescate({
     };
   }
 
-  const bloqueosTaxonomia = [];
+  const bloqueosRescate = [];
   const suavesBase = alertasVisibles.filter((alerta) => {
     const diagnosticoTaxonomia = diagnosticarTaxonomiaDerivadaAlerta(alerta);
     if (diagnosticoTaxonomia) {
-      bloqueosTaxonomia.push({
+      bloqueosRescate.push({
         id: alerta.id,
         titulo: alerta.titulo,
         fuente: alerta.fuente || 'BOE',
@@ -2039,6 +2041,22 @@ function seleccionarAlertasRescate({
       });
       return false;
     }
+
+    const diagnosticoSectorial = diagnosticarBarreraSectorialUsuario(alerta, user);
+    if (diagnosticoSectorial) {
+      bloqueosRescate.push({
+        id: alerta.id,
+        titulo: alerta.titulo,
+        fuente: alerta.fuente || 'BOE',
+        incluir: false,
+        action: 'exclude',
+        motivo: diagnosticoSectorial.motivo,
+        detalle: diagnosticoSectorial.detalle,
+        score: 0,
+      });
+      return false;
+    }
+
     return alertaNoExcluidaPorPreferencias(alerta, user);
   });
   const suavesOrdenadas = ordenarPorAprendizaje(
@@ -2055,7 +2073,7 @@ function seleccionarAlertasRescate({
     trasFiltroUsuario: seleccionBase.alertas.length,
     trasScoring: Math.min(suavesOrdenadas.length, maxItems),
     decisiones: [
-      ...bloqueosTaxonomia,
+      ...bloqueosRescate,
       ...suavesBase.map((alerta) => ({
         id: alerta.id,
         action: seleccionadasIds.has(String(alerta.id)) ? 'include' : 'exclude',

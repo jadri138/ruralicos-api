@@ -1,5 +1,9 @@
 const assert = require('assert');
-const { diagnosticarAlertaUsuario } = require('../src/modules/alertas/seleccion/alertaMatcher');
+const {
+  diagnosticarAlertaUsuario,
+  inferirSectoresDesdeSubsectores,
+  obtenerSectorImplicitoUsuario,
+} = require('../src/modules/alertas/seleccion/alertaMatcher');
 
 let passed = 0;
 let failed = 0;
@@ -435,6 +439,157 @@ test('sector derivado valido pero incompatible conserva sector_no_coincide', () 
 
   assert.strictEqual(result.ok, false);
   assert.strictEqual(result.motivo, 'sector_no_coincide');
+});
+
+function userSectorial({ sectores = [], subsectores = [] } = {}) {
+  return {
+    subscription: 'cooperativa',
+    preferences: {
+      provincias: [],
+      sectores,
+      subsectores,
+      tipos_alerta: { normativa_general: true },
+    },
+  };
+}
+
+function alertaSectorial({ sectores = [], subsectores = [], taxonomy_tags = [] } = {}) {
+  return {
+    fuente: 'BOE',
+    provincias: ['nacional'],
+    sectores,
+    subsectores,
+    tipos_alerta: ['normativa_general'],
+    taxonomy_tags,
+  };
+}
+
+test('infiere sectores fuertes con valores canonicos y conserva transversales como neutrales', () => {
+  assert.deepStrictEqual(inferirSectoresDesdeSubsectores(['ovejas']), ['ganaderia']);
+  assert.deepStrictEqual(inferirSectoresDesdeSubsectores(['olivar']), ['agricultura']);
+  assert.deepStrictEqual(inferirSectoresDesdeSubsectores(['ovino', 'cereal']), ['agricultura', 'ganaderia']);
+  assert.deepStrictEqual(inferirSectoresDesdeSubsectores(['medio_ambiente', 'desconocido']), []);
+});
+
+test('ganadero implicito bloquea una alerta exclusivamente agricola general', () => {
+  const user = userSectorial({ subsectores: ['ovino'] });
+  const result = diagnosticarAlertaUsuario(alertaSectorial({ sectores: ['agricultura'] }), user);
+
+  assert.deepStrictEqual(obtenerSectorImplicitoUsuario(user), {
+    sectores_explicitos: [],
+    subsectores: ['ovino'],
+    sectores_inferidos: ['ganaderia'],
+    origen: 'subsectores',
+  });
+  assert.deepStrictEqual(result, {
+    ok: false,
+    motivo: 'sector_inferido_no_coincide',
+    detalle: {
+      usuario_sectores_explicitos: [],
+      usuario_subsectores: ['ovino'],
+      usuario_sectores_inferidos: ['ganaderia'],
+      origen_sector_usuario: 'subsectores',
+      alerta_sectores: ['agricultura'],
+      alerta_ambito_sectorial: 'agricultura',
+    },
+  });
+});
+
+test('agricultor implicito bloquea una alerta exclusivamente ganadera general', () => {
+  const result = diagnosticarAlertaUsuario(
+    alertaSectorial({ sectores: ['ganaderia'] }),
+    userSectorial({ subsectores: ['cereal'] })
+  );
+
+  assert.strictEqual(result.ok, false);
+  assert.strictEqual(result.motivo, 'sector_inferido_no_coincide');
+});
+
+test('sector implicito acepta alertas generales dentro del mismo sector', () => {
+  const ganadero = diagnosticarAlertaUsuario(
+    alertaSectorial({ sectores: ['ganaderia'] }),
+    userSectorial({ subsectores: ['ovino'] })
+  );
+  const agricultor = diagnosticarAlertaUsuario(
+    alertaSectorial({ sectores: ['agricultura'] }),
+    userSectorial({ subsectores: ['olivar'] })
+  );
+
+  assert.strictEqual(ganadero.ok, true);
+  assert.strictEqual(agricultor.ok, true);
+});
+
+test('perfil completamente abierto sigue aceptando alertas clasificadas', () => {
+  const result = diagnosticarAlertaUsuario(
+    alertaSectorial({ sectores: ['agricultura'] }),
+    userSectorial()
+  );
+
+  assert.strictEqual(result.ok, true);
+});
+
+test('subsector transversal o desconocido no crea barrera sectorial', () => {
+  for (const subsector of ['medio_ambiente', 'desconocido']) {
+    const user = userSectorial({ subsectores: [subsector] });
+    assert.strictEqual(
+      diagnosticarAlertaUsuario(alertaSectorial({ sectores: ['agricultura'] }), user).ok,
+      true
+    );
+    assert.strictEqual(
+      diagnosticarAlertaUsuario(alertaSectorial({ sectores: ['ganaderia'] }), user).ok,
+      true
+    );
+  }
+});
+
+test('usuario explicitamente mixto acepta alertas agricolas y ganaderas', () => {
+  const user = userSectorial({ sectores: ['mixto'] });
+  assert.strictEqual(diagnosticarAlertaUsuario(alertaSectorial({ sectores: ['agricultura'] }), user).ok, true);
+  assert.strictEqual(diagnosticarAlertaUsuario(alertaSectorial({ sectores: ['ganaderia'] }), user).ok, true);
+});
+
+test('inferencia mixta acepta alertas agricolas y ganaderas', () => {
+  const user = userSectorial({ subsectores: ['ovino', 'cereal'] });
+  assert.strictEqual(diagnosticarAlertaUsuario(alertaSectorial({ sectores: ['agricultura'] }), user).ok, true);
+  assert.strictEqual(diagnosticarAlertaUsuario(alertaSectorial({ sectores: ['ganaderia'] }), user).ok, true);
+});
+
+test('alerta mixta no se bloquea para usuarios con sector implicito', () => {
+  assert.strictEqual(
+    diagnosticarAlertaUsuario(
+      alertaSectorial({ sectores: ['mixto'] }),
+      userSectorial({ subsectores: ['ovino'] })
+    ).ok,
+    true
+  );
+  assert.strictEqual(
+    diagnosticarAlertaUsuario(
+      alertaSectorial({ sectores: ['mixto'] }),
+      userSectorial({ subsectores: ['cereal'] })
+    ).ok,
+    true
+  );
+});
+
+test('sector explicito conserva prioridad sobre subsectores contradictorios', () => {
+  const result = diagnosticarAlertaUsuario(
+    alertaSectorial({ sectores: ['ganaderia'] }),
+    userSectorial({ sectores: ['agricultura'], subsectores: ['ovino'] })
+  );
+
+  assert.strictEqual(result.ok, false);
+  assert.strictEqual(result.motivo, 'sector_no_coincide');
+});
+
+test('barrera usa el sector derivado desde taxonomy_tags', () => {
+  const result = diagnosticarAlertaUsuario(
+    alertaSectorial({ taxonomy_tags: ['sector:agricultura'] }),
+    userSectorial({ subsectores: ['ovino'] })
+  );
+
+  assert.strictEqual(result.ok, false);
+  assert.strictEqual(result.motivo, 'sector_inferido_no_coincide');
+  assert.deepStrictEqual(result.detalle.alerta_sectores, ['agricultura']);
 });
 
 console.log(`\nResultados alertaMatcher: ${passed} aprobados, ${failed} fallidos`);

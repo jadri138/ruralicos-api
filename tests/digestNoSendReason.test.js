@@ -39,6 +39,17 @@ assert.strictEqual(
 );
 
 assert.strictEqual(
+  resolverMotivoNoEnvioDigest({
+    ...base,
+    seleccionBase: {
+      alertas: [],
+      decisiones: [{ incluir: false, motivo: 'sector_inferido_no_coincide' }],
+    },
+  }),
+  'perfil_sin_coincidencias'
+);
+
+assert.strictEqual(
   resolverMotivoNoEnvioDigest({ ...base, seleccionBase: fueraPorPolitica }),
   'seleccion_sin_alertas_enviables'
 );
@@ -131,5 +142,53 @@ assert.strictEqual(
   rescate.decisiones.find((decision) => decision.id === 1).motivo,
   'alerta_sin_taxonomia'
 );
+
+const rescateConBarreraSectorial = seleccionarAlertasRescate({
+  alertas: [
+    {
+      id: 3,
+      fuente: 'BOE',
+      titulo: 'Norma agricola general con maxima relevancia semantica',
+      provincias: ['nacional'],
+      sectores: ['agricultura'],
+      subsectores: [],
+      tipos_alerta: ['normativa_general'],
+      similitud: 1,
+      mia_profile_score: 7,
+    },
+    {
+      id: 4,
+      fuente: 'BOE',
+      titulo: 'Norma ganadera general',
+      provincias: ['nacional'],
+      sectores: ['ganaderia'],
+      subsectores: [],
+      tipos_alerta: ['normativa_general'],
+      similitud: 0.1,
+      mia_profile_score: 1,
+    },
+  ],
+  user: {
+    subscription: 'cooperativa',
+    preferences: {
+      provincias: [],
+      sectores: [],
+      subsectores: ['ovino'],
+      tipos_alerta: { normativa_general: true },
+    },
+  },
+  aprendizaje: null,
+  perfilOperativoMIA: {},
+  maxItems: 1,
+});
+
+assert.strictEqual(rescateConBarreraSectorial.tipo, 'suave');
+assert.deepStrictEqual(rescateConBarreraSectorial.alertas.map((alerta) => alerta.id), [4]);
+const decisionAgricola = rescateConBarreraSectorial.decisiones.find((decision) => decision.id === 3);
+assert.strictEqual(decisionAgricola.action, 'exclude');
+assert.strictEqual(decisionAgricola.incluir, false);
+assert.strictEqual(decisionAgricola.score, 0);
+assert.strictEqual(decisionAgricola.motivo, 'sector_inferido_no_coincide');
+assert.deepStrictEqual(decisionAgricola.detalle.usuario_sectores_inferidos, ['ganaderia']);
 
 console.log('OK: motivos de no envio distinguen perfil y politica de seleccion');

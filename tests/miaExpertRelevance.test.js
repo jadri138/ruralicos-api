@@ -142,5 +142,21 @@ test('expone como fallo del matcher una alerta sin taxonomia', () => {
   assert.strictEqual(result.matcher.motivo, 'alerta_sin_taxonomia');
 });
 
+test('expone como fallo del matcher una incompatibilidad sectorial inferida', () => {
+  const result = evaluarRelevanciaExperta(baseAlert, {
+    ...user,
+    preferences: {
+      ...user.preferences,
+      sectores: [],
+      subsectores: ['ovino'],
+    },
+  }, { qualityGate: false });
+
+  assert.strictEqual(result.veredicto, 'bloquear');
+  assert.strictEqual(result.matcher.ok, false);
+  assert.strictEqual(result.matcher.motivo, 'sector_inferido_no_coincide');
+  assert(result.blocks.some((block) => block.code === 'sector_inferido_no_coincide'));
+});
+
 console.log(`\nResultados miaExpertRelevance: ${passed} aprobados, ${failed} fallidos`);
 if (failed > 0) process.exit(1);

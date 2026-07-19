@@ -16,6 +16,67 @@ function norm(str) {
 }
 
 const intersecta = (a, b) => a.some((x) => b.includes(x));
+const SUBSECTORES_GANADERIA = new Set([
+  'ovino',
+  'vacuno',
+  'caprino',
+  'porcino',
+  'avicultura',
+  'cunicultura',
+  'equinocultura',
+  'apicultura',
+  'bienestar_animal',
+  'sanidad_animal',
+  'transporte_animales',
+  'razas_autoctonas',
+  'ganaderia_precision',
+  'bioseguridad',
+]);
+const SUBSECTORES_AGRICULTURA = new Set([
+  'trigo',
+  'cebada',
+  'cereal',
+  'maiz',
+  'arroz',
+  'hortalizas',
+  'frutales',
+  'hortofruticola',
+  'olivar',
+  'trufas',
+  'vinedo',
+  'almendro',
+  'citricos',
+  'frutos_secos',
+  'leguminosas',
+  'patata',
+  'fitosanitarios',
+  'jovenes_agricultores',
+  'maquinaria',
+  'agricultura_precision',
+  'cultivos_industriales',
+  'semillas',
+  'viveros',
+  'floricultura',
+  'agua',
+]);
+const SUBSECTORES_TRANSVERSALES = new Set([
+  'seguros_agrarios',
+  'desarrollo_rural',
+  'modernizacion_explotaciones',
+  'forrajes',
+  'forestal',
+  'medio_ambiente',
+  'energia',
+  'financiacion',
+  'pac',
+  'registro_explotaciones',
+  'calidad_diferenciada',
+  'agroindustria',
+  'comercializacion',
+  'formacion',
+  'infraestructuras',
+  'fauna_silvestre',
+]);
 const TIPOS_ALERTA_POR_FEATURE = {
   plazos: ['concepto:plazo'],
   formacion: ['concepto:formacion'],
@@ -31,6 +92,82 @@ function listaCanonica(value, canonicalizer) {
 
 function dedupe(values = []) {
   return [...new Set((values || []).filter(Boolean))];
+}
+
+function inferirSectoresDesdeSubsectores(subsectores = []) {
+  const normalizados = listaCanonica(subsectores, canonicalSubsector);
+  let agricultura = false;
+  let ganaderia = false;
+
+  for (const subsector of normalizados) {
+    if (SUBSECTORES_TRANSVERSALES.has(subsector)) continue;
+    if (SUBSECTORES_AGRICULTURA.has(subsector)) agricultura = true;
+    if (SUBSECTORES_GANADERIA.has(subsector)) ganaderia = true;
+  }
+
+  return [
+    ...(agricultura ? ['agricultura'] : []),
+    ...(ganaderia ? ['ganaderia'] : []),
+  ];
+}
+
+function obtenerSectorImplicitoUsuario(user = {}) {
+  const prefs = user.preferences || {};
+  const sectoresExplicitos = listaCanonica(prefs.sectores, canonicalSector);
+  const subsectores = listaCanonica(prefs.subsectores, canonicalSubsector);
+  const sectoresInferidos = sectoresExplicitos.length === 0
+    ? inferirSectoresDesdeSubsectores(subsectores)
+    : [];
+
+  return {
+    sectores_explicitos: sectoresExplicitos,
+    subsectores,
+    sectores_inferidos: sectoresInferidos,
+    origen: sectoresExplicitos.length > 0
+      ? 'explicito'
+      : (sectoresInferidos.length > 0 ? 'subsectores' : 'abierto'),
+  };
+}
+
+function clasificarAmbitoSectorialAlerta(sectores = []) {
+  const normalizados = listaCanonica(sectores, canonicalSector);
+  const agricultura = normalizados.includes('agricultura');
+  const ganaderia = normalizados.includes('ganaderia');
+
+  if (normalizados.includes('mixto') || (agricultura && ganaderia)) return 'mixto';
+  if (agricultura) return 'agricultura';
+  if (ganaderia) return 'ganaderia';
+  return 'neutral';
+}
+
+function diagnosticarBarreraSectorialUsuario(alerta = {}, user = {}, options = {}) {
+  const sectorUsuario = obtenerSectorImplicitoUsuario(user);
+  if (sectorUsuario.sectores_explicitos.length > 0) return null;
+  if (sectorUsuario.sectores_inferidos.length !== 1) return null;
+
+  const sectoresAlerta = Array.isArray(options.sectoresAlerta)
+    ? listaCanonica(options.sectoresAlerta, canonicalSector)
+    : sectoresDerivadosAlerta(alerta);
+  const ambitoAlerta = clasificarAmbitoSectorialAlerta(sectoresAlerta);
+  const sectorInferido = sectorUsuario.sectores_inferidos[0];
+  const incompatibilidadFuerte =
+    (sectorInferido === 'agricultura' && ambitoAlerta === 'ganaderia') ||
+    (sectorInferido === 'ganaderia' && ambitoAlerta === 'agricultura');
+
+  if (!incompatibilidadFuerte) return null;
+
+  return {
+    ok: false,
+    motivo: 'sector_inferido_no_coincide',
+    detalle: {
+      usuario_sectores_explicitos: sectorUsuario.sectores_explicitos,
+      usuario_subsectores: sectorUsuario.subsectores,
+      usuario_sectores_inferidos: sectorUsuario.sectores_inferidos,
+      origen_sector_usuario: sectorUsuario.origen,
+      alerta_sectores: sectoresAlerta,
+      alerta_ambito_sectorial: ambitoAlerta,
+    },
+  };
 }
 
 function taxonomyTagsAlerta(alerta = {}) {
@@ -428,6 +565,11 @@ function diagnosticarAlertaUsuario(alerta, user, options = {}) {
     };
   }
 
+  const diagnosticoBarreraSectorial = diagnosticarBarreraSectorialUsuario(alerta, user, {
+    sectoresAlerta: sectoresANorm,
+  });
+  if (diagnosticoBarreraSectorial) return diagnosticoBarreraSectorial;
+
   const tieneMixtoUser = sectoresUserNorm.includes('mixto');
   const tieneMixtoAlerta = sectoresANorm.includes('mixto');
   const okSector =
@@ -461,13 +603,17 @@ function alertaCoincideConUsuario(alerta, user, options = {}) {
 
 module.exports = {
   alertaCoincideConUsuario,
+  clasificarAmbitoSectorialAlerta,
+  diagnosticarBarreraSectorialUsuario,
   diagnosticarTaxonomiaDerivadaAlerta,
   diagnosticarTaxonomiaMinimaAlerta,
   diagnosticarAlertaUsuario,
   esAlertaNacional,
   esConvocatoriaAyudaGeneral,
   intersecta,
+  inferirSectoresDesdeSubsectores,
   norm,
+  obtenerSectorImplicitoUsuario,
   provinciasDerivadasAlerta,
   sectoresDerivadosAlerta,
   subsectoresDerivadosAlerta,

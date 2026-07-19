@@ -1,6 +1,9 @@
 const {
+  clasificarAmbitoSectorialAlerta,
+  diagnosticarBarreraSectorialUsuario,
   diagnosticarAlertaUsuario,
   esAlertaNacional,
+  obtenerSectorImplicitoUsuario,
   provinciasDerivadasAlerta,
   sectoresDerivadosAlerta,
   subsectoresDerivadosAlerta,
@@ -285,13 +288,31 @@ function coincidenciasDeclaradas(alerta = {}, user = {}) {
   const alertaNacional = esAlertaNacional(alerta, provinciasAlerta) ||
     provinciasAlerta.some((provincia) => MARCADORES_NACIONALES.has(provincia));
   const sectorDeclaradoCompatible = sectoresCompatiblesDeclarados(sectoresUser, sectoresAlerta);
+  const sectorUsuario = obtenerSectorImplicitoUsuario(user);
+  const ambitoSectorialAlerta = clasificarAmbitoSectorialAlerta(sectoresAlerta);
+  const barreraSectorial = diagnosticarBarreraSectorialUsuario(alerta, user, { sectoresAlerta });
+  const tieneSectorInferido = sectorUsuario.origen === 'subsectores';
+  const sectorInferidoCoincide = tieneSectorInferido && (
+    ambitoSectorialAlerta === 'mixto' ||
+    sectorUsuario.sectores_inferidos.includes(ambitoSectorialAlerta)
+  );
 
   return {
     provincia: provinciasUser.length === 0 || alertaNacional || intersecta(provinciasUser, provinciasAlerta),
     provincia_expresa: provinciasUser.length > 0 && !alertaNacional && intersecta(provinciasUser, provinciasAlerta),
     provincia_nacional: alertaNacional,
-    sector: sectoresUser.length === 0 || sectoresAlerta.length === 0 || sectorDeclaradoCompatible,
+    sector: sectoresUser.length === 0
+      ? !barreraSectorial
+      : sectoresAlerta.length === 0 || sectorDeclaradoCompatible,
     sector_expreso: sectoresUser.length > 0 && sectoresAlerta.length > 0 && sectorDeclaradoCompatible,
+    sector_origen: sectorUsuario.origen,
+    sector_inferido: tieneSectorInferido,
+    sector_inferido_compatible: tieneSectorInferido && !barreraSectorial,
+    sector_inferido_coincide: sectorInferidoCoincide,
+    sector_inferido_incompatible: Boolean(barreraSectorial),
+    sector_inferido_origen: tieneSectorInferido ? sectorUsuario.origen : null,
+    sectores_inferidos_usuario: sectorUsuario.sectores_inferidos,
+    alerta_ambito_sectorial: ambitoSectorialAlerta,
     subsector: subsectoresUser.length === 0 || subsectoresAlerta.length === 0 || intersecta(subsectoresUser, subsectoresAlerta),
     subsector_expreso: subsectoresUser.length > 0 && subsectoresAlerta.length > 0 && intersecta(subsectoresUser, subsectoresAlerta),
     tipo: tiposUser.length === 0 || tiposAlerta.length === 0 || intersecta(tiposUser, tiposAlerta),
@@ -414,7 +435,7 @@ function calcularRiesgoRuido({ alerta = {}, user = {}, calidad = {}, signals = {
   if (sectoresAlerta.length === 0 && subsectoresAlerta.length === 0) {
     reasons.push({ code: 'sector_subsector_no_expresos', level: 'alto', detail: 'No hay sector ni subsector expreso.' });
   }
-  if (!matches.sector_expreso && !matches.subsector_expreso) {
+  if (!matches.sector_expreso && !matches.sector_inferido_coincide && !matches.subsector_expreso) {
     reasons.push({ code: 'sector_usuario_no_expreso', level: 'medio', detail: 'No hay match expreso de sector o subsector.' });
   }
   if (!matches.tipo_expreso) {
@@ -451,6 +472,9 @@ function calcularScore({ alerta, base, calidad, signals, matches, municipio, int
   else if (matches.provincia) score = sumar(score, reasons, 8, 'territorio_admisible', 'Territorio admisible por preferencias.');
 
   if (matches.sector_expreso) score = sumar(score, reasons, 10, 'sector_declarado', 'Coincide sector declarado.');
+  else if (matches.sector_inferido_coincide) {
+    score = sumar(score, reasons, 6, 'sector_inferido', 'Coincide el sector inferido desde subsectores.');
+  }
   if (matches.subsector_expreso) score = sumar(score, reasons, 12, 'subsector_declarado', 'Coincide subsector declarado.');
   if (matches.tipo_expreso) score = sumar(score, reasons, 12, 'tipo_declarado', 'Coincide tipo de alerta activo.');
 

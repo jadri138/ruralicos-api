@@ -119,6 +119,75 @@ test('taxonomia vacia es bloqueo duro antes del scoring y no admite rescate', ()
   assert.strictEqual(seleccion.decisiones[0].motivo, 'alerta_sin_taxonomia');
 });
 
+test('sector inferido incompatible es bloqueo duro aunque calidad, MIA y similitud sean maximas', () => {
+  const ganaderoImplicito = {
+    ...user,
+    preferences: {
+      ...user.preferences,
+      provincias: [],
+      sectores: [],
+      subsectores: ['ovino'],
+    },
+  };
+  const agricolaGeneral = alerta(1001, {
+    fuente: 'BOE',
+    provincias: ['nacional'],
+    sectores: ['agricultura'],
+    subsectores: [],
+    similitud: 1,
+    mia_profile_score: 7,
+  });
+  const decision = decidirAlertaParaDigest(agricolaGeneral, ganaderoImplicito, {
+    qualityGate: false,
+    minIncludeScore: 1,
+    minReviewScore: 1,
+  });
+
+  assert.strictEqual(decision.action, 'exclude');
+  assert.strictEqual(decision.incluir, false);
+  assert.strictEqual(decision.score, 0);
+  assert.strictEqual(decision.motivo, 'sector_inferido_no_coincide');
+  assert.strictEqual(decision.diagnostico.matcher, 'sector_inferido_no_coincide');
+  assert(decision.diagnostico.policy.blocks.some(
+    (block) => block.code === 'sector_inferido_no_coincide'
+  ));
+  assert.strictEqual(decision.diagnostico.policy.matches.sector, false);
+  assert.strictEqual(decision.diagnostico.policy.matches.sector_inferido, true);
+  assert.strictEqual(decision.diagnostico.policy.matches.sector_inferido_compatible, false);
+  assert.strictEqual(decision.diagnostico.policy.matches.sector_inferido_incompatible, true);
+  assert.strictEqual(decision.diagnostico.policy.matches.sector_inferido_origen, 'subsectores');
+});
+
+test('sector inferido compatible se reconoce como coincidencia y no como perfil sectorial ausente', () => {
+  const ganaderoImplicito = {
+    ...user,
+    preferences: {
+      ...user.preferences,
+      provincias: [],
+      sectores: [],
+      subsectores: ['ovino'],
+    },
+  };
+  const ganaderaGeneral = alerta(1002, {
+    fuente: 'BOE',
+    provincias: ['nacional'],
+    sectores: ['ganaderia'],
+    subsectores: [],
+  });
+  const decision = decidirAlertaParaDigest(ganaderaGeneral, ganaderoImplicito, {
+    qualityGate: false,
+    minIncludeScore: 1,
+    minReviewScore: 1,
+  });
+
+  assert.strictEqual(decision.diagnostico.policy.matches.sector_inferido_compatible, true);
+  assert.strictEqual(decision.diagnostico.policy.matches.sector_inferido_coincide, true);
+  assert(decision.diagnostico.ranking.reasons.some((reason) => reason.code === 'sector_inferido'));
+  assert(!decision.diagnostico.policy.riesgo_de_ruido.reasons.some(
+    (reason) => reason.code === 'sector_usuario_no_expreso'
+  ));
+});
+
 test('alerta de todas las provincias entra aunque el usuario tenga una provincia concreta', () => {
   const decision = decidirAlertaParaDigest(alerta(101, {
     fuente: 'BOE',

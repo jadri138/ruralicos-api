@@ -52,6 +52,7 @@ function evaluarRelevanciaExperta(alerta = {}, user = {}, options = {}) {
           'alerta_sin_taxonomia',
           'alerta_sin_sector_clasificado',
           'sector_no_coincide',
+          'sector_inferido_no_coincide',
           'subsector_no_coincide',
           'tipo_alerta_no_coincide',
           'matcher_no_coincide',
