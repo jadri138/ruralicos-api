@@ -1,6 +1,12 @@
 // src/routes/revisarAlertas.js
 const { checkCronToken } = require("../../middleware/cronToken");
 const { llamarIA, parsearJSON } = require("../../platform/ia/llamarIA");
+const {
+  construirDescarteAuditable,
+  limpiarCamposDescarte,
+  obtenerClasificacionAlerta,
+  obtenerPreclasificacionAlerta,
+} = require("./clasificacion/discardDecision");
 
 // Limpieza defensiva por si la IA mete metatexto/instrucciones internas
 function sanitizeResumen(resumen) {
@@ -37,7 +43,7 @@ module.exports = function revisarAlertasRoutes(app, supabase) {
       // 1) Seleccionar resúmenes válidos NO revisados (más recientes primero)
       let query = supabase
         .from("alertas")
-        .select("id, titulo, url, fecha, resumen, provincias, sectores, subsectores, tipos_alerta, created_at")
+        .select("id, titulo, url, fecha, resumen, provincias, sectores, subsectores, tipos_alerta, created_at, pre_score, pre_status, pre_reasons, candidate_level, decision_audit")
         .neq("resumen", "NO IMPORTA")
         .neq("resumen", "Procesando con IA...")
         .or("revision_final.is.null,revision_final.eq.false");
@@ -238,6 +244,7 @@ ${JSON.stringify(input)}
       // 4) Actualizar BD
       let actualizadas = 0;
       const errores = [];
+      const alertasPorId = new Map(alertas.map((alerta) => [String(alerta.id), alerta]));
 
       for (const rev of revisiones) {
         if (!rev?.id) continue;
@@ -245,13 +252,16 @@ ${JSON.stringify(input)}
         const updateData = { revision_final: true };
 
         if (rev.enviar === false) {
-          updateData.estado_ia = "descartado";
-          updateData.resumen = "NO IMPORTA";
-          updateData.provincias = [];
-          updateData.sectores = [];
-          updateData.subsectores = [];
-          updateData.tipos_alerta = [];
+          const alerta = alertasPorId.get(String(rev.id)) || {};
+          Object.assign(updateData, construirDescarteAuditable({
+            code: 'clasificador_ia_no_relevante',
+            stage: 'review_ai',
+            confidence: 0.5,
+            preclassification: obtenerPreclasificacionAlerta(alerta),
+            classification: obtenerClasificacionAlerta(alerta),
+          }));
         } else {
+          Object.assign(updateData, limpiarCamposDescarte());
           if (typeof rev.resumen_corregido === "string" && rev.resumen_corregido.trim()) {
             updateData.resumen = sanitizeResumen(rev.resumen_corregido).trim();
           }

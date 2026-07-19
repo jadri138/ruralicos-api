@@ -18,6 +18,13 @@ const {
 const {
   normalizarClasificacionCanonica,
 } = require('../../shared/taxonomyRegistry');
+const {
+  construirDescarteAuditable,
+  limpiarCamposDescarte,
+  metadatosDescartePreclasificador,
+  obtenerClasificacionAlerta,
+  obtenerPreclasificacionAlerta,
+} = require('./clasificacion/discardDecision');
 
 const {
   DIGEST_ONLY_MODE,
@@ -83,7 +90,7 @@ function patchPreclasificacion(preclassification, classification = null) {
     pre_reasons: preclassification.pre_reasons,
     candidate_level: preclassification.candidate_level,
     decision_audit: {
-      version: 'alert_decision_audit_v1',
+      version: 'alert_decision_audit_v2',
       preclassification,
       classification: classification ? {
         es_relevante: Boolean(classification.es_relevante),
@@ -187,7 +194,13 @@ module.exports = function alertasRoutes(app, supabase) {
         : { resultados: [], errores: [], fallbackLocal: 0 };
       const resultados = [
         ...classificationResult.resultados,
-        ...descartesDuros.map((alerta) => clasificacionDescartada(alerta.id)),
+        ...descartesDuros.map((alerta) => {
+          const preclassification = preclasificaciones.get(String(alerta.id));
+          return clasificacionDescartada(
+            alerta.id,
+            metadatosDescartePreclasificador(preclassification)
+          );
+        }),
       ];
       const erroresClasificacion = [
         ...classificationResult.errores,
@@ -215,17 +228,19 @@ module.exports = function alertasRoutes(app, supabase) {
         const preclassification = preclasificaciones.get(String(item.id));
 
         if (!item.es_relevante) {
+          const discardPatch = construirDescarteAuditable({
+            code: item.discard_reason_code,
+            reason: item.discard_reason,
+            stage: item.discard_stage,
+            confidence: item.discard_confidence,
+            preclassification,
+            classification: item,
+          });
           const { error: updError } = await supabase
             .from('alertas')
             .update({
-              estado_ia: 'descartado',
-              resumen: 'NO IMPORTA',
-              provincias: [],
-              sectores: [],
-              subsectores: [],
-              tipos_alerta: [],
-              taxonomy_tags: [],
               ...patchPreclasificacion(preclassification, item),
+              ...discardPatch,
             })
             .eq('id', item.id);
           if (updError) {
@@ -245,6 +260,7 @@ module.exports = function alertasRoutes(app, supabase) {
               subsectores: item.subsectores ?? [],
               tipos_alerta: item.tipos_alerta ?? [],
               taxonomy_tags: item.taxonomy_tags ?? [],
+              ...limpiarCamposDescarte(),
               ...patchPreclasificacion(preclassification, item),
             })
             .eq('id', item.id);
@@ -313,7 +329,7 @@ module.exports = function alertasRoutes(app, supabase) {
     try {
       const { data: alertas, error } = await supabase
         .from('alertas')
-        .select('id, titulo, url, fuente, region, fecha, contenido, provincias, sectores, subsectores, tipos_alerta')
+        .select('id, titulo, url, fuente, region, fecha, contenido, provincias, sectores, subsectores, tipos_alerta, pre_score, pre_status, pre_reasons, candidate_level, decision_audit')
         .eq('estado_ia', 'pendiente_resumir')
         .order('created_at', { ascending: true })
         .limit(RESUMIR_BATCH_SIZE);
@@ -343,16 +359,18 @@ module.exports = function alertasRoutes(app, supabase) {
       const idsActualizados = new Set();
 
       for (const { alerta, motivo } of alertasDescartadasPrefiltro) {
+        const discardPatch = construirDescarteAuditable({
+          code: motivo,
+          stage: 'summarizer_prefilter',
+          confidence: 1,
+          preclassification: obtenerPreclasificacionAlerta(alerta),
+          classification: obtenerClasificacionAlerta(alerta),
+        });
         const { error: updError } = await supabase
           .from('alertas')
           .update({
-            estado_ia: 'descartado',
-            resumen: `NO IMPORTA: ${motivo}`,
+            ...discardPatch,
             resumen_borrador: null,
-            provincias: [],
-            sectores: [],
-            subsectores: [],
-            tipos_alerta: [],
           })
           .eq('id', alerta.id)
           .eq('estado_ia', 'pendiente_resumir');
@@ -372,6 +390,7 @@ module.exports = function alertasRoutes(app, supabase) {
           .update({
             estado_ia: 'pendiente_revisar',
             resumen_borrador: item.ficha,
+            ...limpiarCamposDescarte(),
           })
           .eq('id', item.id)
           .eq('estado_ia', 'pendiente_resumir');
@@ -424,7 +443,7 @@ module.exports = function alertasRoutes(app, supabase) {
     try {
       const { data: alertas, error } = await supabase
         .from('alertas')
-        .select('id, titulo, url, region, fecha, contenido, resumen_borrador, provincias, sectores, subsectores, tipos_alerta')
+        .select('id, titulo, url, region, fecha, contenido, resumen_borrador, provincias, sectores, subsectores, tipos_alerta, pre_score, pre_status, pre_reasons, candidate_level, decision_audit')
         .eq('estado_ia', 'pendiente_revisar')
         .order('created_at', { ascending: true })
         .limit(REVISAR_BATCH_SIZE);
@@ -447,16 +466,18 @@ module.exports = function alertasRoutes(app, supabase) {
           const borrador = a.resumen_borrador ?? '';
           const exclusion = detectarExclusionDuraAlerta({ ...a, resumen_borrador: borrador });
           if (exclusion) {
+            const discardPatch = construirDescarteAuditable({
+              code: exclusion,
+              stage: 'review_prefilter',
+              confidence: 1,
+              preclassification: obtenerPreclasificacionAlerta(a),
+              classification: obtenerClasificacionAlerta(a),
+            });
             const { error: updError } = await supabase
               .from('alertas')
               .update({
-                estado_ia: 'descartado',
-                resumen: `NO IMPORTA: ${exclusion}`,
+                ...discardPatch,
                 resumen_final: null,
-                provincias: [],
-                sectores: [],
-                subsectores: [],
-                tipos_alerta: [],
               })
               .eq('id', a.id)
               .eq('estado_ia', 'pendiente_revisar');
@@ -533,6 +554,7 @@ Responde UNICAMENTE con la ficha final. Sin JSON, sin explicaciones, sin nada ma
               estado_ia: 'listo',
               resumen_final: resumenFinal,
               resumen: resumenFinal, // sync para compatibilidad con whatsapp.js
+              ...limpiarCamposDescarte(),
             })
             .eq('id', a.id)
             .eq('estado_ia', 'pendiente_revisar');
@@ -555,6 +577,7 @@ Responde UNICAMENTE con la ficha final. Sin JSON, sin explicaciones, sin nada ma
               estado_ia: 'listo',
               resumen_final: resumenFallback,
               resumen: resumenFallback,
+              ...limpiarCamposDescarte(),
             })
             .eq('id', a.id)
             .eq('estado_ia', 'pendiente_revisar');
@@ -750,7 +773,10 @@ Responde UNICAMENTE con la ficha final. Sin JSON, sin explicaciones, sin nada ma
 
       const { error: updateError } = await supabase
         .from('alertas')
-        .update({ estado_ia: 'pendiente_clasificar' })
+        .update({
+          estado_ia: 'pendiente_clasificar',
+          ...limpiarCamposDescarte(),
+        })
         .in('id', ids);
 
       if (updateError) return res.status(500).json({ error: updateError.message });

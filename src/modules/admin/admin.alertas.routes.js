@@ -24,6 +24,13 @@ const { cargarPerfilOperativoMIA } = require('../mia/userProfile');
 const { ejecutarEvalsMIA } = require('../mia/evalHarness');
 const { generarReporteCalidadOperativaMIA } = require('../mia/alertQuality');
 const {
+  construirDescarteAuditable,
+  limpiarCamposDescarte,
+  normalizarCodigoDescarte,
+  obtenerClasificacionAlerta,
+  obtenerPreclasificacionAlerta,
+} = require('../alertas/clasificacion/discardDecision');
+const {
   ingestKnowledgeDocument,
   normalizeBase64,
 } = require('../mia/knowledgeIngest');
@@ -98,6 +105,35 @@ module.exports = (app, supabase) => {
         return res.status(400).json({ error: 'No hay campos para actualizar' });
       }
 
+      if (updates.estado_ia === 'descartado') {
+        const { data: alertaActual, error: currentError } = await supabase
+          .from('alertas')
+          .select('pre_score, pre_status, pre_reasons, candidate_level, decision_audit')
+          .eq('id', id)
+          .maybeSingle();
+
+        if (currentError || !alertaActual) {
+          return res.status(500).json({ error: 'Error leyendo la alerta antes del descarte' });
+        }
+
+        const manualReason = typeof req.body.discard_reason === 'string' && req.body.discard_reason.trim()
+          ? req.body.discard_reason.trim()
+          : 'Alerta descartada manualmente desde el panel de administracion.';
+        Object.assign(updates, construirDescarteAuditable({
+          code: normalizarCodigoDescarte(req.body.discard_reason_code, 'descarte_manual'),
+          reason: manualReason,
+          stage: 'manual',
+          confidence: req.body.discard_confidence ?? 1,
+          preclassification: obtenerPreclasificacionAlerta(alertaActual),
+          classification: obtenerClasificacionAlerta(alertaActual),
+        }));
+      } else if (
+        updates.estado_ia &&
+        ['pendiente_resumir', 'pendiente_revisar', 'listo'].includes(updates.estado_ia)
+      ) {
+        Object.assign(updates, limpiarCamposDescarte());
+      }
+
       const { data, error } = await supabase
         .from('alertas')
         .update(updates)
@@ -132,6 +168,7 @@ module.exports = (app, supabase) => {
         .from('alertas')
         .update({
           estado_ia: estado,
+          ...limpiarCamposDescarte(),
           ...(estado === 'pendiente_clasificar'
             ? { resumen_borrador: null, resumen_final: null }
             : {}),

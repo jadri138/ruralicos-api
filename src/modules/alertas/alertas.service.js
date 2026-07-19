@@ -9,6 +9,12 @@ const { llamarIA, parsearJSON } = require('../../platform/ia/llamarIA');
 const { enviarWhatsAppResumen } = require('../../platform/whatsapp');
 const { getFechaMadridISO } = require('../../shared/fechaMadrid');
 const { requireAdmin } = require('../../middleware/requireAdmin');
+const {
+  DISCARD_REASON_CODES,
+  DISCARD_REASON_MESSAGES,
+  normalizarCodigoDescarte,
+  normalizarConfianzaDescarte,
+} = require('./clasificacion/discardDecision');
 const DIGEST_ONLY_MODE = (process.env.DIGEST_ONLY_MODE || 'true').toLowerCase() !== 'false';
 const CLASIFICAR_BATCH_SIZE = Number(process.env.CLASIFICAR_BATCH_SIZE || 8);
 const RESUMIR_BATCH_SIZE = Number(process.env.RESUMIR_BATCH_SIZE || 5);
@@ -32,7 +38,17 @@ const CLASIFICACION_TEXT_FORMAT = {
         items: {
           type: 'object',
           additionalProperties: false,
-          required: ['id', 'es_relevante', 'provincias', 'sectores', 'subsectores', 'tipos_alerta'],
+          required: [
+            'id',
+            'es_relevante',
+            'provincias',
+            'sectores',
+            'subsectores',
+            'tipos_alerta',
+            'discard_reason_code',
+            'discard_reason',
+            'discard_confidence',
+          ],
           properties: {
             id: { type: 'string' },
             es_relevante: { type: 'boolean' },
@@ -60,6 +76,16 @@ const CLASIFICACION_TEXT_FORMAT = {
                 type: 'string',
                 enum: ['ayudas_subvenciones', 'normativa_general', 'agua_infraestructuras', 'fiscalidad', 'medio_ambiente'],
               },
+            },
+            discard_reason_code: {
+              type: ['string', 'null'],
+              pattern: '^[a-z][a-z0-9_]{2,63}$',
+            },
+            discard_reason: { type: ['string', 'null'] },
+            discard_confidence: {
+              type: ['number', 'null'],
+              minimum: 0,
+              maximum: 1,
             },
           },
         },
@@ -269,7 +295,20 @@ function detectarExclusionDuraAlerta(alerta = {}) {
   return null;
 }
 
-function clasificacionDescartada(id) {
+function clasificacionDescartada(id, metadata = {}) {
+  const stage = typeof metadata.stage === 'string' && metadata.stage.trim()
+    ? metadata.stage.trim()
+    : 'classifier_ai';
+  const fallbackCode = stage === 'classifier_local'
+    ? 'sin_senal_rural'
+    : 'clasificador_ia_no_relevante';
+  const requestedCode = normalizarCodigoDescarte(metadata.code, fallbackCode);
+  const suppliedReason = typeof metadata.reason === 'string' ? metadata.reason.trim() : '';
+  const code = suppliedReason || DISCARD_REASON_MESSAGES[requestedCode]
+    ? requestedCode
+    : fallbackCode;
+  const fallbackConfidence = stage === 'classifier_local' ? 0.9 : 0.5;
+
   return {
     id: String(id),
     es_relevante: false,
@@ -277,6 +316,10 @@ function clasificacionDescartada(id) {
     sectores: [],
     subsectores: [],
     tipos_alerta: [],
+    discard_reason_code: code,
+    discard_reason: suppliedReason || DISCARD_REASON_MESSAGES[code],
+    discard_stage: stage,
+    discard_confidence: normalizarConfianzaDescarte(metadata.confidence, fallbackConfidence),
   };
 }
 
@@ -311,7 +354,14 @@ function extraerResultadosClasificacion(parsed) {
 }
 
 function clasificarLocalmente(alerta) {
-  if (detectarExclusionDuraAlerta(alerta)) return clasificacionDescartada(alerta.id);
+  const exclusionDura = detectarExclusionDuraAlerta(alerta);
+  if (exclusionDura) {
+    return clasificacionDescartada(alerta.id, {
+      code: exclusionDura,
+      stage: 'classifier_local',
+      confidence: 1,
+    });
+  }
 
   const texto = normalizarTexto(`${alerta.titulo || ''}\n${alerta.region || ''}\n${alerta.contenido || ''}`);
 
@@ -342,7 +392,11 @@ function clasificarLocalmente(alerta) {
 
   const esRelevante = (ganaderia || agricultura || rural) && !exclusionFuerte;
   if (!esRelevante) {
-    return clasificacionDescartada(alerta.id);
+    return clasificacionDescartada(alerta.id, {
+      code: 'sin_senal_rural',
+      stage: 'classifier_local',
+      confidence: 0.9,
+    });
   }
 
   const sectores = [];
@@ -401,10 +455,24 @@ function normalizarResultadoClasificacion(item, alertasPorId) {
   if (item.es_relevante === undefined || item.es_relevante === null) return null;
 
   const alerta = alertasPorId.get(id);
-  if (detectarExclusionDuraAlerta(alerta)) return clasificacionDescartada(id);
+  const exclusionDura = detectarExclusionDuraAlerta(alerta);
+  if (exclusionDura) {
+    return clasificacionDescartada(id, {
+      code: exclusionDura,
+      stage: 'classifier_local',
+      confidence: 1,
+    });
+  }
 
   const esRelevante = leerBooleano(item.es_relevante);
-  if (!esRelevante) return clasificacionDescartada(id);
+  if (!esRelevante) {
+    return clasificacionDescartada(id, {
+      code: item.discard_reason_code,
+      reason: item.discard_reason,
+      stage: 'classifier_ai',
+      confidence: item.discard_confidence,
+    });
+  }
 
   return {
     id,
@@ -1052,6 +1120,16 @@ Te paso una lista de alertas de boletines oficiales. Para CADA una debes:
 - "subsectores": uno o varios de ["ovino","vacuno","caprino","porcino","avicultura","cunicultura","equinocultura","apicultura","trigo","cebada","cereal","maiz","arroz","hortalizas","frutales","olivar","trufas","viñedo","almendro","citricos","frutos_secos","leguminosas","patata","forrajes","forestal","agua","energia","medio_ambiente"]
 - "tipos_alerta": uno o varios de ["ayudas_subvenciones","normativa_general","agua_infraestructuras","fiscalidad","medio_ambiente"]
 
+3) Justificar cualquier descarte de forma estable y basada solo en el texto:
+- Si "es_relevante" es true, devuelve discard_reason_code, discard_reason y discard_confidence como null.
+- Si "es_relevante" es false, los tres campos de descarte son obligatorios y no nulos.
+- "discard_reason_code" debe ser breve, estable y snake_case; nunca un titulo o una frase.
+- Reutiliza estos codigos cuando encajen: ${DISCARD_REASON_CODES.join(', ')}.
+- Si ninguno encaja, crea un codigo descriptivo estable, por ejemplo actividad_cultural_no_rural.
+- "discard_reason" debe explicar la evidencia concreta, sin inventar datos.
+- "discard_confidence" debe estar entre 0 y 1.
+- La falta de evidencia suficiente NO es por si sola un descarte: deja el documento para revision.
+
 SALIDA: devuelve ÚNICAMENTE este JSON válido, sin texto extra:
 
 {
@@ -1062,7 +1140,10 @@ SALIDA: devuelve ÚNICAMENTE este JSON válido, sin texto extra:
       "provincias": [],
       "sectores": [],
       "subsectores": [],
-      "tipos_alerta": []
+      "tipos_alerta": [],
+      "discard_reason_code": null,
+      "discard_reason": null,
+      "discard_confidence": null
     }
   ]
 }
@@ -1081,6 +1162,7 @@ async function clasificarConReintento(alertas) {
   const alertasPorId = new Map(alertas.map((a) => [String(a.id), a]));
   const resultadosPorId = new Map();
   const errores = [];
+  const idsPendientesReintento = new Set();
   let fallbackLocal = 0;
   const instructions = 'Eres un clasificador experto del sector agrario español. Responde SOLO con JSON válido, sin explicaciones.';
 
@@ -1125,7 +1207,11 @@ async function clasificarConReintento(alertas) {
   for (const alerta of alertas) {
     const exclusion = detectarExclusionDuraAlerta(alerta);
     if (exclusion) {
-      resultadosPorId.set(String(alerta.id), clasificacionDescartada(alerta.id));
+      resultadosPorId.set(String(alerta.id), clasificacionDescartada(alerta.id, {
+        code: exclusion,
+        stage: 'classifier_local',
+        confidence: 1,
+      }));
       errores.push({ fase: 'prefiltro', id: alerta.id, motivo: exclusion });
     }
   }
@@ -1169,20 +1255,23 @@ async function clasificarConReintento(alertas) {
         } else {
           console.warn(`Reintento fallido para ID ${alerta.id}: respuesta no coincide. Se deja pendiente.`);
           errores.push({ fase: 'individual', id: alerta.id, error: 'respuesta no coincide o sin resultado valido' });
+          idsPendientesReintento.add(String(alerta.id));
           // No se añade → quedará pendiente para el siguiente cron
         }
       } catch (err) {
         console.error(`Error en reintento individual ID ${alerta.id}:`, err.message);
         errores.push({ fase: 'individual', id: alerta.id, error: err.message });
+        idsPendientesReintento.add(String(alerta.id));
         // Se deja pendiente para el siguiente cron
       }
     }
   }
 
   const sinResolver = alertasParaIA.filter((a) => !resultadosPorId.has(String(a.id)));
-  if (CLASIFICAR_LOCAL_FALLBACK && sinResolver.length > 0) {
-    console.warn(`[clasificar] Usando fallback local para ${sinResolver.length} alerta(s) sin respuesta valida de IA.`);
-    for (const alerta of sinResolver) {
+  const aptasParaFallbackLocal = sinResolver.filter((a) => !idsPendientesReintento.has(String(a.id)));
+  if (CLASIFICAR_LOCAL_FALLBACK && aptasParaFallbackLocal.length > 0) {
+    console.warn(`[clasificar] Usando fallback local para ${aptasParaFallbackLocal.length} alerta(s) con respuesta invalida de IA.`);
+    for (const alerta of aptasParaFallbackLocal) {
       resultadosPorId.set(String(alerta.id), clasificarLocalmente(alerta));
       fallbackLocal++;
     }
