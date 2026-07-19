@@ -356,6 +356,32 @@ test('10. un error tecnico o respuesta incompleta queda pendiente sin descarte',
   assert(incomplete.errores.some((error) => error.id === 12 && error.fase === 'individual'));
 });
 
+test('PATCH admin a pendiente_clasificar limpia el descarte anterior', async () => {
+  const supabase = crearSupabaseFalso([{
+    id: 12,
+    estado_ia: 'descartado',
+    discard_reason_code: 'sin_senal_rural',
+    discard_reason: 'Motivo antiguo.',
+    discard_stage: 'classifier_local',
+    discard_confidence: 0.9,
+  }]);
+  const routes = registrarRutas(adminAlertasRoutes, supabase);
+
+  await invocar(routes['PATCH /admin/alertas/:id'], {
+    params: { id: '12' },
+    body: {
+      estado_ia: 'pendiente_clasificar',
+    },
+  });
+
+  const patch = supabase.updates[0];
+  assert.strictEqual(patch.estado_ia, 'pendiente_clasificar');
+  assert.strictEqual(patch.discard_reason_code, null);
+  assert.strictEqual(patch.discard_reason, null);
+  assert.strictEqual(patch.discard_stage, null);
+  assert.strictEqual(patch.discard_confidence, null);
+});
+
 test('el descarte manual del admin tambien utiliza el contrato comun', async () => {
   const supabase = crearSupabaseFalso([{
     id: 11,

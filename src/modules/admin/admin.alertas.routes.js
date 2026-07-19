@@ -129,7 +129,12 @@ module.exports = (app, supabase) => {
         }));
       } else if (
         updates.estado_ia &&
-        ['pendiente_resumir', 'pendiente_revisar', 'listo'].includes(updates.estado_ia)
+        [
+          'pendiente_clasificar',
+          'pendiente_resumir',
+          'pendiente_revisar',
+          'listo',
+        ].includes(updates.estado_ia)
       ) {
         Object.assign(updates, limpiarCamposDescarte());
       }
