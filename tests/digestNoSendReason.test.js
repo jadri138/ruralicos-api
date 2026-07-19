@@ -7,6 +7,7 @@ const {
   contarDecisionesTrasScoring,
   resolverMotivoNoEnvioDigest,
   resumirSeleccionDigest,
+  seleccionarAlertasRescate,
 } = require('../src/modules/digest/digest.service');
 
 const base = {
@@ -42,6 +43,20 @@ assert.strictEqual(
   'seleccion_sin_alertas_enviables'
 );
 
+assert.strictEqual(
+  resolverMotivoNoEnvioDigest({
+    ...base,
+    seleccionBase: {
+      alertas: [],
+      decisiones: [
+        { incluir: false, motivo: 'alerta_sin_taxonomia' },
+        { incluir: false, motivo: 'alerta_sin_sector_clasificado' },
+      ],
+    },
+  }),
+  'perfil_sin_coincidencias'
+);
+
 assert.deepStrictEqual(resumirSeleccionDigest(fueraPorPolitica), {
   evaluadas: 2,
   incluidas: 0,
@@ -73,5 +88,48 @@ assert.deepStrictEqual(construirFunnelDigest({
   trasScoring: 6,
   alertasFinales: 6,
 });
+
+const rescate = seleccionarAlertasRescate({
+  alertas: [
+    {
+      id: 1,
+      fuente: 'BOE',
+      titulo: 'Comunicado informativo general',
+      provincias: ['nacional'],
+      sectores: [],
+      subsectores: [],
+      tipos_alerta: [],
+      taxonomy_tags: [],
+    },
+    {
+      id: 2,
+      fuente: 'BOE',
+      titulo: 'Norma general para el sector agricola',
+      provincias: ['nacional'],
+      sectores: ['agricultura'],
+      subsectores: [],
+      tipos_alerta: ['normativa_general'],
+    },
+  ],
+  user: {
+    subscription: 'cooperativa',
+    preferences: {
+      provincias: [],
+      sectores: ['ganaderia'],
+      subsectores: [],
+      tipos_alerta: {},
+    },
+  },
+  aprendizaje: null,
+  perfilOperativoMIA: {},
+  maxItems: 2,
+});
+
+assert.strictEqual(rescate.tipo, 'suave');
+assert.deepStrictEqual(rescate.alertas.map((alerta) => alerta.id), [2]);
+assert.strictEqual(
+  rescate.decisiones.find((decision) => decision.id === 1).motivo,
+  'alerta_sin_taxonomia'
+);
 
 console.log('OK: motivos de no envio distinguen perfil y politica de seleccion');

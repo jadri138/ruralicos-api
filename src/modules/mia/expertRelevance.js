@@ -46,7 +46,16 @@ function evaluarRelevanciaExperta(alerta = {}, user = {}, options = {}) {
     signals: policy.signals || {},
     matcher: {
       ok: !blocks.some((block) =>
-        ['fuente_no_permitida', 'provincia_no_coincide', 'sector_no_coincide', 'subsector_no_coincide', 'tipo_alerta_no_coincide', 'matcher_no_coincide'].includes(block.code)
+        [
+          'fuente_no_permitida',
+          'provincia_no_coincide',
+          'alerta_sin_taxonomia',
+          'alerta_sin_sector_clasificado',
+          'sector_no_coincide',
+          'subsector_no_coincide',
+          'tipo_alerta_no_coincide',
+          'matcher_no_coincide',
+        ].includes(block.code)
       ),
       motivo: decision.diagnostico?.matcher || null,
       detalle: decision.detalle || null,

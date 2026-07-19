@@ -123,5 +123,24 @@ test('bloquea alerta critica de calidad aunque parezca agraria', () => {
   assert(result.blocks.some((block) => block.code === 'calidad_insuficiente'));
 });
 
+test('expone como fallo del matcher una alerta sin taxonomia', () => {
+  const result = evaluarRelevanciaExperta({
+    ...baseAlert,
+    id: 5,
+    titulo: 'Comunicado informativo general',
+    resumen_final: 'Información oficial general.',
+    contenido: 'Información oficial general.',
+    provincias: ['nacional'],
+    sectores: [],
+    subsectores: [],
+    tipos_alerta: [],
+    taxonomy_tags: [],
+  }, user, { qualityGate: false });
+
+  assert.strictEqual(result.veredicto, 'bloquear');
+  assert.strictEqual(result.matcher.ok, false);
+  assert.strictEqual(result.matcher.motivo, 'alerta_sin_taxonomia');
+});
+
 console.log(`\nResultados miaExpertRelevance: ${passed} aprobados, ${failed} fallidos`);
 if (failed > 0) process.exit(1);

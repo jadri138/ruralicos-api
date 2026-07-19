@@ -3,6 +3,9 @@ const {
   decidirAlertaParaDigest,
   seleccionarAlertasParaDigest,
 } = require('../src/modules/alertas/seleccion/alertSelectionEngine');
+const {
+  diagnosticarAlertaUsuario,
+} = require('../src/modules/alertas/seleccion/alertaMatcher');
 
 let passed = 0;
 let failed = 0;
@@ -69,6 +72,51 @@ test('incluye alertas accionables con score explicable', () => {
   assert.strictEqual(decision.incluir, true);
   assert(decision.score >= 80);
   assert(decision.diagnostico.ranking.reasons.some((reason) => reason.code === 'accion_con_plazo'));
+});
+
+test('taxonomia vacia es bloqueo duro antes del scoring y no admite rescate', () => {
+  const sinTaxonomia = alerta(1000, {
+    fuente: 'BOE',
+    titulo: 'Comunicado informativo general',
+    resumen_final: 'FICHA_IA\nPRIORIDAD: alta\nRESUMEN_DIGEST: Información oficial completa para su lectura.',
+    contenido: 'Información oficial completa y verificada.',
+    provincias: ['nacional'],
+    sectores: [],
+    subsectores: [],
+    tipos_alerta: [],
+    taxonomy_tags: [],
+    similitud: 1,
+    mia_profile_score: 7,
+  });
+  const policy = {
+    qualityGate: false,
+    allowReview: true,
+    minIncludeScore: 1,
+    minReviewScore: 1,
+    minItems: 1,
+    targetItems: 1,
+    maxItems: 1,
+  };
+
+  const base = diagnosticarAlertaUsuario(sinTaxonomia, user);
+  assert.strictEqual(base.ok, false);
+  assert.strictEqual(base.motivo, 'alerta_sin_taxonomia');
+
+  const decision = decidirAlertaParaDigest(sinTaxonomia, user, policy);
+  assert.strictEqual(decision.action, 'exclude');
+  assert.strictEqual(decision.incluir, false);
+  assert.strictEqual(decision.review_safe_fill, false);
+  assert.strictEqual(decision.motivo, 'alerta_sin_taxonomia');
+  assert.strictEqual(decision.diagnostico.matcher, 'alerta_sin_taxonomia');
+  assert.strictEqual(decision.score, 0);
+  assert.deepStrictEqual(decision.diagnostico.ranking.reasons, []);
+  assert(decision.diagnostico.policy.blocks.some(
+    (block) => block.code === 'alerta_sin_taxonomia'
+  ));
+
+  const seleccion = seleccionarAlertasParaDigest([sinTaxonomia], user, policy);
+  assert.strictEqual(seleccion.alertas.length, 0);
+  assert.strictEqual(seleccion.decisiones[0].motivo, 'alerta_sin_taxonomia');
 });
 
 test('alerta de todas las provincias entra aunque el usuario tenga una provincia concreta', () => {

@@ -69,6 +69,36 @@ function tiposDerivadosAlerta(alerta = {}) {
   ]);
 }
 
+function diagnosticarTaxonomiaMinimaAlerta({
+  sectores = [],
+  subsectores = [],
+  tipos = [],
+} = {}) {
+  const detalle = {
+    sectores,
+    subsectores,
+    tipos_alerta: tipos,
+  };
+
+  if (sectores.length === 0 && subsectores.length === 0 && tipos.length === 0) {
+    return { ok: false, motivo: 'alerta_sin_taxonomia', detalle };
+  }
+
+  if (sectores.length === 0) {
+    return { ok: false, motivo: 'alerta_sin_sector_clasificado', detalle };
+  }
+
+  return null;
+}
+
+function diagnosticarTaxonomiaDerivadaAlerta(alerta = {}) {
+  return diagnosticarTaxonomiaMinimaAlerta({
+    sectores: sectoresDerivadosAlerta(alerta),
+    subsectores: subsectoresDerivadosAlerta(alerta),
+    tipos: tiposDerivadosAlerta(alerta),
+  });
+}
+
 function tiposDerivadosPorFeatures(alerta = {}) {
   const featureTags = featureTagsAlerta(alerta);
   const tipos = [];
@@ -371,6 +401,13 @@ function diagnosticarAlertaUsuario(alerta, user, options = {}) {
   const sectoresANorm = sectoresDerivadosAlerta(alerta);
   const subsectoresANorm = subsectoresDerivadosAlerta(alerta);
   const tiposANorm = tiposDerivadosAlerta(alerta);
+  const diagnosticoTaxonomia = diagnosticarTaxonomiaMinimaAlerta({
+    sectores: sectoresANorm,
+    subsectores: subsectoresANorm,
+    tipos: tiposANorm,
+  });
+  if (diagnosticoTaxonomia) return diagnosticoTaxonomia;
+
   const ayudaGeneralConInteresUsuario = esConvocatoriaAyudaGeneral(alerta) &&
     usuarioAceptaAyudasGenerales(tiposUserActivos);
 
@@ -395,7 +432,6 @@ function diagnosticarAlertaUsuario(alerta, user, options = {}) {
   const tieneMixtoAlerta = sectoresANorm.includes('mixto');
   const okSector =
     sectoresUserNorm.length === 0 ||
-    sectoresANorm.length === 0 ||
     intersecta(sectoresUserNorm, sectoresANorm) ||
     (tieneMixtoUser && intersecta(['agricultura', 'ganaderia'], sectoresANorm)) ||
     (tieneMixtoAlerta && intersecta(['agricultura', 'ganaderia'], sectoresUserNorm));
@@ -425,6 +461,8 @@ function alertaCoincideConUsuario(alerta, user, options = {}) {
 
 module.exports = {
   alertaCoincideConUsuario,
+  diagnosticarTaxonomiaDerivadaAlerta,
+  diagnosticarTaxonomiaMinimaAlerta,
   diagnosticarAlertaUsuario,
   esAlertaNacional,
   esConvocatoriaAyudaGeneral,

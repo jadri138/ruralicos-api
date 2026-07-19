@@ -4,6 +4,29 @@ const { checkCronToken } = require('../../middleware/cronToken');
 const { llamarIA, parsearJSON } = require('../../platform/ia/llamarIA');
 const { enviarWhatsAppFree } = require('../../platform/whatsapp');
 const { getFechaMadridISO } = require('../../shared/fechaMadrid');
+const {
+  diagnosticarTaxonomiaDerivadaAlerta,
+} = require('./seleccion/alertaMatcher');
+
+function alertaTieneTaxonomiaMinima(alerta = {}) {
+  return diagnosticarTaxonomiaDerivadaAlerta(alerta) === null;
+}
+
+function buscarAlertaConResumenFreeValido(alertas = []) {
+  const lista = Array.isArray(alertas) ? alertas : [];
+  const resumenesBloqueados = new Set(
+    lista
+      .filter((alerta) => !alertaTieneTaxonomiaMinima(alerta))
+      .map((alerta) => alerta.resumenfree)
+      .filter(Boolean)
+  );
+
+  return lista.find((alerta) =>
+    alerta.resumenfree &&
+    alertaTieneTaxonomiaMinima(alerta) &&
+    !resumenesBloqueados.has(alerta.resumenfree)
+  ) || null;
+}
 
 module.exports = function alertasFreeRoutes(app, supabase) {
   // ================================================
@@ -18,7 +41,7 @@ module.exports = function alertasFreeRoutes(app, supabase) {
       // Alertas de HOY ya procesadas por la IA PRO (resumen listo y relevante)
       const { data: alertas, error } = await supabase
         .from('alertas')
-        .select('id, titulo, resumen, url, fecha')
+        .select('id, titulo, resumen, url, fecha, sectores, subsectores, tipos_alerta, taxonomy_tags')
         .eq('fecha', hoy)
         .neq('resumen', 'NO IMPORTA')
         .neq('resumen', 'Procesando con IA...')
@@ -28,17 +51,19 @@ module.exports = function alertasFreeRoutes(app, supabase) {
         return res.status(500).json({ error: error.message });
       }
 
-      if (!alertas || alertas.length === 0) {
+      const alertasClasificadas = (alertas || []).filter(alertaTieneTaxonomiaMinima);
+
+      if (alertasClasificadas.length === 0) {
         return res.json({
           success: true,
           procesadas: 0,
-          mensaje: 'No hay alertas con resumen PRO hoy para generar resumen FREE',
+          mensaje: 'No hay alertas clasificadas con resumen PRO hoy para generar resumen FREE',
           fecha: hoy,
         });
       }
 
       // Construir lista para el prompt usando el resumen PRO ya generado
-      const lista = alertas
+      const lista = alertasClasificadas
         .map((a) => {
           const corto = (a.resumen || '').slice(0, 400);
           return `ID ${a.id} | Titulo: ${a.titulo} | ResumenPro: ${corto} | Url: ${a.url}`;
@@ -117,7 +142,7 @@ ${lista}
 
       // FIX: guardar el resumenfree solo en las alertas que se usaron para generarlo
       // (no en todas las de hoy, por si llegaron alertas nuevas después)
-      const idsUsados = alertas.map((a) => a.id);
+      const idsUsados = alertasClasificadas.map((a) => a.id);
       const { error: updError } = await supabase
         .from('alertas')
         .update({ resumenfree })
@@ -131,7 +156,7 @@ ${lista}
       return res.json({
         success: true,
         fecha: hoy,
-        procesadas: alertas.length,
+        procesadas: alertasClasificadas.length,
         resumenfree,
       });
     } catch (err) {
@@ -161,17 +186,18 @@ ${lista}
       // Buscar una alerta de hoy con resumenfree que no se haya enviado aún
       const { data, error } = await supabase
         .from('alertas')
-        .select('id, resumenfree')
+        .select('id, titulo, resumen, resumenfree, sectores, subsectores, tipos_alerta, taxonomy_tags')
         .eq('fecha', hoy)
         .not('resumenfree', 'is', null)
-        .or('whatsapp_enviado_free.is.null,whatsapp_enviado_free.eq.false')
-        .limit(1);
+        .or('whatsapp_enviado_free.is.null,whatsapp_enviado_free.eq.false');
 
       if (error) {
         return res.status(500).json({ error: error.message });
       }
 
-      if (!data || data.length === 0 || !data[0].resumenfree) {
+      const alertaConResumenValido = buscarAlertaConResumenFreeValido(data);
+
+      if (!alertaConResumenValido?.resumenfree) {
         return res.json({
           success: true,
           enviados: 0,
@@ -180,7 +206,7 @@ ${lista}
         });
       }
 
-      const mensajeFree = data[0].resumenfree;
+      const mensajeFree = alertaConResumenValido.resumenfree;
 
       await enviarWhatsAppFree(supabase, mensajeFree);
 
@@ -189,7 +215,7 @@ ${lista}
         .from('alertas')
         .update({ whatsapp_enviado_free: true })
         .eq('fecha', hoy)
-        .not('resumenfree', 'is', null);
+        .eq('resumenfree', mensajeFree);
 
       if (updError) {
         console.error('Error marcando whatsapp_enviado_free:', updError.message);
@@ -216,3 +242,6 @@ ${lista}
     enviarResumenFreeHandler(req, res);
   });
 };
+
+module.exports.alertaTieneTaxonomiaMinima = alertaTieneTaxonomiaMinima;
+module.exports.buscarAlertaConResumenFreeValido = buscarAlertaConResumenFreeValido;

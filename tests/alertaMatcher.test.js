@@ -319,5 +319,123 @@ test('tipo plazos no bloquea una ayuda si el texto contiene plazo', () => {
   assert.strictEqual(result.ok, true);
 });
 
+const userTeruelAgricola = {
+  subscription: 'cooperativa',
+  preferences: {
+    provincias: ['Teruel'],
+    sectores: ['agricultura'],
+    subsectores: ['cereal'],
+    tipos_alerta: { normativa_general: true },
+  },
+};
+
+const alertaSinTaxonomia = {
+  fuente: 'BOE',
+  provincias: ['nacional'],
+  sectores: [],
+  subsectores: [],
+  tipos_alerta: [],
+  taxonomy_tags: [],
+};
+
+test('taxonomia derivada completamente vacia bloquea la alerta', () => {
+  const result = diagnosticarAlertaUsuario(alertaSinTaxonomia, userTeruelAgricola);
+
+  assert.strictEqual(result.ok, false);
+  assert.strictEqual(result.motivo, 'alerta_sin_taxonomia');
+  assert.deepStrictEqual(result.detalle, {
+    sectores: [],
+    subsectores: [],
+    tipos_alerta: [],
+  });
+});
+
+test('usuario sin preferencias no convierte una alerta sin taxonomia en valida', () => {
+  const result = diagnosticarAlertaUsuario(alertaSinTaxonomia, {
+    subscription: 'cooperativa',
+    preferences: {
+      provincias: [],
+      sectores: [],
+      subsectores: [],
+      tipos_alerta: {},
+    },
+  });
+
+  assert.strictEqual(result.ok, false);
+  assert.strictEqual(result.motivo, 'alerta_sin_taxonomia');
+});
+
+test('subsector y tipo sin sector derivado bloquean la alerta', () => {
+  const result = diagnosticarAlertaUsuario({
+    ...alertaSinTaxonomia,
+    subsectores: ['ovino'],
+    tipos_alerta: ['sanidad_animal'],
+  }, userTeruelAgricola);
+
+  assert.strictEqual(result.ok, false);
+  assert.strictEqual(result.motivo, 'alerta_sin_sector_clasificado');
+  assert.deepStrictEqual(result.detalle, {
+    sectores: [],
+    subsectores: ['ovino'],
+    tipos_alerta: ['sanidad_animal'],
+  });
+});
+
+test('sector derivado desde taxonomy_tags participa en el matching', () => {
+  const userGanadero = {
+    ...userTeruelAgricola,
+    preferences: {
+      ...userTeruelAgricola.preferences,
+      sectores: ['ganaderia'],
+      subsectores: [],
+    },
+  };
+  const result = diagnosticarAlertaUsuario({
+    ...alertaSinTaxonomia,
+    tipos_alerta: ['normativa_general'],
+    taxonomy_tags: ['sector:ganaderia'],
+  }, userGanadero);
+
+  assert.strictEqual(result.ok, true);
+});
+
+test('sector valido permite una alerta general sin subsector', () => {
+  const result = diagnosticarAlertaUsuario({
+    ...alertaSinTaxonomia,
+    sectores: ['agricultura'],
+    tipos_alerta: ['normativa_general'],
+  }, userTeruelAgricola);
+
+  assert.strictEqual(result.ok, true);
+});
+
+test('usuario sin sectores acepta una alerta correctamente clasificada', () => {
+  const result = diagnosticarAlertaUsuario({
+    ...alertaSinTaxonomia,
+    sectores: ['agricultura'],
+    tipos_alerta: ['normativa_general'],
+  }, {
+    ...userTeruelAgricola,
+    preferences: {
+      ...userTeruelAgricola.preferences,
+      sectores: [],
+      subsectores: [],
+    },
+  });
+
+  assert.strictEqual(result.ok, true);
+});
+
+test('sector derivado valido pero incompatible conserva sector_no_coincide', () => {
+  const result = diagnosticarAlertaUsuario({
+    ...alertaSinTaxonomia,
+    tipos_alerta: ['normativa_general'],
+    taxonomy_tags: ['sector:ganaderia'],
+  }, userTeruelAgricola);
+
+  assert.strictEqual(result.ok, false);
+  assert.strictEqual(result.motivo, 'sector_no_coincide');
+});
+
 console.log(`\nResultados alertaMatcher: ${passed} aprobados, ${failed} fallidos`);
 if (failed > 0) process.exit(1);

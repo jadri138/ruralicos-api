@@ -577,15 +577,17 @@ function evaluarAlertaParaDigest(alerta, user, options = {}) {
   const matches = coincidenciasDeclaradas(alerta, user);
   const exclusion = detectarExclusionPreferencias(alerta, policy.exclusionPreferencias);
   const bloqueo = aplicarBloqueosDuros({ base, calidad, signals, exclusion, matches, user, alerta, policy });
-  const scoring = calcularScore({
-    alerta,
-    base,
-    calidad,
-    signals,
-    matches,
-    municipio: bloqueo.municipio,
-    interesProvincial: bloqueo.interesProvincial,
-  });
+  const scoring = base.ok
+    ? calcularScore({
+      alerta,
+      base,
+      calidad,
+      signals,
+      matches,
+      municipio: bloqueo.municipio,
+      interesProvincial: bloqueo.interesProvincial,
+    })
+    : { score: 0, reasons: [], prioridad: null };
   const riesgoRuido = calcularRiesgoRuido({ alerta, user, calidad, signals, matches, bloqueo, policy });
   const verdict = clasificarDecision({ score: scoring.score, blocks: bloqueo.blocks, signals, calidad, policy, riesgoRuido, bloqueo });
   const incluir = verdict.action === 'include';

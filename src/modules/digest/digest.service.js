@@ -26,7 +26,11 @@ const { checkCronToken }           = require('../../middleware/cronToken');
 const { llamarIA }                 = require('../../platform/ia/llamarIA');
 const { enviarDigestPro }          = require('../../platform/whatsapp');
 const { getPlan }                  = require('../../config/planes');
-const { alertaCoincideConUsuario, diagnosticarAlertaUsuario } = require('../alertas/seleccion/alertaMatcher');
+const {
+  alertaCoincideConUsuario,
+  diagnosticarAlertaUsuario,
+  diagnosticarTaxonomiaDerivadaAlerta,
+} = require('../alertas/seleccion/alertaMatcher');
 const { fusionarAlertasUnicas }     = require('../alertas/seleccion/alertCandidateMerge');
 const {
   decidirAlertaParaDigest,
@@ -172,6 +176,8 @@ function filtrarAlertasEnviablesAutomaticamente(alertas = []) {
 const MOTIVOS_SIN_COINCIDENCIA_PERFIL = new Set([
   'fuente_no_permitida',
   'provincia_no_coincide',
+  'alerta_sin_taxonomia',
+  'alerta_sin_sector_clasificado',
   'sector_no_coincide',
   'subsector_no_coincide',
   'tipo_alerta_no_coincide',
@@ -2017,8 +2023,24 @@ function seleccionarAlertasRescate({
     };
   }
 
-  const suavesBase = alertasVisibles
-    .filter((alerta) => alertaNoExcluidaPorPreferencias(alerta, user));
+  const bloqueosTaxonomia = [];
+  const suavesBase = alertasVisibles.filter((alerta) => {
+    const diagnosticoTaxonomia = diagnosticarTaxonomiaDerivadaAlerta(alerta);
+    if (diagnosticoTaxonomia) {
+      bloqueosTaxonomia.push({
+        id: alerta.id,
+        titulo: alerta.titulo,
+        fuente: alerta.fuente || 'BOE',
+        incluir: false,
+        action: 'exclude',
+        motivo: diagnosticoTaxonomia.motivo,
+        detalle: diagnosticoTaxonomia.detalle,
+        score: 0,
+      });
+      return false;
+    }
+    return alertaNoExcluidaPorPreferencias(alerta, user);
+  });
   const suavesOrdenadas = ordenarPorAprendizaje(
     ordenarAlertasConPerfilOperativoMIA(suavesBase, perfilOperativoMIA, { excludeHard: false }),
     aprendizaje
@@ -2032,13 +2054,16 @@ function seleccionarAlertasRescate({
     alertas: suavesOrdenadas.slice(0, maxItems),
     trasFiltroUsuario: seleccionBase.alertas.length,
     trasScoring: Math.min(suavesOrdenadas.length, maxItems),
-    decisiones: suavesBase.map((alerta) => ({
-      id: alerta.id,
-      action: seleccionadasIds.has(String(alerta.id)) ? 'include' : 'exclude',
-      motivo: seleccionadasIds.has(String(alerta.id))
-        ? 'rescue_soft_selected'
-        : 'rescue_soft_not_selected',
-    })),
+    decisiones: [
+      ...bloqueosTaxonomia,
+      ...suavesBase.map((alerta) => ({
+        id: alerta.id,
+        action: seleccionadasIds.has(String(alerta.id)) ? 'include' : 'exclude',
+        motivo: seleccionadasIds.has(String(alerta.id))
+          ? 'rescue_soft_selected'
+          : 'rescue_soft_not_selected',
+      })),
+    ],
   };
 }
 
