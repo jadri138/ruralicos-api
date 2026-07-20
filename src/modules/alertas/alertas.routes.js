@@ -179,7 +179,7 @@ module.exports = function alertasRoutes(app, supabase) {
     try {
       const { data: alertas, error } = await supabase
         .from('alertas')
-        .select('id, titulo, url, region, fecha, contenido')
+        .select('id, titulo, url, region, fecha, contenido, decision_audit')
         .eq('estado_ia', 'pendiente_clasificar')
         .order('created_at', { ascending: true })
         .limit(CLASIFICAR_BATCH_SIZE);

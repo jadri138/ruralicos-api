@@ -47,6 +47,7 @@ function crearSupabaseFalso(rows = [], {
   rawDocuments = [],
   rawError = null,
   respectFilters = false,
+  respectSelectColumns = false,
 } = {}) {
   const updates = [];
   const queries = [];
@@ -57,11 +58,15 @@ function crearSupabaseFalso(rows = [], {
     from(table) {
       let operation = 'select';
       let patch = null;
+      let selectedColumns = null;
       const eqFilters = [];
       const sourceRows = table === 'raw_documents' ? rawDocuments : rows;
       const builder = {
         select(columns) {
           queries.push({ table, operation: 'select', columns });
+          if (operation === 'select' && typeof columns === 'string' && columns !== '*') {
+            selectedColumns = columns.split(',').map((column) => column.trim());
+          }
           return builder;
         },
         update(value) {
@@ -95,11 +100,18 @@ function crearSupabaseFalso(rows = [], {
           return Promise.resolve({ data: sourceRows[0] || null, error: null });
         },
         then(onFulfilled, onRejected) {
-          const selectedRows = respectFilters
+          const filteredRows = respectFilters
             ? sourceRows.filter((row) => eqFilters.every(
               ({ column, value }) => row?.[column] === value
             ))
             : sourceRows;
+          const selectedRows = respectSelectColumns && selectedColumns
+            ? filteredRows.map((row) => Object.fromEntries(
+              selectedColumns
+                .filter((column) => Object.hasOwn(row, column))
+                .map((column) => [column, row[column]])
+            ))
+            : filteredRows;
           const result = operation === 'select'
             ? table === 'raw_documents' && rawError
               ? { data: null, error: { message: rawError } }
@@ -213,6 +225,55 @@ test('3. respuesta negativa de IA persiste codigo libre estable y confianza 0.94
   assert(required.includes('discard_reason_code'));
   assert(required.includes('discard_reason'));
   assert(required.includes('discard_confidence'));
+});
+
+test('3b. reclasificar conserva decision_audit con un Supabase que proyecta el select real', async () => {
+  const previousAudit = {
+    previous_marker: { source: 'manual_review', reviewed: true },
+    classification: { es_relevante: true },
+  };
+  const alerta = {
+    id: 31,
+    estado_ia: 'pendiente_clasificar',
+    titulo: 'Convocatoria de un premio musical',
+    contenido: 'Premio de composicion musical sin alcance rural agrario.',
+    decision_audit: previousAudit,
+  };
+  const result = service.normalizarResultadoClasificacion({
+    id: '31',
+    es_relevante: false,
+    provincias: [],
+    sectores: [],
+    subsectores: [],
+    tipos_alerta: [],
+    discard_reason_code: 'actividad_cultural_no_rural',
+    discard_reason: 'Premio musical sin alcance rural agrario.',
+    discard_confidence: 0.96,
+  }, new Map([['31', alerta]]));
+
+  process.env.ALERT_PRECLASSIFIER_MODE = 'off';
+  respuestaClasificacion = () => ({ resultados: [result], errores: [], fallbackLocal: 0 });
+  const supabase = crearSupabaseFalso([alerta], {
+    respectFilters: true,
+    respectSelectColumns: true,
+  });
+  const routes = registrarRutas(alertasRoutes, supabase);
+
+  await invocar(routes['POST /alertas/clasificar']);
+
+  const classifySelect = supabase.queries.find((query) =>
+    query.table === 'alertas'
+    && query.operation === 'select'
+    && query.columns.includes('titulo')
+  );
+  assert(classifySelect, 'debe existir el select de /alertas/clasificar');
+  assert(classifySelect.columns.split(',').map((column) => column.trim()).includes('decision_audit'));
+  const patch = supabase.updates[0];
+  assert.deepStrictEqual(
+    patch.decision_audit.previous_marker,
+    previousAudit.previous_marker
+  );
+  assert.strictEqual(patch.decision_audit.discard.code, 'actividad_cultural_no_rural');
 });
 
 test('4. respuesta negativa de IA sin motivo persiste fallback explicito', async () => {

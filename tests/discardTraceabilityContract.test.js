@@ -14,7 +14,9 @@ const {
   repararDescartesHistoricos,
 } = require('../src/modules/alertas/clasificacion/legacyDiscardRepair');
 const {
+  VALIDATION_SQL_PATH,
   parsearArgumentos,
+  puedeValidarConstraint,
 } = require('../scripts/repair_legacy_alert_discards');
 
 const tests = [];
@@ -36,6 +38,8 @@ function crearSupabaseFalso(rows) {
     updates,
     from() {
       let operation = 'select';
+      let cursorId = null;
+      let pageSize = rows.length;
       const builder = {
         select() { return builder; },
         update(patch) {
@@ -44,12 +48,23 @@ function crearSupabaseFalso(rows) {
           return builder;
         },
         eq() { return builder; },
-        gt() { return builder; },
+        gt(column, value) {
+          if (operation === 'select' && column === 'id') cursorId = value;
+          return builder;
+        },
         order() { return builder; },
-        limit() { return builder; },
+        limit(value) {
+          if (operation === 'select') pageSize = value;
+          return builder;
+        },
         then(onFulfilled, onRejected) {
           const result = operation === 'select'
-            ? { data: rows, error: null }
+            ? {
+              data: rows
+                .filter((row) => cursorId === null || row.id > cursorId)
+                .slice(0, pageSize),
+              error: null,
+            }
             : { data: null, error: null };
           return Promise.resolve(result).then(onFulfilled, onRejected);
         },
@@ -153,10 +168,14 @@ test('la reparacion es dry-run por defecto y --apply escribe solo planes incompl
   };
   const incomplete = { id: 5, estado_ia: 'descartado', resumen: 'NO IMPORTA' };
 
-  assert.deepStrictEqual(parsearArgumentos([]), { dryRun: true, limit: 500 });
+  assert.deepStrictEqual(parsearArgumentos([]), { dryRun: true, pageSize: 500 });
   assert.deepStrictEqual(
-    parsearArgumentos(['--apply', '--limit=25']),
-    { dryRun: false, limit: 25 }
+    parsearArgumentos(['--apply', '--page-size=25']),
+    { dryRun: false, pageSize: 25 }
+  );
+  assert.throws(
+    () => parsearArgumentos(['--apply', '--limit=20']),
+    /--limit ya no existe/
   );
 
   const drySupabase = crearSupabaseFalso([complete, incomplete]);
@@ -172,6 +191,51 @@ test('la reparacion es dry-run por defecto y --apply escribe solo planes incompl
   assert.strictEqual(applyResult.repaired, 1);
   assert.strictEqual(applySupabase.updates.length, 1);
   assert(esDescarteAuditable({ ...incomplete, ...applySupabase.updates[0] }));
+
+  const paginatedSupabase = crearSupabaseFalso([
+    { id: 10, estado_ia: 'descartado' },
+    { id: 11, estado_ia: 'descartado' },
+    { id: 12, estado_ia: 'descartado' },
+  ]);
+  const paginatedResult = await repararDescartesHistoricos(paginatedSupabase, {
+    dryRun: false,
+    pageSize: 1,
+  });
+  assert.strictEqual(paginatedResult.scanned, 3);
+  assert.strictEqual(paginatedResult.repaired, 3);
+  assert.strictEqual(paginatedSupabase.updates.length, 3);
+});
+
+test('la validacion solo se anuncia tras apply completo y el SQL se protege a si mismo', () => {
+  assert.strictEqual(
+    puedeValidarConstraint(
+      { dryRun: true },
+      { repairable: 1, repaired: 1, failed: [] }
+    ),
+    false
+  );
+  assert.strictEqual(
+    puedeValidarConstraint(
+      { dryRun: false },
+      { repairable: 2, repaired: 1, failed: [{ id: 9 }] }
+    ),
+    false
+  );
+  assert.strictEqual(
+    puedeValidarConstraint(
+      { dryRun: false },
+      { repairable: 2, repaired: 2, failed: [] }
+    ),
+    true
+  );
+
+  const validationSql = fs.readFileSync(path.join(__dirname, '..', VALIDATION_SQL_PATH), 'utf8');
+  assert.match(validationSql, /where estado_ia = 'descartado'/);
+  assert.match(validationSql, /raise exception/);
+  assert.match(
+    validationSql,
+    /alter table public\.alertas\s+validate constraint alertas_structured_discard_check;/
+  );
 });
 
 test('ningun productor nuevo puede escribir un descarte o NO IMPORTA fuera del contrato comun', () => {

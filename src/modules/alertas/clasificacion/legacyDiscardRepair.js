@@ -120,7 +120,7 @@ function prepararReparacionDescarteHistorico(alerta = {}) {
   };
 }
 
-function normalizarLimite(value, fallback = 500) {
+function normalizarTamanoPagina(value, fallback = 500) {
   const parsed = Number.parseInt(value, 10);
   if (!Number.isInteger(parsed) || parsed < 1) return fallback;
   return Math.min(parsed, 1000);
@@ -128,9 +128,9 @@ function normalizarLimite(value, fallback = 500) {
 
 async function repararDescartesHistoricos(supabase, {
   dryRun = true,
-  limit = 500,
+  pageSize = 500,
 } = {}) {
-  const limite = normalizarLimite(limit);
+  const tamanoPagina = normalizarTamanoPagina(pageSize);
   const alertas = [];
   let cursorId = null;
 
@@ -142,14 +142,14 @@ async function repararDescartesHistoricos(supabase, {
     if (cursorId !== null) query = query.gt('id', cursorId);
     query = query
       .order('id', { ascending: true })
-      .limit(limite);
+      .limit(tamanoPagina);
 
     const { data, error } = await query;
     if (error) throw new Error(`No se pudieron leer los descartes historicos: ${error.message}`);
 
     const pagina = data || [];
     alertas.push(...pagina);
-    if (pagina.length < limite) break;
+    if (pagina.length < tamanoPagina) break;
 
     const siguienteCursor = pagina[pagina.length - 1]?.id;
     if (siguienteCursor === null || siguienteCursor === undefined || siguienteCursor === cursorId) {
@@ -201,7 +201,7 @@ async function repararDescartesHistoricos(supabase, {
 module.exports = {
   LEGACY_DISCARD_SELECT,
   deducirDescarteHistorico,
-  normalizarLimite,
+  normalizarTamanoPagina,
   prepararReparacionDescarteHistorico,
   repararDescartesHistoricos,
 };
