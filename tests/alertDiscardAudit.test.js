@@ -41,41 +41,66 @@ delete require.cache[require.resolve('../src/modules/alertas/alertas.routes')];
 const alertasRoutes = require('../src/modules/alertas/alertas.routes');
 const adminAlertasRoutes = require('../src/modules/admin/admin.alertas.routes');
 
-function crearSupabaseFalso(rows = []) {
+function crearSupabaseFalso(rows = [], {
+  rawDocuments = [],
+  rawError = null,
+  respectFilters = false,
+} = {}) {
   const updates = [];
+  const queries = [];
 
   return {
     updates,
-    from() {
+    queries,
+    from(table) {
       let operation = 'select';
       let patch = null;
+      const eqFilters = [];
+      const sourceRows = table === 'raw_documents' ? rawDocuments : rows;
       const builder = {
-        select() { return builder; },
+        select(columns) {
+          queries.push({ table, operation: 'select', columns });
+          return builder;
+        },
         update(value) {
           operation = 'update';
           patch = value;
           updates.push(value);
           return builder;
         },
-        eq() { return builder; },
+        eq(column, value) {
+          queries.push({ table, operation: 'eq', column, value });
+          eqFilters.push({ column, value });
+          return builder;
+        },
         neq() { return builder; },
         or() { return builder; },
         is() { return builder; },
-        in() { return builder; },
+        in(column, values) {
+          queries.push({ table, operation: 'in', column, values });
+          return builder;
+        },
         order() { return builder; },
         limit() { return builder; },
         single() {
           return Promise.resolve({
-            data: { id: rows[0]?.id || 1, ...(patch || {}) },
+            data: { id: sourceRows[0]?.id || 1, ...(patch || {}) },
             error: null,
           });
         },
         maybeSingle() {
-          return Promise.resolve({ data: rows[0] || null, error: null });
+          return Promise.resolve({ data: sourceRows[0] || null, error: null });
         },
         then(onFulfilled, onRejected) {
+          const selectedRows = respectFilters
+            ? sourceRows.filter((row) => eqFilters.every(
+              ({ column, value }) => row?.[column] === value
+            ))
+            : sourceRows;
           const result = operation === 'select'
-            ? { data: rows, error: null }
+            ? table === 'raw_documents' && rawError
+              ? { data: null, error: { message: rawError } }
+              : { data: selectedRows, error: null }
             : { data: null, error: null };
           return Promise.resolve(result).then(onFulfilled, onRejected);
         },
@@ -293,6 +318,168 @@ test('6c. DOE agrario con evidencia oficial conserva el flujo normal hasta listo
   assert.strictEqual(patch.estado_ia, 'listo');
   assert.strictEqual(response.body.aprobadas, 1);
   assert.strictEqual(response.body.descartadas_prefiltro, 0);
+});
+
+test('6d. /revisar carga metadatos oficiales enlazados sin consultar columnas inexistentes', async () => {
+  const supabase = crearSupabaseFalso([{
+    id: 63,
+    fuente: 'DOGC',
+    titulo: 'Resolución de convocatoria',
+    contenido: 'Se publica la resolución completa y se abre el plazo previsto para que las personas interesadas presenten sus solicitudes.',
+    resumen_borrador: 'FICHA_IA',
+  }], {
+    rawDocuments: [{
+      id: 900,
+      inserted_alerta_id: 63,
+      organismo: 'Departamento de Cultura',
+      seccion: 'Premios',
+      boletin: 'DOGC 9999',
+      id_oficial: 'DOGC-2026-63',
+      metadata_json: {
+        subseccion: 'Música',
+        tipo_documento: 'Premio musical',
+      },
+      updated_at: '2026-07-20T10:00:00Z',
+    }],
+  });
+  const routes = registrarRutas(alertasRoutes, supabase);
+
+  await invocar(routes['POST /alertas/revisar']);
+
+  const patch = supabase.updates[0];
+  assert.strictEqual(patch.estado_ia, 'descartado');
+  assert.strictEqual(patch.discard_reason_code, 'actividad_cultural_no_rural');
+  const gate = patch.decision_audit.official_rural_gate;
+  assert(gate.diagnostics.official_fields_used.includes('tipo_documento'));
+  assert(gate.diagnostics.official_fields_used.includes('subseccion'));
+  assert(gate.diagnostics.official_metadata_available.includes('id_oficial'));
+
+  const rawSelect = supabase.queries.find(
+    (query) => query.table === 'raw_documents' && query.operation === 'select'
+  );
+  assert(rawSelect, 'debe consultar raw_documents por inserted_alerta_id');
+  assert(!/(^|,\s*)subseccion(?:,|$)/.test(rawSelect.columns));
+  assert(!/(^|,\s*)tipo_documento(?:,|$)/.test(rawSelect.columns));
+  assert(rawSelect.columns.includes('metadata_json'));
+});
+
+test('6e. alertas retenidas quedan fuera de revision y fallback automaticos', async () => {
+  const supabase = crearSupabaseFalso([
+    {
+      id: 64,
+      fuente: 'DOE',
+      titulo: 'Resolución de información pública',
+      contenido: 'Se publica el expediente administrativo general y se abre un plazo de audiencia para todas las personas que acrediten su condición de interesadas.',
+      resumen_borrador: 'FICHA_IA',
+    },
+    {
+      id: 65,
+      fuente: 'DOGC',
+      titulo: 'Resolución sin texto disponible',
+      contenido: 'Resolución sin texto disponible',
+      resumen_borrador: 'FICHA_IA',
+    },
+  ]);
+  const routes = registrarRutas(alertasRoutes, supabase);
+
+  const response = await invocar(routes['POST /alertas/revisar']);
+
+  assert.deepStrictEqual(
+    supabase.updates.map((patch) => patch.estado_ia),
+    ['pendiente_revision_manual', 'needs_evidence']
+  );
+  assert(!supabase.updates.some((patch) => patch.estado_ia === 'listo'));
+  assert.strictEqual(response.body.aprobadas, 0);
+  assert.strictEqual(response.body.retenidas_revision, 1);
+  assert.strictEqual(response.body.needs_evidence, 1);
+  assert.strictEqual(response.body.fallback_local, 0);
+});
+
+test('6f. ejecuciones posteriores de /revisar no vuelven a seleccionar estados retenidos', async () => {
+  const supabase = crearSupabaseFalso([
+    { id: 641, fuente: 'DOE', estado_ia: 'pendiente_revision_manual' },
+    { id: 651, fuente: 'DOGC', estado_ia: 'needs_evidence' },
+  ], { respectFilters: true });
+  const routes = registrarRutas(alertasRoutes, supabase);
+
+  const response = await invocar(routes['POST /alertas/revisar']);
+
+  assert.strictEqual(response.body.procesadas, 0);
+  assert.deepStrictEqual(supabase.updates, []);
+  assert(!supabase.queries.some((query) => query.table === 'raw_documents'));
+});
+
+test('6g. fallo al leer metadata limita la barrera a campos disponibles y nunca habilita fallback', async () => {
+  const supabase = crearSupabaseFalso([{
+    id: 652,
+    fuente: 'DOGC',
+    titulo: 'Resolución de información pública',
+    contenido: 'Se publica el expediente administrativo general y se abre un plazo de audiencia para todas las personas interesadas conforme al procedimiento aplicable.',
+    resumen_borrador: 'FICHA_IA',
+  }], { rawError: 'raw_documents no disponible' });
+  const routes = registrarRutas(alertasRoutes, supabase);
+
+  const response = await invocar(routes['POST /alertas/revisar']);
+
+  assert.deepStrictEqual(
+    supabase.updates.map((patch) => patch.estado_ia),
+    ['pendiente_revision_manual']
+  );
+  assert.strictEqual(response.body.aprobadas, 0);
+  assert(response.body.errores.some((error) => error.fase === 'official_metadata'));
+});
+
+test('estado-pipeline muestra revision manual y needs_evidence sin marcarlas automaticas', async () => {
+  const supabase = crearSupabaseFalso([
+    { id: 66, fuente: 'DOE', estado_ia: 'pendiente_revision_manual', resumen: 'REVISION RURAL REQUERIDA' },
+    { id: 67, fuente: 'DOGC', estado_ia: 'needs_evidence', resumen: 'SIN EVIDENCIA OFICIAL' },
+    { id: 68, fuente: 'DOE', estado_ia: 'listo', resumen: 'Ficha lista' },
+  ]);
+  const routes = registrarRutas(alertasRoutes, supabase);
+
+  const response = await invocar(routes['GET /alertas/estado-pipeline'], {
+    query: { fecha: '2026-07-20' },
+  });
+
+  assert.strictEqual(response.body.pendientes_total, 2);
+  assert.strictEqual(response.body.pendientes_automaticos_total, 0);
+  assert.strictEqual(response.body.retenidas_total, 2);
+  assert.strictEqual(response.body.pendiente_revision_manual_total, 1);
+  assert.strictEqual(response.body.needs_evidence_total, 1);
+  assert(response.body.pendientes_preview.every(
+    (alerta) => alerta.procesamiento_automatico === false
+  ));
+});
+
+test('herramientas admin localizan y reprocesan manualmente ambos estados retenidos', async () => {
+  const supabase = crearSupabaseFalso([
+    { id: 69, estado_ia: 'pendiente_revision_manual' },
+    { id: 70, estado_ia: 'needs_evidence' },
+  ]);
+  const alertRoutes = registrarRutas(alertasRoutes, supabase);
+  const adminRoutes = registrarRutas(adminAlertasRoutes, supabase);
+
+  await invocar(alertRoutes['GET /alertas'], {
+    query: { estado_ia: 'pendiente_revision_manual' },
+  });
+  assert(supabase.queries.some((query) =>
+    query.table === 'alertas'
+    && query.operation === 'eq'
+    && query.column === 'estado_ia'
+    && query.value === 'pendiente_revision_manual'
+  ));
+
+  await invocar(adminRoutes['POST /admin/alertas/:id/reprocesar'], {
+    params: { id: '69' },
+    body: { fase: 'revisar' },
+  });
+  await invocar(adminRoutes['POST /admin/alertas/:id/reprocesar'], {
+    params: { id: '70' },
+    body: { fase: 'clasificar' },
+  });
+
+  assert.strictEqual(supabase.updates[0].estado_ia, 'pendiente_revisar');
+  assert.strictEqual(supabase.updates[1].estado_ia, 'pendiente_clasificar');
 });
 
 test('7. auditoria v2 conserva preclasificacion y clasificacion completas', () => {

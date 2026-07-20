@@ -29,6 +29,13 @@ const {
   construirPersistenciaBarreraRural,
   evaluarBarreraRuralOficial,
 } = require('./clasificacion/officialRuralEvidenceGate');
+const {
+  adjuntarMetadatosOficialesRaw,
+} = require('./clasificacion/officialAlertMetadata');
+const {
+  ESTADOS_RETENIDOS,
+  describirEstadoPendiente,
+} = require('./alertPipelineStates');
 
 const {
   DIGEST_ONLY_MODE,
@@ -138,6 +145,9 @@ module.exports = function alertasRoutes(app, supabase) {
   // ══════════════════════════════════════════
   app.get('/alertas', requireAdminOrCron, async (req, res) => {
     const fecha = typeof req.query.fecha === 'string' ? req.query.fecha.trim() : '';
+    const estadoIa = typeof req.query.estado_ia === 'string'
+      ? req.query.estado_ia.trim().slice(0, 64)
+      : '';
     const limit = leerLimiteAlertas(req.query.limit);
 
     if (fecha && !validarFechaISO(fecha)) {
@@ -150,6 +160,7 @@ module.exports = function alertasRoutes(app, supabase) {
       .order('created_at', { ascending: false });
 
     if (fecha) query = query.eq('fecha', fecha);
+    if (estadoIa) query = query.eq('estado_ia', estadoIa);
     if (limit) query = query.limit(limit);
 
     const { data, error } = await query;
@@ -458,6 +469,9 @@ module.exports = function alertasRoutes(app, supabase) {
       }
 
       // Revisa formato localmente; la IA queda solo como rescate opcional.
+      const cargaMetadata = await adjuntarMetadatosOficialesRaw(supabase, alertas);
+      const alertasConMetadata = cargaMetadata.alertas;
+
       const instructions = 'Eres un revisor experto en boletines agrarios. Corriges fichas compactas para IA. Responde SOLO con la ficha final, sin JSON, sin explicaciones.';
 
       let aprobadas = 0;
@@ -465,9 +479,11 @@ module.exports = function alertasRoutes(app, supabase) {
       let retenidasRevision = 0;
       let needsEvidence = 0;
       let fallbackLocal = 0;
-      const errores = [];
+      const errores = cargaMetadata.error
+        ? [{ id: null, fase: 'official_metadata', error: cargaMetadata.error.message }]
+        : [];
 
-      for (const a of alertas) {
+      for (const a of alertasConMetadata) {
         const gate = evaluarBarreraRuralOficial(a);
         const barrera = construirPersistenciaBarreraRural(a, gate);
         if (barrera) {
@@ -624,7 +640,7 @@ Responde UNICAMENTE con la ficha final. Sin JSON, sin explicaciones, sin nada ma
 
       res.json({
         success: true,
-        procesadas: alertas.length,
+        procesadas: alertasConMetadata.length,
         actualizadas: aprobadas + descartadas + retenidasRevision + needsEvidence,
         aprobadas,
         descartadas_prefiltro: descartadas,
@@ -632,7 +648,7 @@ Responde UNICAMENTE con la ficha final. Sin JSON, sin explicaciones, sin nada ma
         needs_evidence: needsEvidence,
         fallback_local: fallbackLocal,
         errores: errores.slice(0, 20),
-        ids: alertas.map((a) => a.id),
+        ids: alertasConMetadata.map((a) => a.id),
       });
 
     } catch (err) {
@@ -749,18 +765,24 @@ Responde UNICAMENTE con la ficha final. Sin JSON, sin explicaciones, sin nada ma
         const clave = `${estado} | ${tipoResumen}`;
         resumen[clave] = (resumen[clave] || 0) + 1;
 
-        if (
-          estado === 'NULL' ||
-          ['pendiente_clasificar', 'pendiente_resumir', 'pendiente_revisar'].includes(estado)
-        ) {
+        const detallePendiente = describirEstadoPendiente(alerta.estado_ia);
+        if (detallePendiente) {
           pendientes.push({
             id: alerta.id,
             fuente: alerta.fuente || null,
             estado_ia: alerta.estado_ia || null,
             resumen: tipoResumen,
+            ...detallePendiente,
           });
         }
       }
+
+      const pendientesAutomaticos = pendientes.filter(
+        (alerta) => alerta.procesamiento_automatico
+      );
+      const retenidas = pendientes.filter(
+        (alerta) => alerta.tipo_pendiente === 'retenido'
+      );
 
       return res.json({
         success: true,
@@ -768,6 +790,15 @@ Responde UNICAMENTE con la ficha final. Sin JSON, sin explicaciones, sin nada ma
         total: (data || []).length,
         resumen,
         pendientes_total: pendientes.length,
+        pendientes_automaticos_total: pendientesAutomaticos.length,
+        retenidas_total: retenidas.length,
+        pendiente_revision_manual_total: retenidas.filter(
+          (alerta) => alerta.estado_ia === 'pendiente_revision_manual'
+        ).length,
+        needs_evidence_total: retenidas.filter(
+          (alerta) => alerta.estado_ia === 'needs_evidence'
+        ).length,
+        estados_retenidos: ESTADOS_RETENIDOS,
         pendientes_preview: pendientes.slice(0, 50),
       });
     } catch (err) {

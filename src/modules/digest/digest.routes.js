@@ -33,6 +33,9 @@ const {
   seleccionarAlertasParaDigest,
 } = require('../alertas/seleccion/alertSelectionGate');
 const { getFechaMadridISO, getRangoDiaMadridUTC } = require('../../shared/fechaMadrid');
+const {
+  ESTADOS_PENDIENTES_AUTOMATICOS,
+} = require('../alertas/alertPipelineStates');
 const { leerPerfilIntereses, ordenarAlertasPorPerfil, clasificarPrioridadAlerta, pesoPrioridad } = require('../aprendizaje');
 const { similitudCoseno }          = require('../../platform/ia/embeddings');
 const { registrarDigestItemsMIA }  = require('../mia/digestItems');
@@ -360,7 +363,7 @@ module.exports = function digestRoutes(app, supabase) {
           .from('alertas')
           .select('id', { count: 'exact', head: true })
           .eq('fecha', hoy)
-          .in('estado_ia', ['pendiente_clasificar', 'pendiente_resumir', 'pendiente_revisar']);
+          .in('estado_ia', ESTADOS_PENDIENTES_AUTOMATICOS);
 
         if (errPendientes) return res.status(500).json({ error: errPendientes.message });
 

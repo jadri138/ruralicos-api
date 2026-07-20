@@ -37,6 +37,7 @@ const CAMPOS_GENERADOS_IGNORADOS = Object.freeze([
   'sectores',
   'subsectores',
   'tipos_alerta',
+  'taxonomy_tags',
   'etiquetas',
   'tags',
 ]);
@@ -138,9 +139,10 @@ function construirEvidenciaOficial(alerta = {}) {
     texto,
     titulo: normalizarTexto(alerta.titulo),
     contenido: normalizarTexto(alerta.contenido),
-    campos_disponibles: [
+    campos_metadata_disponible: metadataDisponible,
+    campos_relevancia: [
       ...camposTextoDisponibles,
-      ...metadataDisponible.filter((campo) => campo === 'fuente' || metadataTextoDisponible.includes(campo)),
+      ...metadataDisponible.filter((campo) => metadataTextoDisponible.includes(campo)),
     ],
   };
 }
@@ -155,7 +157,8 @@ function resultado(action, reasonCode, evidencia, ruralSignals = [], nonRuralSig
     diagnostics: {
       source: evidencia.fuente,
       official_text_length: evidencia.texto.length,
-      official_fields_used: evidencia.campos_disponibles,
+      official_fields_used: evidencia.campos_relevancia,
+      official_metadata_available: evidencia.campos_metadata_disponible,
       rural_signals: ruralSignals,
       non_rural_signals: nonRuralSignals,
       generated_fields_ignored: CAMPOS_GENERADOS_IGNORADOS,

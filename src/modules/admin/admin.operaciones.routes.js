@@ -24,6 +24,9 @@ const { cargarPerfilOperativoMIA } = require('../mia/userProfile');
 const { ejecutarEvalsMIA } = require('../mia/evalHarness');
 const { generarReporteCalidadOperativaMIA } = require('../mia/alertQuality');
 const {
+  ESTADOS_PENDIENTES_AUTOMATICOS,
+} = require('../alertas/alertPipelineStates');
+const {
   ingestKnowledgeDocument,
   normalizeBase64,
 } = require('../mia/knowledgeIngest');
@@ -375,12 +378,14 @@ app.post('/admin/tareas/scrapers-diario', requireAdmin, async (req, res) => {
         ? req.query.fecha
         : getFechaMadridISO();
       const { inicio, fin } = getRangoDiaMadridUTC(fecha);
-      const estadosPendientesIA = ['pendiente_clasificar', 'pendiente_resumir', 'pendiente_revisar'];
+      const estadosPendientesIA = ESTADOS_PENDIENTES_AUTOMATICOS;
 
       const [
         alertasTotal,
         alertasListas,
         alertasPendientesIA,
+        alertasRevisionManual,
+        alertasNeedsEvidence,
         alertasDescartadas,
         alertasDuplicadas,
         alertasConEmbedding,
@@ -398,6 +403,8 @@ app.post('/admin/tareas/scrapers-diario', requireAdmin, async (req, res) => {
         countQuery(supabase.from('alertas').select('id', { count: 'exact', head: true }).eq('fecha', fecha)),
         countQuery(supabase.from('alertas').select('id', { count: 'exact', head: true }).eq('fecha', fecha).eq('estado_ia', 'listo').is('duplicado_de', null)),
         countQuery(supabase.from('alertas').select('id', { count: 'exact', head: true }).eq('fecha', fecha).in('estado_ia', estadosPendientesIA)),
+        countQuery(supabase.from('alertas').select('id', { count: 'exact', head: true }).eq('fecha', fecha).eq('estado_ia', 'pendiente_revision_manual')),
+        countQuery(supabase.from('alertas').select('id', { count: 'exact', head: true }).eq('fecha', fecha).eq('estado_ia', 'needs_evidence')),
         countQuery(supabase.from('alertas').select('id', { count: 'exact', head: true }).eq('fecha', fecha).eq('estado_ia', 'descartado')),
         countQuery(supabase.from('alertas').select('id', { count: 'exact', head: true }).eq('fecha', fecha).eq('estado_ia', 'duplicado')),
         countQuery(supabase.from('alertas').select('id', { count: 'exact', head: true }).eq('fecha', fecha).not('embedding', 'is', null)),
@@ -419,6 +426,7 @@ app.post('/admin/tareas/scrapers-diario', requireAdmin, async (req, res) => {
 
       const pipelineErrorCount = (pipelineRuns.data || []).filter((r) => r.status === 'error').length;
       const scraperErrorCount = (scraperRuns.data || []).filter((r) => r.status === 'error' || Number(r.errores || 0) > 0).length;
+      const alertasRetenidas = alertasRevisionManual + alertasNeedsEvidence;
       const ok =
         pipelineErrorCount === 0 &&
         scraperErrorCount === 0 &&
@@ -427,11 +435,15 @@ app.post('/admin/tareas/scrapers-diario', requireAdmin, async (req, res) => {
 
       return res.json({
         ok,
+        requiere_atencion_manual: alertasRetenidas > 0,
         fecha,
         resumen: {
           alertas_total: alertasTotal,
           alertas_listas: alertasListas,
           alertas_pendientes_ia: alertasPendientesIA,
+          alertas_pendientes_revision_manual: alertasRevisionManual,
+          alertas_needs_evidence: alertasNeedsEvidence,
+          alertas_retenidas: alertasRetenidas,
           alertas_descartadas: alertasDescartadas,
           alertas_duplicadas: alertasDuplicadas,
           alertas_con_embedding: alertasConEmbedding,

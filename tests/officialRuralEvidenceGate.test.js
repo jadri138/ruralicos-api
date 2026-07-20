@@ -145,6 +145,7 @@ const camposIaNoPruebanRelevancia = evaluar(
     sectores: ['agricultura'],
     subsectores: ['ganaderia'],
     tipos_alerta: ['ayudas_subvenciones'],
+    taxonomy_tags: ['sector:agricultura'],
     resumen_borrador: 'Ayuda de la PAC para explotaciones agrarias.',
     resumen_final: 'Convocatoria rural relevante.',
     tags: ['regadio'],
@@ -155,6 +156,7 @@ assert.deepStrictEqual(
   camposIaNoPruebanRelevancia.diagnostics.generated_fields_ignored,
   CAMPOS_GENERADOS_IGNORADOS
 );
+assert(CAMPOS_GENERADOS_IGNORADOS.includes('taxonomy_tags'));
 
 const procedimientoGanaderoIndividual = evaluar(
   'Autorización ambiental de una explotación ganadera',
