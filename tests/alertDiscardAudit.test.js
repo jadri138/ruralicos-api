@@ -253,6 +253,48 @@ test('6. prefiltro de revision registra review_prefilter sin borrar taxonomia', 
   assert(!Object.hasOwn(patch, 'sectores'));
 });
 
+test('6b. DOGC no rural se bloquea antes de que revision o fallback lo marquen listo', async () => {
+  const supabase = crearSupabaseFalso([{
+    id: 61,
+    fuente: 'DOGC',
+    titulo: 'Resolución por la que se convoca un premio musical',
+    contenido: 'Convocatoria de un premio de composición musical para jóvenes intérpretes y autores de canciones.',
+    resumen_borrador: 'Ayuda agraria para explotaciones rurales.',
+    sectores: ['agricultura'],
+    subsectores: ['ganaderia'],
+    tipos_alerta: ['ayudas_subvenciones'],
+  }]);
+  const routes = registrarRutas(alertasRoutes, supabase);
+
+  const response = await invocar(routes['POST /alertas/revisar']);
+
+  const patch = supabase.updates[0];
+  assert.strictEqual(patch.estado_ia, 'descartado');
+  assert.strictEqual(patch.discard_reason_code, 'actividad_cultural_no_rural');
+  assert.strictEqual(patch.discard_stage, 'official_rural_gate');
+  assert.strictEqual(response.body.aprobadas, 0);
+  assert.strictEqual(response.body.descartadas_prefiltro, 1);
+});
+
+test('6c. DOE agrario con evidencia oficial conserva el flujo normal hasta listo', async () => {
+  const supabase = crearSupabaseFalso([{
+    id: 62,
+    fuente: 'DOE',
+    titulo: 'Ayudas para explotaciones agrarias',
+    contenido: 'Convocatoria de subvenciones de la PAC para personas agricultoras y explotaciones agrarias de Extremadura.',
+    resumen_borrador: 'FICHA_IA',
+    sectores: ['agricultura'],
+  }]);
+  const routes = registrarRutas(alertasRoutes, supabase);
+
+  const response = await invocar(routes['POST /alertas/revisar']);
+
+  const patch = supabase.updates[0];
+  assert.strictEqual(patch.estado_ia, 'listo');
+  assert.strictEqual(response.body.aprobadas, 1);
+  assert.strictEqual(response.body.descartadas_prefiltro, 0);
+});
+
 test('7. auditoria v2 conserva preclasificacion y clasificacion completas', () => {
   const preclassification = { pre_status: 'review', pre_reasons: [{ tag: 'agrario', weight: 1 }] };
   const classification = { es_relevante: false, taxonomy_tags: ['sector:agricultura'] };

@@ -9,6 +9,13 @@ const DISCARD_REASON_MESSAGES = Object.freeze({
   sin_senal_rural: 'No se detectaron senales suficientes de agricultura, ganaderia o actividad rural.',
   preclasificador_regla_descarte: 'El preclasificador detecto ruido administrativo sin senales rurales suficientes.',
   clasificador_ia_no_relevante: 'El clasificador marco la alerta como no relevante sin proporcionar un motivo especifico.',
+  aviso_legal_privacidad_no_rural: 'La publicacion es un aviso legal o de proteccion de datos sin contenido rural.',
+  actividad_cultural_no_rural: 'La publicacion corresponde a un premio o actividad cultural sin alcance rural agrario.',
+  centro_educativo_privado_no_rural: 'La publicacion autoriza la apertura de un centro educativo privado sin alcance rural agrario.',
+  instalacion_gas_individual_no_rural: 'La publicacion tramita una instalacion individual de gas sin impacto agrario expreso.',
+  urbanismo_no_agrario: 'La publicacion trata de urbanismo industrial o terciario sin impacto agrario expreso.',
+  autorizacion_ambiental_individual_no_agraria: 'La publicacion tramita una autorizacion ambiental individual de una empresa sin impacto agrario colectivo expreso.',
+  procedimiento_empresarial_individual_no_agrario: 'La publicacion tramita un procedimiento empresarial individual que no pertenece al digest rural general.',
 });
 
 const DISCARD_REASON_CODES = Object.freeze(Object.keys(DISCARD_REASON_MESSAGES));

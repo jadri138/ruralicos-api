@@ -25,6 +25,10 @@ const {
   obtenerClasificacionAlerta,
   obtenerPreclasificacionAlerta,
 } = require('./clasificacion/discardDecision');
+const {
+  construirPersistenciaBarreraRural,
+  evaluarBarreraRuralOficial,
+} = require('./clasificacion/officialRuralEvidenceGate');
 
 const {
   DIGEST_ONLY_MODE,
@@ -443,7 +447,7 @@ module.exports = function alertasRoutes(app, supabase) {
     try {
       const { data: alertas, error } = await supabase
         .from('alertas')
-        .select('id, titulo, url, region, fecha, contenido, resumen_borrador, provincias, sectores, subsectores, tipos_alerta, pre_score, pre_status, pre_reasons, candidate_level, decision_audit')
+        .select('id, titulo, fuente, url, region, fecha, contenido, resumen_borrador, provincias, sectores, subsectores, tipos_alerta, pre_score, pre_status, pre_reasons, candidate_level, decision_audit')
         .eq('estado_ia', 'pendiente_revisar')
         .order('created_at', { ascending: true })
         .limit(REVISAR_BATCH_SIZE);
@@ -458,10 +462,36 @@ module.exports = function alertasRoutes(app, supabase) {
 
       let aprobadas = 0;
       let descartadas = 0;
+      let retenidasRevision = 0;
+      let needsEvidence = 0;
       let fallbackLocal = 0;
       const errores = [];
 
       for (const a of alertas) {
+        const gate = evaluarBarreraRuralOficial(a);
+        const barrera = construirPersistenciaBarreraRural(a, gate);
+        if (barrera) {
+          const { error: gateError } = await supabase
+            .from('alertas')
+            .update(barrera.patch)
+            .eq('id', a.id)
+            .eq('estado_ia', 'pendiente_revisar');
+
+          if (gateError) {
+            errores.push({ id: a.id, fase: 'official_rural_gate', error: gateError.message });
+          } else if (barrera.action === 'discard') {
+            descartadas++;
+          } else if (barrera.action === 'needs_evidence') {
+            needsEvidence++;
+          } else {
+            retenidasRevision++;
+          }
+
+          // Un fallo de persistencia tampoco puede convertir la alerta en lista:
+          // la siguiente ejecucion volvera a intentar la barrera.
+          continue;
+        }
+
         try {
           const borrador = a.resumen_borrador ?? '';
           const exclusion = detectarExclusionDuraAlerta({ ...a, resumen_borrador: borrador });
@@ -595,9 +625,11 @@ Responde UNICAMENTE con la ficha final. Sin JSON, sin explicaciones, sin nada ma
       res.json({
         success: true,
         procesadas: alertas.length,
-        actualizadas: aprobadas + descartadas,
+        actualizadas: aprobadas + descartadas + retenidasRevision + needsEvidence,
         aprobadas,
         descartadas_prefiltro: descartadas,
+        retenidas_revision: retenidasRevision,
+        needs_evidence: needsEvidence,
         fallback_local: fallbackLocal,
         errores: errores.slice(0, 20),
         ids: alertas.map((a) => a.id),
