@@ -44,7 +44,7 @@ module.exports = function revisarAlertasRoutes(app, supabase) {
       let query = supabase
         .from("alertas")
         .select("id, titulo, url, fecha, resumen, provincias, sectores, subsectores, tipos_alerta, created_at, pre_score, pre_status, pre_reasons, candidate_level, decision_audit")
-        .neq("resumen", "NO IMPORTA")
+        .eq("estado_ia", "listo")
         .neq("resumen", "Procesando con IA...")
         .or("revision_final.is.null,revision_final.eq.false");
 
@@ -259,6 +259,7 @@ ${JSON.stringify(input)}
             confidence: 0.5,
             preclassification: obtenerPreclasificacionAlerta(alerta),
             classification: obtenerClasificacionAlerta(alerta),
+            previousAudit: alerta.decision_audit,
           }));
         } else {
           Object.assign(updateData, limpiarCamposDescarte());

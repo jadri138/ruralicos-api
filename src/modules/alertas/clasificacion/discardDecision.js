@@ -16,9 +16,18 @@ const DISCARD_REASON_MESSAGES = Object.freeze({
   urbanismo_no_agrario: 'La publicacion trata de urbanismo industrial o terciario sin impacto agrario expreso.',
   autorizacion_ambiental_individual_no_agraria: 'La publicacion tramita una autorizacion ambiental individual de una empresa sin impacto agrario colectivo expreso.',
   procedimiento_empresarial_individual_no_agrario: 'La publicacion tramita un procedimiento empresarial individual que no pertenece al digest rural general.',
+  legacy_unstructured_discard: 'Descarte historico cuyo motivo original no puede deducirse de los datos conservados.',
 });
 
 const DISCARD_REASON_CODES = Object.freeze(Object.keys(DISCARD_REASON_MESSAGES));
+const DISCARD_COMPATIBILITY_SUMMARY = 'NO IMPORTA';
+const DISCARD_REQUIRED_FIELDS = Object.freeze([
+  'discard_reason_code',
+  'discard_reason',
+  'discard_stage',
+  'discard_confidence',
+  'decision_audit',
+]);
 const HARD_DISCARD_REASON_CODES = Object.freeze([
   'proceso_personal_publico',
   'pesca_maritimo_no_agrario',
@@ -44,6 +53,7 @@ function construirDescarteAuditable({
   confidence,
   preclassification,
   classification,
+  previousAudit,
 } = {}) {
   const fallbackCode = 'clasificador_ia_no_relevante';
   const requestedCode = normalizarCodigoDescarte(code, fallbackCode);
@@ -56,22 +66,32 @@ function construirDescarteAuditable({
     ? stage.trim()
     : 'classifier_ai';
   const normalizedConfidence = normalizarConfianzaDescarte(confidence);
+  const auditAnterior = previousAudit && typeof previousAudit === 'object' && !Array.isArray(previousAudit)
+    ? previousAudit
+    : {};
+  const preclasificacionAuditada = preclassification && typeof preclassification === 'object'
+    ? preclassification
+    : auditAnterior.preclassification && typeof auditAnterior.preclassification === 'object'
+      ? auditAnterior.preclassification
+      : {};
+  const clasificacionAuditada = classification && typeof classification === 'object'
+    ? classification
+    : auditAnterior.classification && typeof auditAnterior.classification === 'object'
+      ? auditAnterior.classification
+      : {};
 
   return {
     estado_ia: 'descartado',
-    resumen: 'NO IMPORTA',
+    resumen: DISCARD_COMPATIBILITY_SUMMARY,
     discard_reason_code: normalizedCode,
     discard_reason: normalizedReason,
     discard_stage: normalizedStage,
     discard_confidence: normalizedConfidence,
     decision_audit: {
+      ...auditAnterior,
       version: 'alert_decision_audit_v2',
-      preclassification: preclassification && typeof preclassification === 'object'
-        ? preclassification
-        : {},
-      classification: classification && typeof classification === 'object'
-        ? classification
-        : {},
+      preclassification: preclasificacionAuditada,
+      classification: clasificacionAuditada,
       discard: {
         code: normalizedCode,
         reason: normalizedReason,
@@ -80,6 +100,50 @@ function construirDescarteAuditable({
       },
     },
   };
+}
+
+function obtenerCamposFaltantesDescarte(alerta = {}) {
+  const faltantes = [];
+  const textoValido = (value) => typeof value === 'string' && Boolean(value.trim());
+  const confianzaValida = (value) =>
+    typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1;
+
+  if (!textoValido(alerta.discard_reason_code)) faltantes.push('discard_reason_code');
+  if (!textoValido(alerta.discard_reason)) faltantes.push('discard_reason');
+  if (!textoValido(alerta.discard_stage)) faltantes.push('discard_stage');
+  if (!confianzaValida(alerta.discard_confidence)) faltantes.push('discard_confidence');
+
+  const audit = alerta.decision_audit;
+  const discardAudit = audit && typeof audit === 'object' && !Array.isArray(audit)
+    ? audit.discard
+    : null;
+  if (!discardAudit || typeof discardAudit !== 'object' || Array.isArray(discardAudit)) {
+    faltantes.push('decision_audit');
+    return faltantes;
+  }
+
+  if (
+    discardAudit.code !== alerta.discard_reason_code
+    || discardAudit.reason !== alerta.discard_reason
+    || discardAudit.stage !== alerta.discard_stage
+    || discardAudit.confidence !== alerta.discard_confidence
+  ) {
+    faltantes.push('decision_audit');
+  }
+
+  return faltantes;
+}
+
+function esAlertaDescartada(alerta = {}) {
+  return alerta.estado_ia === 'descartado';
+}
+
+function esResumenDescarteVisual(value) {
+  return value === DISCARD_COMPATIBILITY_SUMMARY;
+}
+
+function esDescarteAuditable(alerta = {}) {
+  return esAlertaDescartada(alerta) && obtenerCamposFaltantesDescarte(alerta).length === 0;
 }
 
 function limpiarCamposDescarte() {
@@ -131,12 +195,18 @@ function metadatosDescartePreclasificador(preclassification = {}) {
 module.exports = {
   DISCARD_REASON_CODES,
   DISCARD_REASON_MESSAGES,
+  DISCARD_COMPATIBILITY_SUMMARY,
+  DISCARD_REQUIRED_FIELDS,
   HARD_DISCARD_REASON_CODES,
   construirDescarteAuditable,
+  esAlertaDescartada,
+  esDescarteAuditable,
+  esResumenDescarteVisual,
   limpiarCamposDescarte,
   metadatosDescartePreclasificador,
   normalizarCodigoDescarte,
   normalizarConfianzaDescarte,
+  obtenerCamposFaltantesDescarte,
   obtenerClasificacionAlerta,
   obtenerPreclasificacionAlerta,
 };

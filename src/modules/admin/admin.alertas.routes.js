@@ -126,6 +126,7 @@ module.exports = (app, supabase) => {
           confidence: req.body.discard_confidence ?? 1,
           preclassification: obtenerPreclasificacionAlerta(alertaActual),
           classification: obtenerClasificacionAlerta(alertaActual),
+          previousAudit: alertaActual.decision_audit,
         }));
       } else if (
         updates.estado_ia &&

@@ -40,6 +40,8 @@ service.clasificarConReintento = async (alertas) => respuestaClasificacion(alert
 delete require.cache[require.resolve('../src/modules/alertas/alertas.routes')];
 const alertasRoutes = require('../src/modules/alertas/alertas.routes');
 const adminAlertasRoutes = require('../src/modules/admin/admin.alertas.routes');
+const alertasFreeRoutes = require('../src/modules/alertas/alertasFree.routes');
+const revisarAlertasRoutes = require('../src/modules/alertas/revisarAlertas.routes');
 
 function crearSupabaseFalso(rows = [], {
   rawDocuments = [],
@@ -74,6 +76,7 @@ function crearSupabaseFalso(rows = [], {
           return builder;
         },
         neq() { return builder; },
+        not() { return builder; },
         or() { return builder; },
         is() { return builder; },
         in(column, values) {
@@ -635,6 +638,40 @@ test('el descarte manual del admin tambien utiliza el contrato comun', async () 
   assert(patch.discard_reason.includes('panel de administracion'));
   assert.strictEqual(patch.discard_stage, 'manual');
   assert.strictEqual(patch.decision_audit.classification.es_relevante, true);
+});
+
+test('FREE y revisor legacy seleccionan por estado listo y no por NO IMPORTA', async () => {
+  const rows = [{
+    id: 13,
+    estado_ia: 'descartado',
+    resumen: 'NO IMPORTA',
+    resumenfree: 'Resumen historico',
+    revision_final: false,
+  }];
+
+  const freeSupabase = crearSupabaseFalso(rows, { respectFilters: true });
+  const freeRoutes = registrarRutas(alertasFreeRoutes, freeSupabase);
+  const freeResponse = await invocar(freeRoutes['POST /alertas/generar-resumen-free'], {
+    query: { fecha: '2026-07-20' },
+  });
+  assert.strictEqual(freeResponse.body.procesadas, 0);
+  assert(freeSupabase.queries.some((query) =>
+    query.table === 'alertas'
+    && query.operation === 'eq'
+    && query.column === 'estado_ia'
+    && query.value === 'listo'
+  ));
+
+  const legacySupabase = crearSupabaseFalso(rows, { respectFilters: true });
+  const legacyRoutes = registrarRutas(revisarAlertasRoutes, legacySupabase);
+  const legacyResponse = await invocar(legacyRoutes['POST /alertas/revisar-final']);
+  assert.strictEqual(legacyResponse.body.revisadas, 0);
+  assert(legacySupabase.queries.some((query) =>
+    query.table === 'alertas'
+    && query.operation === 'eq'
+    && query.column === 'estado_ia'
+    && query.value === 'listo'
+  ));
 });
 
 (async () => {

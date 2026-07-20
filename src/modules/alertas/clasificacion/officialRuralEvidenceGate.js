@@ -267,6 +267,7 @@ function construirPersistenciaBarreraRural(alerta = {}, gate = evaluarBarreraRur
       confidence: gate.confidence,
       preclassification: obtenerPreclasificacionAlerta(alerta),
       classification: obtenerClasificacionAlerta(alerta),
+      previousAudit: alerta.decision_audit,
     });
     return {
       action: gate.action,

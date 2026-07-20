@@ -20,6 +20,7 @@ const {
 } = require('../../shared/taxonomyRegistry');
 const {
   construirDescarteAuditable,
+  esResumenDescarteVisual,
   limpiarCamposDescarte,
   metadatosDescartePreclasificador,
   obtenerClasificacionAlerta,
@@ -250,6 +251,7 @@ module.exports = function alertasRoutes(app, supabase) {
             confidence: item.discard_confidence,
             preclassification,
             classification: item,
+            previousAudit: alerta?.decision_audit,
           });
           const { error: updError } = await supabase
             .from('alertas')
@@ -380,6 +382,7 @@ module.exports = function alertasRoutes(app, supabase) {
           confidence: 1,
           preclassification: obtenerPreclasificacionAlerta(alerta),
           classification: obtenerClasificacionAlerta(alerta),
+          previousAudit: alerta.decision_audit,
         });
         const { error: updError } = await supabase
           .from('alertas')
@@ -518,6 +521,7 @@ module.exports = function alertasRoutes(app, supabase) {
               confidence: 1,
               preclassification: obtenerPreclasificacionAlerta(a),
               classification: obtenerClasificacionAlerta(a),
+              previousAudit: a.decision_audit,
             });
             const { error: updError } = await supabase
               .from('alertas')
@@ -757,7 +761,7 @@ Responde UNICAMENTE con la ficha final. Sin JSON, sin explicaciones, sin nada ma
         const estado = alerta.estado_ia || 'NULL';
         const tipoResumen = alerta.resumen === 'Procesando con IA...'
           ? 'procesando'
-          : alerta.resumen === 'NO IMPORTA'
+          : esResumenDescarteVisual(alerta.resumen)
             ? 'no_importa'
             : alerta.resumen
               ? 'con_resumen'

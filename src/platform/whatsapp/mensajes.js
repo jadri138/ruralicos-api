@@ -25,10 +25,13 @@ async function enviarWhatsAppResumen(alerta, supabase) {
     throw new Error('Faltan ULTRAMSG_INSTANCE_ID o ULTRAMSG_TOKEN en .env');
   }
 
-  if (!alerta?.resumen?.trim() || alerta.resumen === 'NO IMPORTA') {
-    console.log(
-      `[PRO] Alerta ${alerta.id} → sin resumen válido o marcada como NO IMPORTA → no se envía`
-    );
+  if (alerta?.estado_ia !== 'listo') {
+    console.log(`[PRO] Alerta ${alerta?.id} → estado no listo → no se envía`);
+    return;
+  }
+
+  if (!alerta?.resumen?.trim()) {
+    console.log(`[PRO] Alerta ${alerta.id} → sin resumen válido → no se envía`);
     return;
   }
 

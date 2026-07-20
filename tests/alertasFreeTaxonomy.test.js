@@ -29,6 +29,7 @@ assert.strictEqual(alertaTieneTaxonomiaMinima({
 
 const clasificada = {
   id: 1,
+  estado_ia: 'listo',
   resumenfree: 'Resumen compartido',
   sectores: ['ganaderia'],
   subsectores: [],
@@ -36,6 +37,7 @@ const clasificada = {
 };
 const sinTaxonomia = {
   id: 2,
+  estado_ia: 'listo',
   resumenfree: 'Resumen compartido',
   sectores: [],
   subsectores: [],
@@ -43,6 +45,11 @@ const sinTaxonomia = {
 };
 
 assert.strictEqual(buscarAlertaConResumenFreeValido([clasificada]), clasificada);
+assert.strictEqual(
+  buscarAlertaConResumenFreeValido([{ ...clasificada, estado_ia: 'descartado' }]),
+  null,
+  'un descarte estructurado no puede entrar en el resumen FREE'
+);
 assert.strictEqual(
   buscarAlertaConResumenFreeValido([clasificada, sinTaxonomia]),
   null,

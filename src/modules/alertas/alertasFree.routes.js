@@ -13,7 +13,9 @@ function alertaTieneTaxonomiaMinima(alerta = {}) {
 }
 
 function buscarAlertaConResumenFreeValido(alertas = []) {
-  const lista = Array.isArray(alertas) ? alertas : [];
+  const lista = Array.isArray(alertas)
+    ? alertas.filter((alerta) => alerta?.estado_ia === 'listo')
+    : [];
   const resumenesBloqueados = new Set(
     lista
       .filter((alerta) => !alertaTieneTaxonomiaMinima(alerta))
@@ -41,9 +43,9 @@ module.exports = function alertasFreeRoutes(app, supabase) {
       // Alertas de HOY ya procesadas por la IA PRO (resumen listo y relevante)
       const { data: alertas, error } = await supabase
         .from('alertas')
-        .select('id, titulo, resumen, url, fecha, sectores, subsectores, tipos_alerta, taxonomy_tags')
+        .select('id, titulo, resumen, url, fecha, estado_ia, sectores, subsectores, tipos_alerta, taxonomy_tags')
         .eq('fecha', hoy)
-        .neq('resumen', 'NO IMPORTA')
+        .eq('estado_ia', 'listo')
         .neq('resumen', 'Procesando con IA...')
         .not('resumen', 'is', null);
 
@@ -186,8 +188,9 @@ ${lista}
       // Buscar una alerta de hoy con resumenfree que no se haya enviado aún
       const { data, error } = await supabase
         .from('alertas')
-        .select('id, titulo, resumen, resumenfree, sectores, subsectores, tipos_alerta, taxonomy_tags')
+        .select('id, titulo, resumen, resumenfree, estado_ia, sectores, subsectores, tipos_alerta, taxonomy_tags')
         .eq('fecha', hoy)
+        .eq('estado_ia', 'listo')
         .not('resumenfree', 'is', null)
         .or('whatsapp_enviado_free.is.null,whatsapp_enviado_free.eq.false');
 
@@ -215,6 +218,7 @@ ${lista}
         .from('alertas')
         .update({ whatsapp_enviado_free: true })
         .eq('fecha', hoy)
+        .eq('estado_ia', 'listo')
         .eq('resumenfree', mensajeFree);
 
       if (updError) {
