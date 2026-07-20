@@ -239,6 +239,28 @@ const PROVINCIAS_POR_FUENTE = {
 };
 const MARCADORES_NACIONALES = new Set(['nacional', 'espana', 'españa', 'estatal', 'todas', 'todo el territorio nacional']);
 
+const COMUNIDADES_AUTONOMAS_PROVINCIAS = new Map([
+  [['andalucia'], ['almeria', 'cadiz', 'cordoba', 'granada', 'huelva', 'jaen', 'malaga', 'sevilla']],
+  [['aragon'], ['huesca', 'zaragoza', 'teruel']],
+  [['asturias', 'principado de asturias'], ['asturias']],
+  [['illes balears', 'islas baleares', 'baleares'], ['illes balears', 'islas baleares', 'baleares']],
+  [['canarias', 'islas canarias'], ['las palmas', 'santa cruz de tenerife']],
+  [['cantabria'], ['cantabria']],
+  [['castilla-la mancha', 'castilla la mancha'], ['albacete', 'ciudad real', 'cuenca', 'guadalajara', 'toledo']],
+  [['castilla y leon'], ['avila', 'burgos', 'leon', 'palencia', 'salamanca', 'segovia', 'soria', 'valladolid', 'zamora']],
+  [['catalunya', 'cataluna'], ['barcelona', 'girona', 'gerona', 'lleida', 'lerida', 'tarragona']],
+  [['comunitat valenciana', 'comunidad valenciana'], ['alicante', 'alacant', 'castellon', 'castello', 'valencia']],
+  [['extremadura'], ['badajoz', 'caceres']],
+  [['galicia'], ['a coruna', 'coruna', 'lugo', 'ourense', 'orense', 'pontevedra']],
+  [['comunidad de madrid'], ['madrid']],
+  [['region de murcia'], ['murcia']],
+  [['comunidad foral de navarra'], ['navarra']],
+  [['pais vasco', 'euskadi', 'euskal herria'], ['alava', 'araba', 'bizkaia', 'vizcaya', 'gipuzkoa', 'guipuzcoa']],
+  [['la rioja'], ['la rioja']],
+  [['ceuta'], ['ceuta']],
+  [['melilla'], ['melilla']],
+].flatMap(([aliases, provincias]) => aliases.map((alias) => [alias, provincias])));
+
 const PROVINCIAS_TEXTO = [
   ['alava', ['alava', 'araba']],
   ['araba', ['alava', 'araba']],
@@ -333,6 +355,31 @@ function anadirProvincias(destino, provincias) {
   }
 }
 
+function provinciasExplicitasValidas(values = []) {
+  const resultado = [];
+  for (const value of values || []) {
+    const normalizado = norm(value);
+    const provincia = PROVINCIAS_TEXTO.find((item) =>
+      item.term === normalizado || item.aliases.includes(normalizado)
+    );
+    if (provincia) anadirProvincias(resultado, provincia.aliases);
+  }
+  return resultado;
+}
+
+function comunidadesExplicitas(values = []) {
+  const detectadas = [];
+  const provincias = [];
+  for (const value of values || []) {
+    const comunidad = norm(value);
+    const expansion = COMUNIDADES_AUTONOMAS_PROVINCIAS.get(comunidad);
+    if (!expansion) continue;
+    detectadas.push(comunidad);
+    anadirProvincias(provincias, expansion);
+  }
+  return { detectadas, provincias };
+}
+
 function extraerProvinciasDeTextoAlerta(alerta = {}) {
   const detectadas = [];
   const titulo = norm(alerta.titulo || '');
@@ -366,39 +413,79 @@ function extraerProvinciasDeTextoAlerta(alerta = {}) {
   return detectadas;
 }
 
-function mismasProvincias(a = [], b = []) {
-  const setA = new Set((a || []).map(norm).filter(Boolean));
-  const setB = new Set((b || []).map(norm).filter(Boolean));
-  if (setA.size !== setB.size) return false;
-  for (const item of setA) {
-    if (!setB.has(item)) return false;
+function resolverTerritorioAlerta(alerta = {}) {
+  const provinciasOriginales = Array.isArray(alerta.provincias)
+    ? alerta.provincias.filter((value) => value !== null && value !== undefined)
+    : [];
+  const provinciasDeclaradas = provinciasOriginales.map(norm).filter(Boolean);
+  const fuente = fuenteNormalizada(alerta);
+  const provinciasFuente = (PROVINCIAS_POR_FUENTE[fuente] || []).map(norm);
+  const provinciasTexto = extraerProvinciasDeTextoAlerta(alerta);
+  const provinciasExplicitas = provinciasExplicitasValidas(provinciasOriginales);
+  const comunidades = comunidadesExplicitas(provinciasOriginales);
+  const regionOriginal = alerta.region || '';
+  const region = norm(regionOriginal);
+  const comunidadRegion = comunidadesExplicitas(region ? [regionOriginal] : []);
+  const provinciaRegion = provinciasExplicitasValidas(region ? [regionOriginal] : []);
+
+  let provinciasNormalizadas = [];
+  let ambitoDetectado = 'desconocido';
+  let origenTerritorio = 'ninguno';
+  let comunidadesDetectadas = comunidades.detectadas;
+
+  // Prioridad territorial única: nacional explícito > texto concreto > provincia
+  // explícita > comunidad autónoma > fuente > región de respaldo.
+  if (provinciasDeclaradas.some((provincia) => MARCADORES_NACIONALES.has(provincia))) {
+    provinciasNormalizadas = provinciasDeclaradas;
+    ambitoDetectado = 'nacional';
+    origenTerritorio = 'provincias';
+  } else if (provinciasTexto.length > 0) {
+    provinciasNormalizadas = provinciasTexto;
+    ambitoDetectado = 'provincial';
+    origenTerritorio = 'texto';
+  } else if (provinciasExplicitas.length > 0) {
+    provinciasNormalizadas = provinciasExplicitas;
+    ambitoDetectado = 'provincial';
+    origenTerritorio = 'provincias';
+  } else if (comunidades.provincias.length > 0) {
+    provinciasNormalizadas = comunidades.provincias;
+    ambitoDetectado = 'autonomico';
+    origenTerritorio = 'comunidad_autonoma';
+  } else if (provinciasFuente.length > 0) {
+    provinciasNormalizadas = provinciasFuente;
+    ambitoDetectado = provinciasFuente.some((provincia) => MARCADORES_NACIONALES.has(provincia))
+      ? 'nacional'
+      : (/^BOP/.test(fuente) || ['BOTHA', 'BOG'].includes(fuente) ? 'provincial' : 'autonomico');
+    origenTerritorio = 'fuente';
+  } else if (comunidadRegion.provincias.length > 0) {
+    provinciasNormalizadas = comunidadRegion.provincias;
+    comunidadesDetectadas = comunidadRegion.detectadas;
+    ambitoDetectado = 'autonomico';
+    origenTerritorio = 'region';
+  } else if (provinciaRegion.length > 0) {
+    provinciasNormalizadas = provinciaRegion;
+    ambitoDetectado = 'provincial';
+    origenTerritorio = 'region';
+  } else if (region) {
+    provinciasNormalizadas = [region];
+    ambitoDetectado = 'regional_no_normalizado';
+    origenTerritorio = 'region';
   }
-  return true;
+
+  return {
+    provincias_originales: provinciasOriginales,
+    provincias_normalizadas: dedupe(provinciasNormalizadas),
+    provincias_detectadas_texto: provinciasTexto,
+    provincia_concreta_detectada_texto: provinciasTexto[0] || null,
+    comunidades_detectadas: comunidadesDetectadas,
+    fuente,
+    ambito_detectado: ambitoDetectado,
+    origen_territorio: origenTerritorio,
+  };
 }
 
 function provinciasDerivadasAlerta(alerta = {}) {
-  const provincias = Array.isArray(alerta.provincias)
-    ? alerta.provincias.map(norm).filter(Boolean)
-    : [];
-  if (provincias.some((p) => MARCADORES_NACIONALES.has(p))) return provincias;
-
-  const porFuente = PROVINCIAS_POR_FUENTE[fuenteNormalizada(alerta)] || [];
-  const provinciasTexto = extraerProvinciasDeTextoAlerta(alerta);
-
-  if (provinciasTexto.length > 0) {
-    const provinciasParecenFuente = porFuente.length > 1 && mismasProvincias(provincias, porFuente);
-    const provinciasContradicenTexto = provincias.length > 0 && !intersecta(provincias, provinciasTexto);
-    if (provincias.length === 0 || provinciasParecenFuente || provinciasContradicenTexto) {
-      return provinciasTexto;
-    }
-  }
-
-  if (provincias.length > 0) return provincias;
-
-  if (porFuente.length > 0) return porFuente.map(norm);
-
-  const region = norm(alerta.region || '');
-  return region ? [region] : [];
+  return resolverTerritorioAlerta(alerta).provincias_normalizadas;
 }
 
 function esAlertaNacional(alerta = {}, provinciasNorm = []) {
@@ -432,7 +519,8 @@ function diagnosticarAlertaUsuario(alerta, user, options = {}) {
     .map(([k]) => canonicalTipoAlerta(k))
     .filter(Boolean);
 
-  const provinciasANorm = provinciasDerivadasAlerta(alerta);
+  const territorioAlerta = resolverTerritorioAlerta(alerta);
+  const provinciasANorm = territorioAlerta.provincias_normalizadas;
   const alertaNacional = esAlertaNacional(alerta, provinciasANorm);
   const sectoresANorm = sectoresDerivadosAlerta(alerta);
   const subsectoresANorm = subsectoresDerivadosAlerta(alerta);
@@ -463,6 +551,13 @@ function diagnosticarAlertaUsuario(alerta, user, options = {}) {
         alerta: provinciasANorm,
         alerta_nacional: alertaNacional,
         fuente: alerta.fuente || 'BOE',
+        provincias_originales_alerta: territorioAlerta.provincias_originales,
+        provincias_normalizadas_alerta: territorioAlerta.provincias_normalizadas,
+        provincias_detectadas_texto: territorioAlerta.provincias_detectadas_texto,
+        provincia_concreta_detectada_texto: territorioAlerta.provincia_concreta_detectada_texto,
+        comunidades_detectadas: territorioAlerta.comunidades_detectadas,
+        ambito_detectado: territorioAlerta.ambito_detectado,
+        origen_territorio: territorioAlerta.origen_territorio,
       },
     };
   }
@@ -518,6 +613,7 @@ module.exports = {
   norm,
   obtenerSectorImplicitoUsuario,
   provinciasDerivadasAlerta,
+  resolverTerritorioAlerta,
   sectoresDerivadosAlerta,
   subsectoresDerivadosAlerta,
   taxonomyTagsAlerta,

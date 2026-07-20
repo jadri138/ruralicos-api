@@ -3,6 +3,7 @@ const {
   diagnosticarAlertaUsuario,
   inferirSectoresDesdeSubsectores,
   obtenerSectorImplicitoUsuario,
+  resolverTerritorioAlerta,
 } = require('../src/modules/alertas/seleccion/alertaMatcher');
 
 let passed = 0;
@@ -274,6 +275,87 @@ test('alerta local en provincia declarada sigue pasando', () => {
 
   const result = diagnosticarAlertaUsuario(alerta, userJose);
   assert.strictEqual(result.ok, true);
+});
+
+function userTerritorio(provincia) {
+  return {
+    subscription: 'cooperativa',
+    preferences: {
+      provincias: [provincia],
+      sectores: ['agricultura'],
+      subsectores: [],
+      tipos_alerta: { normativa_general: true },
+    },
+  };
+}
+
+function alertaTerritorio(overrides = {}) {
+  return {
+    fuente: 'BOE',
+    provincias: [],
+    sectores: ['agricultura'],
+    subsectores: [],
+    tipos_alerta: ['normativa_general'],
+    ...overrides,
+  };
+}
+
+test('DOE con Extremadura expande Caceres y Badajoz sin alcanzar Salamanca', () => {
+  const alerta = alertaTerritorio({ fuente: 'DOE', provincias: ['Extremadura'] });
+
+  assert.strictEqual(diagnosticarAlertaUsuario(alerta, userTerritorio('Caceres')).ok, true);
+  assert.strictEqual(diagnosticarAlertaUsuario(alerta, userTerritorio('Badajoz')).ok, true);
+  const fuera = diagnosticarAlertaUsuario(alerta, userTerritorio('Salamanca'));
+  assert.strictEqual(fuera.ok, false);
+  assert.strictEqual(fuera.motivo, 'provincia_no_coincide');
+  assert.deepStrictEqual(fuera.detalle.provincias_originales_alerta, ['Extremadura']);
+  assert.deepStrictEqual(fuera.detalle.provincias_normalizadas_alerta, ['badajoz', 'caceres']);
+  assert.strictEqual(fuera.detalle.ambito_detectado, 'autonomico');
+  assert.strictEqual(fuera.detalle.origen_territorio, 'comunidad_autonoma');
+});
+
+test('DOGC con Catalunya expande sus cuatro provincias y no alcanza Huesca', () => {
+  const alerta = alertaTerritorio({ fuente: 'DOGC', provincias: ['Catalunya'] });
+
+  for (const provincia of ['Barcelona', 'Girona', 'Lleida', 'Tarragona']) {
+    assert.strictEqual(diagnosticarAlertaUsuario(alerta, userTerritorio(provincia)).ok, true);
+  }
+  assert.strictEqual(diagnosticarAlertaUsuario(alerta, userTerritorio('Huesca')).ok, false);
+});
+
+test('BOA con Aragon expande Huesca, Zaragoza y Teruel sin alcanzar Navarra', () => {
+  const alerta = alertaTerritorio({ fuente: 'BOA', provincias: ['Aragon'] });
+
+  for (const provincia of ['Huesca', 'Zaragoza', 'Teruel']) {
+    assert.strictEqual(diagnosticarAlertaUsuario(alerta, userTerritorio(provincia)).ok, true);
+  }
+  assert.strictEqual(diagnosticarAlertaUsuario(alerta, userTerritorio('Navarra')).ok, false);
+});
+
+test('provincia concreta en texto restringe una alerta declarada como Catalunya', () => {
+  const alerta = alertaTerritorio({
+    fuente: 'DOGC',
+    provincias: ['Catalunya'],
+    titulo: 'Actuacion ambiental en el municipio de Girona',
+  });
+
+  assert.strictEqual(diagnosticarAlertaUsuario(alerta, userTerritorio('Girona')).ok, true);
+  const barcelona = diagnosticarAlertaUsuario(alerta, userTerritorio('Barcelona'));
+  assert.strictEqual(barcelona.ok, false);
+  assert.strictEqual(barcelona.detalle.provincia_concreta_detectada_texto, 'girona');
+  assert.strictEqual(barcelona.detalle.origen_territorio, 'texto');
+});
+
+test('provincia concreta en texto restringe una alerta declarada como Comunitat Valenciana', () => {
+  const alerta = alertaTerritorio({
+    fuente: 'DOGV',
+    provincias: ['Comunitat Valenciana'],
+    titulo: 'Actuacion ambiental en el municipio de Castellon',
+  });
+
+  assert.strictEqual(diagnosticarAlertaUsuario(alerta, userTerritorio('Castellon')).ok, true);
+  assert.strictEqual(diagnosticarAlertaUsuario(alerta, userTerritorio('Valencia')).ok, false);
+  assert.deepStrictEqual(resolverTerritorioAlerta(alerta).provincias_normalizadas, ['castellon', 'castello']);
 });
 
 test('subsector singular del usuario coincide con plural de la alerta', () => {
