@@ -320,6 +320,38 @@ function coincidenciasDeclaradas(alerta = {}, user = {}) {
   };
 }
 
+function primeraInterseccion(left = [], right = []) {
+  return left.find((item) => right.includes(item)) || null;
+}
+
+function construirTrazabilidadMatching({ alerta = {}, user = {}, matches = {}, base = {}, verdict = {}, score = 0 } = {}) {
+  const prefs = user.preferences || {};
+  const provinciasUser = lista(prefs.provincias);
+  const provinciasAlerta = provinciasDerivadasAlerta(alerta);
+  const sectoresUser = lista(prefs.sectores, canonicalSector);
+  const sectoresAlerta = sectoresDerivadosAlerta(alerta);
+  const subsectoresUser = lista(prefs.subsectores, canonicalSubsector);
+  const subsectoresAlerta = subsectoresDerivadosAlerta(alerta);
+  const tiposUser = tiposActivosUsuario(user);
+  const tiposAlerta = tiposDerivadosAlerta(alerta);
+  const sectorInferred = obtenerSectorImplicitoUsuario(user).sectores_inferidos;
+
+  return {
+    version: 'matching_trace_v1',
+    territory_match: matches.provincia_nacional
+      ? 'national'
+      : (primeraInterseccion(provinciasUser, provinciasAlerta) || (provinciasUser.length === 0 ? 'open_profile' : null)),
+    sector_match: primeraInterseccion(sectoresUser, sectoresAlerta)
+      || primeraInterseccion(sectorInferred, sectoresAlerta)
+      || (sectoresUser.includes('mixto') && sectoresAlerta.length ? 'mixto' : null),
+    subsector_match: primeraInterseccion(subsectoresUser, subsectoresAlerta),
+    type_match: primeraInterseccion(tiposUser, tiposAlerta),
+    score: Number(score || 0),
+    decision: verdict.action || (base.ok ? 'include' : 'exclude'),
+    reason: verdict.motivo || base.motivo || null,
+  };
+}
+
 function tieneInteresProvincialFuerte({ signals, matches }) {
   if (!signals.es_individual) return false;
   if (signals.es_licitacion || signals.es_nombramiento || signals.generico) return false;
@@ -622,6 +654,14 @@ function evaluarAlertaParaDigest(alerta, user, options = {}) {
   const reviewSafeFill = reviewRequired
     && riesgoRuido.nivel !== 'alto'
     && puedeSerRevisionSegura({ score: scoring.score, calidad, signals, policy });
+  const matchTrace = construirTrazabilidadMatching({
+    alerta,
+    user,
+    matches,
+    base,
+    verdict,
+    score: scoring.score,
+  });
 
   return {
     incluir,
@@ -633,9 +673,11 @@ function evaluarAlertaParaDigest(alerta, user, options = {}) {
     riesgo: verdict.riesgo,
     riesgo_de_ruido: riesgoRuido.nivel,
     score: scoring.score,
+    match_trace: matchTrace,
     detalle: exclusion || base.detalle || null,
     diagnostico: {
       matcher: base.motivo || null,
+      match_trace: matchTrace,
       calidad: {
         score: calidad.score,
         grade: calidad.grade,

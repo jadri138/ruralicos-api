@@ -46,10 +46,26 @@ test('blocked y exclude nunca son enviables automaticamente', () => {
   assert.strictEqual(esEnvioAutomaticoPermitido({ action: 'exclude' }), false);
 });
 
-test('sin decision auditable se permite por compatibilidad (alertas antiguas / rescate suave)', () => {
-  assert.strictEqual(esEnvioAutomaticoPermitido(null), true);
-  assert.strictEqual(esEnvioAutomaticoPermitido({}), true);
-  assert.strictEqual(esEnvioAutomaticoPermitido({ incluir: true }), true);
+test('sin decision auditable se bloquea en cualquier flujo automatico', () => {
+  assert.strictEqual(esEnvioAutomaticoPermitido(null), false);
+  assert.strictEqual(esEnvioAutomaticoPermitido({}), false);
+  assert.strictEqual(esEnvioAutomaticoPermitido({ incluir: true }), false);
+});
+
+test('compatibilidad historica exige alerta anterior al corte y modo legacy/manual explicito', () => {
+  const alertaHistorica = { created_at: '2026-07-20T10:00:00.000Z' };
+  const legacy = {
+    alerta: alertaHistorica,
+    mode: 'legacy_rescue',
+    allowLegacyWithoutDecision: true,
+  };
+  assert.strictEqual(esEnvioAutomaticoPermitido(null, legacy), true);
+  assert.strictEqual(esEnvioAutomaticoPermitido(null, { ...legacy, mode: 'automatic_daily' }), false);
+  assert.strictEqual(esEnvioAutomaticoPermitido(null, { ...legacy, allowLegacyWithoutDecision: false }), false);
+  assert.strictEqual(esEnvioAutomaticoPermitido(null, {
+    ...legacy,
+    alerta: { created_at: '2026-07-22T10:00:00.000Z' },
+  }), false);
 });
 
 test('filtra alertas no enviables y conserva las include', () => {
@@ -60,11 +76,14 @@ test('filtra alertas no enviables y conserva las include', () => {
     { id: 4 },
   ]);
 
-  assert.deepStrictEqual(enviables.map((a) => a.id), [1, 4]);
-  assert.strictEqual(retenidas.length, 2);
+  assert.deepStrictEqual(enviables.map((a) => a.id), [1]);
+  assert.strictEqual(retenidas.length, 3);
   const retenida2 = retenidas.find((r) => r.alerta_id === 2);
   assert.strictEqual(retenida2.action, 'review_only');
   assert.strictEqual(retenida2.motivo, 'relleno_revision_segura');
+  const retenida4 = retenidas.find((r) => r.alerta_id === 4);
+  assert.strictEqual(retenida4.action, null);
+  assert.strictEqual(retenida4.motivo, 'decision_digest_missing');
 });
 
 // Integracion con el motor: el relleno seguro entra al pool con action='review_only'

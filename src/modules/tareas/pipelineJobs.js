@@ -8,6 +8,37 @@ const crypto = require('crypto');
 
 const JOB_STATUS_TERMINAL = new Set(['completed', 'failed', 'aborted']);
 
+function diagnosticarPipelineJob(job = {}, { now = new Date(), staleMs = 5 * 60 * 1000 } = {}) {
+  const heartbeat = job.heartbeat_at ? new Date(job.heartbeat_at) : null;
+  const heartbeatValid = heartbeat && !Number.isNaN(heartbeat.getTime());
+  const stale = job.status === 'running' && (
+    !heartbeatValid || (now.getTime() - heartbeat.getTime()) > staleMs
+  );
+  const flags = [];
+  if (job.status === 'running' && !heartbeatValid) flags.push('heartbeat_missing');
+  if (job.status === 'running' && !job.current_stage) flags.push('current_stage_missing');
+  if (stale) flags.push('pipeline_job_stale');
+  return {
+    job_id: job.id ?? null,
+    stale,
+    recoverable: stale,
+    flags,
+    heartbeat_at: heartbeatValid ? heartbeat.toISOString() : null,
+    current_stage: job.current_stage || null,
+  };
+}
+
+function resumirPipelineJobs(jobs = [], options = {}) {
+  const diagnostics = (jobs || []).map((job) => diagnosticarPipelineJob(job, options));
+  return {
+    total: diagnostics.length,
+    running: (jobs || []).filter((job) => job.status === 'running').length,
+    stale: diagnostics.filter((item) => item.stale).length,
+    missing_current_stage: diagnostics.filter((item) => item.flags.includes('current_stage_missing')).length,
+    diagnostics,
+  };
+}
+
 function nuevoTickId() {
   return crypto.randomBytes(8).toString('hex');
 }
@@ -60,7 +91,7 @@ function crearPipelineJobsStore(supabase) {
         })
         .eq('id', job.id)
         .in('status', ['pending', 'running'])
-        .or(`claimed_by.is.null,heartbeat_at.lt.${cutoff}`)
+        .or(`claimed_by.is.null,heartbeat_at.is.null,heartbeat_at.lt.${cutoff}`)
         .select();
       if (error) throw error;
       return Array.isArray(data) && data.length ? data[0] : null;
@@ -128,5 +159,7 @@ function crearPipelineJobsStore(supabase) {
 module.exports = {
   JOB_STATUS_TERMINAL,
   crearPipelineJobsStore,
+  diagnosticarPipelineJob,
   nuevoTickId,
+  resumirPipelineJobs,
 };

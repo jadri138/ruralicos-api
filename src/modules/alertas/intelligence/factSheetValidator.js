@@ -27,6 +27,10 @@ const FLAG_SEVERITY = {
   notificacion_individual: 55,
   sancion_individual: 55,
   contradiccion_sector_tipo: 45,
+  taxonomy_conflict: 45,
+  unsupported_taxonomy_tag: 18,
+  empty_taxonomy_ready: 55,
+  cross_sector_match: 55,
 };
 
 function textoFactSheet(sheet = {}) {
@@ -35,13 +39,21 @@ function textoFactSheet(sheet = {}) {
     sheet.tema_principal?.valor,
     sheet.resumen_neutro?.valor,
     sheet.accion_requerida?.valor,
+    sheet.accion_codigo?.valor,
     sheet.plazo?.valor,
+    sheet.publication_date?.valor,
+    sheet.effective_date?.valor,
+    sheet.application_deadline?.valor,
+    sheet.allegation_deadline?.valor,
+    sheet.appeal_deadline?.valor,
+    sheet.justification_deadline?.valor,
     sheet.beneficiarios?.valor,
     sheet.importe?.valor,
     ...(sheet.territorio || []).map((item) => item.valor),
     ...(sheet.sectores || []).map((item) => item.valor),
     ...(sheet.subsectores || []).map((item) => item.valor),
     ...(sheet.requisitos || []).map((item) => item.valor),
+    ...(sheet.taxonomy_evidence || []).map((item) => `${item.tag} ${item.evidence}`),
     ...(sheet.evidencias || []).map((item) => item.evidencia),
   ].filter(Boolean).join(' '));
 }
@@ -164,6 +176,9 @@ function estadoDesdeIssues(issues, coverage) {
     flags.has('resumen_generico') ||
     flags.has('territorio_no_verificado') ||
     flags.has('contradiccion_sector_tipo')
+    || flags.has('taxonomy_conflict')
+    || flags.has('empty_taxonomy_ready')
+    || flags.has('cross_sector_match')
   ) {
     return FACT_SHEET_STATUS.BLOCKED;
   }
@@ -236,6 +251,32 @@ function validarFactSheet(input = {}, { alerta = {} } = {}) {
 
   if (hayContradiccionSector(sheet, alerta)) {
     addIssue(issues, 'contradiccion_sector_tipo', 'Hay contradiccion entre texto, sector o tipo documental.');
+  }
+
+  const taxonomyValidation = alerta.taxonomy_validation || {};
+  const topicValidation = taxonomyValidation.topic_validation || {};
+  if (
+    ['blocked', 'incoherent'].includes(taxonomyValidation.status) ||
+    ['blocked', 'incoherent'].includes(topicValidation.status)
+  ) {
+    addIssue(issues, 'taxonomy_conflict', 'La validacion taxonomica detecta una incoherencia no reparada.');
+  }
+
+  for (const tag of sheet.unsupported_taxonomy_tags || []) {
+    addIssue(issues, 'unsupported_taxonomy_tag', `La etiqueta ${tag} no tiene evidencia textual.`);
+  }
+
+  if (
+    alerta.estado_ia === 'listo' &&
+    (alerta.sectores || []).length === 0 &&
+    (alerta.subsectores || []).length === 0 &&
+    (alerta.tipos_alerta || []).length === 0
+  ) {
+    addIssue(issues, 'empty_taxonomy_ready', 'Una alerta lista no puede conservar la taxonomia completamente vacia.');
+  }
+
+  if ((alerta.audience_reach?.flags || []).includes('cross_sector_mass_match')) {
+    addIssue(issues, 'cross_sector_match', 'La alerta alcanza perfiles de un sector incompatible.');
   }
 
   const coverage = calcularCoverage(sheet, alerta);

@@ -84,7 +84,8 @@ test('el fallback no fabrica expediente, solicitud ni plazo', () => {
   assert(!/\bexpediente\b/i.test(accion));
   assert(!/\bsolicitud\b/i.test(accion));
   assert(!/\bplazo publicado\b/i.test(accion));
-  assert.strictEqual(accion, 'ACCION: consultar la publicacion oficial');
+  assert.strictEqual(accion, 'ACCION: no_detectado');
+  assert(ficha.includes('ACCION_CODIGO: no_detectado'));
 });
 
 test('normaliza un resumen_digest generico usando campos concretos de la ficha', () => {

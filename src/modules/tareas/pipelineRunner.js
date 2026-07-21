@@ -32,7 +32,12 @@ const {
   guardarScraperRun,
   guardarPipelineRun,
 } = require('./tareas.helpers');
-const { crearPipelineJobsStore, nuevoTickId, JOB_STATUS_TERMINAL } = require('./pipelineJobs');
+const {
+  crearPipelineJobsStore,
+  nuevoTickId,
+  JOB_STATUS_TERMINAL,
+  resumirPipelineJobs,
+} = require('./pipelineJobs');
 
 const STAGE_PENDING = 'pending';
 const STAGE_COMPLETED = 'completed';
@@ -625,7 +630,11 @@ async function ejecutarPipelineTick(supabase, opcionesTick = {}) {
 
 async function consultarPipelineJobs(supabase, { fecha = null, kind = null, limit = 20 } = {}) {
   const store = crearPipelineJobsStore(supabase);
-  return store.listar({ fecha, kind, limit });
+  const jobs = await store.listar({ fecha, kind, limit });
+  return {
+    jobs,
+    metrics: resumirPipelineJobs(jobs),
+  };
 }
 
 module.exports = {

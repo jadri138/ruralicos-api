@@ -65,6 +65,18 @@ const desconocido = comprobarDecision(
 );
 assert.strictEqual(desconocido.reasonCode, 'insufficient_signals');
 
+const becaNoAgraria = comprobarDecision(
+  'Universidad publica. Convocatoria de beca general no agraria.',
+  'discard'
+);
+assert(!becaNoAgraria.positiveSignals.includes('agrari'));
+
+const convenioNoAgrario = comprobarDecision(
+  'Convenio colectivo no agrario del sector de oficinas.',
+  'discard'
+);
+assert(!convenioNoAgrario.positiveSignals.includes('agrari'));
+
 const falsoPac = comprobarDecision(
   'Resolución sobre ordenación del espacio universitario',
   'review'
@@ -78,4 +90,4 @@ assert(
 );
 assert.strictEqual(filtroConVid('Medidas para el cultivo de la vid').action, 'pass');
 
-console.log('\nResultados ruralRoutePrefilter: 11 casos aprobados');
+console.log('\nResultados ruralRoutePrefilter: 13 casos aprobados');

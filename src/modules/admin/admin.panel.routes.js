@@ -23,6 +23,7 @@ const { generarAnswerAuditMIA } = require('../mia/answerAudit');
 const { cargarPerfilOperativoMIA } = require('../mia/userProfile');
 const { ejecutarEvalsMIA } = require('../mia/evalHarness');
 const { generarReporteCalidadOperativaMIA } = require('../mia/alertQuality');
+const { analizarAlcanceAudiencia } = require('../alertas/seleccion/audienceReach');
 const {
   ingestKnowledgeDocument,
   normalizeBase64,
@@ -74,6 +75,48 @@ const {
 } = require('./admin.helpers');
 
 module.exports = (app, supabase) => {
+
+  app.get('/admin/alertas/:id/preview-audience', requireAdmin, async (req, res) => {
+    try {
+      const alertaId = Number(req.params.id);
+      if (!Number.isInteger(alertaId) || alertaId <= 0) {
+        return res.status(400).json({ error: 'alerta_id_invalido' });
+      }
+      const organizationId = normalizarOrganizationId(req.query.organization_id);
+      let alertQuery = supabase
+        .from('alertas')
+        .select('id, titulo, contenido, resumen, resumen_final, fuente, provincias, sectores, subsectores, tipos_alerta, taxonomy_tags, estado_ia')
+        .eq('id', alertaId);
+      if (organizationId) alertQuery = alertQuery.eq('organization_id', organizationId);
+      const alertResult = await alertQuery.single();
+      if (alertResult.error || !alertResult.data) {
+        return res.status(404).json({ error: 'alerta_no_encontrada' });
+      }
+
+      let usersQuery = supabase
+        .from('users')
+        .select('id, subscription, preferences, preferencias_extra, contexto_narrativo');
+      if (organizationId) usersQuery = usersQuery.eq('organization_id', organizationId);
+      const usersResult = await usersQuery;
+      if (usersResult.error) throw usersResult.error;
+
+      const reach = analizarAlcanceAudiencia(alertResult.data, usersResult.data || []);
+      return res.json({
+        ok: true,
+        alerta: { id: alertResult.data.id, titulo: alertResult.data.titulo },
+        preview: reach,
+        summary: {
+          text: `Esta alerta se enviaria a ${reach.matched_users} de ${reach.eligible_users} usuarios.`,
+          warning: reach.flags.includes('cross_sector_mass_match')
+            ? 'La alerta coincide con perfiles de un sector incompatible.'
+            : null,
+        },
+      });
+    } catch (err) {
+      console.error('Error en /admin/alertas/:id/preview-audience:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  });
 
 
   // ──────────────────────────────────────────────────────────────────

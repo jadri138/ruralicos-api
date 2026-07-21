@@ -4,6 +4,7 @@ const {
   evaluarCalidadScraperRuns,
   evaluarCalidadPipelineRuns,
   construirReporteCalidadOperativa,
+  calcularMetricasCalidadPlan,
 } = require('../src/modules/mia/alertQuality');
 
 let passed = 0;
@@ -253,6 +254,33 @@ const fullReport = construirReporteCalidadOperativa({
 
 assert(fullReport.score < 90, 'Reporte global penaliza problemas de datos');
 assert(fullReport.recommendations.length > 0, 'Reporte global genera recomendaciones');
+
+const planMetrics = calcularMetricasCalidadPlan({
+  cutoff: '2026-07-21T00:00:00.000Z',
+  alertas: [
+    { estado_ia: 'descartado', discard_reason_code: 'noise', discard_reason: 'Ruido', discard_stage: 'quality_gate', discard_confidence: 95 },
+    { estado_ia: 'descartado', discard_reason_code: null },
+    { estado_ia: 'listo', sectores: [], subsectores: [], tipos_alerta: [], created_at: '2026-07-22T00:00:00.000Z' },
+    { estado_ia: 'listo', sectores: ['ganaderia'], tipos_alerta: ['sanidad_animal'], decision_digest: { action: 'include' }, fact_sheet: { unsupported_taxonomy_tags: ['tipo:fiscalidad'] }, audience_reach: { flags: ['cross_sector_mass_match'] } },
+  ],
+  digestItems: [{ sent: true, selection_action: 'review_only' }],
+  candidateDecisions: [
+    { action: 'include', decision_json: { match_trace: { decision: 'include', sector_match: 'agricultura', type_match: 'sanidad_animal' } } },
+    { action: 'blocked', reason: 'decision_digest_missing', decision_json: {} },
+  ],
+  reviews: [
+    { verdict: 'ruido' },
+    { expected_action: 'incluir', decision_json: { action: 'exclude' } },
+  ],
+});
+assert(planMetrics.discard_reason_coverage === 50, 'Mide cobertura de motivos de descarte');
+assert(planMetrics.ready_alerts_without_taxonomy === 1, 'Mide alertas listas sin taxonomia');
+assert(planMetrics.unsupported_taxonomy_tags === 1, 'Mide etiquetas sin evidencia');
+assert(planMetrics.cross_sector_matches === 1, 'Mide matches intersectoriales');
+assert(planMetrics.decision_digest_missing === 1, 'Mide decisiones digest ausentes tras el corte');
+assert(planMetrics.review_only_sent === 1, 'Mide review_only enviados');
+assert(planMetrics.false_positive_confirmed === 1, 'Mide falsos positivos confirmados');
+assert(planMetrics.false_negative_confirmed === 1, 'Mide falsos negativos confirmados');
 
 console.log(`\nResultados: ${passed} aprobados, ${failed} fallidos`);
 process.exit(failed > 0 ? 1 : 0);

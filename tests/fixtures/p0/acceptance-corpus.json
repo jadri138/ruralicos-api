@@ -1,0 +1,403 @@
+{
+  "version": "p0_acceptance_corpus_v2",
+  "official_rural_gate": {
+    "negative_cases": [
+      {
+        "id": "doe_legal_privacy",
+        "fuente": "DOE",
+        "titulo": "Aviso legal y protección de datos del Diario Oficial de Extremadura",
+        "contenido": "Información oficial sobre política de privacidad, tratamiento de datos personales y delegado de protección de datos del Diario Oficial de Extremadura.",
+        "expected_reason_code": "aviso_legal_privacidad_no_rural"
+      },
+      {
+        "id": "dogc_music_award",
+        "fuente": "DOGC",
+        "titulo": "Convocatoria de los Premios de Música de Cataluña",
+        "contenido": "Resolución por la que se convocan premios musicales para composición e interpretación musical, con sus categorías culturales y jurado.",
+        "expected_reason_code": "actividad_cultural_no_rural"
+      },
+      {
+        "id": "dogc_private_school",
+        "fuente": "DOGC",
+        "titulo": "Autorización de apertura de un centro educativo privado",
+        "contenido": "Resolución que autoriza la apertura de un centro educativo privado de titularidad privada para impartir enseñanzas docentes.",
+        "expected_reason_code": "centro_educativo_privado_no_rural"
+      },
+      {
+        "id": "doe_individual_gas",
+        "fuente": "DOE",
+        "titulo": "Autorización administrativa de instalaciones de gas",
+        "contenido": "Anuncio de autorización administrativa individual para instalaciones de gas y una red de distribución de gas promovida por su titular.",
+        "expected_reason_code": "instalacion_gas_individual_no_rural"
+      },
+      {
+        "id": "dogc_industrial_urbanism",
+        "fuente": "DOGC",
+        "titulo": "Modificación puntual del planeamiento para uso industrial y terciario",
+        "contenido": "La modificación puntual de urbanismo reclasifica el sector para uso industrial y terciario y desarrolla un polígono industrial sin afección agraria expresa.",
+        "expected_reason_code": "urbanismo_no_agrario"
+      },
+      {
+        "id": "doe_fertilizer_company",
+        "fuente": "DOE",
+        "titulo": "Autorización ambiental integrada para una empresa de fertilizantes",
+        "contenido": "Resolución de autorización ambiental integrada individual para una empresa sociedad limitada titular de una planta de fertilizantes, sin impacto agrario colectivo expreso.",
+        "expected_reason_code": "autorizacion_ambiental_individual_no_agraria"
+      }
+    ],
+    "agrarian_positive_cases": [
+      {
+        "id": "doe_pac_aid",
+        "fuente": "DOE",
+        "titulo": "Convocatoria de ayudas de la PAC para explotaciones agrarias",
+        "contenido": "Orden por la que se convocan ayudas y subvenciones de la política agraria común destinadas a personas agricultoras y explotaciones agrarias de Extremadura.",
+        "expected_action": "allow"
+      },
+      {
+        "id": "dogc_animal_health_rule",
+        "fuente": "DOGC",
+        "titulo": "Normativa de sanidad animal para explotaciones ganaderas",
+        "contenido": "Decreto que regula las medidas de sanidad animal, bioseguridad y obligaciones aplicables al conjunto de explotaciones ganaderas de Cataluña.",
+        "expected_action": "allow"
+      }
+    ]
+  },
+  "territory": {
+    "autonomous_expansion": {
+      "alert": {
+        "fuente": "DOE",
+        "titulo": "Ayudas agrarias de ámbito autonómico",
+        "contenido": "Convocatoria para todo el territorio de Extremadura.",
+        "provincias": ["Extremadura"]
+      },
+      "expected_contains": ["badajoz", "caceres"],
+      "expected_excludes": ["salamanca"]
+    },
+    "concrete_province": {
+      "alert": {
+        "fuente": "DOGC",
+        "titulo": "Ayudas agrarias para explotaciones de Girona",
+        "contenido": "Convocatoria dirigida específicamente a explotaciones agrarias de Girona.",
+        "provincias": ["Catalunya"]
+      },
+      "expected_contains": ["girona"],
+      "expected_excludes": ["barcelona", "tarragona"]
+    }
+  },
+  "taxonomy": {
+    "incoherent": {
+      "alert": {
+        "sectores": ["agricultura"],
+        "subsectores": ["ovino"],
+        "tipos_alerta": ["normativa"]
+      },
+      "expected_reason": "alerta_taxonomia_incoherente"
+    }
+  },
+  "bopa": {
+    "without_evidence": {
+      "estado_ia": "needs_evidence",
+      "texto": "No se ha podido obtener la disposición solicitada. Inténtelo más tarde o vuelva a realizar la búsqueda",
+      "expected_valid": false,
+      "expected_reason": "portal_error"
+    },
+    "recovered": {
+      "estado_ia_before": "needs_evidence",
+      "estado_ia_after": "pendiente_clasificar",
+      "texto": "Resolución de la Consejería del Principado de Asturias por la que se aprueba la convocatoria oficial de ayudas para inversiones en explotaciones agrarias. Podrán ser beneficiarias las personas agricultoras que cumplan los requisitos establecidos. La solicitud se presentará dentro del plazo indicado en la disposición oficial y deberá identificar la explotación.",
+      "expected_valid": true
+    }
+  },
+  "discards": {
+    "structured_legacy": {
+      "id": 9001,
+      "estado_ia": "descartado",
+      "resumen": "NO IMPORTA",
+      "discard_reason_code": "legacy_unstructured_discard",
+      "discard_reason": "Descarte historico cuyo motivo original no puede deducirse de los datos conservados.",
+      "discard_stage": "legacy_unknown",
+      "discard_confidence": 0,
+      "decision_audit": {
+        "version": "alert_decision_audit_v2",
+        "discard": {
+          "code": "legacy_unstructured_discard",
+          "reason": "Descarte historico cuyo motivo original no puede deducirse de los datos conservados.",
+          "stage": "legacy_unknown",
+          "confidence": 0
+        }
+      }
+    },
+    "incomplete_legacy": {
+      "id": 9002,
+      "estado_ia": "descartado",
+      "resumen": "NO IMPORTA",
+      "discard_reason_code": null,
+      "discard_reason": null,
+      "discard_stage": null,
+      "discard_confidence": null,
+      "decision_audit": null,
+      "expected_repair_code": "legacy_unstructured_discard"
+    }
+  },
+  "retained_states": [
+    {
+      "id": "manual_review",
+      "alert": {
+        "fuente": "DOE",
+        "titulo": "Información pública de una actuación administrativa",
+        "contenido": "Anuncio oficial que abre un periodo de información pública sobre una actuación administrativa general, sin identificación material suficiente en el título ni en el contenido disponible para decidir su alcance."
+      },
+      "expected_state": "pendiente_revision_manual",
+      "forbidden_state": "listo"
+    },
+    {
+      "id": "missing_evidence",
+      "alert": {
+        "fuente": "DOGC",
+        "titulo": "Anuncio breve",
+        "contenido": "Anuncio breve"
+      },
+      "expected_state": "needs_evidence",
+      "forbidden_state": "listo"
+    }
+  ],
+  "revised_plan": {
+    "route_prefilter": [
+      {
+        "id": "municipal_forestry",
+        "text": "Ayuntamiento de X. Aprobacion inicial del instrumento de gestion forestal.",
+        "allowed_actions": ["pass", "review"]
+      },
+      {
+        "id": "livestock_grant",
+        "text": "Diputacion provincial. Convocatoria de subvencion para explotaciones ganaderas.",
+        "allowed_actions": ["pass", "review"]
+      },
+      {
+        "id": "public_employment",
+        "text": "Ayuntamiento de X. Proceso selectivo para auxiliar administrativo.",
+        "allowed_actions": ["discard"]
+      },
+      {
+        "id": "applied_agricultural_research",
+        "text": "Universidad publica. Proyecto de investigacion agraria aplicada.",
+        "allowed_actions": ["pass", "review"]
+      },
+      {
+        "id": "general_scholarship",
+        "text": "Universidad publica. Convocatoria de beca general no agraria.",
+        "allowed_actions": ["discard"]
+      }
+    ],
+    "empty_taxonomy": {
+      "alert": {
+        "titulo": "Documento rural sin clasificacion verificada",
+        "contenido": "Documento pendiente de clasificacion.",
+        "sectores": [],
+        "subsectores": [],
+        "tipos_alerta": []
+      },
+      "expected_action": "review",
+      "expected_reason": "alert_without_verified_sector"
+    },
+    "antibiotics": {
+      "alert": {
+        "id": 15110,
+        "fuente": "BOE",
+        "provincias": ["nacional"],
+        "region": "Nacional",
+        "titulo": "Indicadores nacionales de consumo de antibioticos veterinarios",
+        "contenido": "Se publican indicadores nacionales de consumo de antibioticos veterinarios aplicables a explotaciones ganaderas y especies de interes ganadero."
+      },
+      "classification": {
+        "es_relevante": true,
+        "sectores": ["ganaderia", "agricultura", "mixto"],
+        "subsectores": ["porcino", "vacuno", "ovino", "caprino", "avicultura", "cunicultura", "equinocultura", "frutales", "vinedo", "olivar", "trigo", "hortalizas", "almendro", "patata", "agua"],
+        "tipos_alerta": ["sanidad_animal", "normativa_general", "fiscalidad"]
+      },
+      "expected_taxonomy": {
+        "sectores": ["ganaderia"],
+        "subsectores": ["porcino", "vacuno", "ovino", "caprino", "avicultura", "cunicultura", "equinocultura"],
+        "tipos_alerta": ["sanidad_animal", "normativa_general"],
+        "forbidden": ["agricultura", "mixto", "frutales", "vinedo", "olivar", "trigo", "hortalizas", "almendro", "patata", "agua", "fiscalidad"]
+      },
+      "profiles": [
+        { "id": "livestock", "sectores": ["ganaderia"], "subsectores": ["porcino"], "expected_match": true },
+        { "id": "mixed", "sectores": ["mixto"], "subsectores": ["ovino", "trigo"], "expected_match": true },
+        { "id": "agriculture", "sectores": ["agricultura"], "subsectores": ["trigo"], "expected_match": false },
+        { "id": "without_sector", "sectores": [], "subsectores": [], "expected_match": false }
+      ]
+    },
+    "decision_digest": {
+      "include": { "decision": { "action": "include" }, "expected_allowed": true },
+      "review_only": { "decision": { "action": "review_only" }, "expected_allowed": false },
+      "blocked": { "decision": { "action": "blocked" }, "expected_allowed": false },
+      "missing_new": { "decision": null, "expected_allowed": false },
+      "missing_legacy": {
+        "decision": null,
+        "options": {
+          "allowLegacyWithoutDecision": true,
+          "mode": "legacy_rescue",
+          "alerta": { "created_at": "2026-07-20T00:00:00.000Z" }
+        },
+        "expected_allowed": true
+      }
+    }
+  },
+  "inventory_fixture": {
+    "database_role": {
+      "name": "fixture_p0_read_only",
+      "transaction_read_only": true,
+      "can_select_alertas": true,
+      "can_select_raw_documents": true,
+      "has_write_privileges": false
+    },
+    "schema": {
+      "tables": ["alertas", "raw_documents"],
+      "columns": {
+        "alertas": [
+          "id", "titulo", "contenido", "resumen", "fecha", "fuente", "region",
+          "provincias", "sectores", "subsectores", "tipos_alerta", "taxonomy_tags",
+          "estado_ia", "resumen_borrador", "resumen_final", "pre_score", "pre_status",
+          "pre_reasons", "candidate_level", "discard_reason_code", "discard_reason", "discard_stage",
+          "discard_confidence", "decision_audit"
+        ],
+        "raw_documents": [
+          "id", "fuente", "inserted_alerta_id", "fecha", "url", "url_html", "url_pdf",
+          "texto_raw", "metadata_json", "organismo", "seccion", "boletin", "id_oficial",
+          "updated_at"
+        ]
+      },
+      "migrations": [
+        "20260617120000", "20260618120000", "20260625123000",
+        "20260719021749", "20260720120000"
+      ],
+      "constraint": {
+        "name": "alertas_structured_discard_check",
+        "exists": true,
+        "validated": false
+      }
+    },
+    "alertas": [
+      {
+        "id": 1,
+        "fuente": "DOGC",
+        "estado_ia": "listo",
+        "resumen": "Ficha agraria lista",
+        "discard_reason_code": null,
+        "discard_reason": null,
+        "discard_stage": null,
+        "discard_confidence": null,
+        "decision_audit": null
+      },
+      {
+        "id": 2,
+        "fuente": "DOE",
+        "estado_ia": "pendiente_revision_manual",
+        "resumen": "REVISION RURAL REQUERIDA",
+        "discard_reason_code": null,
+        "discard_reason": null,
+        "discard_stage": null,
+        "discard_confidence": null,
+        "decision_audit": null
+      },
+      {
+        "id": 3,
+        "fuente": "BOPA",
+        "estado_ia": "needs_evidence",
+        "resumen": "SIN EVIDENCIA OFICIAL",
+        "discard_reason_code": null,
+        "discard_reason": null,
+        "discard_stage": null,
+        "discard_confidence": null,
+        "decision_audit": null
+      },
+      {
+        "id": 4,
+        "fuente": "DOE",
+        "estado_ia": "descartado",
+        "resumen": "NO IMPORTA",
+        "discard_reason_code": "legacy_unstructured_discard",
+        "discard_reason": "Descarte historico cuyo motivo original no puede deducirse de los datos conservados.",
+        "discard_stage": "legacy_unknown",
+        "discard_confidence": 0,
+        "decision_audit": {
+          "discard": {
+            "code": "legacy_unstructured_discard",
+            "reason": "Descarte historico cuyo motivo original no puede deducirse de los datos conservados.",
+            "stage": "legacy_unknown",
+            "confidence": 0
+          }
+        }
+      },
+      {
+        "id": 5,
+        "fuente": "DOGC",
+        "estado_ia": "descartado",
+        "resumen": "NO IMPORTA",
+        "discard_reason_code": null,
+        "discard_reason": null,
+        "discard_stage": null,
+        "discard_confidence": null,
+        "decision_audit": null
+      },
+      {
+        "id": 6,
+        "fuente": "BOPA",
+        "estado_ia": "pendiente_clasificar",
+        "resumen": "Procesando con IA...",
+        "discard_reason_code": null,
+        "discard_reason": null,
+        "discard_stage": null,
+        "discard_confidence": null,
+        "decision_audit": null
+      }
+    ],
+    "raw_documents": [
+      {
+        "id": 101,
+        "fuente": "DOGC",
+        "inserted_alerta_id": 1,
+        "texto_raw": "Texto oficial agrario",
+        "metadata_json": { "tipo_documento": "Resolución" },
+        "organismo": "Departamento competente",
+        "seccion": "Disposiciones",
+        "boletin": "DOGC",
+        "id_oficial": "DOGC-1"
+      },
+      {
+        "id": 102,
+        "fuente": "DOE",
+        "inserted_alerta_id": 2,
+        "texto_raw": "Texto oficial ambiguo",
+        "metadata_json": {},
+        "organismo": "Consejería",
+        "seccion": "Anuncios",
+        "boletin": "DOE",
+        "id_oficial": "DOE-2"
+      },
+      {
+        "id": 103,
+        "fuente": "BOPA",
+        "inserted_alerta_id": 3,
+        "texto_raw": "",
+        "metadata_json": { "evidence": { "status": "missing" } },
+        "organismo": null,
+        "seccion": null,
+        "boletin": "BOPA",
+        "id_oficial": "BOPA-3"
+      },
+      {
+        "id": 104,
+        "fuente": "BOPA",
+        "inserted_alerta_id": 6,
+        "texto_raw": "Resolución oficial recuperada con evidencia documental suficiente",
+        "metadata_json": { "evidence": { "status": "recovered" } },
+        "organismo": "Principado de Asturias",
+        "seccion": "Resoluciones",
+        "boletin": "BOPA",
+        "id_oficial": "BOPA-6"
+      }
+    ]
+  }
+}

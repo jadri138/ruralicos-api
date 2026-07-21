@@ -72,6 +72,16 @@ test('incluye alertas accionables con score explicable', () => {
   assert.strictEqual(decision.incluir, true);
   assert(decision.score >= 80);
   assert(decision.diagnostico.ranking.reasons.some((reason) => reason.code === 'accion_con_plazo'));
+  assert.deepStrictEqual(decision.match_trace, {
+    version: 'matching_trace_v1',
+    territory_match: 'teruel',
+    sector_match: 'agricultura',
+    subsector_match: 'agua',
+    type_match: 'ayudas_subvenciones',
+    score: decision.score,
+    decision: 'include',
+    reason: decision.motivo,
+  });
 });
 
 test('taxonomia vacia es bloqueo duro antes del scoring y no admite rescate', () => {
@@ -381,7 +391,7 @@ test('premia obligaciones operativas de bioseguridad frente a informacion generi
   assert(decision.diagnostico.ranking.reasons.some((reason) => reason.code === 'obligacion_operativa'));
 });
 
-test('deriva sanidad animal desde bioseguridad aunque falte tipos_alerta', () => {
+test('bioseguridad especializada sin tipos_alerta queda bloqueada antes del scoring', () => {
   const ganadero = {
     ...user,
     preferences: {
@@ -408,9 +418,11 @@ test('deriva sanidad animal desde bioseguridad aunque falte tipos_alerta', () =>
     taxonomy_tags: ['sector:ganaderia', 'subsector:bioseguridad', 'concepto:bioseguridad'],
   }), ganadero);
 
-  assert.strictEqual(decision.action, 'include');
-  assert.strictEqual(decision.diagnostico.policy.matches.tipo, true);
-  assert.strictEqual(decision.diagnostico.policy.riesgo_de_ruido.reasons.some((reason) => reason.code === 'tipo_alerta_vacio'), false);
+  assert.strictEqual(decision.action, 'exclude');
+  assert.strictEqual(decision.incluir, false);
+  assert.strictEqual(decision.motivo, 'alerta_especializada_sin_tipo');
+  assert.strictEqual(decision.diagnostico.matcher, 'alerta_especializada_sin_tipo');
+  assert.strictEqual(decision.score, 0);
 });
 
 test('rebaja resoluciones ex post aunque coincidan por tema de ayuda', () => {

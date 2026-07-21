@@ -18,7 +18,10 @@ process.env.PIPELINE_SCRAPE_PATHS = '/scrape-test-oficial';
 
 const assert = require('assert');
 const { ejecutarPipelineTick, crearEjecutorHttp, verificarBaseUrlInterna } = require('../src/modules/tareas/pipelineRunner');
-const { crearPipelineJobsStore } = require('../src/modules/tareas/pipelineJobs');
+const {
+  crearPipelineJobsStore,
+  diagnosticarPipelineJob,
+} = require('../src/modules/tareas/pipelineJobs');
 
 let passed = 0;
 let failed = 0;
@@ -625,6 +628,25 @@ async function main() {
     }
     const update = supabase.calls.find((c) => c.method === 'update');
     assert(update.args[0].claimed_by === 'abc' && update.args[0].heartbeat_at, 'toma el claim y sella heartbeat');
+    const orFilter = supabase.calls.find((c) => c.method === 'or');
+    assert(
+      orFilter.args[0].includes('heartbeat_at.is.null'),
+      'un job legacy sin heartbeat tambien puede recuperarse'
+    );
+  });
+
+  await test('diagnostica el residual running sin current_stage ni heartbeat como stale recuperable', async () => {
+    const diagnostic = diagnosticarPipelineJob({
+      id: 77,
+      status: 'running',
+      current_stage: null,
+      heartbeat_at: null,
+      claimed_by: 'tick-antiguo',
+    }, { now: new Date('2026-07-21T10:00:00.000Z'), staleMs: 5 * 60 * 1000 });
+    assert.strictEqual(diagnostic.stale, true);
+    assert.strictEqual(diagnostic.recoverable, true);
+    assert(diagnostic.flags.includes('current_stage_missing'));
+    assert(diagnostic.flags.includes('heartbeat_missing'));
   });
 
   await test('store.reclamar devuelve null cuando otro tick lo tiene (0 filas)', async () => {

@@ -533,12 +533,17 @@ module.exports = function tareasRoutes(app, supabase) {
     if (!checkCronToken(req, res)) return;
 
     try {
-      const jobs = await consultarPipelineJobs(supabase, {
+        const pipelineJobs = await consultarPipelineJobs(supabase, {
         fecha: /^\d{4}-\d{2}-\d{2}$/.test(req.query.fecha || '') ? req.query.fecha : null,
         kind: req.query.kind ? String(req.query.kind).trim() : null,
         limit: Math.max(1, Math.min(100, Number(req.query.limit || 20))),
       });
-      return res.json({ ok: true, total: jobs.length, jobs });
+        return res.json({
+          ok: true,
+          total: pipelineJobs.jobs.length,
+          jobs: pipelineJobs.jobs,
+          metrics: pipelineJobs.metrics,
+        });
     } catch (err) {
       console.error('Error en /tareas/pipeline-jobs', err);
       return res.status(500).json({ ok: false, error: err.message });

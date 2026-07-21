@@ -1,5 +1,10 @@
 # Hoja de ruta canónica de saneamiento P0
 
+> Nota de vigencia (21 de julio de 2026): este documento conserva la línea base
+> histórica previa. La numeración y los criterios de aceptación vigentes son los
+> del plan técnico revisado, trazados en `p0-acceptance-matrix.md` y en
+> `revised-technical-plan-implementation.md`.
+
 ## Propósito y corte de la revisión
 
 Este documento fija la numeración y el alcance canónicos del saneamiento P0 de
@@ -246,6 +251,12 @@ en orden, porque P0.7 consume el inventario y los criterios de P0.6, y P0.8 debe
 estar operativo antes de exponer el nuevo flujo a datos reales.
 
 ### P0.6 — Gate integral de aceptación y línea base
+
+**Estado de implementación:** implementado en el repositorio mediante
+`npm run p0:acceptance`, el corpus versionado, la matriz de garantías y el
+runbook `docs/p0-acceptance-runbook.md`. Su aceptación por entorno exige ejecutar
+el gate sobre el SHA candidato y, para staging, usar un rol PostgreSQL de solo
+lectura. P0.7 y P0.8 permanecen sin iniciar.
 
 **Objetivo:** convertir las garantías dispersas de P0.1 a P0.5 en un único gate
 reproducible sobre el SHA exacto que vaya a desplegarse.

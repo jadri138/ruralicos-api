@@ -810,6 +810,9 @@ module.exports = function digestRoutes(app, supabase) {
         }
         alertasFinales = alertasEnviables;
         const enviablesIds = new Set(alertasEnviables.map((alerta) => String(alerta.id)));
+        const retenidasPorId = new Map(
+          alertasRetenidasReview.map((item) => [String(item.alerta_id), item])
+        );
         await registrarDigestCandidateDecisions(supabase, {
           userId: user.id,
           organizationId,
@@ -819,10 +822,12 @@ module.exports = function digestRoutes(app, supabase) {
           digestAttemptId,
           decisions: candidatasAutoSend.map((alerta) => ({
             id: alerta.id,
-            action: enviablesIds.has(String(alerta.id)) ? 'include' : 'review_only',
+            action: enviablesIds.has(String(alerta.id))
+              ? 'include'
+              : (retenidasPorId.get(String(alerta.id))?.action || 'blocked'),
             motivo: enviablesIds.has(String(alerta.id))
               ? 'automatic_send_allowed'
-              : 'automatic_send_retained',
+              : (retenidasPorId.get(String(alerta.id))?.motivo || 'automatic_send_retained'),
             selection_decision: alerta.decision_digest || null,
           })),
         });

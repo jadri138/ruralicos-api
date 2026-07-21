@@ -14,6 +14,11 @@ const CRITICAL_ALERT_FLAGS = new Set([
   'personal_investigador_beca',
   'resumen_boilerplate_portal',
   'fact_sheet_blocked',
+  'taxonomy_conflict',
+  'empty_taxonomy_ready',
+  'cross_sector_match',
+  'decision_digest_missing',
+  'review_only_sent',
 ]);
 
 const FUENTES_SCRAPER_ESPERADAS = [
@@ -149,6 +154,7 @@ function extraerFactSheetCalidad(alerta = {}) {
     truth_score: truthScore,
     risk_score: riskScore,
     evidence_coverage: evidenceCoverage,
+    flags: parseArray(factSheet?.flags || factSheet?.fact_sheet?.flags),
   };
 }
 
@@ -558,6 +564,42 @@ function evaluarCalidadAlerta(alerta = {}, { now = new Date(), staleHours = 24 }
 
   if (!tiposAlerta.length && estado !== 'descartado') {
     penalty += restar(issues, 'sin_tipo_alerta', 8, 'No hay tipo de alerta normalizado.');
+  }
+
+  const taxonomyValidation = alerta.taxonomy_validation || {};
+  const topicValidation = taxonomyValidation.topic_validation || {};
+  if (
+    ['blocked', 'incoherent'].includes(taxonomyValidation.status) ||
+    ['blocked', 'incoherent'].includes(topicValidation.status)
+  ) {
+    penalty += restar(issues, 'taxonomy_conflict', 55, 'La taxonomia conserva una incoherencia sin reparar.');
+    recommendations.push('Retener la alerta y revisar su taxonomia antes del matching.');
+  }
+
+  if (estado === 'listo' && !sectores.length && !subsectores.length && !tiposAlerta.length) {
+    penalty += restar(issues, 'empty_taxonomy_ready', 60, 'La alerta esta lista con taxonomia completamente vacia.');
+    recommendations.push('Devolverla a revision; nunca tratar la taxonomia vacia como comodin.');
+  }
+
+  if (factSheet.flags.includes('unsupported_taxonomy_tag')) {
+    penalty += restar(issues, 'unsupported_taxonomy_tag', 18, 'La ficha detecta etiquetas taxonomicas sin evidencia.');
+    recommendations.push('Eliminar las etiquetas no respaldadas o pasar la alerta a revision.');
+  }
+
+  if ((alerta.audience_reach?.flags || []).includes('cross_sector_mass_match')) {
+    penalty += restar(issues, 'cross_sector_match', 60, 'La audiencia incluye perfiles de un sector incompatible.');
+    recommendations.push('Bloquear el envio y revisar barreras sectoriales y taxonomia.');
+  }
+
+  if (alerta.require_decision_digest === true && !alerta.decision_digest?.action) {
+    penalty += restar(issues, 'decision_digest_missing', 60, 'Falta una decision_digest auditable en una candidata de envio.');
+  }
+
+  if (
+    (alerta.whatsapp_enviado === true || alerta.sent === true) &&
+    alerta.decision_digest?.action === 'review_only'
+  ) {
+    penalty += restar(issues, 'review_only_sent', 70, 'Una alerta review_only figura como enviada.');
   }
 
   if (estado !== 'listo' && estado !== 'descartado') {
@@ -1072,6 +1114,88 @@ function evaluarCalidadPipelineRuns(runs = [], { now = new Date(), runningStaleM
   };
 }
 
+function calcularMetricasCalidadPlan({
+  alertas = [],
+  digestItems = [],
+  candidateDecisions = [],
+  reviews = [],
+  cutoff = null,
+} = {}) {
+  const cutoffDate = cutoff ? new Date(cutoff) : null;
+  const discarded = alertas.filter((alerta) => alerta.estado_ia === 'descartado');
+  const structuredDiscards = discarded.filter((alerta) =>
+    Boolean(alerta.discard_reason_code && alerta.discard_reason && alerta.discard_stage) &&
+    Number.isFinite(Number(alerta.discard_confidence))
+  );
+  const readyWithoutTaxonomy = alertas.filter((alerta) =>
+    alerta.estado_ia === 'listo' &&
+    parseArray(alerta.sectores).length === 0 &&
+    parseArray(alerta.subsectores).length === 0 &&
+    parseArray(alerta.tipos_alerta).length === 0
+  ).length;
+  const unsupportedTaxonomyTags = alertas.reduce((sum, alerta) => {
+    const sheet = alerta.fact_sheet || alerta.fact_sheet_json || {};
+    return sum + parseArray(sheet.unsupported_taxonomy_tags).length;
+  }, 0);
+  const crossSectorMatchesFromPreview = alertas.filter((alerta) =>
+    (alerta.audience_reach?.flags || []).includes('cross_sector_mass_match')
+  ).length;
+  const crossSectorMatchesFromDecisions = candidateDecisions.filter((decision) => {
+    const audit = decision.decision_json || {};
+    const trace = audit.match_trace || audit.diagnostico?.match_trace || {};
+    const included = decision.action === 'include' || trace.decision === 'include';
+    if (!included) return false;
+    if ((audit.flags || []).includes('cross_sector_match')) return true;
+    return (trace.type_match === 'sanidad_animal' && trace.sector_match === 'agricultura') ||
+      (trace.type_match === 'sanidad_vegetal' && trace.sector_match === 'ganaderia');
+  }).length;
+  const crossSectorMatches = crossSectorMatchesFromDecisions || crossSectorMatchesFromPreview;
+  const missingDecisionFromAlerts = alertas.filter((alerta) => {
+    if (alerta.estado_ia !== 'listo' || alerta.decision_digest?.action) return false;
+    if (!cutoffDate || Number.isNaN(cutoffDate.getTime())) return true;
+    const created = new Date(alerta.created_at || 0);
+    return !Number.isNaN(created.getTime()) && created >= cutoffDate;
+  }).length;
+  const missingDecisionFromGate = candidateDecisions.filter((decision) =>
+    decision.reason === 'decision_digest_missing' ||
+    decision.decision_json?.motivo === 'decision_digest_missing'
+  ).length;
+  const missingDecision = candidateDecisions.length > 0
+    ? missingDecisionFromGate
+    : missingDecisionFromAlerts;
+  const reviewOnlySent = digestItems.filter((item) =>
+    item.sent === true &&
+    (item.selection_action === 'review_only' || item.selection_decision?.action === 'review_only')
+  ).length;
+  const falsePositiveConfirmed = reviews.filter((review) =>
+    review.verdict === 'ruido' || review.feedback_category === 'false_positive_confirmed'
+  ).length;
+  const falseNegativeConfirmed = reviews.filter((review) =>
+    review.feedback_category === 'false_negative_confirmed' ||
+    (review.expected_action === 'incluir' && ['exclude', 'blocked'].includes(review.decision_json?.action))
+  ).length;
+  const discardReasonCoverage = discarded.length
+    ? porcentaje(structuredDiscards.length, discarded.length)
+    : 100;
+
+  return {
+    discard_reason_coverage: discardReasonCoverage,
+    ready_alerts_without_taxonomy: readyWithoutTaxonomy,
+    unsupported_taxonomy_tags: unsupportedTaxonomyTags,
+    cross_sector_matches: crossSectorMatches,
+    decision_digest_missing: missingDecision,
+    review_only_sent: reviewOnlySent,
+    false_positive_confirmed: falsePositiveConfirmed,
+    false_negative_confirmed: falseNegativeConfirmed,
+    objectives: {
+      discard_reason_coverage: discardReasonCoverage === 100,
+      ready_alerts_without_taxonomy: readyWithoutTaxonomy === 0,
+      review_only_sent: reviewOnlySent === 0,
+      decision_digest_missing: missingDecision === 0,
+    },
+  };
+}
+
 function construirReporteCalidadOperativa({
   generatedAt = new Date().toISOString(),
   since = null,
@@ -1081,6 +1205,10 @@ function construirReporteCalidadOperativa({
   pipelineRuns = [],
   expectedSources = [],
   availability = {},
+  digestItems = [],
+  candidateDecisions = [],
+  reviews = [],
+  decisionDigestCutoff = null,
 } = {}) {
   const alertQuality = resumirCalidadAlertas(alertas);
   const scraperQuality = evaluarCalidadScraperRuns(scraperRuns, { expectedSources });
@@ -1128,6 +1256,13 @@ function construirReporteCalidadOperativa({
     alertas: alertQuality,
     scrapers: scraperQuality,
     pipeline: pipelineQuality,
+    plan_metrics: calcularMetricasCalidadPlan({
+      alertas,
+      digestItems,
+      candidateDecisions,
+      reviews,
+      cutoff: decisionDigestCutoff,
+    }),
     recommendations,
   };
 }
@@ -1138,6 +1273,7 @@ async function selectSeguro(supabase, table, select, {
   orderColumn = 'created_at',
   limit = 1000,
   fecha = null,
+  fechaColumn = null,
 } = {}) {
   let query = supabase
     .from(table)
@@ -1145,7 +1281,7 @@ async function selectSeguro(supabase, table, select, {
     .order(orderColumn, { ascending: false })
     .limit(limit);
 
-  if (fecha && table === 'alertas') query = query.eq('fecha', fecha);
+  if (fecha && (fechaColumn || table === 'alertas')) query = query.eq(fechaColumn || 'fecha', fecha);
   else if (since) query = query.gte(timeColumn, since);
 
   const { data, error } = await query;
@@ -1163,11 +1299,11 @@ async function generarReporteCalidadOperativaMIA(supabase, {
   const since = new Date(Date.now() - safeDays * 24 * 60 * 60 * 1000).toISOString();
   const until = new Date().toISOString();
 
-  const [alertas, scraperRuns, pipelineRuns] = await Promise.all([
+  const [alertas, scraperRuns, pipelineRuns, factSheets, candidateDecisions, digestItems, reviews] = await Promise.all([
     selectSeguro(
       supabase,
       'alertas',
-      'id, titulo, resumen, resumenfree, resumen_borrador, resumen_final, url, fecha, region, created_at, contenido, provincias, sectores, subsectores, tipos_alerta, fuente, estado_ia, duplicado_de, embedding_generated_at',
+      'id, titulo, resumen, resumenfree, resumen_borrador, resumen_final, url, fecha, region, created_at, contenido, provincias, sectores, subsectores, tipos_alerta, fuente, estado_ia, duplicado_de, embedding_generated_at, discard_reason_code, discard_reason, discard_stage, discard_confidence',
       { since, fecha, limit: safeLimit }
     ),
     selectSeguro(
@@ -1182,20 +1318,67 @@ async function generarReporteCalidadOperativaMIA(supabase, {
       'id, stage, endpoint, fecha_objetivo, started_at, finished_at, duration_ms, status, loops, procesadas, errores, error_msg',
       { since, timeColumn: 'started_at', orderColumn: 'started_at', limit: safeLimit }
     ),
+    selectSeguro(
+      supabase,
+      'alert_fact_sheets',
+      'alerta_id, fact_sheet, flags, generated_at',
+      { since, timeColumn: 'generated_at', orderColumn: 'generated_at', limit: safeLimit }
+    ),
+    selectSeguro(
+      supabase,
+      'digest_candidate_decisions',
+      'alerta_id, user_id, fecha, stage, action, reason, decision_json, digest_id, created_at',
+      { since, fecha, fechaColumn: 'fecha', limit: safeLimit }
+    ),
+    selectSeguro(
+      supabase,
+      'digest_items',
+      'alerta_id, selection_action, selection_decision, created_at, digests(enviado)',
+      { since, limit: safeLimit }
+    ),
+    selectSeguro(
+      supabase,
+      'mia_alert_reviews',
+      'alerta_id, verdict, expected_action, expert_verdict, decision_json, reviewed_at',
+      { since, timeColumn: 'reviewed_at', orderColumn: 'reviewed_at', limit: safeLimit }
+    ),
   ]);
+
+  const factSheetByAlert = new Map();
+  for (const row of factSheets.data) {
+    if (!factSheetByAlert.has(String(row.alerta_id))) {
+      factSheetByAlert.set(String(row.alerta_id), row.fact_sheet || { flags: row.flags || [] });
+    }
+  }
+  const alertasConFactSheet = alertas.data.map((alerta) => ({
+    ...alerta,
+    fact_sheet: factSheetByAlert.get(String(alerta.id)) || null,
+  }));
+  const digestItemsConEstado = digestItems.data.map((item) => ({
+    ...item,
+    sent: item.digests?.enviado === true || item.digests?.[0]?.enviado === true,
+  }));
 
   return construirReporteCalidadOperativa({
     generatedAt: until,
     since: fecha ? null : since,
     until,
-    alertas: alertas.data,
+    alertas: alertasConFactSheet,
     scraperRuns: scraperRuns.data,
     pipelineRuns: pipelineRuns.data,
+    digestItems: digestItemsConEstado,
+    candidateDecisions: candidateDecisions.data,
+    reviews: reviews.data,
+    decisionDigestCutoff: process.env.DIGEST_DECISION_REQUIRED_FROM || '2026-07-21T00:00:00+02:00',
     expectedSources: FUENTES_SCRAPER_ESPERADAS,
     availability: {
       alertas: alertas.available,
       scraper_runs: scraperRuns.available,
       pipeline_runs: pipelineRuns.available,
+      alert_fact_sheets: factSheets.available,
+      digest_candidate_decisions: candidateDecisions.available,
+      digest_items: digestItems.available,
+      mia_alert_reviews: reviews.available,
     },
   });
 }
@@ -1205,6 +1388,7 @@ module.exports = {
   resumirCalidadAlertas,
   evaluarCalidadScraperRuns,
   evaluarCalidadPipelineRuns,
+  calcularMetricasCalidadPlan,
   construirReporteCalidadOperativa,
   generarReporteCalidadOperativaMIA,
   calidadPorScoreOperativo,

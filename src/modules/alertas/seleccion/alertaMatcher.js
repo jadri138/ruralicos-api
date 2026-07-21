@@ -6,12 +6,19 @@ const {
   canonicalTipoAlerta,
 } = require('../../../shared/preferenceCanonical');
 const {
+  SUBSECTORES_AGRICULTURA,
+  SUBSECTORES_GANADERIA,
+  analizarCoherenciaTematica,
   clasificarAmbitoSectorialAlerta,
   diagnosticarCoherenciaTaxonomicaAlerta,
+  esAlertaSanidadAnimal,
+  esAlertaSanidadVegetal,
   inferirSectoresDesdeSubsectores,
+  repararClasificacionTematicaSegura,
   sectoresDerivadosAlerta,
   subsectoresDerivadosAlerta,
   taxonomyTagsAlerta,
+  textoDocumentalAlerta,
 } = require('../../../shared/sectorTaxonomy');
 
 function norm(str) {
@@ -29,6 +36,13 @@ const TIPOS_ALERTA_POR_FEATURE = {
   formacion: ['concepto:formacion'],
   licitaciones: ['tramite:licitacion'],
   sanidad_animal: ['concepto:sanidad_animal', 'concepto:bioseguridad', 'concepto:bienestar_animal'],
+  sanidad_vegetal: ['concepto:fitosanitarios'],
+  incendios_emergencias: ['concepto:dano_climatico'],
+  obligaciones: ['accion:declarar'],
+  restricciones: ['concepto:normativa'],
+  forestal: ['subsector:forestal'],
+  registros_certificaciones: ['subsector:registro_explotaciones'],
+  plazos_alegaciones: ['accion:alegar'],
 };
 
 function listaCanonica(value, canonicalizer) {
@@ -57,6 +71,99 @@ function obtenerSectorImplicitoUsuario(user = {}) {
       ? 'explicito'
       : (sectoresInferidos.length > 0 ? 'subsectores' : 'abierto'),
   };
+}
+
+function tiposActivosUsuario(user = {}) {
+  return Object.entries(user.preferences?.tipos_alerta || {})
+    .filter(([, active]) => active === true)
+    .map(([key]) => canonicalTipoAlerta(key))
+    .filter(Boolean);
+}
+
+function tieneInteresAprendidoConfiable(user = {}, expected = []) {
+  const candidatos = [
+    ...(Array.isArray(user.intereses_aprendidos) ? user.intereses_aprendidos : []),
+    ...(Array.isArray(user.mia_profile?.interests) ? user.mia_profile.interests : []),
+    ...(Array.isArray(user.interest_profile?.topics) ? user.interest_profile.topics : []),
+  ];
+  const esperados = new Set(expected.map(norm));
+  return candidatos.some((item) => {
+    if (typeof item === 'string') return esperados.has(norm(item));
+    const topic = norm(item?.topic || item?.tag || item?.value);
+    const confidence = Number(item?.confidence ?? item?.score ?? 0);
+    return esperados.has(topic) && confidence >= 0.7;
+  });
+}
+
+function textoActividadUsuario(user = {}) {
+  return norm([
+    user.preferencias_extra,
+    user.contexto_narrativo,
+    user.preferences?.perfil,
+    user.preferences?.actividad,
+    user.actividad,
+    user.descripcion,
+  ].filter(Boolean).join(' '));
+}
+
+function userHasLivestockActivity(user = {}) {
+  const sector = obtenerSectorImplicitoUsuario(user);
+  if (sector.sectores_explicitos.some((value) => ['ganaderia', 'mixto'].includes(value))) return true;
+  if (sector.sectores_inferidos.includes('ganaderia')) return true;
+  if (sector.subsectores.some((value) => SUBSECTORES_GANADERIA.has(value))) return true;
+  if (tiposActivosUsuario(user).includes('sanidad_animal')) return true;
+  if (/\b(?:ganader|explotacion\s+ganadera|porcin|vacun|bovin|ovin|caprin|avicul|cunic|equin|apicult|abejas?|veterinari|sanidad\s+animal)\b/.test(textoActividadUsuario(user))) return true;
+  return tieneInteresAprendidoConfiable(user, ['ganaderia', 'sanidad_animal', 'bioseguridad']);
+}
+
+function userHasAgricultureActivity(user = {}) {
+  const sector = obtenerSectorImplicitoUsuario(user);
+  if (sector.sectores_explicitos.some((value) => ['agricultura', 'mixto'].includes(value))) return true;
+  if (sector.sectores_inferidos.includes('agricultura')) return true;
+  if (sector.subsectores.some((value) => SUBSECTORES_AGRICULTURA.has(value))) return true;
+  if (/\b(?:agricultur|agricol|explotacion\s+agraria|cultiv|cereal|trigo|olivar|vined|frutal|hortaliz|almendr|patata|fitosanit|sanidad\s+vegetal)\b/.test(textoActividadUsuario(user))) return true;
+  return tieneInteresAprendidoConfiable(user, ['agricultura', 'sanidad_vegetal', 'fitosanitarios']);
+}
+
+function userHasIrrigationActivity(user = {}) {
+  const tipos = tiposActivosUsuario(user);
+  const sectores = obtenerSectorImplicitoUsuario(user).sectores_explicitos;
+  if (sectores.some((value) => ['agricultura', 'mixto', 'agua'].includes(value))) return true;
+  if (listaCanonica(user.preferences?.subsectores, canonicalSubsector).includes('agua')) return true;
+  if (tipos.includes('agua_infraestructuras')) return true;
+  if (/\b(?:regante|regadio|riego|comunidad\s+de\s+regantes|agua\s+para\s+riego)\b/.test(textoActividadUsuario(user))) return true;
+  return tieneInteresAprendidoConfiable(user, ['agua', 'riego', 'regadio']);
+}
+
+function diagnosticarBarreraTematicaUsuario(alerta = {}, user = {}, options = {}) {
+  if (esAlertaSanidadAnimal(alerta) && !userHasLivestockActivity(user)) {
+    return {
+      ok: false,
+      motivo: 'animal_health_requires_livestock_profile',
+      detalle: { topic: 'sanidad_animal', user_livestock_activity: false },
+    };
+  }
+
+  if (esAlertaSanidadVegetal(alerta) && !userHasAgricultureActivity(user)) {
+    return {
+      ok: false,
+      motivo: 'plant_health_requires_agriculture_profile',
+      detalle: { topic: 'sanidad_vegetal', user_agriculture_activity: false },
+    };
+  }
+
+  const tipos = Array.isArray(options.tiposAlerta) ? options.tiposAlerta : tiposDerivadosAlerta(alerta);
+  const texto = textoDocumentalAlerta(alerta);
+  const esRiego = tipos.includes('agua_infraestructuras') && /\b(?:riego|regadio|regantes?)\b/.test(texto);
+  if (esRiego && !userHasIrrigationActivity(user)) {
+    return {
+      ok: false,
+      motivo: 'irrigation_requires_compatible_profile',
+      detalle: { topic: 'riego', user_irrigation_activity: false },
+    };
+  }
+
+  return null;
 }
 
 function diagnosticarBarreraSectorialUsuario(alerta = {}, user = {}, options = {}) {
@@ -98,10 +205,16 @@ function valoresTaxonomiaPorPrefijo(alerta = {}, prefijo = '', canonicalizer = n
 }
 
 function tiposDerivadosAlerta(alerta = {}) {
+  const declarados = tiposVerificadosAlerta(alerta);
+  return declarados.length > 0
+    ? declarados
+    : dedupe(tiposDerivadosPorFeatures(alerta));
+}
+
+function tiposVerificadosAlerta(alerta = {}) {
   return dedupe([
     ...listaCanonica(alerta.tipos_alerta, canonicalTipoAlerta),
     ...valoresTaxonomiaPorPrefijo(alerta, 'tipo:', canonicalTipoAlerta),
-    ...tiposDerivadosPorFeatures(alerta),
   ]);
 }
 
@@ -109,6 +222,7 @@ function diagnosticarTaxonomiaMinimaAlerta({
   sectores = [],
   subsectores = [],
   tipos = [],
+  specialized = false,
 } = {}) {
   const detalle = {
     sectores,
@@ -117,22 +231,62 @@ function diagnosticarTaxonomiaMinimaAlerta({
   };
 
   if (sectores.length === 0 && subsectores.length === 0 && tipos.length === 0) {
-    return { ok: false, motivo: 'alerta_sin_taxonomia', detalle };
+    return {
+      ok: false,
+      action: 'review',
+      reason: 'alert_without_verified_sector',
+      motivo: 'alerta_sin_taxonomia',
+      detalle,
+    };
   }
 
   if (sectores.length === 0) {
-    return { ok: false, motivo: 'alerta_sin_sector_clasificado', detalle };
+    return {
+      ok: false,
+      action: 'review',
+      reason: 'alert_without_verified_sector',
+      motivo: 'alerta_sin_sector_clasificado',
+      detalle,
+    };
+  }
+
+  if (specialized && tipos.length === 0) {
+    return {
+      ok: false,
+      action: 'review',
+      reason: 'specialized_alert_without_type',
+      motivo: 'alerta_especializada_sin_tipo',
+      detalle,
+    };
   }
 
   return null;
 }
 
 function diagnosticarTaxonomiaDerivadaAlerta(alerta = {}) {
+  const tematica = analizarCoherenciaTematica(alerta, alerta);
   return diagnosticarTaxonomiaMinimaAlerta({
     sectores: sectoresDerivadosAlerta(alerta),
     subsectores: subsectoresDerivadosAlerta(alerta),
     tipos: tiposDerivadosAlerta(alerta),
+    specialized: tematica.specialized,
   });
+}
+
+function resolverTaxonomiaSeguraAlerta(alerta = {}) {
+  const original = {
+    sectores: sectoresDerivadosAlerta(alerta),
+    subsectores: subsectoresDerivadosAlerta(alerta),
+    tipos_alerta: tiposDerivadosAlerta(alerta),
+  };
+  const reparacion = repararClasificacionTematicaSegura(alerta, original);
+  return {
+    sectores: reparacion.clasificacion.sectores,
+    subsectores: reparacion.clasificacion.subsectores,
+    tipos: reparacion.clasificacion.tipos_alerta,
+    tipos_verificados: tiposVerificadosAlerta(alerta),
+    topic_validation: reparacion.diagnostico,
+  };
 }
 
 function tiposDerivadosPorFeatures(alerta = {}) {
@@ -513,26 +667,31 @@ function diagnosticarAlertaUsuario(alerta, user, options = {}) {
     : [];
   const sectoresUserNorm = listaCanonica(prefs.sectores, canonicalSector);
   const subsectoresUserNorm = listaCanonica(prefs.subsectores, canonicalSubsector);
-  const tiposUser = prefs.tipos_alerta || {};
-  const tiposUserActivos = Object.entries(tiposUser)
-    .filter(([_, v]) => v === true)
-    .map(([k]) => canonicalTipoAlerta(k))
-    .filter(Boolean);
+  const tiposUserActivos = tiposActivosUsuario(user);
 
   const territorioAlerta = resolverTerritorioAlerta(alerta);
   const provinciasANorm = territorioAlerta.provincias_normalizadas;
   const alertaNacional = esAlertaNacional(alerta, provinciasANorm);
-  const sectoresANorm = sectoresDerivadosAlerta(alerta);
-  const subsectoresANorm = subsectoresDerivadosAlerta(alerta);
-  const tiposANorm = tiposDerivadosAlerta(alerta);
+  const taxonomiaSegura = resolverTaxonomiaSeguraAlerta(alerta);
+  const sectoresANorm = taxonomiaSegura.sectores;
+  const subsectoresANorm = taxonomiaSegura.subsectores;
+  const tiposANorm = taxonomiaSegura.tipos;
   const diagnosticoTaxonomia = diagnosticarTaxonomiaMinimaAlerta({
     sectores: sectoresANorm,
     subsectores: subsectoresANorm,
-    tipos: tiposANorm,
+    tipos: taxonomiaSegura.topic_validation.specialized
+      ? taxonomiaSegura.tipos_verificados
+      : tiposANorm,
+    specialized: taxonomiaSegura.topic_validation.specialized,
   });
   if (diagnosticoTaxonomia) return diagnosticoTaxonomia;
 
-  const diagnosticoCoherencia = diagnosticarCoherenciaTaxonomicaAlerta(alerta);
+  const diagnosticoCoherencia = diagnosticarCoherenciaTaxonomicaAlerta(alerta, {
+    sectores: sectoresANorm,
+    subsectores: subsectoresANorm,
+    tipos: tiposANorm,
+    topicValidation: taxonomiaSegura.topic_validation,
+  });
   if (diagnosticoCoherencia) return diagnosticoCoherencia;
 
   const ayudaGeneralConInteresUsuario = esConvocatoriaAyudaGeneral(alerta) &&
@@ -566,6 +725,14 @@ function diagnosticarAlertaUsuario(alerta, user, options = {}) {
     sectoresAlerta: sectoresANorm,
   });
   if (diagnosticoBarreraSectorial) return diagnosticoBarreraSectorial;
+
+  const diagnosticoBarreraTematica = diagnosticarBarreraTematicaUsuario({
+    ...alerta,
+    sectores: sectoresANorm,
+    subsectores: subsectoresANorm,
+    tipos_alerta: tiposANorm,
+  }, user, { tiposAlerta: tiposANorm });
+  if (diagnosticoBarreraTematica) return diagnosticoBarreraTematica;
 
   const tieneMixtoUser = sectoresUserNorm.includes('mixto');
   const tieneMixtoAlerta = sectoresANorm.includes('mixto');
@@ -602,6 +769,7 @@ module.exports = {
   alertaCoincideConUsuario,
   clasificarAmbitoSectorialAlerta,
   diagnosticarBarreraSectorialUsuario,
+  diagnosticarBarreraTematicaUsuario,
   diagnosticarCoherenciaTaxonomicaAlerta,
   diagnosticarTaxonomiaDerivadaAlerta,
   diagnosticarTaxonomiaMinimaAlerta,
@@ -613,9 +781,14 @@ module.exports = {
   norm,
   obtenerSectorImplicitoUsuario,
   provinciasDerivadasAlerta,
+  resolverTaxonomiaSeguraAlerta,
   resolverTerritorioAlerta,
   sectoresDerivadosAlerta,
   subsectoresDerivadosAlerta,
   taxonomyTagsAlerta,
+  tiposActivosUsuario,
   tiposDerivadosAlerta,
+  userHasAgricultureActivity,
+  userHasIrrigationActivity,
+  userHasLivestockActivity,
 };

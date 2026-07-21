@@ -676,7 +676,8 @@ function construirMensajeFallback(alerta) {
     `OBJETO: ${titulo}`,
     'IMPACTO: no_detectado',
     'PLAZO: no_detectado',
-    'ACCION: consultar la publicacion oficial',
+    'ACCION_CODIGO: no_detectado',
+    'ACCION: no_detectado',
     `DETALLE: ${detalle}`,
     `RESUMEN_DIGEST: ${contexto ? `En sencillo: ${contexto}` : 'no_detectado'}`,
     `CLAVES: ${titulo}`,
@@ -690,7 +691,12 @@ function limpiarMensajeFinal(mensaje, alerta = {}) {
 }
 
 const FICHA_CAMPOS_REQUERIDOS = ['tipo', 'prioridad', 'territorio', 'afecta_a', 'hecho', 'objeto', 'impacto', 'plazo', 'accion', 'detalle', 'resumen_digest', 'claves'];
-const FICHA_TIPOS = new Set(['ayudas_subvenciones', 'normativa_general', 'agua_infraestructuras', 'fiscalidad', 'medio_ambiente', 'otro']);
+const FICHA_TIPOS = new Set([
+  'ayudas_subvenciones', 'normativa_general', 'agua_infraestructuras', 'fiscalidad',
+  'medio_ambiente', 'sanidad_animal', 'sanidad_vegetal', 'incendios_emergencias',
+  'obligaciones', 'restricciones', 'forestal', 'formacion',
+  'registros_certificaciones', 'plazos_alegaciones', 'otro',
+]);
 const FICHA_PRIORIDADES = new Set(['alta', 'media', 'baja']);
 
 function limpiarCampoFicha(texto, max = 160) {
@@ -810,6 +816,29 @@ function construirResumenDigestFicha({
   return limitarPalabras(`${prefijo}${limpio}`, 90, 700) || 'no_detectado';
 }
 
+const ACCIONES_FICHA = Object.freeze([
+  ['consultar_presvet', /\bpresvet\b/i, 'consultar PRESVET'],
+  ['revisar_con_veterinario', /\b(?:revisar|consultar).{0,60}veterinari/i, 'revisar la medida con el veterinario'],
+  ['presentar_solicitud', /\bpresentar (?:una )?solicitud|solicitudes? se presentaran\b/i, 'presentar la solicitud'],
+  ['presentar_alegaciones', /\bpresentar alegaciones|plazo de alegaciones\b/i, 'presentar alegaciones'],
+  ['subsanar_documentacion', /\bsubsanar|subsanacion\b/i, 'subsanar la documentacion'],
+  ['justificar_ayuda', /\bjustificar (?:la )?ayuda|cuenta justificativa|plazo de justificacion\b/i, 'justificar la ayuda'],
+  ['contactar_organismo', /\bcontactar con|dirigirse a\b/i, 'contactar con el organismo indicado'],
+  ['sin_accion_inmediata', /\bsin accion inmediata|no requiere accion inmediata\b/i, 'sin accion inmediata'],
+  ['solo_informativo', /\bsolo informativo|a efectos informativos\b/i, 'solo informativo'],
+]);
+
+function resolverAccionFicha(data = {}, alerta = {}) {
+  const explicit = campoFichaGenerico(data.accion) ? '' : limpiarCampoFicha(data.accion, 170);
+  const text = [explicit, alerta.titulo, alerta.contenido, alerta.resumen_final, alerta.resumen]
+    .filter(Boolean)
+    .join(' ');
+  for (const [code, pattern, fallback] of ACCIONES_FICHA) {
+    if (pattern.test(text)) return { code, text: explicit || fallback };
+  }
+  return { code: 'no_detectado', text: 'no_detectado' };
+}
+
 function construirFichaIA(data = {}, alerta = {}) {
   const titulo = limpiarCampoFicha(alerta.titulo, 180) || 'Publicacion oficial detectada';
   const extracto = extraerExtractoBoletin(alerta, 420);
@@ -831,9 +860,7 @@ function construirFichaIA(data = {}, alerta = {}) {
   const plazoBase = campoFichaGenerico(data.plazo)
     ? 'no_detectado'
     : data.plazo;
-  const accionBase = campoFichaGenerico(data.accion)
-    ? 'leer el anuncio oficial completo'
-    : data.accion;
+  const accion = resolverAccionFicha(data, alerta);
   const detalleBase = campoFichaGenerico(data.detalle)
     ? (extracto ? `El boletin indica: ${extracto}` : 'no_detectado')
     : data.detalle;
@@ -847,7 +874,8 @@ function construirFichaIA(data = {}, alerta = {}) {
     objeto: limitarPalabras(objetoBase, 24, 220) || titulo,
     impacto: limitarPalabras(impactoBase, 26, 240) || 'no_detectado',
     plazo: limpiarCampoFicha(plazoBase, 80) || 'no_detectado',
-    accion: limitarPalabras(accionBase, 18, 170) || 'leer el anuncio oficial completo',
+    accion_codigo: accion.code,
+    accion: limitarPalabras(accion.text, 18, 170) || 'no_detectado',
     detalle: limitarPalabras(detalleBase, 34, 300) || 'no_detectado',
     claves: normalizarClavesFicha(data.claves, titulo),
   };
@@ -875,6 +903,7 @@ function construirFichaIA(data = {}, alerta = {}) {
     `OBJETO: ${ficha.objeto}`,
     `IMPACTO: ${ficha.impacto}`,
     `PLAZO: ${ficha.plazo}`,
+    `ACCION_CODIGO: ${ficha.accion_codigo}`,
     `ACCION: ${ficha.accion}`,
     `DETALLE: ${ficha.detalle}`,
     `RESUMEN_DIGEST: ${ficha.resumen_digest}`,
@@ -933,7 +962,7 @@ No escribas mensajes para WhatsApp. No embellezcas. No metas emojis.
 
 Campos por alerta:
 - id: ID real de la alerta
-- tipo: ayudas_subvenciones | normativa_general | agua_infraestructuras | fiscalidad | medio_ambiente | otro
+- tipo: ayudas_subvenciones | normativa_general | agua_infraestructuras | fiscalidad | medio_ambiente | sanidad_animal | sanidad_vegetal | incendios_emergencias | obligaciones | restricciones | forestal | formacion | registros_certificaciones | plazos_alegaciones | otro
 - prioridad: alta | media | baja
 - territorio: provincia/CCAA/estatal/no_detectado
 - afecta_a: colectivo agrario afectado en maximo 12 palabras; se especifico: agricultores, ganaderos, regantes, viticultores, explotaciones, industria agroalimentaria, titulares concretos, etc.
@@ -942,6 +971,7 @@ Campos por alerta:
 - impacto: por que puede importar al usuario agrario en maximo 26 palabras; si solo afecta a un titular o expediente individual, dilo.
 - plazo: fecha/plazo si aparece; si no, no_detectado
 - accion: accion recomendada en maximo 18 palabras
+- accion_codigo: consultar_presvet | revisar_con_veterinario | presentar_solicitud | presentar_alegaciones | subsanar_documentacion | justificar_ayuda | contactar_organismo | sin_accion_inmediata | solo_informativo | no_detectado
 - detalle: dato especifico util en maximo 34 palabras: importe, cultivo/especie, municipio, expediente, requisito, periodo, tramite, limitacion o destinatario. Si no aparece, no_detectado.
 - resumen_digest: explicacion facil para WhatsApp en 2-4 frases cortas o 55-90 palabras. Debe traducir el boletin a lenguaje normal: que significa, a quien/que afecta, territorio, tramite/plazo y dato concreto si aparece.
 - claves: 3-8 palabras clave
@@ -973,7 +1003,8 @@ SALIDA: devuelve UNICAMENTE JSON valido con esta forma:
       "objeto": "tema concreto",
       "impacto": "por que puede importar",
       "plazo": "no_detectado",
-      "accion": "revisar documento oficial",
+      "accion_codigo": "no_detectado",
+      "accion": "no_detectado",
       "detalle": "dato especifico util",
       "resumen_digest": "Es una actuacion oficial concreta. Explica a quien afecta, el territorio, el tramite o plazo y el dato util disponible sin copiar la cabecera del boletin.",
       "claves": ["palabra1", "palabra2", "palabra3"]

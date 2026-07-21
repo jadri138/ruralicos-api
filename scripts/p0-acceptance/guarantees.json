@@ -1,0 +1,238 @@
+{
+  "version": "p0_guarantee_matrix_v2",
+  "guarantees": [
+    {
+      "id": "BASE-TAX-G1",
+      "p0": "BASE",
+      "scope": "baseline",
+      "guarantee": "Una alerta sin taxonomía mínima o con taxonomía incoherente queda bloqueada antes del scoring.",
+      "tests": [
+        { "file": "tests/alertaMatcher.test.js", "case": "taxonomia derivada completamente vacia bloquea la alerta" },
+        { "file": "tests/alertSelectionEngine.test.js", "case": "taxonomia vacia es bloqueo duro antes del scoring y no admite rescate" },
+        { "file": "tests/p0AcceptanceCorpus.test.js", "case": "corpus P0.1 detecta la taxonomia incoherente" }
+      ],
+      "fixtures": ["taxonomy.incoherent"]
+    },
+    {
+      "id": "BASE-TAX-G2",
+      "p0": "BASE",
+      "scope": "baseline",
+      "guarantee": "La preferencia sectorial explícita prevalece y la inferencia desde subsectores fuertes queda diagnosticada.",
+      "tests": [
+        { "file": "tests/alertaMatcher.test.js", "case": "sector explicito conserva prioridad sobre subsectores contradictorios" },
+        { "file": "tests/alertSelectionEngine.test.js", "case": "sector inferido incompatible es bloqueo duro aunque calidad, MIA y similitud sean maximas" }
+      ],
+      "fixtures": []
+    },
+    {
+      "id": "BASE-GEO-G1",
+      "p0": "BASE",
+      "scope": "baseline",
+      "guarantee": "Una comunidad autónoma se expande a provincias y una provincia oficial concreta restringe el ámbito amplio.",
+      "tests": [
+        { "file": "tests/alertaMatcher.test.js", "case": "DOE con Extremadura expande Caceres y Badajoz sin alcanzar Salamanca" },
+        { "file": "tests/alertaMatcher.test.js", "case": "provincia concreta en texto restringe una alerta declarada como Catalunya" },
+        { "file": "tests/p0AcceptanceCorpus.test.js", "case": "corpus P0.2 conserva expansion autonomica y prioridad provincial" }
+      ],
+      "fixtures": ["territory.autonomous_expansion", "territory.concrete_province"]
+    },
+    {
+      "id": "BASE-BOPA-G1",
+      "p0": "BASE",
+      "scope": "baseline",
+      "guarantee": "BOPA no convierte errores o placeholders del portal en evidencia y los conserva como needs_evidence.",
+      "tests": [
+        { "file": "tests/bopaEvidence.test.js", "case": "documentos BOPA: boilerplate queda needs_evidence y discard no descarga" },
+        { "file": "tests/bopaEvidence.test.js", "case": "pipeline guarda auditoría y nunca convierte boilerplate en contenido o listo" },
+        { "file": "tests/p0AcceptanceCorpus.test.js", "case": "corpus P0.3 distingue BOPA sin evidencia y recuperado" }
+      ],
+      "fixtures": ["bopa.without_evidence"]
+    },
+    {
+      "id": "BASE-BOPA-G2",
+      "p0": "BASE",
+      "scope": "baseline",
+      "guarantee": "La recuperación BOPA solo reactiva la misma alerta cuando obtiene texto oficial útil y es idempotente.",
+      "tests": [
+        { "file": "tests/bopaEvidence.test.js", "case": "recuperador es dry-run por defecto, actualiza la misma alerta e idempotiza el rerun" },
+        { "file": "tests/p0AcceptanceCorpus.test.js", "case": "corpus P0.3 distingue BOPA sin evidencia y recuperado" }
+      ],
+      "fixtures": ["bopa.recovered"]
+    },
+    {
+      "id": "BASE-RURAL-G1",
+      "p0": "BASE",
+      "scope": "baseline",
+      "guarantee": "Los seis negativos conocidos de DOGC y DOE se descartan antes de listo usando solo evidencia oficial.",
+      "tests": [
+        { "file": "tests/officialRuralEvidenceGate.test.js", "case": "barrera rural oficial DOGC/DOE" },
+        { "file": "tests/alertDiscardAudit.test.js", "case": "DOGC no rural se bloquea antes de que revision o fallback lo marquen listo" },
+        { "file": "tests/p0AcceptanceCorpus.test.js", "case": "corpus P0.4 bloquea los seis negativos oficiales conocidos" }
+      ],
+      "fixtures": ["official_rural_gate.negative_cases"]
+    },
+    {
+      "id": "BASE-RURAL-G2",
+      "p0": "BASE",
+      "scope": "baseline",
+      "guarantee": "Ayudas, normativa y convocatorias agrarias con evidencia oficial expresa continúan por el flujo normal.",
+      "tests": [
+        { "file": "tests/officialRuralEvidenceGate.test.js", "case": "controles positivos agrarios" },
+        { "file": "tests/alertDiscardAudit.test.js", "case": "DOE agrario con evidencia oficial conserva el flujo normal hasta listo" },
+        { "file": "tests/p0AcceptanceCorpus.test.js", "case": "corpus P0.4 nunca descarta controles agrarios positivos" }
+      ],
+      "fixtures": ["official_rural_gate.agrarian_positive_cases"]
+    },
+    {
+      "id": "BASE-RURAL-G3",
+      "p0": "BASE",
+      "scope": "baseline",
+      "guarantee": "Los campos generados, incluido taxonomy_tags, no sirven como prueba rural oficial.",
+      "tests": [
+        { "file": "tests/officialRuralEvidenceGate.test.js", "case": "campos generados ignorados" },
+        { "file": "tests/alertDiscardAudit.test.js", "case": "revisar carga metadatos oficiales enlazados sin consultar columnas inexistentes" }
+      ],
+      "fixtures": []
+    },
+    {
+      "id": "BASE-RURAL-G4",
+      "p0": "BASE",
+      "scope": "baseline",
+      "guarantee": "pendiente_revision_manual y needs_evidence son retenidos, visibles y no alcanzan listo por fallback automático.",
+      "tests": [
+        { "file": "tests/alertDiscardAudit.test.js", "case": "alertas retenidas quedan fuera de revision y fallback automaticos" },
+        { "file": "tests/alertDiscardAudit.test.js", "case": "estado-pipeline muestra revision manual y needs_evidence sin marcarlas automaticas" },
+        { "file": "tests/p0AcceptanceCorpus.test.js", "case": "corpus P0.4 retiene estados sin ruta automatica a listo" }
+      ],
+      "fixtures": ["retained_states"]
+    },
+    {
+      "id": "BASE-DISCARD-G1",
+      "p0": "BASE",
+      "scope": "baseline",
+      "guarantee": "Todo descarte nuevo conserva los cinco campos estructurados y la auditoría previa.",
+      "tests": [
+        { "file": "tests/discardTraceabilityContract.test.js", "case": "constructor comun siempre entrega los cinco campos estructurados" },
+        { "file": "tests/alertDiscardAudit.test.js", "case": "reclasificar conserva decision_audit con un Supabase que proyecta el select real" },
+        { "file": "tests/p0AcceptanceCorpus.test.js", "case": "corpus P0.5 distingue descarte legacy estructurado e incompleto" }
+      ],
+      "fixtures": ["discards.structured_legacy"]
+    },
+    {
+      "id": "BASE-DISCARD-G2",
+      "p0": "BASE",
+      "scope": "baseline",
+      "guarantee": "Un descarte histórico desconocido se repara como legacy_unstructured_discard sin inventar evidencia.",
+      "tests": [
+        { "file": "tests/discardTraceabilityContract.test.js", "case": "un descarte historico desconocido usa legacy_unstructured_discard sin inventar evidencia" },
+        { "file": "tests/p0AcceptanceCorpus.test.js", "case": "corpus P0.5 distingue descarte legacy estructurado e incompleto" }
+      ],
+      "fixtures": ["discards.incomplete_legacy"]
+    },
+    {
+      "id": "BASE-DISCARD-G3",
+      "p0": "BASE",
+      "scope": "baseline",
+      "guarantee": "NO IMPORTA no decide el estado y la base rechaza descartes nuevos sin contrato estructurado.",
+      "tests": [
+        { "file": "tests/discardTraceabilityContract.test.js", "case": "NO IMPORTA por si solo nunca convierte una alerta en descartada" },
+        { "file": "tests/discardTraceabilityContract.test.js", "case": "la base de datos rechaza descartes nuevos sin el contrato estructurado" },
+        { "file": "tests/alertDiscardAudit.test.js", "case": "FREE y revisor legacy seleccionan por estado listo y no por NO IMPORTA" }
+      ],
+      "fixtures": []
+    },
+    {
+      "id": "RP0.1-G1",
+      "p0": "P0.1",
+      "scope": "revised_plan",
+      "guarantee": "El prefiltro de rutas devuelve pass, review o discard; una señal administrativa generica no elimina una señal rural explicita.",
+      "tests": [
+        { "file": "tests/ruralRoutePrefilter.test.js", "case": "forestal municipal y subvencion ganadera pasan o se revisan; empleo y beca general se descartan" },
+        { "file": "tests/procesarConFiltroRural.test.js", "case": "pass y review se insertan; solo discard queda skipped_by_rule" },
+        { "file": "tests/p0AcceptanceCorpus.test.js", "case": "plan P0.1 conserva forestal municipal y descarta ruido administrativo" }
+      ],
+      "fixtures": ["revised_plan.route_prefilter"]
+    },
+    {
+      "id": "RP0.2-G1",
+      "p0": "P0.2",
+      "scope": "revised_plan",
+      "guarantee": "Una alerta sin sector verificado no se envia automaticamente y una alerta especializada sin tipo queda en revision.",
+      "tests": [
+        { "file": "tests/alertaMatcher.test.js", "case": "taxonomia vacia y alerta especializada sin tipo quedan bloqueadas antes del scoring" },
+        { "file": "tests/alertSelectionEngine.test.js", "case": "taxonomia vacia es bloqueo duro y no admite rescate" },
+        { "file": "tests/p0AcceptanceCorpus.test.js", "case": "plan P0.2 bloquea taxonomia vacia" }
+      ],
+      "fixtures": ["revised_plan.empty_taxonomy"]
+    },
+    {
+      "id": "RP0.3-G1",
+      "p0": "P0.3",
+      "scope": "revised_plan",
+      "guarantee": "Todo descarte nuevo conserva motivo, codigo, confianza, etapa y auditoria estructurados; NO IMPORTA nunca es la unica evidencia.",
+      "tests": [
+        { "file": "tests/discardTraceabilityContract.test.js", "case": "constructor comun y constraint exigen el contrato estructurado" },
+        { "file": "tests/alertDiscardAudit.test.js", "case": "los puntos de descarte persisten la trazabilidad" },
+        { "file": "tests/p0AcceptanceCorpus.test.js", "case": "corpus distingue descarte estructurado e incompleto" }
+      ],
+      "fixtures": ["discards.structured_legacy", "discards.incomplete_legacy"]
+    },
+    {
+      "id": "RP0.4-G1",
+      "p0": "P0.4",
+      "scope": "revised_plan",
+      "guarantee": "La coherencia tematica elimina de sanidad animal cultivos y tipos sin evidencia y retiene incoherencias graves.",
+      "tests": [
+        { "file": "tests/taxonomyRegistry.test.js", "case": "antibioticos contaminados se reducen a ganaderia, especies, sanidad animal y normativa" },
+        { "file": "tests/alertaMatcher.test.js", "case": "el matcher resuelve una taxonomia segura antes de evaluar" },
+        { "file": "tests/p0AcceptanceCorpus.test.js", "case": "plan P0.4 limpia la taxonomia contaminada de antibioticos" }
+      ],
+      "fixtures": ["revised_plan.antibiotics"]
+    },
+    {
+      "id": "RP0.5-G1",
+      "p0": "P0.5",
+      "scope": "revised_plan",
+      "guarantee": "Sanidad animal exige actividad ganadera o mixta antes del scoring; preferencias generales no atraviesan la barrera.",
+      "tests": [
+        { "file": "tests/alertaMatcher.test.js", "case": "perfiles agricolas y sin sector se bloquean con animal_health_requires_livestock_profile" },
+        { "file": "tests/alertSelectionEngine.test.js", "case": "los bloqueos duros no admiten rescate por similitud" },
+        { "file": "tests/p0AcceptanceCorpus.test.js", "case": "plan P0.5 aplica la barrera ganadera" }
+      ],
+      "fixtures": ["revised_plan.antibiotics.profiles"]
+    },
+    {
+      "id": "RP0.6-G1",
+      "p0": "P0.6",
+      "scope": "revised_plan",
+      "guarantee": "La ausencia de decision_digest falla cerrada en envios automaticos; el bypass historico exige modo manual o legacy y fecha anterior al corte.",
+      "tests": [
+        { "file": "tests/digestAutoSendGuard.test.js", "case": "include continua; review_only, blocked y ausencia se retienen; legacy es explicito" },
+        { "file": "tests/p0AcceptanceCorpus.test.js", "case": "plan P0.6 hace fail-closed la decision ausente" }
+      ],
+      "fixtures": ["revised_plan.decision_digest"]
+    },
+    {
+      "id": "RP0.7-G1",
+      "p0": "P0.7",
+      "scope": "revised_plan",
+      "guarantee": "El caso real de antibioticos se reproduce de clasificacion a digest final con cuatro perfiles admitidos y cuatro bloqueados.",
+      "tests": [
+        { "file": "tests/antibioticsEndToEnd.test.js", "case": "clasificacion, normalizacion, quality gate, matcher, selection gate, decision_digest y digest final" }
+      ],
+      "fixtures": ["revised_plan.antibiotics"]
+    },
+    {
+      "id": "RP0.8-G1",
+      "p0": "P0.8",
+      "scope": "revised_plan",
+      "guarantee": "Las regresiones de forestal municipal, ruido administrativo, alcance intersectorial y taxonomia vacia permanecen cerradas.",
+      "tests": [
+        { "file": "tests/ruralRoutePrefilter.test.js", "case": "forestal municipal no se descarta y proceso selectivo si" },
+        { "file": "tests/alertaMatcher.test.js", "case": "sanidad animal solo alcanza ganaderia o mixto y taxonomia vacia queda review" },
+        { "file": "tests/p0AcceptanceCorpus.test.js", "case": "plan P0.8 agrupa las cuatro regresiones exigidas" }
+      ],
+      "fixtures": ["revised_plan.route_prefilter", "revised_plan.empty_taxonomy", "revised_plan.antibiotics.profiles"]
+    }
+  ]
+}

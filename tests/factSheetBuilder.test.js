@@ -139,5 +139,47 @@ test('extrae un plazo real cuando el texto oficial dice que finaliza en una fech
   assert(/30 de septiembre de 2028/i.test(sheet.plazo.valor || sheet.plazo.evidencia || ''), 'deberia conservar la fecha de fin real');
 });
 
+test('separa fechas juridicas y accion estructurada del caso de antibioticos', () => {
+  const sheet = construirFactSheetAlertaSync({
+    id: 15110,
+    fecha: '2026-07-18',
+    titulo: 'Indicadores nacionales de consumo de antibioticos veterinarios',
+    contenido: [
+      'Se publican los indicadores nacionales de 2026 para explotaciones ganaderas.',
+      'Producen efectos tres meses despues de su publicacion.',
+      'Contra la resolucion cabe recurso de reposicion en el plazo de 1 mes.',
+      'Las explotaciones deben consultar PRESVET y revisar los indicadores con su veterinario.',
+    ].join(' '),
+    sectores: ['ganaderia'],
+    subsectores: ['porcino'],
+    tipos_alerta: ['sanidad_animal', 'normativa_general'],
+    url: 'https://www.boe.es/ejemplo-antibioticos',
+  });
+
+  assert.strictEqual(sheet.publication_date.valor, '2026-07-18');
+  assert.strictEqual(sheet.effective_date.valor, '2026-10-18');
+  assert.strictEqual(sheet.appeal_deadline.valor, '1 mes');
+  assert.strictEqual(sheet.application_deadline.valor, null);
+  assert.strictEqual(sheet.accion_codigo.valor, 'consultar_presvet');
+  assert(sheet.resumen_estructurado.acto_publicado_ahora.valor.includes('Se publican'));
+  assert(sheet.taxonomy_evidence.some((item) => item.tag === 'sector:ganaderia'));
+  assert(sheet.taxonomy_evidence.some((item) => item.tag === 'tipo:sanidad_animal'));
+});
+
+test('una etiqueta sin evidencia queda marcada para revision', () => {
+  const sheet = construirFactSheetAlertaSync({
+    id: 8,
+    titulo: 'Resolucion sobre explotaciones ganaderas',
+    contenido: 'Se regulan requisitos para explotaciones ganaderas.',
+    sectores: ['ganaderia'],
+    tipos_alerta: ['fiscalidad'],
+    url: 'https://www.boe.es/ejemplo-sin-evidencia-fiscal',
+  });
+
+  assert(sheet.unsupported_taxonomy_tags.includes('tipo:fiscalidad'));
+  assert(sheet.flags.includes('unsupported_taxonomy_tag'));
+  assert.notStrictEqual(sheet.status, 'ready_for_digest');
+});
+
 console.log(`\nResultados factSheetBuilder: ${passed} aprobados, ${failed} fallidos`);
 if (failed > 0) process.exit(1);

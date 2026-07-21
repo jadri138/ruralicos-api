@@ -12,6 +12,11 @@
 const { checkCronToken }  = require('../../middleware/cronToken');
 const { similitudTitulos } = require('../../shared/similitud');
 const { getFechaMadridISO } = require('../../shared/fechaMadrid');
+const {
+  clasificarRelacionDocumental,
+  esCorreccion,
+  esRelacionDuplicada,
+} = require('./intelligence/documentRelation');
 
 const UMBRAL_DEFAULT = 0.65;
 
@@ -39,7 +44,7 @@ module.exports = function deduplicarRoutes(app, supabase) {
       // Solo alertas listas (no las que ya son duplicados ni las pendientes)
       const { data: alertas, error } = await supabase
         .from('alertas')
-        .select('id, titulo, fuente, resumen_final, estado_ia')
+        .select('id, titulo, fuente, contenido, resumen, resumen_final, estado_ia, decision_audit')
         .eq('fecha', fecha)
         .eq('estado_ia', 'listo')
         .order('id', { ascending: true });
@@ -91,11 +96,14 @@ module.exports = function deduplicarRoutes(app, supabase) {
 
       // Elegir el canónico de cada grupo y actualizar las demás
       let deduplicadas = 0;
+      let relacionadas = 0;
       const detalle = [];
 
       for (const grupo of grupos) {
         // Ordenar: mayor autoridad primero; empate → prefiere la que tiene resumen_final
         grupo.sort((a, b) => {
+          const correctionDiff = Number(esCorreccion(a)) - Number(esCorreccion(b));
+          if (correctionDiff !== 0) return correctionDiff;
           const diff = prioridadFuente(b.fuente) - prioridadFuente(a.fuente);
           if (diff !== 0) return diff;
           return (b.resumen_final ? 1 : 0) - (a.resumen_final ? 1 : 0);
@@ -104,26 +112,54 @@ module.exports = function deduplicarRoutes(app, supabase) {
         const canonico = grupo[0];
         const duplicados = grupo.slice(1);
 
-        detalle.push({
-          canonico:   { id: canonico.id, fuente: canonico.fuente, titulo: canonico.titulo },
-          duplicados: duplicados.map(d => ({ id: d.id, fuente: d.fuente })),
-        });
+        const detalleGrupo = {
+          canonico: { id: canonico.id, fuente: canonico.fuente, titulo: canonico.titulo },
+          relaciones: [],
+        };
+        detalle.push(detalleGrupo);
 
         for (const dup of duplicados) {
+          const relation = clasificarRelacionDocumental(canonico, dup, {
+            sameSubjectThreshold: umbral,
+          });
+          const duplicateRelation = esRelacionDuplicada(relation.relation);
+          detalleGrupo.relaciones.push({
+            id: dup.id,
+            fuente: dup.fuente,
+            relation: relation.relation,
+            evidence: relation.evidence,
+          });
           if (dryRun) {
-            deduplicadas++;
+            if (duplicateRelation) deduplicadas++;
+            else relacionadas++;
             continue;
           }
 
+          const patch = {
+            decision_audit: {
+              ...(dup.decision_audit || {}),
+              document_relation: {
+                version: 'document_relation_v1',
+                canonical_alert_id: canonico.id,
+                relation: relation.relation,
+                evidence: relation.evidence,
+              },
+            },
+          };
+          if (duplicateRelation) {
+            patch.estado_ia = 'duplicado';
+            patch.duplicado_de = canonico.id;
+          }
           const { error: upErr } = await supabase
             .from('alertas')
-            .update({ estado_ia: 'duplicado', duplicado_de: canonico.id })
+            .update(patch)
             .eq('id', dup.id);
 
           if (upErr) {
             console.error(`[deduplicar] Error marcando alerta ${dup.id}:`, upErr.message);
           } else {
-            deduplicadas++;
+            if (duplicateRelation) deduplicadas++;
+            else relacionadas++;
           }
         }
       }
@@ -136,6 +172,7 @@ module.exports = function deduplicarRoutes(app, supabase) {
         dry_run: dryRun,
         grupos: grupos.length,
         deduplicadas,
+        relacionadas,
         detalle,
       });
 

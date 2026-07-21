@@ -59,7 +59,7 @@ function rawDocument(alerta, texto, overrides = {}) {
 
 console.log('\n=== TESTS: fact sheet evidence-first ===\n');
 
-test('ayuda/subvencion con plazo claro queda lista para digest', () => {
+test('ayuda con subsector no demostrado queda en revision aunque el plazo sea claro', () => {
   const alerta = alertaBase(1, {
     titulo: 'Convocatoria de ayudas para modernizacion de explotaciones agrarias en Huesca',
     resumen_final: 'FICHA_IA\nTIPO: ayudas_subvenciones\nRESUMEN_DIGEST: Convocatoria de ayudas para modernizacion de explotaciones agrarias.\nBENEFICIARIOS: explotaciones agrarias\nPLAZO: hasta el 30 de julio de 2026\nACCION: presentar solicitud.',
@@ -71,7 +71,8 @@ test('ayuda/subvencion con plazo claro queda lista para digest', () => {
     now: new Date('2026-06-20T10:00:00Z'),
   });
 
-  assert.strictEqual(sheet.status, FACT_SHEET_STATUS.READY);
+  assert.strictEqual(sheet.status, FACT_SHEET_STATUS.REVIEW);
+  assert(sheet.unsupported_taxonomy_tags.includes('subsector:cereal'));
   assert.strictEqual(sheet.raw_document_id, 9001);
   assert.strictEqual(sheet.content_hash, 'hash-1');
   assert.strictEqual(sheet.plazo.status, 'verified');
@@ -82,7 +83,7 @@ test('ayuda/subvencion con plazo claro queda lista para digest', () => {
   assert(sheet.truth_score >= 70);
 });
 
-test('curso de bienestar animal conserva sector ganadero y accion con evidencia', () => {
+test('curso de bienestar animal conserva evidencias y revisa el subsector no demostrado', () => {
   const alerta = alertaBase(2, {
     titulo: 'Curso de bienestar animal para titulares de explotaciones ganaderas en Huesca',
     resumen_final: 'FICHA_IA\nTIPO: cursos_formacion\nRESUMEN_DIGEST: Curso de bienestar animal para titulares de explotaciones ganaderas.\nACCION: revisar inscripcion.',
@@ -93,7 +94,8 @@ test('curso de bienestar animal conserva sector ganadero y accion con evidencia'
   });
   const sheet = construirFactSheetAlertaSync(alerta);
 
-  assert.strictEqual(sheet.status, FACT_SHEET_STATUS.READY);
+  assert.strictEqual(sheet.status, FACT_SHEET_STATUS.REVIEW);
+  assert(sheet.unsupported_taxonomy_tags.includes('subsector:vacuno'));
   assert.strictEqual(sheet.tipo_documento.valor, 'curso_formacion');
   assert(sheet.sectores.some((field) => field.valor === 'ganaderia'));
   assert(sheet.accion_requerida.evidencia);
@@ -182,7 +184,7 @@ test('provincia no demostrada no se copia a territorio', () => {
   assert(sheet.flags.includes('territorio_no_verificado'));
 });
 
-test('builder async usa documentTrace cuando recibe supabase', async () => {
+test('builder async usa documentTrace y mantiene la revision por etiqueta sin evidencia', async () => {
   const alerta = alertaBase(9, {
     titulo: 'Convocatoria de ayudas para explotaciones agrarias en Huesca',
     resumen_final: 'FICHA_IA\nTIPO: ayudas_subvenciones\nRESUMEN_DIGEST: Convocatoria de ayudas para explotaciones agrarias.\nBENEFICIARIOS: explotaciones agrarias\nPLAZO: 30 dias\nACCION: presentar solicitud.',
@@ -208,7 +210,8 @@ test('builder async usa documentTrace cuando recibe supabase', async () => {
 
   assert.strictEqual(sheet.document_trace.status, 'linked');
   assert.strictEqual(sheet.raw_document_id, raw.id);
-  assert.strictEqual(sheet.status, FACT_SHEET_STATUS.READY);
+  assert.strictEqual(sheet.status, FACT_SHEET_STATUS.REVIEW);
+  assert(sheet.unsupported_taxonomy_tags.includes('subsector:cereal'));
 });
 
 test('validator detecta plazo inventado en una ficha manual', () => {

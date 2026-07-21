@@ -1,6 +1,7 @@
 const {
   canonicalSector,
   canonicalSubsector,
+  canonicalTipoAlerta,
 } = require('./preferenceCanonical');
 
 const TAXONOMY_COHERENCE_VERSION = 'taxonomy_coherence_v1';
@@ -68,6 +69,224 @@ const SUBSECTORES_TRANSVERSALES = new Set([
   'infraestructuras',
   'fauna_silvestre',
 ]);
+
+const ANIMAL_HEALTH_EVIDENCE = /\b(?:sanidad\s+animal|zoosanitari|antibiotic|presvet|veterinari|epizooti|bioseguridad|bienestar\s+animal|enfermedad(?:es)?\s+animal(?:es)?|explotaciones?\s+ganaderas?)\b/;
+const PLANT_HEALTH_EVIDENCE = /\b(?:sanidad\s+vegetal|fitosanitari|plagas?\s+(?:agricolas?|vegetales?)|enfermedad(?:es)?\s+(?:de\s+los?\s+)?cultivos?|organismos?\s+nocivos?\s+vegetales?)\b/;
+const LIVESTOCK_EVIDENCE = /\b(?:ganader|explotaciones?\s+ganaderas?|porcin|vacun|bovin|ovin|caprin|avicul|cunic|equin|apicult|abejas?|veterinari|animal(?:es)?)\b/;
+const AGRICULTURE_EVIDENCE = /\b(?:agricultur|agricol|explotaciones?\s+agricolas?|cultivos?|trigo|cebada|cereal|maiz|arroz|hortaliz|frutal|olivar|vined|almendr|patata|citric|leguminos|semillas?|viveros?)\b/;
+const FISCAL_EVIDENCE = /\b(?:irpf|iva|tributaci|tributari|modulos?|impuestos?|deducci(?:o|ó)n\s+fiscal|regimen\s+fiscal|r[ée]gimen\s+fiscal)\b/;
+const WATER_EVIDENCE = /\b(?:agua|riego|regadio|regantes?|hidric|concesion\s+de\s+aguas?|aprovechamiento\s+de\s+aguas?)\b/;
+
+function textoDocumentalAlerta(alerta = {}) {
+  return normalizarTag([
+    alerta.titulo,
+    alerta.contenido,
+    alerta.texto_oficial,
+    alerta.texto_raw,
+  ].filter(Boolean).join(' '));
+}
+
+function tiposDerivadosClasificacion(alerta = {}) {
+  return dedupe([
+    ...listaCanonica(alerta.tipos_alerta, canonicalTipoAlerta),
+    ...valoresTaxonomiaPorPrefijo(alerta, 'tipo:', canonicalTipoAlerta),
+  ]);
+}
+
+function tieneEvidenciaSanidadAnimal(alerta = {}) {
+  return ANIMAL_HEALTH_EVIDENCE.test(textoDocumentalAlerta(alerta));
+}
+
+function tieneEvidenciaSanidadVegetal(alerta = {}) {
+  return PLANT_HEALTH_EVIDENCE.test(textoDocumentalAlerta(alerta));
+}
+
+function esAlertaSanidadAnimal(alerta = {}) {
+  const tipos = tiposDerivadosClasificacion(alerta);
+  const tags = taxonomyTagsAlerta(alerta);
+  return tipos.includes('sanidad_animal') ||
+    tags.includes('concepto:sanidad_animal') ||
+    tags.includes('concepto:bioseguridad') ||
+    tags.includes('concepto:bienestar_animal') ||
+    (tipos.length === 0 && tieneEvidenciaSanidadAnimal(alerta));
+}
+
+function esAlertaSanidadVegetal(alerta = {}) {
+  const tipos = tiposDerivadosClasificacion(alerta);
+  const tags = taxonomyTagsAlerta(alerta);
+  return tipos.includes('sanidad_vegetal') ||
+    tags.includes('concepto:sanidad_vegetal') ||
+    (tipos.length === 0 && tieneEvidenciaSanidadVegetal(alerta));
+}
+
+function analizarCoherenciaTematica(alerta = {}, clasificacion = {}) {
+  const combinada = { ...alerta, ...clasificacion };
+  const texto = textoDocumentalAlerta(alerta);
+  const sectores = listaCanonica(clasificacion.sectores ?? alerta.sectores, canonicalSector);
+  const subsectores = listaCanonica(clasificacion.subsectores ?? alerta.subsectores, canonicalSubsector);
+  const tipos = listaCanonica(clasificacion.tipos_alerta ?? alerta.tipos_alerta, canonicalTipoAlerta);
+  const sanidadAnimal = esAlertaSanidadAnimal(combinada);
+  const sanidadVegetal = esAlertaSanidadVegetal(combinada);
+  const evidenciaAnimal = ANIMAL_HEALTH_EVIDENCE.test(texto);
+  const evidenciaVegetal = PLANT_HEALTH_EVIDENCE.test(texto);
+  const evidenciaGanadera = LIVESTOCK_EVIDENCE.test(texto);
+  const evidenciaAgricola = AGRICULTURE_EVIDENCE.test(texto);
+  const evidenciaFiscal = FISCAL_EVIDENCE.test(texto);
+  const evidenciaAgua = WATER_EVIDENCE.test(texto);
+  const cultivos = subsectores.filter((value) => SUBSECTORES_AGRICULTURA.has(value));
+  const animales = subsectores.filter((value) => SUBSECTORES_GANADERIA.has(value));
+  const issues = [];
+
+  if (sanidadAnimal && !evidenciaAnimal) {
+    issues.push({ code: 'animal_health_without_documentary_evidence', severity: 'critical' });
+  }
+  if (sanidadAnimal && !evidenciaAgricola && sectores.includes('agricultura')) {
+    issues.push({ code: 'animal_health_with_unsupported_agriculture_sector', severity: 'repairable' });
+  }
+  if (sanidadAnimal && !evidenciaAgricola && sectores.includes('mixto')) {
+    issues.push({ code: 'animal_health_with_unsupported_mixed_sector', severity: 'repairable' });
+  }
+  if (sanidadAnimal && !evidenciaAgricola && cultivos.length > 0) {
+    issues.push({
+      code: 'animal_health_with_unsupported_crop_subsectors',
+      severity: 'repairable',
+      values: cultivos,
+    });
+  }
+  if (sanidadAnimal && tipos.includes('fiscalidad') && !evidenciaFiscal) {
+    issues.push({ code: 'animal_health_with_unsupported_tax_tag', severity: 'repairable' });
+  }
+  if (
+    sanidadAnimal &&
+    (subsectores.includes('agua') || tipos.includes('agua_infraestructuras')) &&
+    !evidenciaAgua
+  ) {
+    issues.push({ code: 'animal_health_with_unsupported_water_tag', severity: 'repairable' });
+  }
+
+  if (sanidadVegetal && !evidenciaVegetal) {
+    issues.push({ code: 'plant_health_without_documentary_evidence', severity: 'critical' });
+  }
+  if (sanidadVegetal && !evidenciaGanadera && sectores.includes('ganaderia')) {
+    issues.push({ code: 'plant_health_with_unsupported_livestock_sector', severity: 'repairable' });
+  }
+  if (sanidadVegetal && !evidenciaGanadera && sectores.includes('mixto')) {
+    issues.push({ code: 'plant_health_with_unsupported_mixed_sector', severity: 'repairable' });
+  }
+  if (sanidadVegetal && !evidenciaGanadera && animales.length > 0) {
+    issues.push({
+      code: 'plant_health_with_unsupported_animal_subsectors',
+      severity: 'repairable',
+      values: animales,
+    });
+  }
+
+  return {
+    version: 'taxonomy_topic_coherence_v1',
+    status: issues.some((issue) => issue.severity === 'critical')
+      ? 'blocked'
+      : (issues.length > 0 ? 'repairable' : 'coherent'),
+    ok: issues.length === 0,
+    specialized: sanidadAnimal || sanidadVegetal,
+    topic: sanidadAnimal ? 'sanidad_animal' : (sanidadVegetal ? 'sanidad_vegetal' : null),
+    evidence: {
+      animal_health: evidenciaAnimal,
+      plant_health: evidenciaVegetal,
+      livestock: evidenciaGanadera,
+      agriculture: evidenciaAgricola,
+      fiscal: evidenciaFiscal,
+      water: evidenciaAgua,
+    },
+    issues,
+  };
+}
+
+function repararClasificacionTematicaSegura(alerta = {}, clasificacion = {}) {
+  const diagnosticoInicial = analizarCoherenciaTematica(alerta, clasificacion);
+  const sectoresIniciales = listaCanonica(clasificacion.sectores, canonicalSector);
+  const subsectoresIniciales = listaCanonica(clasificacion.subsectores, canonicalSubsector);
+  const tiposIniciales = listaCanonica(clasificacion.tipos_alerta, canonicalTipoAlerta);
+  let sectores = [...sectoresIniciales];
+  let subsectores = [...subsectoresIniciales];
+  let tipos = [...tiposIniciales];
+  const repairs = [];
+
+  if (diagnosticoInicial.status === 'blocked') {
+    return {
+      clasificacion: { ...clasificacion, sectores, subsectores, tipos_alerta: tipos },
+      diagnostico: diagnosticoInicial,
+    };
+  }
+
+  if (diagnosticoInicial.topic === 'sanidad_animal' && diagnosticoInicial.evidence.animal_health) {
+    if (!diagnosticoInicial.evidence.agriculture) {
+      const nextSectores = sectores.filter((value) => value !== 'agricultura' && value !== 'mixto');
+      if (nextSectores.length !== sectores.length) {
+        repairs.push({ code: 'remove_unsupported_agriculture_from_animal_health', before: sectores, after: nextSectores });
+        sectores = nextSectores;
+      }
+      const nextSubsectores = subsectores.filter((value) => !SUBSECTORES_AGRICULTURA.has(value));
+      if (nextSubsectores.length !== subsectores.length) {
+        repairs.push({ code: 'remove_unsupported_crops_from_animal_health', before: subsectores, after: nextSubsectores });
+        subsectores = nextSubsectores;
+      }
+    }
+    if (!sectores.includes('ganaderia') && !sectores.includes('mixto')) {
+      repairs.push({ code: 'add_livestock_sector_from_animal_health_evidence', before: sectores, after: [...sectores, 'ganaderia'] });
+      sectores.push('ganaderia');
+    }
+    if (!tipos.includes('sanidad_animal')) {
+      repairs.push({ code: 'add_animal_health_type_from_evidence', before: tipos, after: [...tipos, 'sanidad_animal'] });
+      tipos.push('sanidad_animal');
+    }
+    if (!diagnosticoInicial.evidence.fiscal && tipos.includes('fiscalidad')) {
+      const next = tipos.filter((value) => value !== 'fiscalidad');
+      repairs.push({ code: 'remove_unsupported_tax_type', before: tipos, after: next });
+      tipos = next;
+    }
+    if (!diagnosticoInicial.evidence.water && tipos.includes('agua_infraestructuras')) {
+      const next = tipos.filter((value) => value !== 'agua_infraestructuras');
+      repairs.push({ code: 'remove_unsupported_water_type', before: tipos, after: next });
+      tipos = next;
+    }
+  }
+
+  if (diagnosticoInicial.topic === 'sanidad_vegetal' && diagnosticoInicial.evidence.plant_health) {
+    if (!diagnosticoInicial.evidence.livestock) {
+      const nextSectores = sectores.filter((value) => value !== 'ganaderia' && value !== 'mixto');
+      if (nextSectores.length !== sectores.length) {
+        repairs.push({ code: 'remove_unsupported_livestock_from_plant_health', before: sectores, after: nextSectores });
+        sectores = nextSectores;
+      }
+      const nextSubsectores = subsectores.filter((value) => !SUBSECTORES_GANADERIA.has(value));
+      if (nextSubsectores.length !== subsectores.length) {
+        repairs.push({ code: 'remove_unsupported_animals_from_plant_health', before: subsectores, after: nextSubsectores });
+        subsectores = nextSubsectores;
+      }
+    }
+    if (!sectores.includes('agricultura') && !sectores.includes('mixto')) {
+      repairs.push({ code: 'add_agriculture_sector_from_plant_health_evidence', before: sectores, after: [...sectores, 'agricultura'] });
+      sectores.push('agricultura');
+    }
+  }
+
+  const clasificacionReparada = {
+    ...clasificacion,
+    sectores: dedupe(sectores),
+    subsectores: dedupe(subsectores),
+    tipos_alerta: dedupe(tipos),
+  };
+  const diagnosticoFinal = analizarCoherenciaTematica(alerta, clasificacionReparada);
+  return {
+    clasificacion: clasificacionReparada,
+    diagnostico: {
+      ...diagnosticoFinal,
+      status: diagnosticoFinal.ok && repairs.length > 0 ? 'repaired' : diagnosticoFinal.status,
+      initial_issues: diagnosticoInicial.issues,
+      repairs,
+    },
+  };
+}
 
 function dedupe(values = []) {
   return [...new Set((values || []).filter(Boolean))];
@@ -277,11 +496,35 @@ function repararClasificacionSectorialSegura(clasificacion = {}) {
   };
 }
 
-function diagnosticarCoherenciaTaxonomicaAlerta(alerta = {}) {
+function diagnosticarCoherenciaTaxonomicaAlerta(alerta = {}, options = {}) {
+  const sectores = Array.isArray(options.sectores)
+    ? options.sectores
+    : sectoresDerivadosAlerta(alerta);
+  const subsectores = Array.isArray(options.subsectores)
+    ? options.subsectores
+    : subsectoresDerivadosAlerta(alerta);
   const diagnostico = analizarCoherenciaSectorSubsector({
-    sectores: sectoresDerivadosAlerta(alerta),
-    subsectores: subsectoresDerivadosAlerta(alerta),
+    sectores,
+    subsectores,
   });
+
+  const tematica = options.topicValidation || analizarCoherenciaTematica(alerta, {
+    sectores,
+    subsectores,
+    tipos_alerta: options.tipos,
+  });
+
+  if (tematica.status === 'blocked') {
+    return {
+      ok: false,
+      motivo: 'alerta_taxonomia_sin_evidencia_tematica',
+      detalle: {
+        sectores: diagnostico.sectores_normalizados,
+        subsectores: diagnostico.subsectores_normalizados,
+        topic_validation: tematica,
+      },
+    };
+  }
 
   if (diagnostico.status !== 'incoherent') return null;
 
@@ -295,6 +538,7 @@ function diagnosticarCoherenciaTaxonomicaAlerta(alerta = {}) {
       ambito_sectorial_declarado: diagnostico.ambito_sectorial_declarado,
       conflicts: diagnostico.conflicts,
       taxonomy_validation: diagnostico,
+      topic_validation: tematica,
     },
   };
 }
@@ -304,12 +548,20 @@ module.exports = {
   SUBSECTORES_GANADERIA,
   SUBSECTORES_TRANSVERSALES,
   TAXONOMY_COHERENCE_VERSION,
+  analizarCoherenciaTematica,
   analizarCoherenciaSectorSubsector,
   clasificarAmbitoSectorialAlerta,
   diagnosticarCoherenciaTaxonomicaAlerta,
+  esAlertaSanidadAnimal,
+  esAlertaSanidadVegetal,
   inferirSectoresDesdeSubsectores,
   repararClasificacionSectorialSegura,
+  repararClasificacionTematicaSegura,
   sectoresDerivadosAlerta,
   subsectoresDerivadosAlerta,
   taxonomyTagsAlerta,
+  textoDocumentalAlerta,
+  tieneEvidenciaSanidadAnimal,
+  tieneEvidenciaSanidadVegetal,
+  tiposDerivadosClasificacion,
 };

@@ -111,6 +111,13 @@ const DIGEST_VECTOR_BACKFILL_MIN = Math.max(
   1,
   Math.min(DIGEST_MAX_ALERTAS_USUARIO, Number(process.env.DIGEST_VECTOR_BACKFILL_MIN || 3))
 );
+const DECISION_DIGEST_REQUIRED_FROM =
+  process.env.DIGEST_DECISION_REQUIRED_FROM || '2026-07-21T00:00:00+02:00';
+const LEGACY_DECISION_BYPASS_MODES = new Set([
+  'legacy_rescue',
+  'manual_review',
+  'manual_send',
+]);
 const FINAL_VALIDATION_MODE = Object.freeze({
   SHADOW: 'shadow',
   CRITICAL: 'critical',
@@ -140,31 +147,74 @@ const DIGEST_FINAL_VALIDATION_ENFORCEMENT =
 // si su decision de seleccion es 'include'. review_only / blocked / exclude se retienen
 // para auditoria o preview, pero NUNCA forman parte del mensaje final automatico, aunque
 // el motor las haya marcado con incluir=true como relleno (incoherencia review_only).
-// Sin decision auditable (alertas antiguas / rescate suave) se permite por compatibilidad;
-// el resto de barreras (calidad, fact sheet, URL) siguen aplicando por separado.
+// La ausencia de decision es fail-closed. La compatibilidad historica solo se
+// habilita con un modo legacy/manual explicito y para alertas creadas antes del
+// corte; el digest diario y el rescate automatico nunca activan ese bypass.
 // ─────────────────────────────────────────────
 function accionDecisionDigest(decision = {}) {
   if (!decision || typeof decision !== 'object') return null;
-  return decision.action || (decision.incluir === true ? 'include' : null);
+  const action = String(decision.action || '').trim().toLowerCase();
+  return action || null;
 }
 
-function esEnvioAutomaticoPermitido(decision = {}) {
+function fechaCreacionAlerta(alerta = {}) {
+  const value = alerta.created_at || alerta.createdAt || null;
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function evaluarPermisoEnvioAutomatico(decision = null, options = {}) {
   const action = accionDecisionDigest(decision);
-  if (action === null) return true;
-  return action === 'include';
+  if (action === 'include') return { allowed: true, reason: 'decision_digest_include', action };
+  if (action) {
+    return { allowed: false, reason: `decision_digest_${action}`, action };
+  }
+
+  const mode = String(options.mode || 'automatic_daily').trim().toLowerCase();
+  const cutoff = new Date(options.cutoff || DECISION_DIGEST_REQUIRED_FROM);
+  const createdAt = fechaCreacionAlerta(options.alerta);
+  const legacyExplicit = options.allowLegacyWithoutDecision === true &&
+    LEGACY_DECISION_BYPASS_MODES.has(mode);
+  const historical = createdAt && !Number.isNaN(cutoff.getTime()) && createdAt < cutoff;
+
+  if (legacyExplicit && historical) {
+    return {
+      allowed: true,
+      reason: 'legacy_decision_digest_bypass',
+      action: null,
+      mode,
+      created_at: createdAt.toISOString(),
+    };
+  }
+
+  return {
+    allowed: false,
+    reason: 'decision_digest_missing',
+    action: null,
+    mode,
+  };
 }
 
-function filtrarAlertasEnviablesAutomaticamente(alertas = []) {
+function esEnvioAutomaticoPermitido(decision = null, options = {}) {
+  return evaluarPermisoEnvioAutomatico(decision, options).allowed;
+}
+
+function filtrarAlertasEnviablesAutomaticamente(alertas = [], options = {}) {
   const enviables = [];
   const retenidas = [];
   for (const alerta of alertas || []) {
-    if (esEnvioAutomaticoPermitido(alerta?.decision_digest)) {
+    const evaluacion = evaluarPermisoEnvioAutomatico(alerta?.decision_digest, {
+      ...options,
+      alerta,
+    });
+    if (evaluacion.allowed) {
       enviables.push(alerta);
     } else {
       retenidas.push({
         alerta_id: alerta?.id ?? null,
-        action: accionDecisionDigest(alerta?.decision_digest),
-        motivo: alerta?.decision_digest?.motivo || null,
+        action: evaluacion.action,
+        motivo: alerta?.decision_digest?.motivo || evaluacion.reason,
       });
     }
   }
@@ -179,8 +229,13 @@ const MOTIVOS_SIN_COINCIDENCIA_PERFIL = new Set([
   'provincia_no_coincide',
   'alerta_sin_taxonomia',
   'alerta_sin_sector_clasificado',
+  'alerta_especializada_sin_tipo',
+  'alerta_taxonomia_sin_evidencia_tematica',
   'sector_no_coincide',
   'sector_inferido_no_coincide',
+  'animal_health_requires_livestock_profile',
+  'plant_health_requires_agriculture_profile',
+  'irrigation_requires_compatible_profile',
   'subsector_no_coincide',
   'tipo_alerta_no_coincide',
   'matcher_no_coincide',
@@ -1111,6 +1166,22 @@ function resumenFactSheetDigest(factSheet = null) {
     risk_score: factSheet.risk_score ?? null,
     evidence_coverage: factSheet.evidence_coverage ?? null,
     flags: Array.isArray(factSheet.flags) ? factSheet.flags : [],
+    legal_dates: {
+      publication_date: factSheet.publication_date?.valor ?? null,
+      effective_date: factSheet.effective_date?.valor ?? null,
+      application_deadline: factSheet.application_deadline?.valor ?? null,
+      allegation_deadline: factSheet.allegation_deadline?.valor ?? null,
+      appeal_deadline: factSheet.appeal_deadline?.valor ?? null,
+      justification_deadline: factSheet.justification_deadline?.valor ?? null,
+    },
+    action_code: factSheet.accion_codigo?.valor ?? null,
+    structured_summary: Object.fromEntries(
+      Object.entries(factSheet.resumen_estructurado || {})
+        .map(([key, field]) => [key, field?.valor ?? null])
+    ),
+    taxonomy_evidence: Array.isArray(factSheet.taxonomy_evidence)
+      ? factSheet.taxonomy_evidence
+      : [],
   };
 }
 
@@ -2368,6 +2439,7 @@ async function generarMensajeDigest({ user, alertas, fecha, plan, aprendizaje, o
         `Tipos detectados: ${Array.isArray(a.tipos_alerta) && a.tipos_alerta.length ? a.tipos_alerta.join(', ') : 'No especificados'}`,
         `Lectura obligatoria del boletin: ${lectura.lectura || 'No disponible'}`,
         `Extracto oficial: ${lectura.extracto || 'No disponible'}`,
+        `Fact sheet estructurada: ${contextoInterno.fact_sheet ? JSON.stringify(contextoInterno.fact_sheet) : 'No disponible'}`,
         `Ficha IA: ${ficha}`,
         `Enlace: ${a.url}`,
       ].join('\n');
@@ -2797,11 +2869,14 @@ module.exports = {
   DIGEST_RESCUE_MAX_ALERTAS,
   DIGEST_RESCUE_MESSAGE_MAX_CHARS,
   DIGEST_VECTOR_BACKFILL_MIN,
+  DECISION_DIGEST_REQUIRED_FROM,
+  LEGACY_DECISION_BYPASS_MODES,
   FINAL_VALIDATION_MODE,
   DIGEST_FINAL_VALIDATION_MODE,
   DIGEST_FINAL_VALIDATION_ENFORCEMENT,
   resolverModoValidacionFinal,
   accionDecisionDigest,
+  evaluarPermisoEnvioAutomatico,
   esEnvioAutomaticoPermitido,
   filtrarAlertasEnviablesAutomaticamente,
   resumirSeleccionDigest,

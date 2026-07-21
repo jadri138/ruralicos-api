@@ -15,6 +15,7 @@ const { PROVINCE_ALIASES } = require('../../../shared/geography');
 const {
   canonicalSector,
   canonicalSubsector,
+  canonicalTipoAlerta,
 } = require('../../../shared/preferenceCanonical');
 const { aliasesCanonicos } = require('../../../shared/taxonomyRegistry');
 
@@ -76,6 +77,35 @@ const SUBSECTOR_EVIDENCE_ALIASES = combinarAliases(
     Object.keys(SUBSECTOR_ALIASES).map((value) => [value, aliasesCanonicos('subsector', value)])
   )
 );
+
+const TYPE_EVIDENCE_ALIASES = Object.freeze({
+  ayudas_subvenciones: ['ayuda', 'ayudas', 'subvencion', 'subvenciones', 'convocatoria'],
+  normativa_general: ['ley', 'decreto', 'orden', 'resolucion', 'normativa', 'reglamento'],
+  agua_infraestructuras: ['agua', 'riego', 'regadio', 'regantes'],
+  fiscalidad: ['irpf', 'iva', 'tributacion', 'modulos', 'impuesto', 'deduccion fiscal', 'regimen fiscal'],
+  medio_ambiente: ['medio ambiente', 'ambiental', 'biodiversidad'],
+  sanidad_animal: ['sanidad animal', 'veterinario', 'veterinaria', 'antibioticos', 'bioseguridad ganadera'],
+  sanidad_vegetal: ['sanidad vegetal', 'fitosanitario', 'fitosanitarios', 'plaga vegetal'],
+  incendios_emergencias: ['incendio forestal', 'emergencia', 'evacuacion', 'alerta meteorologica'],
+  obligaciones: ['debera', 'deberan', 'obligacion', 'obligaciones', 'obligatorio'],
+  restricciones: ['restriccion', 'restricciones', 'prohibicion', 'limitacion'],
+  forestal: ['forestal', 'monte', 'montes', 'silvicultura'],
+  formacion: ['formacion', 'curso', 'jornada'],
+  registros_certificaciones: ['registro', 'inscripcion', 'certificacion', 'certificado'],
+  plazos_alegaciones: ['alegacion', 'alegaciones', 'informacion publica'],
+});
+
+const ACTION_DEFINITIONS = Object.freeze([
+  ['consultar_presvet', [/presvet/i]],
+  ['revisar_con_veterinario', [/revisar.{0,60}veterinari/i, /consultar.{0,60}veterinari/i]],
+  ['presentar_solicitud', [/presentar (?:una )?solicitud/i, /solicitudes? se presentaran/i]],
+  ['presentar_alegaciones', [/presentar alegaciones/i, /plazo de alegaciones/i]],
+  ['subsanar_documentacion', [/subsanar/i, /subsanacion/i]],
+  ['justificar_ayuda', [/justificar (?:la )?ayuda/i, /cuenta justificativa/i, /plazo de justificacion/i]],
+  ['contactar_organismo', [/contactar con/i, /dirigirse a/i]],
+  ['sin_accion_inmediata', [/sin accion inmediata/i, /no requiere accion inmediata/i]],
+  ['solo_informativo', [/solo informativo/i, /a efectos informativos/i]],
+]);
 
 const GENERIC_PATTERNS = [
   /publicacion oficial relevante/i,
@@ -143,6 +173,139 @@ function campoDesdeBloque(valor, block, confidence = 0.75) {
     confidence: block.official ? Math.max(confidence, 0.9) : confidence,
     evidenceLevel: block.official ? 'official' : 'derived',
   });
+}
+
+function sourceField(block = {}) {
+  const source = String(block.source || 'unknown');
+  if (source === 'alerta.titulo') return 'title';
+  if (source === 'alerta.contenido' || source === 'raw_document.texto_raw') return 'content';
+  if (source.startsWith('alerta.resumen')) return 'summary';
+  return source;
+}
+
+function extraerEvidenciaTaxonomia(alerta = {}, blocks = []) {
+  const tags = [
+    ...normalizarLista(alerta.sectores, canonicalSector).map((value) => ({
+      tag: `sector:${value}`,
+      aliases: SECTOR_EVIDENCE_ALIASES[value] || [value],
+    })),
+    ...normalizarLista(alerta.subsectores, canonicalSubsector).map((value) => ({
+      tag: `subsector:${value}`,
+      aliases: SUBSECTOR_EVIDENCE_ALIASES[value] || [value],
+    })),
+    ...normalizarLista(alerta.tipos_alerta, canonicalTipoAlerta).map((value) => ({
+      tag: `tipo:${value}`,
+      aliases: TYPE_EVIDENCE_ALIASES[value] || [value.replace(/_/g, ' ')],
+    })),
+  ];
+  const seen = new Set();
+  const evidence = [];
+  const unsupported = [];
+
+  for (const item of tags) {
+    if (!item.tag || seen.has(item.tag)) continue;
+    seen.add(item.tag);
+    const block = buscarEvidencia(blocks, item.aliases);
+    if (!block) {
+      unsupported.push(item.tag);
+      continue;
+    }
+    evidence.push({
+      tag: item.tag,
+      evidence: compactarTexto(block.sentence, 220),
+      source_field: sourceField(block),
+      confidence: block.official ? 0.92 : 0.78,
+      evidence_level: block.official ? 'official' : 'derived',
+    });
+  }
+
+  return { evidence, unsupported };
+}
+
+function extraerAccionEstructurada(blocks = []) {
+  for (const [code, patterns] of ACTION_DEFINITIONS) {
+    const block = buscarEvidencia(blocks, patterns);
+    if (block) return campoDesdeBloque(code, block, 0.82);
+  }
+  return crearCampo();
+}
+
+const MONTHS_ES = Object.freeze({
+  enero: 1, febrero: 2, marzo: 3, abril: 4, mayo: 5, junio: 6,
+  julio: 7, agosto: 8, septiembre: 9, octubre: 10, noviembre: 11, diciembre: 12,
+});
+const NUMBER_WORDS = Object.freeze({ un: 1, uno: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6 });
+
+function isoDate(year, month, day) {
+  const y = Number(year);
+  const m = Number(month);
+  const d = Number(day);
+  if (!y || !m || !d) return null;
+  const date = new Date(Date.UTC(y, m - 1, d));
+  if (date.getUTCFullYear() !== y || date.getUTCMonth() !== m - 1 || date.getUTCDate() !== d) return null;
+  return `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+
+function sumarMesesIso(value, months) {
+  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  date.setUTCMonth(date.getUTCMonth() + Number(months || 0));
+  return date.toISOString().slice(0, 10);
+}
+
+function valorFechaDesdeBloque(block, publicationDate = null) {
+  const text = normalizarTexto(block?.sentence || '');
+  if (!text) return null;
+  const iso = text.match(/\b(20\d{2})-(\d{2})-(\d{2})\b/);
+  if (iso) return isoDate(iso[1], iso[2], iso[3]);
+  const literal = text.match(/\b(\d{1,2}) de (enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)(?: de (20\d{2}))?\b/);
+  if (literal) {
+    const fallbackYear = String(publicationDate || '').slice(0, 4);
+    return isoDate(literal[3] || fallbackYear, MONTHS_ES[literal[2]], literal[1]);
+  }
+  const relative = text.match(/\b(un|uno|dos|tres|cuatro|cinco|seis|\d{1,2}) meses? (?:despues|a partir) de (?:su|la) publicacion\b/);
+  if (relative && publicationDate) {
+    const months = NUMBER_WORDS[relative[1]] || Number(relative[1]);
+    return sumarMesesIso(publicationDate, months);
+  }
+  const duration = text.match(/\b(\d{1,3}|un|uno|dos|tres|cuatro|cinco|seis)\s+(dias?|mes(?:es)?)\b/);
+  if (duration) return `${duration[1] === 'un' || duration[1] === 'uno' ? '1' : (NUMBER_WORDS[duration[1]] || duration[1])} ${duration[2]}`;
+  return compactarTexto(block.sentence, 180);
+}
+
+function extraerFechaConPatrones(blocks, patterns, publicationDate = null) {
+  const block = buscarEvidencia(blocks, patterns);
+  return campoDesdeBloque(valorFechaDesdeBloque(block, publicationDate), block, 0.84);
+}
+
+function extraerFechasJuridicas(alerta = {}, blocks = []) {
+  const publicationDate = /^20\d{2}-\d{2}-\d{2}$/.test(String(alerta.fecha || ''))
+    ? String(alerta.fecha)
+    : null;
+  const publication = publicationDate
+    ? crearCampo(publicationDate, publicationDate, {
+      source: 'alerta.fecha', confidence: 0.9, evidenceLevel: 'derived',
+    })
+    : crearCampo();
+  return {
+    publication_date: publication,
+    effective_date: extraerFechaConPatrones(blocks, [
+      /entrada en vigor/i, /entrara en vigor/i, /produce[n]? efectos/i, /surtira efectos/i,
+    ], publicationDate),
+    application_deadline: extraerFechaConPatrones(blocks, [
+      /plazo de presentacion de solicitudes/i, /presentar (?:la )?solicitud/i, /solicitudes?.{0,80}(?:hasta|plazo)/i,
+    ], publicationDate),
+    allegation_deadline: extraerFechaConPatrones(blocks, [
+      /plazo de alegaciones/i, /alegaciones?.{0,80}(?:dias|mes|hasta)/i, /informacion publica.{0,100}alegaciones/i,
+    ], publicationDate),
+    appeal_deadline: extraerFechaConPatrones(blocks, [
+      /recurso de (?:alzada|reposicion)/i, /interponer recurso/i, /plazo.{0,80}recurso/i,
+    ], publicationDate),
+    justification_deadline: extraerFechaConPatrones(blocks, [
+      /plazo de justificacion/i, /cuenta justificativa/i, /justificar (?:la )?ayuda/i,
+    ], publicationDate),
+  };
 }
 
 function extraerValorEtiqueta(sentence, label) {
@@ -378,6 +541,36 @@ function extraerRequisitos(blocks = []) {
   return block ? [campoDesdeBloque(compactarTexto(block.sentence, 220), block, 0.68)] : [];
 }
 
+function extraerResumenEstructurado(blocks = [], sheet = {}) {
+  const marco = buscarEvidencia(blocks, [
+    /de conformidad con/i, /en aplicacion de/i, /marco (?:juridico|normativo)/i, /regulado por/i,
+  ]);
+  const acto = buscarEvidencia(blocks, [
+    /se publican?/i, /se aprueba[n]?/i, /se convocan?/i, /se modifica[n]?/i,
+    /se establecen?/i, /resolucion por la que/i,
+  ]);
+  const cambio = buscarEvidencia(blocks, [
+    /produce[n]? efectos/i, /entrada en vigor/i, /debera[n]?/i, /obligacion/i,
+    /se incrementa/i, /se reduce/i, /se prohibe/i, /se restringe/i,
+  ]);
+  const relevantDate = [
+    sheet.effective_date,
+    sheet.application_deadline,
+    sheet.allegation_deadline,
+    sheet.appeal_deadline,
+    sheet.justification_deadline,
+  ].find((field) => field?.valor) || crearCampo();
+
+  return {
+    marco_juridico_previo: campoDesdeBloque(marco ? compactarTexto(marco.sentence, 240) : null, marco, 0.72),
+    acto_publicado_ahora: campoDesdeBloque(acto ? compactarTexto(acto.sentence, 280) : null, acto, 0.86),
+    cambio_practico: campoDesdeBloque(cambio ? compactarTexto(cambio.sentence, 240) : null, cambio, 0.8),
+    afectados: sheet.beneficiarios || crearCampo(),
+    fecha_relevante: relevantDate,
+    accion: sheet.accion_codigo?.valor ? sheet.accion_codigo : (sheet.accion_requerida || crearCampo()),
+  };
+}
+
 function extraerUrl(alerta = {}, trace = null) {
   const url = String(trace?.source_url || alerta.url || '').trim();
   if (!/^https?:\/\//i.test(url)) return crearCampo();
@@ -423,11 +616,17 @@ function construirFactSheetDesdeTrace(alerta = {}, trace = null, options = {}) {
   sheet.sectores = extraerSectores(alerta, blocks);
   sheet.subsectores = extraerSubsectores(alerta, blocks);
   sheet.accion_requerida = extraerAccion(blocks);
+  sheet.accion_codigo = extraerAccionEstructurada(blocks);
   sheet.plazo = extraerPlazo(blocks);
+  Object.assign(sheet, extraerFechasJuridicas(alerta, blocks));
   sheet.beneficiarios = extraerBeneficiarios(blocks);
   sheet.importe = extraerImporte(blocks);
   sheet.requisitos = extraerRequisitos(blocks);
   sheet.url_oficial = extraerUrl(alerta, trace);
+  const taxonomyEvidence = extraerEvidenciaTaxonomia(alerta, blocks);
+  sheet.taxonomy_evidence = taxonomyEvidence.evidence;
+  sheet.unsupported_taxonomy_tags = taxonomyEvidence.unsupported;
+  sheet.resumen_estructurado = extraerResumenEstructurado(blocks, sheet);
 
   return validarFactSheet(sheet, { alerta });
 }

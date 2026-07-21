@@ -34,6 +34,9 @@ test('canoniza aliases frecuentes de sectores, subsectores y tipos', () => {
   assert.strictEqual(canonicalTipoAlerta('plazo'), 'plazos');
   assert.strictEqual(canonicalTipoAlerta('agua_infraestructura'), 'agua_infraestructuras');
   assert.strictEqual(canonicalTipoAlerta('seguro agrario'), 'seguros_agrarios');
+  assert.strictEqual(canonicalTipoAlerta('sanidad vegetal'), 'sanidad_vegetal');
+  assert.strictEqual(canonicalTipoAlerta('incendio forestal'), 'incendios_emergencias');
+  assert.strictEqual(canonicalTipoAlerta('alegaciones'), 'plazos_alegaciones');
 });
 
 test('normaliza preferencias de usuario sin duplicados ni valores desconocidos', () => {

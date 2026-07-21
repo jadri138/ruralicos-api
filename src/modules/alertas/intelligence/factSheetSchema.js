@@ -1,5 +1,5 @@
-const FACT_SHEET_SCHEMA_VERSION = 'fact_sheet_v2';
-const FACT_SHEET_BUILDER_VERSION = 'fact_sheet_builder_v2';
+const FACT_SHEET_SCHEMA_VERSION = 'fact_sheet_v3';
+const FACT_SHEET_BUILDER_VERSION = 'fact_sheet_builder_v3';
 
 const FACT_SHEET_STATUS = Object.freeze({
   READY: 'ready_for_digest',
@@ -83,12 +83,22 @@ function crearFactSheetBase({ alerta = {}, trace = null, now = new Date() } = {}
     sectores: [],
     subsectores: [],
     accion_requerida: crearCampo(),
+    accion_codigo: crearCampo(),
     plazo: crearCampo(),
+    publication_date: crearCampo(),
+    effective_date: crearCampo(),
+    application_deadline: crearCampo(),
+    allegation_deadline: crearCampo(),
+    appeal_deadline: crearCampo(),
+    justification_deadline: crearCampo(),
     beneficiarios: crearCampo(),
     importe: crearCampo(),
     requisitos: [],
     url_oficial: crearCampo(),
     evidencias: [],
+    taxonomy_evidence: [],
+    unsupported_taxonomy_tags: [],
+    resumen_estructurado: {},
     truth_score: 0,
     risk_score: 100,
     evidence_coverage: 0,
@@ -144,7 +154,14 @@ function recalcularEvidencias(sheet) {
     'sectores',
     'subsectores',
     'accion_requerida',
+    'accion_codigo',
     'plazo',
+    'publication_date',
+    'effective_date',
+    'application_deadline',
+    'allegation_deadline',
+    'appeal_deadline',
+    'justification_deadline',
     'beneficiarios',
     'importe',
     'requisitos',

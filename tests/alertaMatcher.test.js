@@ -3,7 +3,9 @@ const {
   diagnosticarAlertaUsuario,
   inferirSectoresDesdeSubsectores,
   obtenerSectorImplicitoUsuario,
+  resolverTaxonomiaSeguraAlerta,
   resolverTerritorioAlerta,
+  userHasLivestockActivity,
 } = require('../src/modules/alertas/seleccion/alertaMatcher');
 
 let passed = 0;
@@ -672,6 +674,70 @@ test('barrera usa el sector derivado desde taxonomy_tags', () => {
   assert.strictEqual(result.ok, false);
   assert.strictEqual(result.motivo, 'sector_inferido_no_coincide');
   assert.deepStrictEqual(result.detalle.alerta_sectores, ['agricultura']);
+});
+
+const alertaAntibioticosContaminada = {
+  fuente: 'BOE',
+  provincias: ['nacional'],
+  titulo: 'Indicadores nacionales de consumo de antibióticos veterinarios',
+  contenido: 'Se publican indicadores aplicables a las explotaciones ganaderas y sus especies de interés ganadero.',
+  sectores: ['ganaderia', 'agricultura', 'mixto'],
+  subsectores: [
+    'porcino', 'vacuno', 'ovino', 'caprino', 'avicultura', 'cunicultura',
+    'equinocultura', 'frutales', 'vinedo', 'olivar', 'trigo', 'hortalizas',
+    'almendro', 'patata', 'agua',
+  ],
+  tipos_alerta: ['sanidad_animal', 'normativa_general', 'fiscalidad'],
+};
+
+test('sanidad animal repara la taxonomia contaminada usando evidencia documental', () => {
+  const safe = resolverTaxonomiaSeguraAlerta(alertaAntibioticosContaminada);
+  assert.deepStrictEqual(safe.sectores, ['ganaderia']);
+  assert.deepStrictEqual(safe.subsectores, [
+    'porcino', 'vacuno', 'ovino', 'caprino', 'avicultura', 'cunicultura', 'equinocultura',
+  ]);
+  assert.deepStrictEqual(safe.tipos, ['sanidad_animal', 'normativa_general']);
+  assert.strictEqual(safe.topic_validation.status, 'repaired');
+});
+
+test('sanidad animal exige perfil ganadero aunque la clasificacion original incluya agricultura', () => {
+  const perfiles = {
+    ganadero_porcino: [userSectorial({ sectores: ['ganaderia'], subsectores: ['porcino'] }), true, 'coincide'],
+    ganadero_ovino: [userSectorial({ subsectores: ['ovino'] }), true, 'coincide'],
+    ganadero_avicola: [userSectorial({ subsectores: ['avicultura'] }), true, 'coincide'],
+    mixto: [userSectorial({ sectores: ['mixto'], subsectores: ['ovino', 'trigo'] }), true, 'coincide'],
+    agricultor_cereal: [userSectorial({ sectores: ['agricultura'], subsectores: ['trigo'] }), false, 'animal_health_requires_livestock_profile'],
+    viticultor: [userSectorial({ sectores: ['agricultura'], subsectores: ['vinedo'] }), false, 'animal_health_requires_livestock_profile'],
+    olivarero: [userSectorial({ sectores: ['agricultura'], subsectores: ['olivar'] }), false, 'animal_health_requires_livestock_profile'],
+    sin_sector: [userSectorial(), false, 'animal_health_requires_livestock_profile'],
+  };
+
+  for (const [nombre, [user, expectedOk, expectedReason]] of Object.entries(perfiles)) {
+    const result = diagnosticarAlertaUsuario(alertaAntibioticosContaminada, user);
+    assert.strictEqual(result.ok, expectedOk, nombre);
+    assert.strictEqual(result.motivo, expectedReason, nombre);
+  }
+});
+
+test('interes explicito fiable en sanidad animal cuenta como actividad ganadera', () => {
+  const user = userSectorial();
+  user.preferences.tipos_alerta = { sanidad_animal: true };
+  assert.strictEqual(userHasLivestockActivity(user), true);
+  assert.strictEqual(diagnosticarAlertaUsuario(alertaAntibioticosContaminada, user).ok, true);
+});
+
+test('sanidad vegetal especializada sin tipo queda en revision antes del scoring', () => {
+  const result = diagnosticarAlertaUsuario({
+    fuente: 'BOE',
+    provincias: ['nacional'],
+    titulo: 'Medidas de sanidad vegetal contra plagas de los cultivos',
+    contenido: 'Se establecen medidas fitosanitarias para cultivos agrícolas.',
+    sectores: ['agricultura'],
+    subsectores: [],
+    tipos_alerta: [],
+  }, userSectorial({ sectores: ['agricultura'] }));
+  assert.strictEqual(result.ok, false);
+  assert.strictEqual(result.motivo, 'alerta_especializada_sin_tipo');
 });
 
 console.log(`\nResultados alertaMatcher: ${passed} aprobados, ${failed} fallidos`);

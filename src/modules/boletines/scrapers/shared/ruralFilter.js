@@ -119,6 +119,15 @@ function encontrarSenales(textoNormalizado, palabras) {
   return encontradas;
 }
 
+function quitarNegacionesRurales(textoNormalizado) {
+  return textoNormalizado
+    .replace(/\bno\s+(?:agrari\w*|agricol\w*|ganader\w*|rural\w*)\b/g, ' ')
+    .replace(
+      /\bsin\s+(?:relacion|contenido|actividad|afeccion|impacto)\s+(?:agrari\w*|agricol\w*|ganader\w*|rural\w*)\b/g,
+      ' '
+    );
+}
+
 function crearDecision(action, positiveSignals, negativeSignals, reasonCode) {
   return { action, positiveSignals, negativeSignals, reasonCode };
 }
@@ -134,7 +143,8 @@ function crearPrefiltroRural({ excluir = [], incluir = [] } = {}) {
 
   return function decidirPrefiltroRural(texto) {
     const textoNormalizado = normalizar(texto);
-    const positiveSignals = encontrarSenales(textoNormalizado, senalesPositivas);
+    const textoParaSenalesRurales = quitarNegacionesRurales(textoNormalizado);
+    const positiveSignals = encontrarSenales(textoParaSenalesRurales, senalesPositivas);
     const negativeSignals = encontrarSenales(textoNormalizado, senalesNegativas);
     const descartesFuertes = encontrarSenales(textoNormalizado, DESCARTES_FUERTES);
     const descartesSinRural = encontrarSenales(textoNormalizado, DESCARTES_SIN_SENAL_RURAL);
