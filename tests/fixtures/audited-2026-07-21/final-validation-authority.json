@@ -1,0 +1,16 @@
+{
+  "incident": "selected_items_allowed_after_final_validation_rejected_all",
+  "date": "2026-07-21",
+  "selected_items": 84,
+  "selection_action": "include",
+  "final_validation": {
+    "blocked": 81,
+    "review_only": 3,
+    "send": 0
+  },
+  "expected": {
+    "effective_send_items": 0,
+    "automatic_send_allowed": 0,
+    "digest_sendable": false
+  }
+}

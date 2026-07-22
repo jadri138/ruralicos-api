@@ -12,8 +12,14 @@ const {
   cargarOutboxPendiente,
   procesarOutboxItemMIA,
   generarOutboxHealthMIA,
+  marcarOutboxFailed,
+  getMaxAttempts,
 } = require('../mia/outbox');
-const { digestIdDeOutboxItem, procesarResultadoDigestOutbox } = require('../digest/digestOutbox');
+const {
+  digestIdDeOutboxItem,
+  filtrarDigestsPorAutoridadFinal,
+  procesarResultadoDigestOutbox,
+} = require('../digest/digestOutbox');
 
 const {
   FEGA_SCRAPE_PATH,
@@ -81,11 +87,28 @@ module.exports = function tareasRoutes(app, supabase) {
           continue;
         }
 
-        const result = await procesarOutboxItemMIA(supabase, item, enviarDigestPro);
+        const digestId = digestIdDeOutboxItem(item);
+        let result;
+        if (digestId) {
+          const finalAuthority = await filtrarDigestsPorAutoridadFinal(supabase, [{ id: digestId }]);
+          const blocked = finalAuthority.bloqueados[0] || null;
+          if (blocked) {
+            await marcarOutboxFailed(supabase, item.id, blocked.reason, getMaxAttempts());
+            result = {
+              id: item.id,
+              ok: false,
+              status: 'failed',
+              retryable: false,
+              error: blocked.reason,
+              final_send_gate_blocked: true,
+            };
+          }
+        }
+        if (!result) result = await procesarOutboxItemMIA(supabase, item, enviarDigestPro);
 
         // Items del digest diario (DIGEST_VIA_OUTBOX): reflejar el resultado en
         // digests/digest_attempts y espaciar los envios (delay anti-ban).
-        if (digestIdDeOutboxItem(item)) {
+        if (digestId) {
           await procesarResultadoDigestOutbox(supabase, item, result);
           if (result.status === 'sent' && digestDelayMs > 0) {
             await new Promise((resolve) => setTimeout(resolve, digestDelayMs));

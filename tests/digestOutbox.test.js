@@ -28,9 +28,22 @@ function test(name, fn) {
 }
 
 // Supabase falso minimo: sirve datasets por tabla y captura inserts/updates.
-function fakeSupabase({ digests = [], users = [], insertError = null } = {}) {
+function fakeSupabase({ digests = [], users = [], digestItems = null, insertError = null } = {}) {
   const inserts = [];
   const updates = [];
+  const safeDigestItems = digestItems || digests.map((digest, index) => ({
+    digest_id: digest.id,
+    alerta_id: 1000 + index,
+    selection_action: 'include',
+    selection_decision: { action: 'include', incluir: true },
+    tags_json: {
+      final_validation_decision: { status: 'send', flags: [], reasons: [] },
+      effective_send_decision: 'send',
+      effective_reason: 'automatic_send_allowed',
+      effective_gate_version: 'final_send_gate_v1',
+      automatic_send_allowed: true,
+    },
+  }));
 
   function builder(table) {
     const chain = {
@@ -54,7 +67,9 @@ function fakeSupabase({ digests = [], users = [], insertError = null } = {}) {
       then(resolve) {
         const data = table === 'digests'
           ? digests
-          : table === 'users'
+          : table === 'digest_items'
+            ? safeDigestItems
+            : table === 'users'
             ? users
             : table === 'digest_attempts'
               ? [{ id: 900, kind: 'daily', status: 'generated', created_at: '2026-07-08T09:00:00Z' }]
@@ -129,6 +144,40 @@ async function main() {
     const r = await encolarDigestsPendientes(supabase, { fecha: '2026-07-08' });
     assert.strictEqual(r.errores.length, 1);
     assert.strictEqual(r.errores[0].digestId, 10);
+  });
+
+  await test('digest sin autoridad final persistida no se encola', async () => {
+    const supabase = fakeSupabase({
+      digests: DIGESTS.slice(0, 1),
+      users: USERS,
+      digestItems: [],
+    });
+    const r = await encolarDigestsPendientes(supabase, { fecha: '2026-07-08' });
+    assert.strictEqual(r.encolados, 0);
+    assert.strictEqual(r.bloqueados_validacion_final, 1);
+    assert.strictEqual(supabase.inserts.filter((item) => item.table === 'mia_outbox').length, 0);
+  });
+
+  await test('digest con item blocked no se encola aunque la seleccion fuese include', async () => {
+    const supabase = fakeSupabase({
+      digests: DIGESTS.slice(0, 1),
+      users: USERS,
+      digestItems: [{
+        digest_id: 10,
+        alerta_id: 1000,
+        selection_action: 'include',
+        selection_decision: { action: 'include', incluir: true },
+        tags_json: {
+          final_validation_decision: { status: 'blocked' },
+          effective_send_decision: 'blocked',
+          effective_gate_version: 'final_send_gate_v1',
+          automatic_send_allowed: false,
+        },
+      }],
+    });
+    const r = await encolarDigestsPendientes(supabase, { fecha: '2026-07-08' });
+    assert.strictEqual(r.encolados, 0);
+    assert.strictEqual(r.bloqueados_validacion_final, 1);
   });
 
   await test('digestIdDeOutboxItem: solo reconoce items del digest', () => {

@@ -4,6 +4,7 @@ process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ||
 const assert = require('assert');
 const {
   FINAL_VALIDATION_MODE,
+  DIGEST_FINAL_VALIDATION_MODE,
   filtrarAlertasPorValidacionFinalDigest,
   guardarFactSheetsDigestShadow,
   prepararValidacionFinalDigestShadow,
@@ -184,6 +185,8 @@ test('enforcement solo acepta items con validacion send', async () => {
 });
 
 test('resuelve modo nuevo y mantiene compatibilidad con booleano legacy', async () => {
+  assert.strictEqual(DIGEST_FINAL_VALIDATION_MODE, FINAL_VALIDATION_MODE.ENFORCE);
+  assert.strictEqual(resolverModoValidacionFinal({}), FINAL_VALIDATION_MODE.ENFORCE);
   assert.strictEqual(
     resolverModoValidacionFinal({ mode: 'critical', legacyEnforcement: 'false' }),
     FINAL_VALIDATION_MODE.CRITICAL
@@ -198,7 +201,7 @@ test('resuelve modo nuevo y mantiene compatibilidad con booleano legacy', async 
   );
 });
 
-test('critical bloquea solo riesgos criticos demostrables', async () => {
+test('critical ya no relaja el gate automatico: solo send es enviable', async () => {
   const result = filtrarAlertasPorValidacionFinalDigest([
     alerta({ id: 601 }),
     alerta({ id: 602 }),
@@ -229,14 +232,15 @@ test('critical bloquea solo riesgos criticos demostrables', async () => {
     ],
   }, { mode: 'critical' });
 
-  assert.deepStrictEqual(result.aceptadas.map((item) => item.id), [601]);
-  assert.deepStrictEqual(result.rechazadas.map((item) => item.alerta.id), [602, 603]);
-  assert.strictEqual(result.summary.mode, 'critical');
+  assert.deepStrictEqual(result.aceptadas.map((item) => item.id), []);
+  assert.deepStrictEqual(result.rechazadas.map((item) => item.alerta.id), [601, 602, 603]);
+  assert.strictEqual(result.summary.mode, 'enforce');
+  assert.strictEqual(result.summary.requested_mode, 'critical');
   assert.strictEqual(result.summary.critical_reasons.deadline_claim_without_evidence, 1);
   assert.strictEqual(result.summary.critical_reasons.notificacion_individual, 1);
 });
 
-test('shadow no bloquea y conserva el diagnostico fuera del filtro', async () => {
+test('shadow no puede saltarse la autoridad final del envio automatico', async () => {
   const result = filtrarAlertasPorValidacionFinalDigest([
     alerta({ id: 701 }),
   ], {
@@ -248,9 +252,10 @@ test('shadow no bloquea y conserva el diagnostico fuera del filtro', async () =>
     }],
   }, { mode: 'shadow' });
 
-  assert.strictEqual(result.aceptadas.length, 1);
-  assert.strictEqual(result.rechazadas.length, 0);
-  assert.strictEqual(result.summary.mode, 'shadow');
+  assert.strictEqual(result.aceptadas.length, 0);
+  assert.strictEqual(result.rechazadas.length, 1);
+  assert.strictEqual(result.summary.mode, 'enforce');
+  assert.strictEqual(result.summary.requested_mode, 'shadow');
 });
 
 test('doble check critico bloquea el item si hay discrepancia', async () => {

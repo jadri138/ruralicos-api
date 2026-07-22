@@ -60,6 +60,15 @@ const rows = construirDigestItems({
       final_validation_status: 'send',
       final_validation_flags: [],
       final_validation_reasons: [],
+      effective_send_gate: {
+        selection_decision: { action: 'include', incluir: true, score: 91 },
+        final_validation_decision: { status: 'send', flags: [], reasons: [] },
+        effective_send_decision: 'send',
+        effective_reason: 'automatic_send_allowed',
+        automatic_send_allowed: true,
+        gate_version: 'final_send_gate_v1',
+        context: 'automatic_daily',
+      },
       shadow_decision: {
         version: 'digest_shadow_v1',
         future_decision: 'include',
@@ -106,6 +115,11 @@ assert(rows[0].tags_json.truth_score === 96, 'Guarda truth_score de fact sheet')
 assert(rows[0].tags_json.risk_score === 8, 'Guarda risk_score de fact sheet');
 assert(rows[0].tags_json.evidence_coverage === 0.92, 'Guarda cobertura de evidencia');
 assert(rows[0].tags_json.final_validation_status === 'send', 'Guarda estado de validacion final');
+assert(rows[0].tags_json.final_validation_decision.status === 'send', 'Guarda decision final estructurada');
+assert(rows[0].tags_json.effective_send_decision === 'send', 'Guarda decision efectiva de envio');
+assert(rows[0].tags_json.effective_reason === 'automatic_send_allowed', 'Guarda motivo efectivo');
+assert(rows[0].tags_json.effective_gate_version === 'final_send_gate_v1', 'Guarda version del gate final');
+assert(rows[0].tags_json.automatic_send_allowed === true, 'Solo send registra permiso automatico');
 assert(rows[0].tags_json.shadow_decision.future_decision === 'include', 'Guarda decision shadow');
 assert(rows[0].tags_json.contexto_mia_digest.version === 'digest_context_v1', 'Guarda contexto interno para MIA');
 assert(rows[0].tags_json.contexto_mia_digest.mensaje.accion_sugerida.includes('plazo'), 'Guarda accion interna por alerta');
@@ -123,6 +137,7 @@ assert(fallbackRows[0].selection_score === null, 'No inventa score de seleccion 
 assert(fallbackRows[0].similarity_score === 0.44, 'Mantiene similitud cuando actua como fallback');
 assert(Object.keys(fallbackRows[0].selection_decision).length === 0, 'Guarda decision vacia si no existe decision_digest');
 assert(fallbackRows[0].tags_json.selection === null, 'No inventa decision si falta decision_digest');
+assert(fallbackRows[0].tags_json.automatic_send_allowed === false, 'Sin gate efectivo persiste fail-closed');
 
 console.log(`\nResultados: ${passed} aprobados, ${failed} fallidos`);
 process.exit(failed > 0 ? 1 : 0);

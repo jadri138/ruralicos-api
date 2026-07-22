@@ -17,6 +17,7 @@
 const { actualizarDigestAttemptPorDigest } = require('../mia/digestAttempts');
 
 const UNIQUE_VIOLATION = '23505';
+const FINAL_SEND_GATE_VERSION = 'final_send_gate_v1';
 
 function digestViaOutboxHabilitado(env = process.env) {
   return String(env.DIGEST_VIA_OUTBOX || 'false').toLowerCase() === 'true';
@@ -26,6 +27,71 @@ function digestIdDeOutboxItem(item) {
   const raw = item?.metadata_json?.digest_id;
   const id = Number(raw);
   return Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+
+function evaluarDigestItemsParaEnvio(items = []) {
+  if (!Array.isArray(items) || items.length === 0) {
+    return { allowed: false, reason: 'digest_items_missing' };
+  }
+
+  for (const item of items) {
+    const tags = item?.tags_json && typeof item.tags_json === 'object' ? item.tags_json : {};
+    const selection = item?.selection_decision && typeof item.selection_decision === 'object'
+      ? item.selection_decision
+      : (tags.selection_decision || tags.decision_digest || {});
+    const finalValidation = tags.final_validation_decision || tags.contexto_mia_digest?.final_validation || {};
+    const effectiveDecision = tags.effective_send_decision;
+    const gateVersion = tags.effective_gate_version;
+
+    if ((selection.action || item.selection_action) !== 'include') {
+      return { allowed: false, reason: 'selection_decision_not_include', alerta_id: item.alerta_id || null };
+    }
+    if (finalValidation.status !== 'send') {
+      return {
+        allowed: false,
+        reason: `final_validation_${finalValidation.status || 'missing'}`,
+        alerta_id: item.alerta_id || null,
+      };
+    }
+    if (
+      effectiveDecision !== 'send'
+      || tags.automatic_send_allowed !== true
+      || gateVersion !== FINAL_SEND_GATE_VERSION
+    ) {
+      return { allowed: false, reason: 'effective_send_gate_invalid', alerta_id: item.alerta_id || null };
+    }
+  }
+
+  return { allowed: true, reason: 'automatic_send_allowed', items: items.length };
+}
+
+async function filtrarDigestsPorAutoridadFinal(supabase, digests = []) {
+  if (!Array.isArray(digests) || digests.length === 0) {
+    return { enviables: [], bloqueados: [] };
+  }
+
+  const digestIds = digests.map((digest) => digest.id).filter(Boolean);
+  const { data: items, error } = await supabase
+    .from('digest_items')
+    .select('digest_id, alerta_id, selection_action, selection_decision, tags_json')
+    .in('digest_id', digestIds);
+  if (error) throw error;
+
+  const itemsByDigest = new Map();
+  for (const item of items || []) {
+    const key = String(item.digest_id);
+    if (!itemsByDigest.has(key)) itemsByDigest.set(key, []);
+    itemsByDigest.get(key).push(item);
+  }
+
+  const enviables = [];
+  const bloqueados = [];
+  for (const digest of digests) {
+    const decision = evaluarDigestItemsParaEnvio(itemsByDigest.get(String(digest.id)) || []);
+    if (decision.allowed) enviables.push(digest);
+    else bloqueados.push({ digest, ...decision });
+  }
+  return { enviables, bloqueados };
 }
 
 // Encola en mia_outbox los digests del dia pendientes de envio. Idempotente:
@@ -40,10 +106,30 @@ async function encolarDigestsPendientes(supabase, { fecha, ahora = () => new Dat
   if (error) throw error;
 
   if (!digests || digests.length === 0) {
-    return { total: 0, encolados: 0, ya_encolados: 0, sin_telefono: 0, errores: [] };
+    return { total: 0, encolados: 0, ya_encolados: 0, sin_telefono: 0, bloqueados_validacion_final: 0, errores: [] };
   }
 
-  const userIds = digests.map((d) => d.user_id);
+  const finalAuthority = await filtrarDigestsPorAutoridadFinal(supabase, digests);
+  for (const blocked of finalAuthority.bloqueados) {
+    await actualizarDigestAttemptPorDigest(supabase, blocked.digest.id, {
+      status: 'no_send',
+      motivoNoEnvio: blocked.reason,
+      errorMsg: null,
+    });
+  }
+  const digestsEnviables = finalAuthority.enviables;
+  if (digestsEnviables.length === 0) {
+    return {
+      total: digests.length,
+      encolados: 0,
+      ya_encolados: 0,
+      sin_telefono: 0,
+      bloqueados_validacion_final: finalAuthority.bloqueados.length,
+      errores: [],
+    };
+  }
+
+  const userIds = digestsEnviables.map((d) => d.user_id);
   const { data: usuarios, error: errUsers } = await supabase
     .from('users')
     .select('id, phone')
@@ -58,7 +144,7 @@ async function encolarDigestsPendientes(supabase, { fecha, ahora = () => new Dat
   let sinTelefono = 0;
   const errores = [];
 
-  for (const digest of digests) {
+  for (const digest of digestsEnviables) {
     const telefono = telefonoPorUserId.get(Number(digest.user_id));
 
     if (!telefono) {
@@ -96,7 +182,14 @@ async function encolarDigestsPendientes(supabase, { fecha, ahora = () => new Dat
     }
   }
 
-  return { total: digests.length, encolados, ya_encolados: yaEncolados, sin_telefono: sinTelefono, errores };
+  return {
+    total: digests.length,
+    encolados,
+    ya_encolados: yaEncolados,
+    sin_telefono: sinTelefono,
+    bloqueados_validacion_final: finalAuthority.bloqueados.length,
+    errores,
+  };
 }
 
 // Hook post-proceso del drenador de mia_outbox: si el item era un digest,
@@ -143,6 +236,8 @@ async function procesarResultadoDigestOutbox(supabase, item, resultado) {
 module.exports = {
   digestViaOutboxHabilitado,
   digestIdDeOutboxItem,
+  evaluarDigestItemsParaEnvio,
+  filtrarDigestsPorAutoridadFinal,
   encolarDigestsPendientes,
   procesarResultadoDigestOutbox,
 };

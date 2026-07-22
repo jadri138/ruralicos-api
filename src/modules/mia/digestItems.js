@@ -12,6 +12,7 @@ function tagsAlerta(alerta = {}) {
   const similitud = normalizarNumero(alerta.similitud);
   const selectionScore = scoreSeleccion(alerta);
   const finalValidation = alerta.final_validation || alerta.validacion_final_digest || {};
+  const effectiveSendGate = alerta.effective_send_gate || alerta.contexto_mia_digest?.effective_send_gate || {};
 
   return {
     provincias: Array.isArray(alerta.provincias) ? alerta.provincias : [],
@@ -57,6 +58,12 @@ function tagsAlerta(alerta = {}) {
       : (Array.isArray(finalValidation.reasons) ? finalValidation.reasons : []),
     critical_double_check: alerta.critical_double_check || finalValidation.critical_double_check || null,
     shadow_decision: alerta.shadow_decision || null,
+    final_validation_decision: effectiveSendGate.final_validation_decision || null,
+    effective_send_decision: effectiveSendGate.effective_send_decision || 'blocked',
+    effective_reason: effectiveSendGate.effective_reason || 'effective_send_decision_missing',
+    effective_gate_version: effectiveSendGate.gate_version || null,
+    automatic_send_allowed: effectiveSendGate.automatic_send_allowed === true
+      && effectiveSendGate.final_validation_decision?.status === 'send',
   };
 }
 

@@ -123,6 +123,8 @@ const FINAL_VALIDATION_MODE = Object.freeze({
   CRITICAL: 'critical',
   ENFORCE: 'enforce',
 });
+const FINAL_SEND_GATE_VERSION = 'final_send_gate_v1';
+const FINAL_VALIDATION_SEND_STATUS = 'send';
 
 function resolverModoValidacionFinal({
   mode = process.env.DIGEST_FINAL_VALIDATION_MODE,
@@ -130,16 +132,16 @@ function resolverModoValidacionFinal({
 } = {}) {
   const normalized = String(mode || '').trim().toLowerCase();
   if (Object.values(FINAL_VALIDATION_MODE).includes(normalized)) return normalized;
-  return String(legacyEnforcement || 'false').trim().toLowerCase() === 'true'
-    ? FINAL_VALIDATION_MODE.ENFORCE
-    : FINAL_VALIDATION_MODE.SHADOW;
+  return String(legacyEnforcement || 'true').trim().toLowerCase() === 'false'
+    ? FINAL_VALIDATION_MODE.SHADOW
+    : FINAL_VALIDATION_MODE.ENFORCE;
 }
 
-// Compatibilidad: el booleano sigue indicando si hay filtrado real. El modo
-// concreto decide si solo se bloquean riesgos criticos o toda la validacion.
-const DIGEST_FINAL_VALIDATION_MODE = resolverModoValidacionFinal();
-const DIGEST_FINAL_VALIDATION_ENFORCEMENT =
-  DIGEST_FINAL_VALIDATION_MODE !== FINAL_VALIDATION_MODE.SHADOW;
+// La validacion final es una barrera de seguridad, no una feature flag. Los
+// modos historicos se conservan para diagnosticos explicitos, pero el flujo
+// automatico siempre aplica enforcement fail-closed.
+const DIGEST_FINAL_VALIDATION_MODE = FINAL_VALIDATION_MODE.ENFORCE;
+const DIGEST_FINAL_VALIDATION_ENFORCEMENT = true;
 
 // ─────────────────────────────────────────────
 // Gate de envio automatico (defensa en profundidad, independiente del enforcement
@@ -1194,6 +1196,129 @@ function itemValidationPorAlerta(validation = {}, alerta = {}, index = 0) {
   return (validation.item_results || [])[index] || null;
 }
 
+function itemValidationPorAlertaEstricta(validation = {}, alerta = {}) {
+  const items = Array.isArray(validation?.item_results) ? validation.item_results : [];
+  const alertaId = Number(alerta.id || alerta.alerta_id);
+  if (!Number.isFinite(alertaId)) return null;
+  return items.find((item) => Number(item?.alerta_id) === alertaId) || null;
+}
+
+function normalizarDecisionValidacionFinal(itemValidation = null) {
+  if (!itemValidation || typeof itemValidation !== 'object' || Array.isArray(itemValidation)) {
+    return {
+      status: 'missing',
+      flags: ['final_validation_missing'],
+      reasons: [{
+        code: 'final_validation_missing',
+        status: 'blocked',
+        detail: 'No existe validacion final para el item.',
+      }],
+    };
+  }
+
+  const status = String(itemValidation.status || '').trim().toLowerCase();
+  if (!status) {
+    return {
+      status: 'incomplete',
+      flags: [...new Set([...(itemValidation.flags || []), 'final_validation_incomplete'])],
+      reasons: [
+        ...(itemValidation.reasons || []),
+        {
+          code: 'final_validation_incomplete',
+          status: 'blocked',
+          detail: 'La respuesta de validacion final no contiene status.',
+        },
+      ],
+    };
+  }
+
+  const knownStatuses = new Set([
+    'send',
+    'blocked',
+    'review_only',
+    'insufficient_evidence',
+    'selection_missing',
+    'error',
+    'timeout',
+  ]);
+  if (!knownStatuses.has(status)) {
+    return {
+      status: 'invalid',
+      original_status: status,
+      flags: [...new Set([...(itemValidation.flags || []), 'final_validation_invalid'])],
+      reasons: [
+        ...(itemValidation.reasons || []),
+        {
+          code: 'final_validation_invalid',
+          status: 'blocked',
+          detail: `Estado de validacion final no reconocido: ${status}.`,
+        },
+      ],
+    };
+  }
+
+  return {
+    status,
+    flags: Array.isArray(itemValidation.flags) ? itemValidation.flags : [],
+    reasons: Array.isArray(itemValidation.reasons) ? itemValidation.reasons : [],
+    critical_double_check: itemValidation.critical_double_check || null,
+  };
+}
+
+function construirDecisionEfectivaEnvioAutomatico({
+  alerta = {},
+  itemValidation = null,
+  context = 'automatic_daily',
+} = {}) {
+  const selectionDecision = alerta.decision_digest && typeof alerta.decision_digest === 'object'
+    ? alerta.decision_digest
+    : null;
+  const selectionAction = accionDecisionDigest(selectionDecision);
+  const finalValidationDecision = normalizarDecisionValidacionFinal(itemValidation);
+
+  let effectiveReason = 'automatic_send_allowed';
+  if (!selectionDecision) effectiveReason = 'selection_decision_missing';
+  else if (selectionAction !== 'include') effectiveReason = `selection_decision_${selectionAction || 'invalid'}`;
+  else if (finalValidationDecision.status !== FINAL_VALIDATION_SEND_STATUS) {
+    effectiveReason = `final_validation_${finalValidationDecision.status}`;
+  }
+
+  const automaticSendAllowed = Boolean(
+    selectionAction === 'include'
+    && finalValidationDecision.status === FINAL_VALIDATION_SEND_STATUS
+  );
+
+  return {
+    selection_decision: selectionDecision,
+    final_validation_decision: finalValidationDecision,
+    effective_send_decision: automaticSendAllowed ? 'send' : 'blocked',
+    effective_reason: automaticSendAllowed ? 'automatic_send_allowed' : effectiveReason,
+    automatic_send_allowed: automaticSendAllowed,
+    gate_version: FINAL_SEND_GATE_VERSION,
+    context: String(context || 'automatic_daily'),
+  };
+}
+
+function aplicarDecisionEfectivaEnvio(alerta = {}, itemValidation = null, options = {}) {
+  const effective = construirDecisionEfectivaEnvioAutomatico({
+    alerta,
+    itemValidation,
+    context: options.context,
+  });
+  return {
+    ...alerta,
+    final_validation_status: effective.final_validation_decision.status,
+    final_validation_flags: effective.final_validation_decision.flags,
+    final_validation_reasons: effective.final_validation_decision.reasons,
+    effective_send_gate: effective,
+    contexto_mia_digest: {
+      ...(alerta.contexto_mia_digest || {}),
+      final_validation: effective.final_validation_decision,
+      effective_send_gate: effective,
+    },
+  };
+}
+
 function construirShadowDecisionDigest({ alerta = {}, itemValidation = null, digestId = null } = {}) {
   const selection = alerta.decision_digest || null;
   const finalStatus = itemValidation?.status || 'review_only';
@@ -1509,29 +1634,31 @@ function motivosCriticosValidacionFinal(alerta = {}, itemValidation = {}) {
 function filtrarAlertasPorValidacionFinalDigest(
   alertas = [],
   validation = null,
-  { mode = FINAL_VALIDATION_MODE.ENFORCE } = {}
+  { mode = FINAL_VALIDATION_MODE.ENFORCE, context = 'automatic_daily' } = {}
 ) {
-  const resolvedMode = resolverModoValidacionFinal({ mode });
+  const requestedMode = resolverModoValidacionFinal({ mode });
   const aceptadas = [];
   const rechazadas = [];
+  const decisions = [];
 
-  for (const [index, alerta] of (alertas || []).entries()) {
-    const itemValidation = itemValidationPorAlerta(validation, alerta, index);
-    const status = itemValidation?.status || alerta.final_validation_status || 'review_only';
-    const criticalReasons = motivosCriticosValidacionFinal(alerta, itemValidation);
-    const shouldReject = resolvedMode === FINAL_VALIDATION_MODE.ENFORCE
-      ? status !== 'send'
-      : resolvedMode === FINAL_VALIDATION_MODE.CRITICAL && criticalReasons.length > 0;
+  for (const alerta of (alertas || [])) {
+    const itemValidation = itemValidationPorAlertaEstricta(validation, alerta);
+    const alertaAuditada = aplicarDecisionEfectivaEnvio(alerta, itemValidation, { context });
+    const effective = alertaAuditada.effective_send_gate;
+    const status = effective.final_validation_decision.status;
+    const criticalReasons = motivosCriticosValidacionFinal(alertaAuditada, effective.final_validation_decision);
+    decisions.push({ alerta: alertaAuditada, ...effective });
 
-    if (!shouldReject) {
-      aceptadas.push(alerta);
+    if (effective.automatic_send_allowed) {
+      aceptadas.push(alertaAuditada);
     } else {
       rechazadas.push({
-        alerta,
+        alerta: alertaAuditada,
         status,
-        flags: itemValidation?.flags || alerta.final_validation_flags || [],
-        reasons: itemValidation?.reasons || alerta.final_validation_reasons || [],
+        flags: effective.final_validation_decision.flags,
+        reasons: effective.final_validation_decision.reasons,
         critical_reasons: criticalReasons,
+        effective_send_gate: effective,
       });
     }
   }
@@ -1539,15 +1666,19 @@ function filtrarAlertasPorValidacionFinalDigest(
   return {
     aceptadas,
     rechazadas,
+    decisions,
     enforced: rechazadas.length > 0,
-    mode: resolvedMode,
+    mode: FINAL_VALIDATION_MODE.ENFORCE,
+    requested_mode: requestedMode,
     motivo_no_envio: aceptadas.length === 0
       ? rechazadas.some((item) => item.status === 'blocked')
         ? 'final_validation_blocked'
         : 'final_validation_review_only'
       : null,
     summary: {
-      mode: resolvedMode,
+      mode: FINAL_VALIDATION_MODE.ENFORCE,
+      requested_mode: requestedMode,
+      gate_version: FINAL_SEND_GATE_VERSION,
       input: (alertas || []).length,
       accepted: aceptadas.length,
       rejected: rechazadas.length,
@@ -2743,7 +2874,7 @@ async function construirPreviewDigestUsuario(supabase, {
       finalValidationEnforcement = filtrarAlertasPorValidacionFinalDigest(
         alertasFinales,
         finalValidationShadow,
-        { mode: DIGEST_FINAL_VALIDATION_MODE }
+        { mode: DIGEST_FINAL_VALIDATION_MODE, context: 'preview' }
       );
       if (finalValidationEnforcement.aceptadas.length === 0) {
         alertasFinales = [];
@@ -2786,7 +2917,7 @@ async function construirPreviewDigestUsuario(supabase, {
         finalValidationEnforcement = filtrarAlertasPorValidacionFinalDigest(
           alertasFinales,
           finalValidationShadow,
-          { mode: DIGEST_FINAL_VALIDATION_MODE }
+          { mode: DIGEST_FINAL_VALIDATION_MODE, context: 'preview' }
         );
         if (finalValidationEnforcement.aceptadas.length === 0) {
           alertasFinales = [];
@@ -2801,6 +2932,8 @@ async function construirPreviewDigestUsuario(supabase, {
         } else {
           alertasFinales = finalValidationEnforcement.aceptadas;
         }
+      } else {
+        alertasFinales = finalValidationEnforcement.aceptadas;
       }
     }
   }
@@ -2872,6 +3005,7 @@ module.exports = {
   DECISION_DIGEST_REQUIRED_FROM,
   LEGACY_DECISION_BYPASS_MODES,
   FINAL_VALIDATION_MODE,
+  FINAL_SEND_GATE_VERSION,
   DIGEST_FINAL_VALIDATION_MODE,
   DIGEST_FINAL_VALIDATION_ENFORCEMENT,
   resolverModoValidacionFinal,
@@ -2927,6 +3061,9 @@ module.exports = {
   resumenFactSheetDigest,
   construirShadowDecisionDigest,
   enriquecerAlertaConValidacionFinal,
+  normalizarDecisionValidacionFinal,
+  construirDecisionEfectivaEnvioAutomatico,
+  aplicarDecisionEfectivaEnvio,
   resumirValidacionFinalDigest,
   prepararValidacionFinalDigestShadow,
   guardarFactSheetsDigestShadow,

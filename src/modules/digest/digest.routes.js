@@ -39,7 +39,11 @@ const {
 const { leerPerfilIntereses, ordenarAlertasPorPerfil, clasificarPrioridadAlerta, pesoPrioridad } = require('../aprendizaje');
 const { similitudCoseno }          = require('../../platform/ia/embeddings');
 const { registrarDigestItemsMIA }  = require('../mia/digestItems');
-const { digestViaOutboxHabilitado, encolarDigestsPendientes } = require('./digestOutbox');
+const {
+  digestViaOutboxHabilitado,
+  encolarDigestsPendientes,
+  filtrarDigestsPorAutoridadFinal,
+} = require('./digestOutbox');
 const {
   actualizarDigestAttemptPorDigest,
   registrarDigestAttempt,
@@ -201,19 +205,59 @@ function decisionesVisibilidadOrganizacion(alertas = [], visibles = []) {
 
 function decisionesValidacionFinal(alertas = [], validation = null) {
   const items = Array.isArray(validation?.item_results) ? validation.item_results : [];
-  return (alertas || []).map((alerta, index) => {
+  return (alertas || []).map((alerta) => {
     const item = items.find((candidate) =>
       String(candidate?.alerta_id ?? '') === String(alerta.id)
-    ) || items[index] || {};
+    ) || {};
     return {
       id: alerta.id,
-      action: item.status === 'send' ? 'include' : (item.status || 'review_only'),
-      motivo: item.reasons?.[0]?.code || item.flags?.[0] || 'final_validation',
-      status: item.status || 'review_only',
+      action: item.status === 'send' ? 'include' : (item.status || 'blocked'),
+      motivo: item.reasons?.[0]?.code || item.flags?.[0] || 'final_validation_missing',
+      status: item.status || 'missing',
       flags: item.flags || [],
       reasons: item.reasons || [],
     };
   });
+}
+
+function construirValidacionFinalFallida(alertas = [], reason = 'final_validation_error', error = null) {
+  const itemResults = (alertas || []).map((alerta) => ({
+    alerta_id: alerta.id,
+    status: reason === 'final_validation_timeout' ? 'timeout' : 'error',
+    flags: [reason],
+    reasons: [{
+      code: reason,
+      status: 'blocked',
+      detail: String(error?.message || error || 'La validacion final no pudo completarse.').slice(0, 500),
+    }],
+  }));
+  return {
+    ok: false,
+    status: 'blocked',
+    flags: [reason],
+    item_results: itemResults,
+    diagnostics: {
+      items_total: itemResults.length,
+      items_send: 0,
+      items_review_only: 0,
+      items_blocked: itemResults.length,
+    },
+  };
+}
+
+function decisionesGateEfectivo(enforcement = null) {
+  return (enforcement?.decisions || []).map((entry) => ({
+    id: entry.alerta?.id,
+    action: entry.automatic_send_allowed ? 'include' : 'blocked',
+    motivo: entry.effective_reason,
+    selection_decision: entry.selection_decision,
+    final_validation_decision: entry.final_validation_decision,
+    effective_send_decision: entry.effective_send_decision,
+    effective_reason: entry.effective_reason,
+    automatic_send_allowed: entry.automatic_send_allowed,
+    gate_version: entry.gate_version,
+    context: entry.context,
+  }));
 }
 
 module.exports = function digestRoutes(app, supabase) {
@@ -826,7 +870,7 @@ module.exports = function digestRoutes(app, supabase) {
               ? 'include'
               : (retenidasPorId.get(String(alerta.id))?.action || 'blocked'),
             motivo: enviablesIds.has(String(alerta.id))
-              ? 'automatic_send_allowed'
+              ? 'selection_gate_passed_pending_final_validation'
               : (retenidasPorId.get(String(alerta.id))?.motivo || 'automatic_send_retained'),
             selection_decision: alerta.decision_digest || null,
           })),
@@ -957,6 +1001,25 @@ module.exports = function digestRoutes(app, supabase) {
           } catch (errShadow) {
             console.warn(`[digest:shadow] No se pudo validar digest final user ${user.id}:`, errShadow.message);
             errores.push({ userId: user.id, warning: 'final_validation_shadow_error', error: errShadow.message });
+            finalValidationShadow = construirValidacionFinalFallida(
+              alertasFinales,
+              errShadow?.code === 'ETIMEDOUT' ? 'final_validation_timeout' : 'final_validation_error',
+              errShadow
+            );
+            await registrarDigestCandidateDecisions(supabase, {
+              userId: user.id,
+              organizationId,
+              fecha: hoy,
+              kind: attemptKind,
+              stage: 'final_validation',
+              digestAttemptId,
+              decisions: decisionesValidacionFinal(alertasFinales, finalValidationShadow),
+              metadata: {
+                enforcement_enabled: true,
+                enforcement_mode: 'enforce',
+                validation_error: true,
+              },
+            });
           }
 
           let finalValidationEnforcement = null;
@@ -978,8 +1041,25 @@ module.exports = function digestRoutes(app, supabase) {
             finalValidationEnforcement = filtrarAlertasPorValidacionFinalDigest(
               alertasFinales,
               finalValidationShadow,
-              { mode: DIGEST_FINAL_VALIDATION_MODE }
+              {
+                mode: DIGEST_FINAL_VALIDATION_MODE,
+                context: modoRescate ? 'rescue' : 'automatic_daily',
+              }
             );
+            await registrarDigestCandidateDecisions(supabase, {
+              userId: user.id,
+              organizationId,
+              fecha: hoy,
+              kind: attemptKind,
+              stage: 'effective_send_gate',
+              digestAttemptId,
+              decisions: decisionesGateEfectivo(finalValidationEnforcement),
+              metadata: {
+                enforcement_enabled: true,
+                enforcement_mode: 'enforce',
+                gate_version: finalValidationEnforcement.summary.gate_version,
+              },
+            });
             if (finalValidationEnforcement.aceptadas.length === 0) {
               await registrarDigestAttempt(supabase, {
                 userId: user.id,
@@ -1001,8 +1081,8 @@ module.exports = function digestRoutes(app, supabase) {
               continue;
             }
 
+            alertasFinales = finalValidationEnforcement.aceptadas;
             if (finalValidationEnforcement.rechazadas.length > 0) {
-              alertasFinales = finalValidationEnforcement.aceptadas;
               mensajeRaw = modoRescate
                 ? generarMensajeDigestRescate({
                   user: userConPerfilMIA,
@@ -1058,8 +1138,26 @@ module.exports = function digestRoutes(app, supabase) {
               finalValidationEnforcement = filtrarAlertasPorValidacionFinalDigest(
                 alertasFinales,
                 finalValidationShadow,
-                { mode: DIGEST_FINAL_VALIDATION_MODE }
+                {
+                  mode: DIGEST_FINAL_VALIDATION_MODE,
+                  context: modoRescate ? 'rescue' : 'automatic_daily',
+                }
               );
+              await registrarDigestCandidateDecisions(supabase, {
+                userId: user.id,
+                organizationId,
+                fecha: hoy,
+                kind: attemptKind,
+                stage: 'effective_send_gate',
+                digestAttemptId,
+                decisions: decisionesGateEfectivo(finalValidationEnforcement),
+                metadata: {
+                  enforcement_enabled: true,
+                  enforcement_mode: 'enforce',
+                  gate_version: finalValidationEnforcement.summary.gate_version,
+                  regenerated: true,
+                },
+              });
               if (finalValidationEnforcement.aceptadas.length === 0) {
                 await registrarDigestAttempt(supabase, {
                   userId: user.id,
@@ -1407,6 +1505,7 @@ module.exports = function digestRoutes(app, supabase) {
           enviados: encolado.encolados,
           ya_encolados: encolado.ya_encolados,
           sin_telefono: encolado.sin_telefono,
+          bloqueados_validacion_final: encolado.bloqueados_validacion_final,
           errores: encolado.errores,
         });
       }
@@ -1431,7 +1530,26 @@ module.exports = function digestRoutes(app, supabase) {
       }
 
       // 2) Teléfonos en una sola query
-      const userIds = digests.map((d) => d.user_id);
+      const finalAuthority = await filtrarDigestsPorAutoridadFinal(supabase, digests);
+      for (const blocked of finalAuthority.bloqueados) {
+        await actualizarDigestAttemptPorDigest(supabase, blocked.digest.id, {
+          status: 'no_send',
+          motivoNoEnvio: blocked.reason,
+          errorMsg: null,
+        });
+      }
+      const digestsEnviables = finalAuthority.enviables;
+      if (digestsEnviables.length === 0) {
+        return res.json({
+          success: true,
+          enviados: 0,
+          bloqueados_validacion_final: finalAuthority.bloqueados.length,
+          mensaje: 'Todos los digests pendientes quedaron bloqueados por la validacion final',
+          fecha: hoy,
+        });
+      }
+
+      const userIds = digestsEnviables.map((d) => d.user_id);
 
       const { data: usuarios, error: errUsers } = await supabase
         .from('users')
@@ -1449,8 +1567,8 @@ module.exports = function digestRoutes(app, supabase) {
       const errores = [];
 
       // 3) Enviar uno a uno con delay anti-ban
-      for (let i = 0; i < digests.length; i++) {
-        const digest   = digests[i];
+      for (let i = 0; i < digestsEnviables.length; i++) {
+        const digest   = digestsEnviables[i];
         const telefono = telefonoPorUserId[digest.user_id];
 
         if (!telefono) {
@@ -1482,10 +1600,10 @@ module.exports = function digestRoutes(app, supabase) {
           });
 
           enviados++;
-          console.log(`[digest] ✓ Enviado a ${maskPhone(telefono)} [${i + 1}/${digests.length}]`);
+          console.log(`[digest] ✓ Enviado a ${maskPhone(telefono)} [${i + 1}/${digestsEnviables.length}]`);
 
           // Delay entre mensajes (no tras el último)
-          if (i < digests.length - 1) {
+          if (i < digestsEnviables.length - 1) {
             await new Promise((r) => setTimeout(r, DELAY_MS));
           }
 
@@ -1511,6 +1629,7 @@ module.exports = function digestRoutes(app, supabase) {
         fecha:   hoy,
         total:   digests.length,
         enviados,
+        bloqueados_validacion_final: finalAuthority.bloqueados.length,
         errores,
       });
 
