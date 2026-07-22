@@ -19,8 +19,11 @@ process.env.PIPELINE_SCRAPE_PATHS = '/scrape-test-oficial';
 const assert = require('assert');
 const { ejecutarPipelineTick, crearEjecutorHttp, verificarBaseUrlInterna } = require('../src/modules/tareas/pipelineRunner');
 const {
+  anadirEventoRecuperacion,
+  crearEventoRecuperacion,
   crearPipelineJobsStore,
   diagnosticarPipelineJob,
+  registrarClaimRecuperacion,
 } = require('../src/modules/tareas/pipelineJobs');
 
 let passed = 0;
@@ -59,7 +62,7 @@ function crearReloj(inicio = 0) {
 
 // Store en memoria que imita el contrato de crearPipelineJobsStore: un unico job
 // mutado en sitio, con claim por tickId y un log de lo ocurrido.
-function crearStoreFake({ job: jobOverrides = {}, reclamarDevuelveNull = false } = {}) {
+function crearStoreFake({ job: jobOverrides = {}, reclamarDevuelveNull = false, competitiveClaim = false } = {}) {
   const job = {
     id: 1,
     kind: 'daily',
@@ -85,8 +88,12 @@ function crearStoreFake({ job: jobOverrides = {}, reclamarDevuelveNull = false }
     async obtenerOCrear() {
       return job;
     },
-    async reabrir({ jobId }) {
+    async reabrir({ jobId, job: previousJob = job, reason = 'manual_reopen', now = new Date() }) {
       assert.strictEqual(jobId, job.id);
+      job.options_json = anadirEventoRecuperacion(
+        previousJob.options_json || {},
+        crearEventoRecuperacion({ job: previousJob, reason, action: 'reopen', now })
+      );
       job.status = 'pending';
       job.error_msg = null;
       job.claimed_by = null;
@@ -97,7 +104,22 @@ function crearStoreFake({ job: jobOverrides = {}, reclamarDevuelveNull = false }
     async reclamar({ job: j, tickId, staleMs, now }) {
       log.reclamos += 1;
       log.ultimoReclamo = { jobId: j.id, tickId, staleMs, now };
-      if (reclamarDevuelveNull) return null;
+      if (reclamarDevuelveNull || (competitiveClaim && job.claimed_by)) return null;
+      const diagnostic = diagnosticarPipelineJob(j, { now, staleMs });
+      if (diagnostic.stale) {
+        job.options_json = anadirEventoRecuperacion(
+          job.options_json || {},
+          crearEventoRecuperacion({
+            job: j,
+            reason: diagnostic.recovery_reason,
+            action: 'claim_takeover',
+            tickId,
+            now,
+          })
+        );
+      } else {
+        job.options_json = registrarClaimRecuperacion(job.options_json || {}, tickId, now);
+      }
       job.status = 'running';
       job.claimed_by = tickId;
       job.ticks = Number(job.ticks || 0) + 1;
@@ -370,6 +392,25 @@ async function main() {
     assert.strictEqual(store.log.liberado, false, 'sin claim no hay nada que liberar');
   });
 
+  await test('claim: dos ticks simultaneos producen un solo ejecutor', async () => {
+    const store = crearStoreFake({ competitiveClaim: true });
+    const first = ejecutarPipelineTick({}, {
+      fecha: FECHA,
+      budgetMs: 10_000_000,
+      stepDelayMs: 0,
+      ...inyectables({ store, ejecutar: crearEjecutar({}), reloj: null, ...contexto() }),
+    });
+    const second = ejecutarPipelineTick({}, {
+      fecha: FECHA,
+      budgetMs: 10_000_000,
+      stepDelayMs: 0,
+      ...inyectables({ store, ejecutar: crearEjecutar({}), reloj: null, ...contexto() }),
+    });
+    const results = await Promise.all([first, second]);
+    assert.strictEqual(results.filter(({ tick }) => tick === 'completed').length, 1);
+    assert.strictEqual(results.filter(({ tick }) => tick === 'already_running').length, 1);
+  });
+
   await test('claim: un job ya terminal (sin reset) es noop_terminal y ni siquiera se reclama', async () => {
     const store = crearStoreFake({ job: { status: 'completed' } });
     const ctx = contexto();
@@ -478,8 +519,42 @@ async function main() {
 
     assert.strictEqual(store.log.reabierto, true, 'un running con heartbeat rancio + reset debe reabrirse');
     assert.strictEqual(r.tick, 'completed');
+    assert.strictEqual(r.recovery.reason, 'heartbeat_stale');
+    assert(r.recovery.previous_job.claimed_by === 'tick-muerto', 'audita el job anterior');
+    assert(r.recovery.new_claim.tick_id, 'audita el nuevo claim');
+    assert.strictEqual(r.recovery.initial_stage, 'cotejar_listados_oficiales');
+    assert.strictEqual(r.recovery.final.status, 'completed');
     // La fase ya completada no se repite tras el reset.
     assert(!ejecutar.paths().includes('/scrape-test-oficial'), 'no repite scrapers ya completado');
+  });
+
+  await test('un tick nuevo toma automaticamente un stale sin reset y lo completa', async () => {
+    const store = crearStoreFake({
+      job: {
+        status: 'running',
+        claimed_by: 'tick-muerto',
+        heartbeat_at: null,
+        updated_at: new Date(0).toISOString(),
+        stages_json: { scrapers: { status: 'completed', attempts: 1 } },
+      },
+    });
+    const result = await ejecutarPipelineTick({}, {
+      fecha: FECHA,
+      staleMs: 5 * 60 * 1000,
+      budgetMs: 10_000_000,
+      stepDelayMs: 0,
+      ...inyectables({
+        store,
+        ejecutar: crearEjecutar({}),
+        reloj: crearReloj(10 * 60 * 1000),
+        ...contexto(),
+      }),
+    });
+    assert.strictEqual(store.log.reabierto, false, 'no necesita reset manual');
+    assert.strictEqual(result.tick, 'completed');
+    assert.strictEqual(result.recovery.reason, 'heartbeat_missing');
+    assert.strictEqual(result.recovery.action, 'claim_takeover');
+    assert.strictEqual(result.recovery.final.status, 'completed');
   });
 
   await test('reset NO reabre un running con heartbeat fresco (no pisa un tick vivo)', async () => {
@@ -649,6 +724,33 @@ async function main() {
     assert(diagnostic.flags.includes('heartbeat_missing'));
   });
 
+  await test('store.reclamar audita takeover stale y permite current_stage null antiguo', async () => {
+    const now = new Date('2026-07-22T12:00:00.000Z');
+    const staleJob = {
+      id: 78,
+      kind: 'daily',
+      fecha: '2026-07-18',
+      shadow: true,
+      status: 'running',
+      current_stage: null,
+      claimed_by: 'tick-muerto',
+      heartbeat_at: '2026-07-22T11:59:00.000Z',
+      updated_at: '2026-07-22T11:00:00.000Z',
+      options_json: {},
+      ticks: 1,
+    };
+    const supabase = fakeSupabase({ data: [{ ...staleJob, claimed_by: 'nuevo-tick' }], error: null });
+    const store = crearPipelineJobsStore(supabase);
+    await store.reclamar({ job: staleJob, tickId: 'nuevo-tick', staleMs: 5 * 60 * 1000, now });
+    const update = supabase.calls.find((call) => call.method === 'update').args[0];
+    const event = update.options_json.recovery_audit[0];
+    assert.strictEqual(event.reason, 'current_stage_missing_too_long');
+    assert.strictEqual(event.previous_job.claimed_by, 'tick-muerto');
+    assert.strictEqual(event.new_claim.tick_id, 'nuevo-tick');
+    const orFilter = supabase.calls.find((call) => call.method === 'or').args[0];
+    assert(orFilter.includes('and(current_stage.is.null,updated_at.lt.'));
+  });
+
   await test('store.reclamar devuelve null cuando otro tick lo tiene (0 filas)', async () => {
     const supabase = fakeSupabase({ data: [], error: null });
     const store = crearPipelineJobsStore(supabase);
@@ -682,6 +784,27 @@ async function main() {
     assert.strictEqual(update.args[0].status, 'pending');
     assert.strictEqual(update.args[0].finished_at, null);
     assert.strictEqual(update.args[0].claimed_by, null);
+  });
+
+  await test('store.abortar cierra explicitamente un stale con auditoria', async () => {
+    const previous = {
+      id: 10,
+      shadow: true,
+      status: 'running',
+      claimed_by: 'tick-muerto',
+      options_json: {},
+    };
+    const supabase = fakeSupabase({ data: [{ ...previous, status: 'aborted' }], error: null });
+    const store = crearPipelineJobsStore(supabase);
+    const job = await store.abortar({
+      job: previous,
+      reason: 'heartbeat_missing',
+      now: new Date('2026-07-22T12:00:00.000Z'),
+    });
+    assert.strictEqual(job.status, 'aborted');
+    const patch = supabase.calls.find((call) => call.method === 'update').args[0];
+    assert.strictEqual(patch.finished_at, '2026-07-22T12:00:00.000Z');
+    assert.strictEqual(patch.options_json.recovery_audit[0].final.status, 'aborted');
   });
 
   console.log(`\nResultados pipelineRunner: ${passed} aprobados, ${failed} fallidos`);

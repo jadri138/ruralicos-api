@@ -33,7 +33,9 @@ const {
   guardarPipelineRun,
 } = require('./tareas.helpers');
 const {
+  actualizarEventoRecuperacion,
   crearPipelineJobsStore,
+  diagnosticarPipelineJob,
   nuevoTickId,
   JOB_STATUS_TERMINAL,
   resumirPipelineJobs,
@@ -252,14 +254,14 @@ async function ejecutarPipelineTick(supabase, opcionesTick = {}) {
 
   let job = await store.obtenerOCrear({ kind, fecha, shadow, options: jobOptions });
 
-  // reset reabre un job para reintentar el dia. Ademas de los terminales
-  // (failed/aborted), rescata un 'running' con el heartbeat rancio: un tick que
-  // murio sin liberar el claim (p.ej. corte de Render a los 55s). No toca un
-  // running vivo (heartbeat fresco) para no pisar un tick en marcha.
-  const heartbeatMs = job.heartbeat_at ? new Date(job.heartbeat_at).getTime() : 0;
-  const heartbeatRancio = !job.heartbeat_at || (ahora() - heartbeatMs) > staleMs;
-  if (reset && (JOB_STATUS_TERMINAL.has(job.status) || (job.status === 'running' && heartbeatRancio))) {
-    job = await store.reabrir({ jobId: job.id });
+  const jobDiagnostic = diagnosticarPipelineJob(job, { now: new Date(ahora()), staleMs });
+  if (reset && (JOB_STATUS_TERMINAL.has(job.status) || jobDiagnostic.stale)) {
+    job = await store.reabrir({
+      jobId: job.id,
+      job,
+      reason: jobDiagnostic.recovery_reason || `manual_reopen_${job.status}`,
+      now: new Date(ahora()),
+    });
   }
 
   if (JOB_STATUS_TERMINAL.has(job.status)) {
@@ -284,7 +286,7 @@ async function ejecutarPipelineTick(supabase, opcionesTick = {}) {
     };
   }
 
-  const opcionesJob = claimed.options_json || {};
+  let opcionesJob = claimed.options_json || {};
   const stages = construirStagesPipeline(opcionesJob);
   const stagesState = { ...(claimed.stages_json || {}) };
   const deadline = ahora() + budgetMs;
@@ -340,6 +342,10 @@ async function ejecutarPipelineTick(supabase, opcionesTick = {}) {
   }
 
   async function terminarJob(status, currentStage, errorMsg = null) {
+    opcionesJob = actualizarEventoRecuperacion(opcionesJob, tickId, {
+      final: { status, finished_at: nowISO(), current_stage: currentStage || null },
+    });
+    claimed.options_json = opcionesJob;
     await store.guardar({
       jobId: claimed.id,
       tickId,
@@ -349,6 +355,7 @@ async function ejecutarPipelineTick(supabase, opcionesTick = {}) {
         status,
         error_msg: errorMsg,
         finished_at: nowISO(),
+        options_json: opcionesJob,
       },
     });
   }
@@ -361,6 +368,9 @@ async function ejecutarPipelineTick(supabase, opcionesTick = {}) {
       shadow,
       tick_id: tickId,
       job: { id: claimed.id, status: extra.jobStatus || 'running', current_stage: extra.currentStage || null, ticks: claimed.ticks },
+      recovery: Array.isArray(opcionesJob.recovery_audit)
+        ? opcionesJob.recovery_audit[opcionesJob.recovery_audit.length - 1] || null
+        : null,
       stages: resumenStages(stagesState),
       ...extra.body,
     };
@@ -520,7 +530,10 @@ async function ejecutarPipelineTick(supabase, opcionesTick = {}) {
     const primeraPendiente = stages.find(
       (s) => ![STAGE_COMPLETED, STAGE_SKIPPED, STAGE_SHADOW_SKIPPED].includes((stagesState[s.name] || {}).status)
     );
-    await checkpoint(primeraPendiente ? primeraPendiente.name : null);
+    const initialStage = primeraPendiente ? primeraPendiente.name : null;
+    opcionesJob = actualizarEventoRecuperacion(opcionesJob, tickId, { initial_stage: initialStage });
+    claimed.options_json = opcionesJob;
+    await checkpoint(initialStage, { options_json: opcionesJob });
 
     for (const stageDef of stages) {
       const state = stagesState[stageDef.name] || { status: STAGE_PENDING, attempts: 0 };

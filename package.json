@@ -17,6 +17,7 @@
     "workflow:digest": "node scripts/run_digest_workflow.js",
     "backfill:intelligence": "node scripts/backfill_alert_intelligence.js",
     "repair:legacy-discards": "node scripts/repair_legacy_alert_discards.js",
+    "repair:stale-pipeline-jobs": "node scripts/repair_stale_pipeline_jobs.js",
     "p0:acceptance": "node scripts/p0_acceptance_gate.js",
     "knowledge:ingest": "node scripts/ingest_mia_knowledge.js",
     "check:core": "node scripts/check_core_logic.js",

@@ -1,0 +1,76 @@
+{
+  "now": "2026-07-22T12:00:00.000Z",
+  "stale_ms": 300000,
+  "jobs": [
+    {
+      "id": 1601,
+      "kind": "daily",
+      "fecha": "2026-07-16",
+      "shadow": true,
+      "status": "running",
+      "current_stage": null,
+      "heartbeat_at": null,
+      "started_at": "2026-07-16T08:00:00.000Z",
+      "updated_at": "2026-07-16T08:00:00.000Z",
+      "finished_at": null,
+      "expected_stale": true,
+      "expected_reason": "heartbeat_missing"
+    },
+    {
+      "id": 1701,
+      "kind": "daily",
+      "fecha": "2026-07-17",
+      "shadow": true,
+      "status": "running",
+      "current_stage": "clasificar",
+      "heartbeat_at": "2026-07-22T11:00:00.000Z",
+      "started_at": "2026-07-17T08:00:00.000Z",
+      "updated_at": "2026-07-22T11:00:00.000Z",
+      "finished_at": null,
+      "expected_stale": true,
+      "expected_reason": "heartbeat_stale"
+    },
+    {
+      "id": 1801,
+      "kind": "daily",
+      "fecha": "2026-07-18",
+      "shadow": true,
+      "status": "running",
+      "current_stage": null,
+      "heartbeat_at": "2026-07-22T11:59:00.000Z",
+      "started_at": "2026-07-18T08:00:00.000Z",
+      "updated_at": "2026-07-22T11:40:00.000Z",
+      "finished_at": null,
+      "expected_stale": true,
+      "expected_reason": "current_stage_missing_too_long"
+    },
+    {
+      "id": 1901,
+      "kind": "daily",
+      "fecha": "2026-07-19",
+      "shadow": true,
+      "status": "running",
+      "current_stage": "revisar",
+      "heartbeat_at": "2026-07-22T11:59:00.000Z",
+      "started_at": "2026-07-19T08:00:00.000Z",
+      "updated_at": "2026-07-22T11:59:00.000Z",
+      "finished_at": null,
+      "expected_stale": false,
+      "expected_reason": null
+    },
+    {
+      "id": 2101,
+      "kind": "daily",
+      "fecha": "2026-07-21",
+      "shadow": true,
+      "status": "pending",
+      "current_stage": null,
+      "heartbeat_at": null,
+      "started_at": null,
+      "updated_at": "2026-07-22T11:00:00.000Z",
+      "finished_at": null,
+      "expected_stale": false,
+      "expected_reason": null
+    }
+  ]
+}
