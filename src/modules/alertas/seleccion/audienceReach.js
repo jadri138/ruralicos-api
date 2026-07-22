@@ -50,6 +50,44 @@ function diagnosticarTaxonomiaAmplia(alerta = {}) {
   };
 }
 
+function calcularCuotaDominanciaDigest(alertPlacements = 0, totalPlacements = 0) {
+  return porcentaje(Number(alertPlacements || 0), Number(totalPlacements || 0));
+}
+
+function construirSnapshotAlcance(reach = {}, { fecha = null } = {}) {
+  return {
+    version: reach.version || 'audience_reach_v1',
+    alert_id: reach.alert_id ?? null,
+    fecha,
+    eligible_users: Number(reach.eligible_users || 0),
+    matched_users: Number(reach.matched_users || 0),
+    excluded_users: Number(reach.excluded_users || 0),
+    reach_ratio: Number(reach.reach_ratio || 0),
+    daily_digest_share: Number(reach.daily_digest_share || 0),
+    matched_by_sector: reach.matched_by_sector || {},
+    matched_by_province: reach.matched_by_province || {},
+    matched_by_reason: reach.matched_by_reason || {},
+    excluded_by_reason: reach.excluded_by_reason || {},
+    incompatible_matches: Number(reach.incompatible_matches || 0),
+    taxonomy: reach.taxonomy || {},
+    flags: lista(reach.flags),
+    action: reach.action === 'block' ? 'block' : 'observe',
+  };
+}
+
+async function registrarSnapshotAlcance(supabase, alertaId, reach, options = {}) {
+  const updatedAt = options.updatedAt || new Date().toISOString();
+  const snapshot = construirSnapshotAlcance(reach, { fecha: options.fecha || null });
+  let query = supabase
+    .from('alertas')
+    .update({ audience_reach: snapshot, audience_reach_updated_at: updatedAt })
+    .eq('id', alertaId);
+  if (options.organizationId) query = query.eq('organization_id', options.organizationId);
+  const { error } = await query;
+  if (error) throw error;
+  return { snapshot, updated_at: updatedAt };
+}
+
 function analizarAlcanceAudiencia(alerta = {}, users = [], options = {}) {
   const matcher = options.matcher || diagnosticarAlertaUsuario;
   const eligible = (users || []).filter((user) => user && user.subscription !== 'free');
@@ -80,13 +118,14 @@ function analizarAlcanceAudiencia(alerta = {}, users = [], options = {}) {
   }
 
   const reachRatio = porcentaje(matches.length, eligible.length);
+  const dailyDigestShare = Number(options.singleAlertDigestShare || 0);
   const taxonomy = diagnosticarTaxonomiaAmplia(alerta);
   const highReach = eligible.length > 0 && reachRatio >= Number(options.highReachRatio ?? 0.7);
   const flags = [];
   if (highReach) flags.push('unexpected_audience_expansion');
   if (incompatibleMatches > 0) flags.push('cross_sector_mass_match');
   if (taxonomy.overbroad) flags.push('taxonomy_overbreadth');
-  if (Number(options.singleAlertDigestShare || 0) >= Number(options.dominanceRatio ?? 0.6)) {
+  if (dailyDigestShare >= Number(options.dominanceRatio ?? 0.6)) {
     flags.push('single_alert_dominates_daily_digest');
   }
   const shouldBlock = highReach && incompatibleMatches > 0 && taxonomy.conflicting;
@@ -98,6 +137,7 @@ function analizarAlcanceAudiencia(alerta = {}, users = [], options = {}) {
     matched_users: matches.length,
     excluded_users: excluded.length,
     reach_ratio: reachRatio,
+    daily_digest_share: dailyDigestShare,
     matched_by_sector: matchedBySector,
     matched_by_province: matchedByProvince,
     matched_by_reason: matchedByReason,
@@ -113,7 +153,10 @@ function analizarAlcanceAudiencia(alerta = {}, users = [], options = {}) {
 
 module.exports = {
   analizarAlcanceAudiencia,
+  calcularCuotaDominanciaDigest,
   clasificarSectorUsuario,
+  construirSnapshotAlcance,
   diagnosticarTaxonomiaAmplia,
   esSectorIncompatible,
+  registrarSnapshotAlcance,
 };

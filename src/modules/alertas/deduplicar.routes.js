@@ -40,28 +40,45 @@ module.exports = function deduplicarRoutes(app, supabase) {
         ? Number(req.query.umbral)
         : Number(process.env.DEDUP_UMBRAL || UMBRAL_DEFAULT);
       const dryRun = String(req.query.dry_run || '').toLowerCase() === 'true';
+      const lookbackDays = Math.max(
+        1,
+        Math.min(365, Number(req.query.lookback_days || process.env.DEDUP_LOOKBACK_DAYS || 120))
+      );
+      const desde = new Date(`${fecha}T00:00:00.000Z`);
+      desde.setUTCDate(desde.getUTCDate() - lookbackDays);
+      const fechaDesde = desde.toISOString().slice(0, 10);
 
-      // Solo alertas listas (no las que ya son duplicados ni las pendientes)
+      // La alerta autonómica y su republicación estatal no tienen por qué caer
+      // el mismo día. Se compara el objetivo con una ventana histórica acotada.
       const { data: alertas, error } = await supabase
         .from('alertas')
-        .select('id, titulo, fuente, contenido, resumen, resumen_final, estado_ia, decision_audit')
-        .eq('fecha', fecha)
+        .select('id, titulo, fuente, fecha, contenido, resumen, resumen_final, estado_ia, decision_audit')
+        .gte('fecha', fechaDesde)
+        .lte('fecha', fecha)
         .eq('estado_ia', 'listo')
         .order('id', { ascending: true });
 
       if (error) return res.status(500).json({ error: error.message });
-      if (!alertas || alertas.length < 2) {
+      const alertasObjetivo = (alertas || []).filter((alerta) => alerta.fecha === fecha);
+      if (alertasObjetivo.length === 0 || !alertas || alertas.length < 2) {
         return res.json({
           ok: true,
           fecha,
+          lookback_days: lookbackDays,
           umbral,
           dry_run: dryRun,
-          mensaje: 'Menos de 2 alertas listas, nada que deduplicar',
+          mensaje: alertasObjetivo.length === 0
+            ? 'Sin alertas listas para la fecha objetivo'
+            : 'Sin candidatos historicos o diarios para relacionar',
           deduplicadas: 0,
         });
       }
 
-      // Agrupación greedy por similitud
+      // Agrupación greedy por similitud. Se parte de las alertas objetivo para
+      // que un grupo puramente histórico no consuma antes su candidato.
+      alertas.sort((a, b) =>
+        Number(b.fecha === fecha) - Number(a.fecha === fecha) || Number(a.id) - Number(b.id)
+      );
       const asignadas = new Set();
       const grupos = [];
 
@@ -74,19 +91,23 @@ module.exports = function deduplicarRoutes(app, supabase) {
         for (let j = i + 1; j < alertas.length; j++) {
           if (asignadas.has(alertas[j].id)) continue;
           const sim = similitudTitulos(alertas[i].titulo, alertas[j].titulo);
-          if (sim >= umbral) {
+          const relation = clasificarRelacionDocumental(alertas[i], alertas[j], {
+            sameSubjectThreshold: umbral,
+          });
+          if (sim >= umbral || relation.relation !== 'new_document') {
             grupo.push(alertas[j]);
             asignadas.add(alertas[j].id);
           }
         }
 
-        if (grupo.length > 1) grupos.push(grupo);
+        if (grupo.length > 1 && grupo.some((alerta) => alerta.fecha === fecha)) grupos.push(grupo);
       }
 
       if (grupos.length === 0) {
         return res.json({
           ok: true,
           fecha,
+          lookback_days: lookbackDays,
           umbral,
           dry_run: dryRun,
           mensaje: 'Sin duplicados detectados',
@@ -168,6 +189,7 @@ module.exports = function deduplicarRoutes(app, supabase) {
       return res.json({
         ok: true,
         fecha,
+        lookback_days: lookbackDays,
         umbral,
         dry_run: dryRun,
         grupos: grupos.length,

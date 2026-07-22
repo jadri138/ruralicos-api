@@ -23,7 +23,11 @@ const { generarAnswerAuditMIA } = require('../mia/answerAudit');
 const { cargarPerfilOperativoMIA } = require('../mia/userProfile');
 const { ejecutarEvalsMIA } = require('../mia/evalHarness');
 const { generarReporteCalidadOperativaMIA } = require('../mia/alertQuality');
-const { analizarAlcanceAudiencia } = require('../alertas/seleccion/audienceReach');
+const {
+  analizarAlcanceAudiencia,
+  calcularCuotaDominanciaDigest,
+  registrarSnapshotAlcance,
+} = require('../alertas/seleccion/audienceReach');
 const {
   ingestKnowledgeDocument,
   normalizeBase64,
@@ -76,13 +80,16 @@ const {
 
 module.exports = (app, supabase) => {
 
-  app.get('/admin/alertas/:id/preview-audience', requireAdmin, async (req, res) => {
+  const previewAudienceHandler = async (req, res) => {
     try {
       const alertaId = Number(req.params.id);
       if (!Number.isInteger(alertaId) || alertaId <= 0) {
         return res.status(400).json({ error: 'alerta_id_invalido' });
       }
       const organizationId = normalizarOrganizationId(req.query.organization_id);
+      const fecha = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.fecha || ''))
+        ? String(req.query.fecha)
+        : getFechaMadridISO();
       let alertQuery = supabase
         .from('alertas')
         .select('id, titulo, contenido, resumen, resumen_final, fuente, provincias, sectores, subsectores, tipos_alerta, taxonomy_tags, estado_ia')
@@ -100,11 +107,34 @@ module.exports = (app, supabase) => {
       const usersResult = await usersQuery;
       if (usersResult.error) throw usersResult.error;
 
-      const reach = analizarAlcanceAudiencia(alertResult.data, usersResult.data || []);
+      const countDigestPlacements = async (targetAlertId = null) => {
+        let query = supabase
+          .from('digest_items')
+          .select('id', { count: 'exact', head: true })
+          .eq('fecha', fecha);
+        if (organizationId) query = query.eq('organization_id', organizationId);
+        if (targetAlertId) query = query.eq('alerta_id', targetAlertId);
+        const result = await query;
+        if (result.error) throw result.error;
+        return Number(result.count || 0);
+      };
+      const [totalPlacements, alertPlacements] = await Promise.all([
+        countDigestPlacements(),
+        countDigestPlacements(alertaId),
+      ]);
+      const dailyDigestShare = calcularCuotaDominanciaDigest(alertPlacements, totalPlacements);
+      const reach = analizarAlcanceAudiencia(alertResult.data, usersResult.data || [], {
+        singleAlertDigestShare: dailyDigestShare,
+      });
+      const registration = req.method === 'POST'
+        ? await registrarSnapshotAlcance(supabase, alertaId, reach, { fecha, organizationId })
+        : null;
       return res.json({
         ok: true,
+        registered: Boolean(registration),
         alerta: { id: alertResult.data.id, titulo: alertResult.data.titulo },
         preview: reach,
+        registration,
         summary: {
           text: `Esta alerta se enviaria a ${reach.matched_users} de ${reach.eligible_users} usuarios.`,
           warning: reach.flags.includes('cross_sector_mass_match')
@@ -116,7 +146,10 @@ module.exports = (app, supabase) => {
       console.error('Error en /admin/alertas/:id/preview-audience:', err);
       return res.status(500).json({ error: err.message });
     }
-  });
+  };
+
+  app.get('/admin/alertas/:id/preview-audience', requireAdmin, previewAudienceHandler);
+  app.post('/admin/alertas/:id/preview-audience', requireAdmin, previewAudienceHandler);
 
 
   // ──────────────────────────────────────────────────────────────────

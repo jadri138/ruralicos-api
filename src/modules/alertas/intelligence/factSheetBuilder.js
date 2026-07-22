@@ -102,7 +102,7 @@ const ACTION_DEFINITIONS = Object.freeze([
   ['presentar_alegaciones', [/presentar alegaciones/i, /plazo de alegaciones/i]],
   ['subsanar_documentacion', [/subsanar/i, /subsanacion/i]],
   ['justificar_ayuda', [/justificar (?:la )?ayuda/i, /cuenta justificativa/i, /plazo de justificacion/i]],
-  ['contactar_organismo', [/contactar con/i, /dirigirse a/i]],
+  ['contactar_organismo', [/contactar con/i, /dirigir(?:se)?\s+(?:a|al)/i]],
   ['sin_accion_inmediata', [/sin accion inmediata/i, /no requiere accion inmediata/i]],
   ['solo_informativo', [/solo informativo/i, /a efectos informativos/i]],
 ]);
@@ -223,8 +223,13 @@ function extraerEvidenciaTaxonomia(alerta = {}, blocks = []) {
 }
 
 function extraerAccionEstructurada(blocks = []) {
+  const documentBlocks = blocks.filter((block) =>
+    block.official
+    || block.source === 'alerta.contenido'
+    || block.source === 'alerta.titulo'
+  );
   for (const [code, patterns] of ACTION_DEFINITIONS) {
-    const block = buscarEvidencia(blocks, patterns);
+    const block = buscarEvidencia(documentBlocks, patterns);
     if (block) return campoDesdeBloque(code, block, 0.82);
   }
   return crearCampo();

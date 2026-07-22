@@ -1,5 +1,8 @@
 const { fuentePermitida, normalizarFuenteBoletin } = require('../../../config/planes');
-const { extraerFeatureTagsDeTexto } = require('../../aprendizaje/taxonomiaRuralicos');
+const {
+  construirPreferenciasDesdeTexto,
+  extraerFeatureTagsDeTexto,
+} = require('../../aprendizaje/taxonomiaRuralicos');
 const {
   canonicalSector,
   canonicalSubsector,
@@ -20,6 +23,9 @@ const {
   taxonomyTagsAlerta,
   textoDocumentalAlerta,
 } = require('../../../shared/sectorTaxonomy');
+const {
+  detectarTratamientoEspecialAlerta,
+} = require('../../../shared/alertScopeRules');
 
 function norm(str) {
   return (str || '')
@@ -31,6 +37,26 @@ function norm(str) {
 }
 
 const intersecta = (a, b) => a.some((x) => b.includes(x));
+const CULTIVOS_ESPECIFICOS = new Set([
+  'trigo',
+  'cebada',
+  'cereal',
+  'maiz',
+  'arroz',
+  'hortalizas',
+  'frutales',
+  'hortofruticola',
+  'olivar',
+  'trufas',
+  'vinedo',
+  'almendro',
+  'citricos',
+  'frutos_secos',
+  'leguminosas',
+  'patata',
+  'cultivos_industriales',
+  'floricultura',
+]);
 const TIPOS_ALERTA_POR_FEATURE = {
   plazos: ['concepto:plazo'],
   formacion: ['concepto:formacion'],
@@ -135,7 +161,142 @@ function userHasIrrigationActivity(user = {}) {
   return tieneInteresAprendidoConfiable(user, ['agua', 'riego', 'regadio']);
 }
 
+function userHasPlantVarietySpecialistActivity(user = {}) {
+  const texto = textoActividadUsuario(user);
+  if (/\b(?:viveros?|obtentores?|mejora vegetal|material vegetal|recursos fitogeneticos|conservacion de variedades|investigacion (?:agraria|agricola|vegetal)|variedades? de higuera|ficus carica)\b/.test(texto)) {
+    return true;
+  }
+  return tieneInteresAprendidoConfiable(user, [
+    'viveros',
+    'material_vegetal',
+    'recursos_fitogeneticos',
+    'variedades_higuera',
+    'investigacion_vegetal',
+  ]);
+}
+
+function userHasForestryActivity(user = {}) {
+  const subsectores = listaCanonica(user.preferences?.subsectores, canonicalSubsector);
+  if (subsectores.includes('forestal')) return true;
+  if (tiposActivosUsuario(user).includes('forestal')) return true;
+  if (/\b(?:forestal|silvicultura|monte|montes|bosque|aprovechamiento forestal)\b/.test(textoActividadUsuario(user))) {
+    return true;
+  }
+  return tieneInteresAprendidoConfiable(user, ['forestal', 'silvicultura', 'montes']);
+}
+
+function userHasExplicitTerritoryRelationship(alerta = {}, user = {}) {
+  const userProvinces = Array.isArray(user.preferences?.provincias)
+    ? user.preferences.provincias.map(norm).filter(Boolean)
+    : [];
+  if (userProvinces.length === 0) return false;
+  const alertProvinces = resolverTerritorioAlerta(alerta).provincias_normalizadas;
+  return intersecta(userProvinces, alertProvinces);
+}
+
+function esAlertaForestalLocal(alerta = {}) {
+  const texto = textoDocumentalAlerta(alerta);
+  const forestal = subsectoresDerivadosAlerta(alerta).includes('forestal')
+    || /\b(?:gestion|instrumento|aprovechamiento|plan|ordenacion) forestal\b/.test(texto);
+  const local = /\b(?:ayuntamiento|municipio|termino municipal|monte municipal|diputacion|cabildo)\b/.test(texto);
+  return forestal && local;
+}
+
+function cultivosEspecificosAlerta(alerta = {}) {
+  const declarados = subsectoresDerivadosAlerta(alerta)
+    .filter((subsector) => CULTIVOS_ESPECIFICOS.has(subsector));
+  if (declarados.length === 0) return [];
+
+  const evidenciados = construirPreferenciasDesdeTexto(textoDocumentalAlerta(alerta))
+    .preferencias?.subsectores || [];
+  return declarados.filter((subsector) => evidenciados.includes(subsector));
+}
+
+function userHasCompatibleCropActivity(user = {}, expectedCrops = []) {
+  const declared = listaCanonica(user.preferences?.subsectores, canonicalSubsector);
+  if (intersecta(declared, expectedCrops)) return true;
+
+  const inferred = construirPreferenciasDesdeTexto(textoActividadUsuario(user))
+    .preferencias?.subsectores || [];
+  if (intersecta(inferred.map(canonicalSubsector).filter(Boolean), expectedCrops)) return true;
+  return tieneInteresAprendidoConfiable(user, expectedCrops);
+}
+
+function extraerEntidadRestringidaAlerta(alerta = {}) {
+  const explicita = norm(alerta.entidad_requerida || alerta.target_entity || '');
+  if (explicita) return explicita;
+
+  const texto = textoDocumentalAlerta(alerta);
+  const match = texto.match(
+    /\b(?:exclusivamente|unicamente|solo|dirigid[oa]s?)\s+(?:a|para)?\s*(?:los|las)?\s*(?:socios|miembros|clientes|entidades asociadas)\s+de\s+(?:la|el)?\s*([a-z0-9][a-z0-9 ]{2,60}?)(?=\s+(?:que|con|podran|deberan|seran|y)\b|$)/
+  );
+  return norm(match?.[1] || '');
+}
+
+function userHasEntityRelationship(user = {}, entity = '') {
+  const expected = norm(entity);
+  if (!expected) return true;
+  return textoActividadUsuario(user).includes(expected)
+    || tieneInteresAprendidoConfiable(user, [expected]);
+}
+
 function diagnosticarBarreraTematicaUsuario(alerta = {}, user = {}, options = {}) {
+  const tratamientoEspecial = detectarTratamientoEspecialAlerta(alerta);
+  if (tratamientoEspecial?.decision === 'store_not_send') {
+    return {
+      ok: false,
+      motivo: tratamientoEspecial.reason_code,
+      detalle: {
+        audience: tratamientoEspecial.audience,
+        automatic_general_send: false,
+      },
+    };
+  }
+
+  if (
+    tratamientoEspecial?.decision === 'keep_specialist'
+    && !userHasPlantVarietySpecialistActivity(user)
+  ) {
+    return {
+      ok: false,
+      motivo: 'specialist_plant_variety_profile_required',
+      detalle: {
+        audience: tratamientoEspecial.audience,
+        automatic_general_send: false,
+      },
+    };
+  }
+
+  if (
+    esAlertaForestalLocal(alerta)
+    && !userHasForestryActivity(user)
+    && !userHasExplicitTerritoryRelationship(alerta, user)
+  ) {
+    return {
+      ok: false,
+      motivo: 'local_forestry_requires_profile_or_territory',
+      detalle: { topic: 'forestal_local', user_forestry_activity: false, explicit_territory_relationship: false },
+    };
+  }
+
+  const cultivosEspecificos = cultivosEspecificosAlerta(alerta);
+  if (cultivosEspecificos.length > 0 && !userHasCompatibleCropActivity(user, cultivosEspecificos)) {
+    return {
+      ok: false,
+      motivo: 'specific_crop_requires_compatible_profile',
+      detalle: { crops: cultivosEspecificos, compatible_crop_activity: false },
+    };
+  }
+
+  const entidadRestringida = extraerEntidadRestringidaAlerta(alerta);
+  if (entidadRestringida && !userHasEntityRelationship(user, entidadRestringida)) {
+    return {
+      ok: false,
+      motivo: 'specific_entity_relationship_required',
+      detalle: { required_entity: entidadRestringida, verified_relationship: false },
+    };
+  }
+
   if (esAlertaSanidadAnimal(alerta) && !userHasLivestockActivity(user)) {
     return {
       ok: false,
@@ -776,6 +937,9 @@ module.exports = {
   diagnosticarAlertaUsuario,
   esAlertaNacional,
   esConvocatoriaAyudaGeneral,
+  cultivosEspecificosAlerta,
+  esAlertaForestalLocal,
+  extraerEntidadRestringidaAlerta,
   intersecta,
   inferirSectoresDesdeSubsectores,
   norm,
@@ -791,4 +955,8 @@ module.exports = {
   userHasAgricultureActivity,
   userHasIrrigationActivity,
   userHasLivestockActivity,
+  userHasCompatibleCropActivity,
+  userHasEntityRelationship,
+  userHasForestryActivity,
+  userHasPlantVarietySpecialistActivity,
 };

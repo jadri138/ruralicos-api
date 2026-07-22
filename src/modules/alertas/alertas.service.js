@@ -10,6 +10,10 @@ const { enviarWhatsAppResumen } = require('../../platform/whatsapp');
 const { getFechaMadridISO } = require('../../shared/fechaMadrid');
 const { requireAdmin } = require('../../middleware/requireAdmin');
 const {
+  construirClasificacionTratamientoEspecial,
+  detectarDescarteEstructuradoFueraAlcance,
+} = require('../../shared/alertScopeRules');
+const {
   DISCARD_REASON_CODES,
   DISCARD_REASON_MESSAGES,
   normalizarCodigoDescarte,
@@ -23,6 +27,22 @@ const CLASIFICAR_LOCAL_FALLBACK = (process.env.CLASIFICAR_LOCAL_FALLBACK || 'tru
 const RESUMIR_LOCAL_FALLBACK = (process.env.RESUMIR_LOCAL_FALLBACK || 'true').toLowerCase() !== 'false';
 const REVISAR_LOCAL_FALLBACK = (process.env.REVISAR_LOCAL_FALLBACK || 'true').toLowerCase() !== 'false';
 const REVISAR_IA_RESCUE = (process.env.REVISAR_IA_RESCUE || 'false').toLowerCase() === 'true';
+const CLASSIFICATION_ALERT_TYPES = Object.freeze([
+  'ayudas_subvenciones',
+  'normativa_general',
+  'agua_infraestructuras',
+  'fiscalidad',
+  'medio_ambiente',
+  'sanidad_animal',
+  'sanidad_vegetal',
+  'incendios_emergencias',
+  'obligaciones',
+  'restricciones',
+  'forestal',
+  'formacion',
+  'registros_certificaciones',
+  'plazos_alegaciones',
+]);
 
 const CLASIFICACION_TEXT_FORMAT = {
   type: 'json_schema',
@@ -74,7 +94,7 @@ const CLASIFICACION_TEXT_FORMAT = {
               type: 'array',
               items: {
                 type: 'string',
-                enum: ['ayudas_subvenciones', 'normativa_general', 'agua_infraestructuras', 'fiscalidad', 'medio_ambiente'],
+                enum: [...CLASSIFICATION_ALERT_TYPES],
               },
             },
             discard_reason_code: {
@@ -113,7 +133,7 @@ const FICHA_IA_TEXT_FORMAT = {
             id: { type: 'string' },
             tipo: {
               type: 'string',
-              enum: ['ayudas_subvenciones', 'normativa_general', 'agua_infraestructuras', 'fiscalidad', 'medio_ambiente', 'otro'],
+              enum: [...CLASSIFICATION_ALERT_TYPES, 'otro'],
             },
             prioridad: { type: 'string', enum: ['alta', 'media', 'baja'] },
             territorio: { type: 'string' },
@@ -289,6 +309,8 @@ function esAdministracionGeneralNoAgraria(alerta = {}) {
 }
 
 function detectarExclusionDuraAlerta(alerta = {}) {
+  const descarteEstructurado = detectarDescarteEstructuradoFueraAlcance(alerta);
+  if (descarteEstructurado) return descarteEstructurado.reasonCode;
   if (esProcesoAdministrativoPersonal(alerta)) return 'proceso_personal_publico';
   if (esPescaOMaritimoNoAgrario(alerta)) return 'pesca_maritimo_no_agrario';
   if (esAdministracionGeneralNoAgraria(alerta)) return 'administracion_general_no_agraria';
@@ -354,6 +376,9 @@ function extraerResultadosClasificacion(parsed) {
 }
 
 function clasificarLocalmente(alerta) {
+  const tratamientoEspecial = construirClasificacionTratamientoEspecial(alerta);
+  if (tratamientoEspecial) return tratamientoEspecial;
+
   const exclusionDura = detectarExclusionDuraAlerta(alerta);
   if (exclusionDura) {
     return clasificacionDescartada(alerta.id, {
@@ -437,6 +462,15 @@ function clasificarLocalmente(alerta) {
   if (rural && contieneAlguno(texto, ['agua', 'riego', 'regadio', 'regante'])) tipos_alerta.push('agua_infraestructuras');
   if (fiscalidad) tipos_alerta.push('fiscalidad');
   if (contieneAlguno(texto, ['medio ambiente', 'ambiental', 'biodiversidad', 'forestal'])) tipos_alerta.push('medio_ambiente');
+  if (contieneAlguno(texto, ['sanidad animal', 'bienestar animal', 'zoosanit', 'veterinari', 'bioseguridad ganadera'])) tipos_alerta.push('sanidad_animal');
+  if (contieneAlguno(texto, ['sanidad vegetal', 'fitosanit', 'plaga vegetal'])) tipos_alerta.push('sanidad_vegetal');
+  if (contieneAlguno(texto, ['incendio forestal', 'emergencia por incendio', 'riesgo extremo de incendio'])) tipos_alerta.push('incendios_emergencias');
+  if (contieneAlguno(texto, ['declaracion obligatoria', 'debera declarar', 'deberan declarar', 'obligacion para'])) tipos_alerta.push('obligaciones');
+  if (contieneAlguno(texto, ['restriccion', 'prohibicion', 'limitacion obligatoria'])) tipos_alerta.push('restricciones');
+  if (contieneAlguno(texto, ['forestal', 'silvicultura', 'ordenacion de montes', 'gestion de montes'])) tipos_alerta.push('forestal');
+  if (contieneAlguno(texto, ['curso de formacion', 'formacion agraria', 'jornada formativa', 'capacitacion'])) tipos_alerta.push('formacion');
+  if (contieneAlguno(texto, ['registro de explotaciones', 'inscripcion registral', 'certificacion obligatoria', 'registro agrario'])) tipos_alerta.push('registros_certificaciones');
+  if (contieneAlguno(texto, ['plazo de alegaciones', 'presentar alegaciones', 'periodo de alegaciones'])) tipos_alerta.push('plazos_alegaciones');
   if (tipos_alerta.length === 0) tipos_alerta.push('normativa_general');
 
   return {
@@ -486,10 +520,7 @@ function normalizarResultadoClasificacion(item, alertasPorId) {
       'almendro', 'citricos', 'frutos_secos', 'leguminosas', 'patata',
       'forrajes', 'forestal', 'agua', 'energia', 'medio_ambiente',
     ]),
-    tipos_alerta: limpiarArrayEnum(item.tipos_alerta, [
-      'ayudas_subvenciones', 'normativa_general', 'agua_infraestructuras',
-      'fiscalidad', 'medio_ambiente',
-    ]),
+    tipos_alerta: limpiarArrayEnum(item.tipos_alerta, CLASSIFICATION_ALERT_TYPES),
   };
 }
 
@@ -1149,7 +1180,7 @@ Te paso una lista de alertas de boletines oficiales. Para CADA una debes:
 - "provincias": lista de provincias mencionadas. Si es toda una CCAA → todas sus provincias. Si es estatal → [].
 - "sectores": uno o varios de ["ganaderia","agricultura","mixto","otros"]
 - "subsectores": uno o varios de ["ovino","vacuno","caprino","porcino","avicultura","cunicultura","equinocultura","apicultura","trigo","cebada","cereal","maiz","arroz","hortalizas","frutales","olivar","trufas","viñedo","almendro","citricos","frutos_secos","leguminosas","patata","forrajes","forestal","agua","energia","medio_ambiente"]
-- "tipos_alerta": uno o varios de ["ayudas_subvenciones","normativa_general","agua_infraestructuras","fiscalidad","medio_ambiente"]
+- "tipos_alerta": uno o varios de ["${CLASSIFICATION_ALERT_TYPES.join('","')}"]
 
 3) Justificar cualquier descarte de forma estable y basada solo en el texto:
 - Si "es_relevante" es true, devuelve discard_reason_code, discard_reason y discard_confidence como null.
@@ -1236,6 +1267,12 @@ async function clasificarConReintento(alertas) {
   };
 
   for (const alerta of alertas) {
+    const tratamientoEspecial = construirClasificacionTratamientoEspecial(alerta);
+    if (tratamientoEspecial) {
+      resultadosPorId.set(String(alerta.id), tratamientoEspecial);
+      continue;
+    }
+
     const exclusion = detectarExclusionDuraAlerta(alerta);
     if (exclusion) {
       resultadosPorId.set(String(alerta.id), clasificacionDescartada(alerta.id, {
@@ -1343,6 +1380,7 @@ module.exports = {
   REVISAR_LOCAL_FALLBACK,
   REVISAR_IA_RESCUE,
   CLASIFICACION_TEXT_FORMAT,
+  CLASSIFICATION_ALERT_TYPES,
   FICHA_IA_TEXT_FORMAT,
   requireAdminOrCron,
   validarFechaISO,

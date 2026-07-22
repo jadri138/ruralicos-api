@@ -17,12 +17,15 @@
 // (ver migracion supabase/migrations/*_add_alert_preclassification.sql).
 //
 // Capa intencionadamente AUTOCONTENIDA: no importa alertas.service.js (que
-// arrastra supabase/whatsapp y exige env vars al cargar). Los helpers de texto
-// son utilidades puras triviales y las exclusiones duras se modelan aqui como
-// reglas negativas, de forma que el modulo es pura logica, sin efectos
-// secundarios y testeable en aislamiento. Cuando se integre en el pipeline
+// arrastra supabase/whatsapp y exige env vars al cargar). Solo comparte reglas
+// puras de alcance; el modulo sigue sin efectos secundarios y es testeable en
+// aislamiento. Cuando se integre en el pipeline
 // detras de ALERT_PRECLASSIFIER_ENABLED, convivira con la deteccion de
 // exclusion dura existente sin solaparse de forma conflictiva.
+
+const {
+  detectarDescarteEstructuradoFueraAlcance,
+} = require('../../../shared/alertScopeRules');
 
 // Normaliza a minusculas sin diacriticos (mismo criterio que alertas.service.js).
 function normalizarTexto(texto) {
@@ -173,6 +176,9 @@ const ANCLA_AGRARIA = [
 //  - pesca o maritimo sin relacion agraria
 //  - administracion general (universidad, notarios, urbanismo) sin relacion agraria
 function detectarExclusionDuraAlerta(texto) {
+  const descarteEstructurado = detectarDescarteEstructuradoFueraAlcance(texto);
+  if (descarteEstructurado) return descarteEstructurado.reasonCode;
+
   const empleoPublico = contieneAlguno(texto, [
     'concurso especifico de meritos', 'concurso de meritos y capacidades',
     'provision de un puesto', 'provision de puestos', 'puesto singular',

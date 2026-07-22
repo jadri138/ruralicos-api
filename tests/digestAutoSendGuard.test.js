@@ -46,6 +46,19 @@ test('blocked y exclude nunca son enviables automaticamente', () => {
   assert.strictEqual(esEnvioAutomaticoPermitido({ action: 'exclude' }), false);
 });
 
+test('review_only queda bloqueado en normal, rescate, legacy y fallback', () => {
+  for (const mode of ['automatic_daily', 'rescue', 'legacy_rescue', 'fallback']) {
+    assert.strictEqual(
+      esEnvioAutomaticoPermitido(
+        { action: 'review_only', incluir: true },
+        { mode, allowLegacyWithoutDecision: true, alerta: { created_at: '2026-07-20T10:00:00.000Z' } }
+      ),
+      false,
+      mode
+    );
+  }
+});
+
 test('sin decision auditable se bloquea en cualquier flujo automatico', () => {
   assert.strictEqual(esEnvioAutomaticoPermitido(null), false);
   assert.strictEqual(esEnvioAutomaticoPermitido({}), false);

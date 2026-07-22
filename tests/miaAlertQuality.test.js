@@ -5,6 +5,7 @@ const {
   evaluarCalidadPipelineRuns,
   construirReporteCalidadOperativa,
   calcularMetricasCalidadPlan,
+  resolverVentanaCalidadOperativa,
 } = require('../src/modules/mia/alertQuality');
 
 let passed = 0;
@@ -281,6 +282,20 @@ assert(planMetrics.decision_digest_missing === 1, 'Mide decisiones digest ausent
 assert(planMetrics.review_only_sent === 1, 'Mide review_only enviados');
 assert(planMetrics.false_positive_confirmed === 1, 'Mide falsos positivos confirmados');
 assert(planMetrics.false_negative_confirmed === 1, 'Mide falsos negativos confirmados');
+
+const dailyWindow = resolverVentanaCalidadOperativa({
+  fecha: '2026-07-21',
+  now: new Date('2026-07-21T12:00:00.000Z'),
+});
+assert(dailyWindow.since === '2026-07-20T22:00:00.000Z', 'Ventana diaria empieza a medianoche de Madrid');
+assert(dailyWindow.until === '2026-07-21T22:00:00.000Z', 'Ventana diaria termina en la siguiente medianoche de Madrid');
+
+const rangeWindow = resolverVentanaCalidadOperativa({
+  days: 7,
+  now: new Date('2026-07-21T12:00:00.000Z'),
+});
+assert(rangeWindow.since === '2026-07-14T12:00:00.000Z', 'Ventana movil conserva siete dias exactos');
+assert(rangeWindow.until === '2026-07-21T12:00:00.000Z', 'Ventana movil termina en la hora real de generacion');
 
 console.log(`\nResultados: ${passed} aprobados, ${failed} fallidos`);
 process.exit(failed > 0 ? 1 : 0);

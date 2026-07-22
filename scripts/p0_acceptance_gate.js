@@ -82,8 +82,28 @@ credenciales con privilegios INSERT, UPDATE, DELETE o TRUNCATE sobre alertas o
 raw_documents. Todas las consultas se ejecutan dentro de una transacción READ ONLY.`;
 }
 
-function npmExecutable() {
-  return process.platform === 'win32' ? 'npm.cmd' : 'npm';
+function resolveExternalCommand(check, dependencies = {}) {
+  if (check.command !== 'npm') {
+    return { command: check.command, args: check.args || [] };
+  }
+
+  const platform = dependencies.platform || process.platform;
+  if (platform !== 'win32') {
+    return { command: 'npm', args: check.args || [] };
+  }
+
+  const npmExecPath = dependencies.npmExecPath || process.env.npm_execpath;
+  if (npmExecPath && fs.existsSync(npmExecPath)) {
+    return {
+      command: process.execPath,
+      args: [npmExecPath, ...(check.args || [])],
+    };
+  }
+
+  return {
+    command: dependencies.comSpec || process.env.ComSpec || 'cmd.exe',
+    args: ['/d', '/s', '/c', 'npm.cmd', ...(check.args || [])],
+  };
 }
 
 function displayCommand(command, args = []) {
@@ -92,10 +112,10 @@ function displayCommand(command, args = []) {
 
 function runExternalCheck(check, dependencies = {}) {
   const spawn = dependencies.spawnSync || spawnSync;
-  const command = check.command === 'npm' ? npmExecutable() : check.command;
+  const { command, args } = resolveExternalCommand(check, dependencies);
   const started = Date.now();
-  console.log(`\n[p0:acceptance] ${check.id}: ${displayCommand(command, check.args)}`);
-  const result = spawn(command, check.args, {
+  console.log(`\n[p0:acceptance] ${check.id}: ${displayCommand(command, args)}`);
+  const result = spawn(command, args, {
     cwd: REPO_ROOT,
     env: process.env,
     stdio: 'inherit',
@@ -410,6 +430,7 @@ module.exports = {
   loadDiagnostic,
   main,
   parseArgs,
+  resolveExternalCommand,
   runExternalCheck,
   runGate,
   runQualityChecks,

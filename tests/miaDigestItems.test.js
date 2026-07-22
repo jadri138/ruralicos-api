@@ -31,7 +31,21 @@ const rows = construirDigestItems({
       sectores: ['Agricultura'],
       tipos_alerta: ['ayudas_subvenciones'],
       fuente: 'BOA',
-      decision_digest: { incluir: true, action: 'include', motivo: 'incluida', riesgo: 'bajo', score: 91 },
+      decision_digest: {
+        incluir: true,
+        action: 'include',
+        motivo: 'incluida',
+        riesgo: 'bajo',
+        score: 91,
+        match_trace: {
+          territory_match: 'national',
+          sector_match: 'agricultura',
+          subsector_match: null,
+          type_match: 'ayudas_subvenciones',
+          score: 91,
+          decision: 'include',
+        },
+      },
       motivo_seleccion_mia: 'pgvector_rpc:incluida:score_91:riesgo_bajo',
       mia_profile_score: 2.5,
       mia_profile_reasons: ['interest:ayudas_maquinaria:2.50'],
@@ -73,6 +87,9 @@ assert(rows[0].selection_reason === 'incluida', 'Guarda motivo de seleccion');
 assert(rows[0].selection_risk === 'bajo', 'Guarda riesgo de seleccion');
 assert(rows[0].similarity_score === 0.82, 'Guarda similitud en columna dedicada');
 assert(rows[0].selection_decision.score === 91, 'Guarda decision completa en columna dedicada');
+assert(rows[0].selection_decision.match_trace.territory_match === 'national', 'Guarda trazabilidad territorial del matching');
+assert(rows[0].selection_decision.match_trace.sector_match === 'agricultura', 'Guarda trazabilidad sectorial del matching');
+assert(rows[0].selection_decision.match_trace.type_match === 'ayudas_subvenciones', 'Guarda trazabilidad del tipo de alerta');
 assert(rows[0].motivo_seleccion === 'pgvector_rpc:incluida:score_91:riesgo_bajo', 'No duplica origen si el motivo ya viene auditado');
 assert(rows[0].organization_id === 12, 'Propaga organization_id al item del digest');
 assert(rows[0].tags_json.fuente === 'BOA', 'Guarda tags de trazabilidad');

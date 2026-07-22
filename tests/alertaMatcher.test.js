@@ -740,5 +740,65 @@ test('sanidad vegetal especializada sin tipo queda en revision antes del scoring
   assert.strictEqual(result.motivo, 'alerta_especializada_sin_tipo');
 });
 
+test('forestal local exige perfil forestal o relacion territorial explicita', () => {
+  const alerta = {
+    fuente: 'BOPZ',
+    provincias: ['zaragoza'],
+    titulo: 'Ayuntamiento de Ejea. Aprobacion del instrumento de gestion forestal municipal',
+    contenido: 'Plan de ordenacion y aprovechamiento forestal del monte municipal.',
+    sectores: ['agricultura'],
+    subsectores: ['forestal'],
+    tipos_alerta: ['forestal', 'normativa_general'],
+  };
+  const general = userSectorial({ sectores: ['agricultura'] });
+  const forestal = userSectorial({ sectores: ['agricultura'], subsectores: ['forestal'] });
+  const territorial = userSectorial({ sectores: ['agricultura'] });
+  territorial.preferences.provincias = ['zaragoza'];
+
+  assert.strictEqual(diagnosticarAlertaUsuario(alerta, general).motivo, 'local_forestry_requires_profile_or_territory');
+  assert.strictEqual(diagnosticarAlertaUsuario(alerta, forestal).ok, true);
+  assert.strictEqual(diagnosticarAlertaUsuario(alerta, territorial).ok, true);
+});
+
+test('cultivo especifico exige cultivo compatible y no bloquea alertas agricolas generales', () => {
+  const trigo = {
+    fuente: 'BOE',
+    provincias: ['nacional'],
+    titulo: 'Norma tecnica especifica para el cultivo de trigo',
+    contenido: 'La norma establece requisitos exclusivos para productores de trigo.',
+    sectores: ['agricultura'],
+    subsectores: ['trigo'],
+    tipos_alerta: ['normativa_general'],
+  };
+  const general = userSectorial({ sectores: ['agricultura'] });
+  const cereal = userSectorial({ sectores: ['agricultura'], subsectores: ['trigo'] });
+  const inferido = userSectorial({ sectores: ['agricultura'] });
+  inferido.preferencias_extra = 'Cultivo trigo y cebada en mi explotacion.';
+
+  assert.strictEqual(diagnosticarAlertaUsuario(trigo, general).motivo, 'specific_crop_requires_compatible_profile');
+  assert.strictEqual(diagnosticarAlertaUsuario(trigo, cereal).ok, true);
+  assert.strictEqual(diagnosticarAlertaUsuario(trigo, inferido).ok, true);
+  assert.strictEqual(diagnosticarAlertaUsuario(alertaSectorial({ sectores: ['agricultura'] }), general).ok, true);
+});
+
+test('obligacion de entidad concreta exige una relacion declarada con esa entidad', () => {
+  const alerta = {
+    fuente: 'BOE',
+    provincias: ['nacional'],
+    titulo: 'Obligacion dirigida exclusivamente a los socios de Cooperativa Campo Norte',
+    contenido: 'La declaracion sera obligatoria solo para los socios de Cooperativa Campo Norte que mantengan actividad agraria.',
+    sectores: ['agricultura'],
+    subsectores: [],
+    tipos_alerta: ['normativa_general'],
+  };
+  const ajeno = userSectorial({ sectores: ['agricultura'] });
+  ajeno.preferencias_extra = 'Gestiono una explotacion agraria independiente.';
+  const relacionado = userSectorial({ sectores: ['agricultura'] });
+  relacionado.preferencias_extra = 'Soy socio de Cooperativa Campo Norte.';
+
+  assert.strictEqual(diagnosticarAlertaUsuario(alerta, ajeno).motivo, 'specific_entity_relationship_required');
+  assert.strictEqual(diagnosticarAlertaUsuario(alerta, relacionado).ok, true);
+});
+
 console.log(`\nResultados alertaMatcher: ${passed} aprobados, ${failed} fallidos`);
 if (failed > 0) process.exit(1);

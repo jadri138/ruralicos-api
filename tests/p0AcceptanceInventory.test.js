@@ -13,6 +13,7 @@ const {
   EXIT_CODES,
   assessGate,
   parseArgs,
+  resolveExternalCommand,
   sanitizeError,
 } = require('../scripts/p0_acceptance_gate');
 
@@ -140,6 +141,22 @@ function passingAssessment(overrides = {}) {
     });
     assert.strictEqual(failedAssessment.result.status, 'check_failed');
     assert.strictEqual(failedAssessment.result.exit_code, EXIT_CODES.CHECK_FAILED);
+  });
+
+  await test('el gate resuelve npm en Windows sin ejecutar npm.cmd directamente', () => {
+    const viaNode = resolveExternalCommand(
+      { command: 'npm', args: ['run', 'lint'] },
+      { platform: 'win32', npmExecPath: __filename }
+    );
+    assert.strictEqual(viaNode.command, process.execPath);
+    assert.deepStrictEqual(viaNode.args, [__filename, 'run', 'lint']);
+
+    const viaCmd = resolveExternalCommand(
+      { command: 'npm', args: ['run', 'lint'] },
+      { platform: 'win32', npmExecPath: 'Z:\\missing\\npm-cli.js', comSpec: 'cmd.exe' }
+    );
+    assert.strictEqual(viaCmd.command, 'cmd.exe');
+    assert.deepStrictEqual(viaCmd.args, ['/d', '/s', '/c', 'npm.cmd', 'run', 'lint']);
   });
 
   await test('el CLI bloquea produccion y solo admite PostgreSQL staging', () => {

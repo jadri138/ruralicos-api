@@ -1,3 +1,7 @@
+const {
+  detectarTratamientoEspecialAlerta,
+} = require('../../shared/alertScopeRules');
+
 const URGENTE = 'urgente';
 const NORMAL = 'normal';
 const BAJA = 'baja';
@@ -66,6 +70,14 @@ function prioridadFichaIA(alerta = {}) {
 
 function clasificarPrioridadAlerta(alerta = {}) {
   const texto = textoAlerta(alerta);
+  const tratamientoEspecial = detectarTratamientoEspecialAlerta(alerta);
+  if (tratamientoEspecial?.priority === 'low') {
+    return {
+      prioridad: BAJA,
+      score: -4,
+      motivos: [`tratamiento:${tratamientoEspecial.decision}`],
+    };
+  }
   const tipos = Array.isArray(alerta.tipos_alerta) ? alerta.tipos_alerta.map(norm) : [];
   const prioridadFicha = prioridadFichaIA(alerta);
   const plazoVerificado = tienePlazoVerificado(alerta);

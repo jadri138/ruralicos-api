@@ -19,6 +19,15 @@ async function main() {
       score: 71,
       riesgo: 'medio',
       motivo: 'evidencia_incompleta',
+      match_trace: {
+        territory_match: 'zaragoza',
+        sector_match: null,
+        subsector_match: null,
+        type_match: null,
+        score: 71,
+        decision: 'review_only',
+        reason: 'evidencia_incompleta',
+      },
     },
   });
 
@@ -27,6 +36,29 @@ async function main() {
   assert.strictEqual(row.action, 'review_only');
   assert.strictEqual(row.digest_attempt_id, 56);
   assert.strictEqual(row.score, 71);
+  assert.strictEqual(row.decision_json.match_trace.decision, 'review_only');
+
+  const excludedRow = construirDigestCandidateDecisionRow({
+    userId: 12,
+    alertaId: 35,
+    fecha: '2026-06-25',
+    stage: 'selection',
+    decision: {
+      action: 'exclude',
+      motivo: 'animal_health_requires_livestock_profile',
+      match_trace: {
+        decision: 'exclude',
+        reason: 'animal_health_requires_livestock_profile',
+        territory_match: 'national',
+        sector_match: null,
+        subsector_match: null,
+        type_match: 'sanidad_animal',
+        score: 0,
+      },
+    },
+  });
+  assert.strictEqual(excludedRow.action, 'exclude');
+  assert.strictEqual(excludedRow.decision_json.match_trace.reason, 'animal_health_requires_livestock_profile');
 
   const calls = [];
   const supabase = {

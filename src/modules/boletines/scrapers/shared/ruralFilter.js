@@ -1,3 +1,7 @@
+const {
+  detectarDescarteEstructuradoFueraAlcance,
+} = require('../../../../shared/alertScopeRules');
+
 const PREFILTER_ACTION = Object.freeze({
   PASS: 'pass',
   REVIEW: 'review',
@@ -148,9 +152,19 @@ function crearPrefiltroRural({ excluir = [], incluir = [] } = {}) {
     const negativeSignals = encontrarSenales(textoNormalizado, senalesNegativas);
     const descartesFuertes = encontrarSenales(textoNormalizado, DESCARTES_FUERTES);
     const descartesSinRural = encontrarSenales(textoNormalizado, DESCARTES_SIN_SENAL_RURAL);
+    const descarteEstructurado = detectarDescarteEstructuradoFueraAlcance(textoNormalizado);
     const senalesRuralesExplicitas = positiveSignals.filter(
       (senal) => !SENALES_RURALES_DEBILES.has(senal)
     );
+
+    if (descarteEstructurado) {
+      return crearDecision(
+        PREFILTER_ACTION.DISCARD,
+        positiveSignals,
+        [...new Set([...negativeSignals, descarteEstructurado.reasonCode])],
+        descarteEstructurado.reasonCode
+      );
+    }
 
     if (descartesFuertes.length > 0) {
       return crearDecision(

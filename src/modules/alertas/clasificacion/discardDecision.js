@@ -16,6 +16,10 @@ const DISCARD_REASON_MESSAGES = Object.freeze({
   urbanismo_no_agrario: 'La publicacion trata de urbanismo industrial o terciario sin impacto agrario expreso.',
   autorizacion_ambiental_individual_no_agraria: 'La publicacion tramita una autorizacion ambiental individual de una empresa sin impacto agrario colectivo expreso.',
   procedimiento_empresarial_individual_no_agrario: 'La publicacion tramita un procedimiento empresarial individual que no pertenece al digest rural general.',
+  association_registration_without_user_action: 'La publicacion inscribe una asociacion en un registro y no abre ninguna actuacion para el usuario.',
+  cultural_content_out_of_scope: 'La publicacion trata contenido cultural sin relacion operativa con la actividad agraria.',
+  sports_grant_out_of_scope: 'La convocatoria se dirige exclusivamente a clubes, entidades o actividades deportivas.',
+  non_agricultural_collective_agreement: 'La publicacion es un convenio colectivo sin relacion con la actividad agraria.',
   legacy_unstructured_discard: 'Descarte historico cuyo motivo original no puede deducirse de los datos conservados.',
 });
 
@@ -32,6 +36,10 @@ const HARD_DISCARD_REASON_CODES = Object.freeze([
   'proceso_personal_publico',
   'pesca_maritimo_no_agrario',
   'administracion_general_no_agraria',
+  'association_registration_without_user_action',
+  'cultural_content_out_of_scope',
+  'sports_grant_out_of_scope',
+  'non_agricultural_collective_agreement',
 ]);
 
 function normalizarConfianzaDescarte(value, fallback = 0.5) {

@@ -1,5 +1,9 @@
 const assert = require('assert');
-const { analizarAlcanceAudiencia } = require('../src/modules/alertas/seleccion/audienceReach');
+const {
+  analizarAlcanceAudiencia,
+  calcularCuotaDominanciaDigest,
+  construirSnapshotAlcance,
+} = require('../src/modules/alertas/seleccion/audienceReach');
 
 function user(id, sector, province = 'teruel') {
   return {
@@ -34,6 +38,21 @@ assert.strictEqual(legitimate.reach_ratio, 1);
 assert.strictEqual(legitimate.matched_by_reason.coincide, users.length);
 assert(legitimate.flags.includes('unexpected_audience_expansion'));
 assert.strictEqual(legitimate.action, 'observe', 'el alcance alto por si solo no bloquea');
+
+const dominant = analizarAlcanceAudiencia(broadPac, users, {
+  matcher: () => ({ ok: true, motivo: 'coincide' }),
+  singleAlertDigestShare: calcularCuotaDominanciaDigest(75, 100),
+});
+assert.strictEqual(dominant.daily_digest_share, 0.75);
+assert(dominant.flags.includes('single_alert_dominates_daily_digest'));
+assert.strictEqual(dominant.action, 'observe', 'la dominancia tampoco bloquea sin contradiccion confirmada');
+
+const snapshot = construirSnapshotAlcance(dominant, { fecha: '2026-07-21' });
+assert.strictEqual(snapshot.fecha, '2026-07-21');
+assert.strictEqual(snapshot.matched_users, users.length);
+assert.strictEqual(snapshot.daily_digest_share, 0.75);
+assert.strictEqual(Object.hasOwn(snapshot, 'matches'), false, 'el snapshot no persiste IDs incluidos');
+assert.strictEqual(Object.hasOwn(snapshot, 'excluded'), false, 'el snapshot no persiste IDs excluidos');
 
 const antibiotics = {
   id: 15110,

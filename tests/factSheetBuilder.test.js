@@ -181,5 +181,43 @@ test('una etiqueta sin evidencia queda marcada para revision', () => {
   assert.notStrictEqual(sheet.status, 'ready_for_digest');
 });
 
+test('acciones estructuradas exigen evidencia documental y cubren el catalogo P1.6', () => {
+  const actions = [
+    ['consultar_presvet', 'Las explotaciones deberan consultar PRESVET.'],
+    ['revisar_con_veterinario', 'Se recomienda revisar los indicadores con el veterinario.'],
+    ['presentar_solicitud', 'Los interesados podran presentar una solicitud.'],
+    ['presentar_alegaciones', 'Se abre un plazo para presentar alegaciones.'],
+    ['subsanar_documentacion', 'Los solicitantes deberan subsanar la documentacion.'],
+    ['justificar_ayuda', 'Los beneficiarios deberan justificar la ayuda.'],
+    ['contactar_organismo', 'Para resolver dudas se deberan dirigir al organismo gestor.'],
+    ['sin_accion_inmediata', 'La publicacion no requiere accion inmediata.'],
+    ['solo_informativo', 'El contenido se publica a efectos informativos.'],
+  ];
+
+  for (const [expected, contenido] of actions) {
+    const sheet = construirFactSheetAlertaSync({
+      id: expected,
+      titulo: 'Norma para explotaciones agrarias',
+      contenido,
+      sectores: ['agricultura'],
+      tipos_alerta: ['normativa_general'],
+      url: `https://www.boe.es/${expected}`,
+    });
+    assert.strictEqual(sheet.accion_codigo.valor, expected, expected);
+    assert.strictEqual(sheet.accion_codigo.source, 'alerta.contenido', expected);
+  }
+
+  const unsupported = construirFactSheetAlertaSync({
+    id: 'generated-action-only',
+    titulo: 'Norma para explotaciones agrarias',
+    contenido: 'La resolucion informa de un marco juridico agrario.',
+    resumen_final: 'FICHA_IA\nACCION: presentar solicitud',
+    sectores: ['agricultura'],
+    tipos_alerta: ['normativa_general'],
+    url: 'https://www.boe.es/generated-action-only',
+  });
+  assert.strictEqual(unsupported.accion_codigo.valor, null);
+});
+
 console.log(`\nResultados factSheetBuilder: ${passed} aprobados, ${failed} fallidos`);
 if (failed > 0) process.exit(1);

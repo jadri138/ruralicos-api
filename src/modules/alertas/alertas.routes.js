@@ -107,6 +107,7 @@ function patchPreclasificacion(preclassification, classification = null) {
       classification: classification ? {
         es_relevante: Boolean(classification.es_relevante),
         taxonomy_tags: classification.taxonomy_tags || [],
+        special_handling: classification.special_handling || null,
       } : null,
     },
   };

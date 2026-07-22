@@ -1,3 +1,5 @@
+const { getRangoDiaMadridUTC } = require('../../shared/fechaMadrid');
+
 const CRITICAL_ALERT_FLAGS = new Set([
   'duplicada',
   'descartada',
@@ -1269,6 +1271,7 @@ function construirReporteCalidadOperativa({
 
 async function selectSeguro(supabase, table, select, {
   since = null,
+  until = null,
   timeColumn = 'created_at',
   orderColumn = 'created_at',
   limit = 1000,
@@ -1281,12 +1284,29 @@ async function selectSeguro(supabase, table, select, {
     .order(orderColumn, { ascending: false })
     .limit(limit);
 
-  if (fecha && (fechaColumn || table === 'alertas')) query = query.eq(fechaColumn || 'fecha', fecha);
-  else if (since) query = query.gte(timeColumn, since);
+  if (fecha && (fechaColumn || table === 'alertas')) {
+    query = query.eq(fechaColumn || 'fecha', fecha);
+  } else {
+    if (since) query = query.gte(timeColumn, since);
+    if (until) query = query.lt(timeColumn, until);
+  }
 
   const { data, error } = await query;
   if (error) throw error;
   return { available: true, data: data || [] };
+}
+
+function resolverVentanaCalidadOperativa({ days = 7, fecha = null, now = new Date() } = {}) {
+  const safeDays = Math.max(1, Math.min(60, Number(days) || 7));
+  const current = now instanceof Date ? now : new Date(now);
+  const dailyRange = fecha ? getRangoDiaMadridUTC(fecha) : null;
+  return {
+    days: safeDays,
+    fecha,
+    since: dailyRange?.inicio
+      || new Date(current.getTime() - safeDays * 24 * 60 * 60 * 1000).toISOString(),
+    until: dailyRange?.fin || current.toISOString(),
+  };
 }
 
 async function generarReporteCalidadOperativaMIA(supabase, {
@@ -1294,53 +1314,53 @@ async function generarReporteCalidadOperativaMIA(supabase, {
   fecha = null,
   limit = 1000,
 } = {}) {
-  const safeDays = Math.max(1, Math.min(60, Number(days) || 7));
   const safeLimit = Math.max(100, Math.min(5000, Number(limit) || 1000));
-  const since = new Date(Date.now() - safeDays * 24 * 60 * 60 * 1000).toISOString();
-  const until = new Date().toISOString();
+  const now = new Date();
+  const window = resolverVentanaCalidadOperativa({ days, fecha, now });
+  const { since, until } = window;
 
   const [alertas, scraperRuns, pipelineRuns, factSheets, candidateDecisions, digestItems, reviews] = await Promise.all([
     selectSeguro(
       supabase,
       'alertas',
-      'id, titulo, resumen, resumenfree, resumen_borrador, resumen_final, url, fecha, region, created_at, contenido, provincias, sectores, subsectores, tipos_alerta, fuente, estado_ia, duplicado_de, embedding_generated_at, discard_reason_code, discard_reason, discard_stage, discard_confidence',
-      { since, fecha, limit: safeLimit }
+      'id, titulo, resumen, resumenfree, resumen_borrador, resumen_final, url, fecha, region, created_at, contenido, provincias, sectores, subsectores, tipos_alerta, fuente, estado_ia, duplicado_de, embedding_generated_at, discard_reason_code, discard_reason, discard_stage, discard_confidence, audience_reach, audience_reach_updated_at',
+      { since, until, fecha, limit: safeLimit }
     ),
     selectSeguro(
       supabase,
       'scraper_runs',
       'id, fuente, endpoint, fecha_objetivo, started_at, finished_at, duration_ms, status, http_status, nuevas, duplicadas, errores, relevantes, error_msg',
-      { since, timeColumn: 'started_at', orderColumn: 'started_at', limit: safeLimit }
+      { since, until, fecha, fechaColumn: 'fecha_objetivo', timeColumn: 'started_at', orderColumn: 'started_at', limit: safeLimit }
     ),
     selectSeguro(
       supabase,
       'pipeline_runs',
       'id, stage, endpoint, fecha_objetivo, started_at, finished_at, duration_ms, status, loops, procesadas, errores, error_msg',
-      { since, timeColumn: 'started_at', orderColumn: 'started_at', limit: safeLimit }
+      { since, until, fecha, fechaColumn: 'fecha_objetivo', timeColumn: 'started_at', orderColumn: 'started_at', limit: safeLimit }
     ),
     selectSeguro(
       supabase,
       'alert_fact_sheets',
       'alerta_id, fact_sheet, flags, generated_at',
-      { since, timeColumn: 'generated_at', orderColumn: 'generated_at', limit: safeLimit }
+      { since, until, timeColumn: 'generated_at', orderColumn: 'generated_at', limit: safeLimit }
     ),
     selectSeguro(
       supabase,
       'digest_candidate_decisions',
       'alerta_id, user_id, fecha, stage, action, reason, decision_json, digest_id, created_at',
-      { since, fecha, fechaColumn: 'fecha', limit: safeLimit }
+      { since, until, fecha, fechaColumn: 'fecha', limit: safeLimit }
     ),
     selectSeguro(
       supabase,
       'digest_items',
       'alerta_id, selection_action, selection_decision, created_at, digests(enviado)',
-      { since, limit: safeLimit }
+      { since, until, fecha, fechaColumn: 'fecha', limit: safeLimit }
     ),
     selectSeguro(
       supabase,
       'mia_alert_reviews',
       'alerta_id, verdict, expected_action, expert_verdict, decision_json, reviewed_at',
-      { since, timeColumn: 'reviewed_at', orderColumn: 'reviewed_at', limit: safeLimit }
+      { since, until, timeColumn: 'reviewed_at', orderColumn: 'reviewed_at', limit: safeLimit }
     ),
   ]);
 
@@ -1360,8 +1380,8 @@ async function generarReporteCalidadOperativaMIA(supabase, {
   }));
 
   return construirReporteCalidadOperativa({
-    generatedAt: until,
-    since: fecha ? null : since,
+    generatedAt: now.toISOString(),
+    since,
     until,
     alertas: alertasConFactSheet,
     scraperRuns: scraperRuns.data,
@@ -1391,6 +1411,7 @@ module.exports = {
   calcularMetricasCalidadPlan,
   construirReporteCalidadOperativa,
   generarReporteCalidadOperativaMIA,
+  resolverVentanaCalidadOperativa,
   calidadPorScoreOperativo,
   normalizarTextoCalidad,
   FUENTES_SCRAPER_ESPERADAS,

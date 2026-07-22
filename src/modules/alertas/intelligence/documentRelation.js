@@ -54,6 +54,13 @@ function clasificarRelacionDocumental(canonico = {}, candidato = {}, options = {
   const candidateReference = extraerReferenciaLegal(candidato);
   const titleSimilarity = similitudTitulos(canonico.titulo || '', candidato.titulo || '');
   const sameSource = normalizar(canonico.fuente) === normalizar(candidato.fuente);
+  const canonicalOrganization = normalizar(canonico.organismo || canonico.metadata_oficial?.organismo);
+  const candidateOrganization = normalizar(candidato.organismo || candidato.metadata_oficial?.organismo);
+  const sameOrganization = Boolean(
+    canonicalOrganization
+    && candidateOrganization
+    && canonicalOrganization === candidateOrganization
+  );
   const sameReference = Boolean(canonicalReference && canonicalReference === candidateReference);
   const evidence = {
     canonical_reference: canonicalReference,
@@ -62,6 +69,9 @@ function clasificarRelacionDocumental(canonico = {}, candidato = {}, options = {
     candidate_content_hash: candidateHash,
     title_similarity: Number(titleSimilarity.toFixed(4)),
     same_source: sameSource,
+    canonical_organization: canonicalOrganization || null,
+    candidate_organization: candidateOrganization || null,
+    same_organization: sameOrganization,
   };
 
   if (canonicalHash && candidateHash && canonicalHash === candidateHash) {
@@ -80,7 +90,7 @@ function clasificarRelacionDocumental(canonico = {}, candidato = {}, options = {
     return { relation: DOCUMENT_RELATION.EXACT_DUPLICATE, evidence };
   }
   const procedureThreshold = Number(options.sameSubjectThreshold || 0.65);
-  if (titleSimilarity >= procedureThreshold) {
+  if (titleSimilarity >= procedureThreshold && (sameOrganization || !canonicalOrganization || !candidateOrganization)) {
     return { relation: DOCUMENT_RELATION.SAME_SUBJECT_NEW_PROCEDURE, evidence };
   }
   return { relation: DOCUMENT_RELATION.NEW, evidence };
