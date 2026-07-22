@@ -61,7 +61,14 @@ function clasificarRelacionDocumental(canonico = {}, candidato = {}, options = {
     && candidateOrganization
     && canonicalOrganization === candidateOrganization
   );
+  const organizationCompatible = sameOrganization
+    || !canonicalOrganization
+    || !candidateOrganization;
   const sameReference = Boolean(canonicalReference && canonicalReference === candidateReference);
+  const canonicalCorrection = esCorreccion(canonico);
+  const candidateCorrection = esCorreccion(candidato);
+  const canonicalUpdate = esActualizacion(canonico);
+  const candidateUpdate = esActualizacion(candidato);
   const evidence = {
     canonical_reference: canonicalReference,
     candidate_reference: candidateReference,
@@ -72,21 +79,26 @@ function clasificarRelacionDocumental(canonico = {}, candidato = {}, options = {
     canonical_organization: canonicalOrganization || null,
     candidate_organization: candidateOrganization || null,
     same_organization: sameOrganization,
+    organization_compatible: organizationCompatible,
+    canonical_is_correction: canonicalCorrection,
+    candidate_is_correction: candidateCorrection,
+    canonical_is_update: canonicalUpdate,
+    candidate_is_update: candidateUpdate,
   };
 
+  if (canonicalCorrection !== candidateCorrection && (sameReference || titleSimilarity >= 0.45)) {
+    return { relation: DOCUMENT_RELATION.LEGAL_CORRECTION, evidence };
+  }
+  if (canonicalUpdate !== candidateUpdate && (sameReference || titleSimilarity >= 0.55)) {
+    return { relation: DOCUMENT_RELATION.LEGAL_UPDATE, evidence };
+  }
   if (canonicalHash && candidateHash && canonicalHash === candidateHash) {
     return { relation: DOCUMENT_RELATION.EXACT_DUPLICATE, evidence };
   }
-  if (esCorreccion(candidato) && (sameReference || titleSimilarity >= 0.45)) {
-    return { relation: DOCUMENT_RELATION.LEGAL_CORRECTION, evidence };
-  }
-  if (esActualizacion(candidato) && (sameReference || titleSimilarity >= 0.55)) {
-    return { relation: DOCUMENT_RELATION.LEGAL_UPDATE, evidence };
-  }
-  if (sameReference && !sameSource) {
+  if (sameReference && !sameSource && organizationCompatible) {
     return { relation: DOCUMENT_RELATION.CROSS_SOURCE_REPUBLICATION, evidence };
   }
-  if (sameReference && sameSource && titleSimilarity >= 0.8) {
+  if (sameReference && sameSource && organizationCompatible && titleSimilarity >= 0.8) {
     return { relation: DOCUMENT_RELATION.EXACT_DUPLICATE, evidence };
   }
   const procedureThreshold = Number(options.sameSubjectThreshold || 0.65);

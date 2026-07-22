@@ -1,0 +1,97 @@
+{
+  "crop_cases": [
+    {
+      "id": "wheat-from-official-text",
+      "alert": {
+        "fuente": "BOE",
+        "provincias": ["nacional"],
+        "titulo": "Norma tecnica especifica para el cultivo de trigo",
+        "contenido": "La norma establece requisitos exclusivos para productores de trigo.",
+        "sectores": ["agricultura"],
+        "subsectores": [],
+        "tipos_alerta": ["normativa_general"]
+      },
+      "expected_crops": ["trigo"],
+      "general_user_result": "specific_crop_requires_compatible_profile",
+      "matching_user_result": "allow"
+    },
+    {
+      "id": "generated-tag-is-not-documentary-evidence",
+      "alert": {
+        "fuente": "BOE",
+        "provincias": ["nacional"],
+        "titulo": "Norma general para las explotaciones agricolas",
+        "contenido": "La norma se aplica con caracter general a las explotaciones agricolas.",
+        "sectores": ["agricultura"],
+        "subsectores": [],
+        "taxonomy_tags": ["subsector:trigo"],
+        "tipos_alerta": ["normativa_general"]
+      },
+      "expected_crops": [],
+      "general_user_result": "allow"
+    },
+    {
+      "id": "general-agricultural-rule",
+      "alert": {
+        "fuente": "BOE",
+        "provincias": ["nacional"],
+        "titulo": "Norma general sobre modernizacion de explotaciones agrarias",
+        "contenido": "Requisitos generales aplicables a agricultores y explotaciones agrarias.",
+        "sectores": ["agricultura"],
+        "subsectores": [],
+        "tipos_alerta": ["normativa_general"]
+      },
+      "expected_crops": [],
+      "general_user_result": "allow"
+    }
+  ],
+  "incomplete_evidence_cases": [
+    { "id": "dogc-placeholder", "fuente": "DOGC", "titulo": "Resolucion agraria", "contenido": "Cargando...", "expected_pattern": "content_placeholder" },
+    { "id": "doe-portal-error", "fuente": "DOE", "titulo": "Resolucion oficial", "contenido": "Error del portal: documento no disponible", "expected_pattern": "portal_error" },
+    { "id": "bopa-empty", "fuente": "BOPA", "titulo": "Plan tecnico forestal", "contenido": "", "expected_pattern": "empty_content" },
+    { "id": "bopz-loading-html", "fuente": "BOPZ", "titulo": "Anuncio oficial", "contenido": "<html><body><div class=\"spinner\">Cargando documento</div></body></html>", "expected_pattern": "loading_html" },
+    { "id": "bon-illegible", "fuente": "BON", "titulo": "Documento agrario", "contenido": "Documento ilegible", "expected_pattern": "illegible_document" }
+  ],
+  "document_relations": {
+    "original": {
+      "id": 10,
+      "fuente": "DOGC",
+      "fecha": "2026-07-10",
+      "organismo": "Departament d'Agricultura",
+      "titulo": "Orden 7/2026, de ayudas a explotaciones agrarias",
+      "contenido": "Texto original de la Orden 7/2026 sobre ayudas agrarias."
+    },
+    "update": {
+      "id": 11,
+      "fuente": "BOE",
+      "fecha": "2026-07-20",
+      "organismo": "Departament d'Agricultura",
+      "titulo": "Modificacion de la Orden 7/2026, de ayudas a explotaciones agrarias",
+      "contenido": "Se modifica la Orden 7/2026 y se da nueva redaccion al articulo 4."
+    },
+    "correction": {
+      "id": 12,
+      "fuente": "BOE",
+      "fecha": "2026-07-20",
+      "organismo": "Departament d'Agricultura",
+      "titulo": "Correccion de errores de la Orden 7/2026, de ayudas a explotaciones agrarias",
+      "contenido": "Correccion de errores de la Orden 7/2026."
+    },
+    "republication": {
+      "id": 13,
+      "fuente": "BOE",
+      "fecha": "2026-07-20",
+      "organismo": "Departament d'Agricultura",
+      "titulo": "Orden 7/2026, de ayudas a explotaciones agrarias",
+      "contenido": "Publicacion estatal de la Orden 7/2026 sobre ayudas agrarias."
+    },
+    "other_organization": {
+      "id": 14,
+      "fuente": "BOE",
+      "fecha": "2026-07-20",
+      "organismo": "Ministerio de Cultura",
+      "titulo": "Orden 7/2026, de ayudas a explotaciones agrarias",
+      "contenido": "Procedimiento cultural independiente con referencia Orden 7/2026."
+    }
+  }
+}

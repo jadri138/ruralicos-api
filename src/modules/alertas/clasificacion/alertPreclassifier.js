@@ -142,12 +142,12 @@ function redondear(value, digits = 2) {
 }
 
 const CONTENT_PLACEHOLDER_PATTERNS = Object.freeze([
-  /^cargando(?: el documento)?$/,
+  /^cargando(?: el)?(?: documento)?$/,
   /^procesando con ia$/,
   /^contenido (?:no disponible|pendiente)$/,
   /^sin (?:contenido|texto)(?: disponible)?$/,
-  /^documento (?:no disponible|ilegible)$/,
-  /^(?:error|fallo) (?:al cargar|del portal|de acceso)$/,
+  /^documento (?:no disponible|ilegible)(?: por .*)?$/,
+  /^(?:error|fallo) (?:al cargar|del portal|de acceso)(?: .*)?$/,
 ]);
 
 function esContenidoPlaceholder(value) {

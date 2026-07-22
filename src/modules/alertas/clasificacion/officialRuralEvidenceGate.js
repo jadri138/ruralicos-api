@@ -4,6 +4,7 @@ const {
   obtenerClasificacionAlerta,
   obtenerPreclasificacionAlerta,
 } = require('./discardDecision');
+const { esContenidoPlaceholder } = require('./alertPreclassifier');
 
 const OFFICIAL_RURAL_GATE_VERSION = 'official_rural_gate_v1';
 const FUENTES_CONTROLADAS = new Set(['DOGC', 'DOE']);
@@ -218,8 +219,46 @@ function clasificarMotivoDescarte(candidatos = []) {
   };
 }
 
+function detectarEvidenciaOficialIncompleta(alerta = {}, evidencia = construirEvidenciaOficial(alerta)) {
+  const rawContent = String(alerta.contenido ?? alerta.texto_oficial ?? alerta.texto_raw ?? '').trim();
+  const normalizedContent = normalizarTexto(rawContent);
+  const matchedPatterns = [];
+
+  if (!rawContent) matchedPatterns.push('empty_content');
+  if (/<(?:html|body|div|span)\b/i.test(rawContent)
+    && /\b(?:cargando|loading|spinner|javascript)\b/i.test(rawContent)) {
+    matchedPatterns.push('loading_html');
+  }
+  if (/\b(?:error|fallo)\b.{0,40}\b(?:portal|carga|acceso|documento)\b/.test(normalizedContent)) {
+    matchedPatterns.push('portal_error');
+  }
+  if (/\b(?:documento|contenido|texto)\b.{0,30}\b(?:ilegible|ininteligible|no se puede leer)\b/.test(normalizedContent)) {
+    matchedPatterns.push('illegible_document');
+  }
+  if (esContenidoPlaceholder(rawContent)) matchedPatterns.push('content_placeholder');
+
+  return {
+    incomplete: matchedPatterns.length > 0,
+    reason_evidence: {
+      code: 'contenido_oficial_insuficiente',
+      matched_patterns: [...new Set(matchedPatterns)],
+    },
+  };
+}
+
 function evaluarBarreraRuralOficial(alerta = {}) {
   const evidencia = construirEvidenciaOficial(alerta);
+  const incompleteEvidence = detectarEvidenciaOficialIncompleta(alerta, evidencia);
+  if (incompleteEvidence.incomplete) {
+    return resultado(
+      'needs_evidence',
+      'contenido_oficial_insuficiente',
+      evidencia,
+      [],
+      [],
+      incompleteEvidence.reason_evidence
+    );
+  }
   if (!FUENTES_CONTROLADAS.has(evidencia.fuente)) {
     return resultado('allow', 'fuente_fuera_de_alcance', evidencia);
   }
@@ -390,6 +429,7 @@ module.exports = {
   SPECIFIC_DISCARD_REASON_CODES,
   construirEvidenciaOficial,
   construirPersistenciaBarreraRural,
+  detectarEvidenciaOficialIncompleta,
   evaluarBarreraRuralOficial,
   clasificarMotivoDescarte,
   normalizarTexto,

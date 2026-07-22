@@ -14,6 +14,7 @@ const { similitudTitulos } = require('../../shared/similitud');
 const { getFechaMadridISO } = require('../../shared/fechaMadrid');
 const {
   clasificarRelacionDocumental,
+  esActualizacion,
   esCorreccion,
   esRelacionDuplicada,
 } = require('./intelligence/documentRelation');
@@ -121,10 +122,12 @@ module.exports = function deduplicarRoutes(app, supabase) {
       const detalle = [];
 
       for (const grupo of grupos) {
-        // Ordenar: mayor autoridad primero; empate → prefiere la que tiene resumen_final
+        // El original siempre precede a correcciones/actualizaciones. Solo
+        // entre documentos del mismo nivel se aplica autoridad y resumen.
         grupo.sort((a, b) => {
-          const correctionDiff = Number(esCorreccion(a)) - Number(esCorreccion(b));
-          if (correctionDiff !== 0) return correctionDiff;
+          const derivedDiff = Number(esCorreccion(a) || esActualizacion(a))
+            - Number(esCorreccion(b) || esActualizacion(b));
+          if (derivedDiff !== 0) return derivedDiff;
           const diff = prioridadFuente(b.fuente) - prioridadFuente(a.fuente);
           if (diff !== 0) return diff;
           return (b.resumen_final ? 1 : 0) - (a.resumen_final ? 1 : 0);

@@ -203,13 +203,24 @@ function esAlertaForestalLocal(alerta = {}) {
 }
 
 function cultivosEspecificosAlerta(alerta = {}) {
-  const declarados = subsectoresDerivadosAlerta(alerta)
-    .filter((subsector) => CULTIVOS_ESPECIFICOS.has(subsector));
-  if (declarados.length === 0) return [];
-
-  const evidenciados = construirPreferenciasDesdeTexto(textoDocumentalAlerta(alerta))
-    .preferencias?.subsectores || [];
-  return declarados.filter((subsector) => evidenciados.includes(subsector));
+  // La barrera de cultivo se apoya solo en titulo/contenido oficial. Una
+  // etiqueta generada no demuestra por si sola que la norma sea especifica.
+  const analisis = construirPreferenciasDesdeTexto(textoDocumentalAlerta(alerta));
+  const texto = analisis.texto_normalizado || '';
+  const contextoAgronomico = /\b(?:cultiv\w*|productor\w*|produccion|plantacion\w*|cosecha\w*|siembra\w*|semilla\w*|rendimiento\w*|fitosanit\w*|plaga\w*|mercado|precio\w*|comercializacion|denominacion de origen|norma tecnica especifica|requisitos? exclusivos?)\b/;
+  const evidenciados = (analisis.matches || [])
+    .filter((match) => match.type === 'subsector' && match.negado !== true)
+    .filter((match) => {
+      const start = Math.max(0, Number(match.start || 0) - 70);
+      const end = Math.min(texto.length, Number(match.end || 0) + 70);
+      return contextoAgronomico.test(texto.slice(start, end));
+    })
+    .map((match) => match.value);
+  return dedupe(
+    evidenciados
+      .map(canonicalSubsector)
+      .filter((subsector) => CULTIVOS_ESPECIFICOS.has(subsector))
+  );
 }
 
 function userHasCompatibleCropActivity(user = {}, expectedCrops = []) {
