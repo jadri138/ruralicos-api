@@ -141,11 +141,30 @@ function redondear(value, digits = 2) {
   return Math.round(Number(value || 0) * factor) / factor;
 }
 
+const CONTENT_PLACEHOLDER_PATTERNS = Object.freeze([
+  /^cargando(?: el documento)?$/,
+  /^procesando con ia$/,
+  /^contenido (?:no disponible|pendiente)$/,
+  /^sin (?:contenido|texto)(?: disponible)?$/,
+  /^documento (?:no disponible|ilegible)$/,
+  /^(?:error|fallo) (?:al cargar|del portal|de acceso)$/,
+]);
+
+function esContenidoPlaceholder(value) {
+  const contenido = normalizarTexto(value)
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return Boolean(contenido)
+    && CONTENT_PLACEHOLDER_PATTERNS.some((pattern) => pattern.test(contenido));
+}
+
 // Texto util de la alerta: titulo + contenido. Sin esto no se puede preclasificar.
 function tieneTextoUtil(alerta = {}) {
   const titulo = normalizarTexto(alerta.titulo).replace(/\s+/g, ' ').trim();
   const contenido = normalizarTexto(alerta.contenido).replace(/\s+/g, ' ').trim();
-  // El placeholder de insercion ("Procesando con IA...") no cuenta como contenido.
+  // Un titulo plausible no convierte un placeholder del portal en evidencia.
+  if (esContenidoPlaceholder(contenido)) return false;
   const utilLargo = (titulo.length + contenido.length) >= 18;
   return utilLargo && (Boolean(titulo) || Boolean(contenido));
 }
@@ -309,4 +328,7 @@ module.exports = {
   // Exportadas para tests/calibracion; no son parte del contrato estable.
   POSITIVE_TERMS,
   NEGATIVE_TERMS,
+  CONTENT_PLACEHOLDER_PATTERNS,
+  esContenidoPlaceholder,
+  tieneTextoUtil,
 };

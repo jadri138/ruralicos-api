@@ -458,16 +458,34 @@ function clasificarLocalmente(alerta) {
   addSubsector('medio_ambiente', ['medio ambiente', 'ambiental', 'biodiversidad']);
 
   const tipos_alerta = [];
+  const contextoIncendio = contieneAlguno(texto, [
+    'incendio forestal', 'incendios forestales', 'emergencia por incendio',
+    'riesgo extremo de incendio', 'riesgo de incendio', 'prevencion de incendios',
+    'proteccion contra incendios', 'extincion de incendios',
+  ]);
+  const levantamientoRestriccion = contieneAlguno(texto, [
+    'levantamiento de la restriccion', 'levantamiento de las restricciones',
+    'levantamiento de la prohibicion', 'levantamiento de las prohibiciones',
+    'quedan sin efecto', 'queda sin efecto', 'se deja sin efecto', 'se dejan sin efecto',
+  ]);
+  const obligacionRuralExpresa = (ganaderia || agricultura || rural) && contieneAlguno(texto, [
+    'declaracion obligatoria', 'debera declarar', 'deberan declarar', 'obligacion para',
+    'debera mantener', 'deberan mantener', 'debera retirar', 'deberan retirar',
+    'requerimiento de gestion',
+  ]);
   if (ayuda) tipos_alerta.push('ayudas_subvenciones');
   if (rural && contieneAlguno(texto, ['agua', 'riego', 'regadio', 'regante'])) tipos_alerta.push('agua_infraestructuras');
   if (fiscalidad) tipos_alerta.push('fiscalidad');
   if (contieneAlguno(texto, ['medio ambiente', 'ambiental', 'biodiversidad', 'forestal'])) tipos_alerta.push('medio_ambiente');
   if (contieneAlguno(texto, ['sanidad animal', 'bienestar animal', 'zoosanit', 'veterinari', 'bioseguridad ganadera'])) tipos_alerta.push('sanidad_animal');
   if (contieneAlguno(texto, ['sanidad vegetal', 'fitosanit', 'plaga vegetal'])) tipos_alerta.push('sanidad_vegetal');
-  if (contieneAlguno(texto, ['incendio forestal', 'emergencia por incendio', 'riesgo extremo de incendio'])) tipos_alerta.push('incendios_emergencias');
-  if (contieneAlguno(texto, ['declaracion obligatoria', 'debera declarar', 'deberan declarar', 'obligacion para'])) tipos_alerta.push('obligaciones');
-  if (contieneAlguno(texto, ['restriccion', 'prohibicion', 'limitacion obligatoria'])) tipos_alerta.push('restricciones');
-  if (contieneAlguno(texto, ['forestal', 'silvicultura', 'ordenacion de montes', 'gestion de montes'])) tipos_alerta.push('forestal');
+  if (contextoIncendio) tipos_alerta.push('incendios_emergencias');
+  if (obligacionRuralExpresa) tipos_alerta.push('obligaciones');
+  if (!levantamientoRestriccion && contieneAlguno(texto, ['restriccion', 'prohibicion', 'limitacion obligatoria'])) tipos_alerta.push('restricciones');
+  if (contieneAlguno(texto, [
+    'forestal', 'silvicultura', 'ordenacion de montes', 'gestion de montes',
+    'monte de utilidad publica', 'montes de utilidad publica',
+  ])) tipos_alerta.push('forestal');
   if (contieneAlguno(texto, ['curso de formacion', 'formacion agraria', 'jornada formativa', 'capacitacion'])) tipos_alerta.push('formacion');
   if (contieneAlguno(texto, ['registro de explotaciones', 'inscripcion registral', 'certificacion obligatoria', 'registro agrario'])) tipos_alerta.push('registros_certificaciones');
   if (contieneAlguno(texto, ['plazo de alegaciones', 'presentar alegaciones', 'periodo de alegaciones'])) tipos_alerta.push('plazos_alegaciones');

@@ -2,9 +2,24 @@ const assert = require('assert');
 
 const {
   CAMPOS_GENERADOS_IGNORADOS,
+  clasificarMotivoDescarte,
   construirPersistenciaBarreraRural,
   evaluarBarreraRuralOficial,
 } = require('../src/modules/alertas/clasificacion/officialRuralEvidenceGate');
+
+assert.strictEqual(
+  clasificarMotivoDescarte([{
+    code: 'motivo_especifico_no_demostrado',
+    matched_patterns: ['out_of_scope_decision'],
+  }]).code,
+  'non_rural_content',
+  'un descarte correcto sin motivo especifico usa un codigo generico honesto'
+);
+assert.strictEqual(
+  clasificarMotivoDescarte([]).code,
+  'out_of_scope_unclassified',
+  'sin evidencia clasificable no se inventa un motivo especifico'
+);
 
 function evaluar(titulo, contenido, fuente = 'DOE', extra = {}) {
   return evaluarBarreraRuralOficial({
@@ -66,6 +81,11 @@ for (const caso of negativos) {
   const decision = evaluar(caso.titulo, caso.contenido, caso.fuente);
   assert.strictEqual(decision.action, 'discard', caso.nombre);
   assert.strictEqual(decision.reason_code, caso.code, caso.nombre);
+  assert.strictEqual(decision.diagnostics.reason_evidence.code, caso.code, caso.nombre);
+  assert.ok(
+    decision.diagnostics.reason_evidence.matched_patterns.length >= 1,
+    `${caso.nombre}: evidencia positiva del motivo`
+  );
 
   const persistencia = construirPersistenciaBarreraRural({
     id: caso.nombre,
@@ -80,6 +100,11 @@ for (const caso of negativos) {
     persistencia.patch.decision_audit.official_rural_gate.reason_code,
     caso.code,
     caso.nombre
+  );
+  assert.deepStrictEqual(
+    persistencia.patch.decision_audit.official_rural_gate.diagnostics.reason_evidence,
+    decision.diagnostics.reason_evidence,
+    `${caso.nombre}: evidencia persistida en decision_audit`
   );
 }
 

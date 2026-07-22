@@ -1,0 +1,287 @@
+{
+  "baseline_at_7418117": {
+    "already_correct_clear_cases": 16,
+    "reproduced_rule_failures": [
+      "fire-ban-lifted",
+      "fire-prevention-ordinance",
+      "public-utility-forest",
+      "forestry-placeholder",
+      "hydrocarbons-not-personnel:missing_reason_evidence",
+      "solar-plant-not-personnel:missing_reason_evidence"
+    ],
+    "already_correct_false_reason_cases": [
+      "civil-marriage-not-gas",
+      "work-safety-not-education",
+      "hydrocarbons-not-personnel",
+      "social-services-not-gas",
+      "municipal-register-not-education",
+      "solar-plant-not-personnel"
+    ]
+  },
+  "clear_cases": [
+    {
+      "id": "fire-extraordinary-ban",
+      "category": "incendios",
+      "fuente": "BOPZ",
+      "region": "Zaragoza",
+      "titulo": "Prohibicion extraordinaria por riesgo extremo de incendio forestal",
+      "contenido": "Se prohibe temporalmente el uso de maquinaria y la realizacion de quemas en montes y terrenos forestales por riesgo extremo de incendio.",
+      "expected_types_any": ["incendios_emergencias", "restricciones"]
+    },
+    {
+      "id": "fire-restrictions-update",
+      "category": "incendios",
+      "fuente": "DOGC",
+      "region": "Lleida",
+      "titulo": "Actualizacion de restricciones por riesgo de incendio forestal",
+      "contenido": "Se actualizan las restricciones de acceso y trabajos en terrenos forestales de Lleida mientras persista el riesgo de incendio.",
+      "expected_types_any": ["incendios_emergencias", "restricciones"]
+    },
+    {
+      "id": "fire-ban-lifted",
+      "category": "incendios",
+      "fuente": "DOE",
+      "region": "Caceres",
+      "titulo": "Levantamiento de las restricciones por incendio forestal",
+      "contenido": "Quedan sin efecto desde hoy las prohibiciones extraordinarias de acceso y trabajos forestales aprobadas por riesgo de incendio.",
+      "expected_types_any": ["incendios_emergencias"],
+      "forbidden_types": ["restricciones"]
+    },
+    {
+      "id": "fire-prevention-ordinance",
+      "category": "incendios",
+      "fuente": "BOPZ",
+      "region": "Zaragoza",
+      "titulo": "Ordenanza municipal de prevencion de incendios forestales",
+      "contenido": "La ordenanza regula medidas preventivas para fincas, montes y explotaciones situadas en la interfaz rural forestal.",
+      "expected_types_any": ["incendios_emergencias", "obligaciones"]
+    },
+    {
+      "id": "biomass-management-duty",
+      "category": "incendios",
+      "fuente": "DOGC",
+      "region": "Girona",
+      "titulo": "Requerimiento de gestion de biomasa para prevenir incendios",
+      "contenido": "Los titulares de parcelas forestales deberan retirar biomasa y mantener franjas de proteccion contra incendios.",
+      "expected_types_any": ["incendios_emergencias", "obligaciones", "forestal"]
+    },
+    {
+      "id": "forestry-auction",
+      "category": "forestal",
+      "fuente": "BOPZ",
+      "region": "Zaragoza",
+      "titulo": "Subasta de aprovechamiento forestal de madera",
+      "contenido": "El ayuntamiento anuncia la subasta del aprovechamiento forestal de madera del monte de utilidad publica numero 24.",
+      "expected_types_any": ["forestal"],
+      "expected_subsectors_any": ["forestal"],
+      "forbidden_discard_codes": ["proceso_personal_publico"]
+    },
+    {
+      "id": "communal-forestry-ordinance",
+      "category": "forestal",
+      "fuente": "BON",
+      "region": "Navarra",
+      "titulo": "Ordenanza de aprovechamientos comunales",
+      "contenido": "Se regula el aprovechamiento vecinal de pastos, lenas y recursos forestales del monte comunal.",
+      "expected_types_any": ["forestal"]
+    },
+    {
+      "id": "public-utility-forest",
+      "category": "forestal",
+      "fuente": "BOPZ",
+      "region": "Zaragoza",
+      "titulo": "Deslinde del Monte de Utilidad Publica 48",
+      "contenido": "Informacion publica del deslinde y aprovechamiento del monte de utilidad publica situado en el termino municipal.",
+      "expected_types_any": ["forestal"]
+    },
+    {
+      "id": "forest-management-plan",
+      "category": "forestal",
+      "fuente": "BOPH",
+      "region": "Huesca",
+      "titulo": "Aprobacion del plan tecnico de gestion forestal",
+      "contenido": "Se aprueba el plan tecnico de ordenacion, conservacion y aprovechamiento sostenible del monte municipal.",
+      "expected_types_any": ["forestal"]
+    },
+    {
+      "id": "agroforestry-action",
+      "category": "forestal",
+      "fuente": "DOG",
+      "region": "Lugo",
+      "titulo": "Actuacion agroforestal para recuperar tierras productivas",
+      "contenido": "El proyecto de actuacion agroforestal ordena parcelas agrarias y forestales para recuperar su uso productivo.",
+      "expected_types_any": ["forestal"]
+    },
+    {
+      "id": "cattle-shelter",
+      "category": "ganaderia",
+      "fuente": "BOPZ",
+      "region": "Zaragoza",
+      "titulo": "Sotechado para explotacion vacuna extensiva",
+      "contenido": "Informacion publica del proyecto de sotechado destinado a una explotacion de ganado vacuno extensivo.",
+      "expected_sectors_any": ["ganaderia"],
+      "expected_subsectors_any": ["vacuno"]
+    },
+    {
+      "id": "poultry-expansion",
+      "category": "ganaderia",
+      "fuente": "BOPH",
+      "region": "Huesca",
+      "titulo": "Ampliacion de explotacion avicola",
+      "contenido": "Se somete a informacion publica la ampliacion de una explotacion ganadera avicola en el termino municipal.",
+      "expected_sectors_any": ["ganaderia"],
+      "expected_subsectors_any": ["avicultura"]
+    },
+    {
+      "id": "poultry-environmental-report",
+      "category": "ganaderia",
+      "fuente": "DOE",
+      "region": "Badajoz",
+      "titulo": "Informe ambiental de explotacion avicola",
+      "contenido": "Informe de impacto ambiental relativo a una explotacion ganadera avicola y sus instalaciones de manejo.",
+      "expected_sectors_any": ["ganaderia"],
+      "expected_subsectors_any": ["avicultura"]
+    },
+    {
+      "id": "livestock-route-irrigation-pipe",
+      "category": "agua",
+      "fuente": "BOPZ",
+      "region": "Zaragoza",
+      "titulo": "Ocupacion de via pecuaria por tuberia de riego",
+      "contenido": "Informacion publica de la ocupacion temporal de una via pecuaria para instalar una tuberia de riego que abastece parcelas agricolas.",
+      "expected_types_any": ["agua_infraestructuras", "plazos_alegaciones"],
+      "expected_subsectors_any": ["agua"]
+    },
+    {
+      "id": "fire-water-tank",
+      "category": "agua",
+      "fuente": "BOPZ",
+      "region": "Zaragoza",
+      "titulo": "Deposito de agua para prevencion de incendios forestales",
+      "contenido": "Proyecto de deposito de agua destinado a la extincion y prevencion de incendios en montes municipales.",
+      "expected_types_any": ["agua_infraestructuras", "incendios_emergencias", "forestal"]
+    },
+    {
+      "id": "livestock-route-occupation",
+      "category": "agua",
+      "fuente": "DOE",
+      "region": "Caceres",
+      "titulo": "Informacion publica sobre ocupacion de via pecuaria",
+      "contenido": "Se abre un periodo de alegaciones por la ocupacion de la via pecuaria para una conduccion de agua de riego.",
+      "expected_types_any": ["agua_infraestructuras", "plazos_alegaciones"]
+    },
+    {
+      "id": "agroforestry-polygon",
+      "category": "recuperacion_tierra",
+      "fuente": "DOG",
+      "region": "Ourense",
+      "titulo": "Declaracion de poligono agroforestal",
+      "contenido": "Se declara un poligono agroforestal de iniciativa publica para recuperar tierra agraria abandonada.",
+      "expected_types_any": ["forestal", "normativa_general"]
+    },
+    {
+      "id": "parcel-review",
+      "category": "recuperacion_tierra",
+      "fuente": "DOG",
+      "region": "Lugo",
+      "titulo": "Revision del parcelario de tierra agraria",
+      "contenido": "Se abre informacion publica para revisar el parcelario conforme a la ley de recuperacion de tierra agraria de Galicia.",
+      "expected_sectors_any": ["agricultura"]
+    },
+    {
+      "id": "ownership-investigation",
+      "category": "recuperacion_tierra",
+      "fuente": "DOG",
+      "region": "Pontevedra",
+      "titulo": "Investigacion de titularidad de parcelas agrarias",
+      "contenido": "Procedimiento de investigacion de titularidad bajo la ley de recuperacion de tierra agraria para incorporar parcelas al banco de tierras.",
+      "expected_sectors_any": ["agricultura"]
+    }
+  ],
+  "evidence_cases": [
+    {
+      "id": "forestry-placeholder",
+      "fuente": "BOPA",
+      "region": "Asturias",
+      "titulo": "Plan tecnico de gestion forestal",
+      "contenido": "Cargando...",
+      "expected_pre_status": "needs_evidence"
+    }
+  ],
+  "doubtful_cases": [
+    {
+      "id": "hunting-local",
+      "fuente": "BOPZ",
+      "titulo": "Aprobacion de un plan tecnico de caza",
+      "contenido": "Anuncio local relativo a un coto privado sin convocatoria ni obligacion general."
+    },
+    {
+      "id": "individual-file",
+      "fuente": "BOPH",
+      "titulo": "Notificacion de expediente individual",
+      "contenido": "Notificacion personal a una persona interesada en un expediente administrativo."
+    },
+    {
+      "id": "ambiguous-animal-welfare",
+      "fuente": "BOE",
+      "titulo": "Jornada sobre bienestar animal",
+      "contenido": "Programa informativo que menciona bienestar animal sin imponer obligaciones a explotaciones."
+    },
+    {
+      "id": "export-aid",
+      "fuente": "BOE",
+      "titulo": "Ayudas a la internacionalizacion y exportacion",
+      "contenido": "Convocatoria general para empresas exportadoras sin beneficiarios agrarios identificados."
+    },
+    {
+      "id": "mixed-title-content",
+      "fuente": "DOGC",
+      "titulo": "Ayudas agrarias",
+      "contenido": "Resolucion relativa exclusivamente a la celebracion de matrimonios civiles."
+    }
+  ],
+  "false_reason_cases": [
+    {
+      "id": "civil-marriage-not-gas",
+      "fuente": "DOGC",
+      "titulo": "Delegacion para celebrar matrimonios civiles",
+      "contenido": "Resolucion administrativa por la que se delega la competencia para celebrar matrimonios civiles en el municipio.",
+      "forbidden_reason_codes": ["instalacion_gas_individual_no_rural", "pesca_maritimo_no_agrario"]
+    },
+    {
+      "id": "work-safety-not-education",
+      "fuente": "DOE",
+      "titulo": "Convenio de seguridad y salud laboral",
+      "contenido": "Acuerdo para coordinar actuaciones de prevencion de riesgos laborales y seguridad en el trabajo.",
+      "forbidden_reason_codes": ["centro_educativo_privado_no_rural"]
+    },
+    {
+      "id": "hydrocarbons-not-personnel",
+      "fuente": "DOGC",
+      "titulo": "Autorizacion de almacenamiento de hidrocarburos",
+      "contenido": "Informacion publica de la autorizacion administrativa solicitada por una empresa para una instalacion de almacenamiento de hidrocarburos.",
+      "forbidden_reason_codes": ["proceso_personal_publico"]
+    },
+    {
+      "id": "social-services-not-gas",
+      "fuente": "DOE",
+      "titulo": "Programa municipal de servicios sociales",
+      "contenido": "Bases de funcionamiento de los servicios sociales comunitarios y de atencion a familias del municipio.",
+      "forbidden_reason_codes": ["instalacion_gas_individual_no_rural"]
+    },
+    {
+      "id": "municipal-register-not-education",
+      "fuente": "DOGC",
+      "titulo": "Actualizacion del padron municipal",
+      "contenido": "Anuncio de actualizacion y exposicion publica del padron municipal de habitantes.",
+      "forbidden_reason_codes": ["centro_educativo_privado_no_rural"]
+    },
+    {
+      "id": "solar-plant-not-personnel",
+      "fuente": "DOE",
+      "titulo": "Autorizacion ambiental de planta solar",
+      "contenido": "Informacion publica de la autorizacion ambiental para una planta solar promovida por una sociedad mercantil.",
+      "forbidden_reason_codes": ["proceso_personal_publico"]
+    }
+  ]
+}

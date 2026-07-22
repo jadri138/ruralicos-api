@@ -41,6 +41,15 @@ const CAMPOS_GENERADOS_IGNORADOS = Object.freeze([
   'etiquetas',
   'tags',
 ]);
+const SPECIFIC_DISCARD_REASON_CODES = new Set([
+  'aviso_legal_privacidad_no_rural',
+  'actividad_cultural_no_rural',
+  'centro_educativo_privado_no_rural',
+  'instalacion_gas_individual_no_rural',
+  'urbanismo_no_agrario',
+  'autorizacion_ambiental_individual_no_agraria',
+  'procedimiento_empresarial_individual_no_agrario',
+]);
 
 const REASON_MESSAGES = Object.freeze({
   aviso_legal_privacidad_no_rural: 'Aviso legal o de proteccion de datos sin contenido rural.',
@@ -50,6 +59,8 @@ const REASON_MESSAGES = Object.freeze({
   urbanismo_no_agrario: 'Urbanismo industrial o terciario sin impacto agrario expreso.',
   autorizacion_ambiental_individual_no_agraria: 'Autorizacion ambiental individual de una empresa sin impacto agrario colectivo expreso.',
   procedimiento_empresarial_individual_no_agrario: 'Procedimiento empresarial individual excluido del digest rural general.',
+  non_rural_content: 'Contenido no rural sin una categoria especifica demostrable.',
+  out_of_scope_unclassified: 'Contenido fuera de alcance sin un motivo especifico fiable.',
   contenido_oficial_insuficiente: 'El titulo y el contenido oficiales no aportan evidencia suficiente para decidir la relevancia rural.',
   sin_evidencia_rural_oficial: 'No hay evidencia rural expresa en el titulo, el contenido o los metadatos oficiales disponibles.',
 });
@@ -147,7 +158,14 @@ function construirEvidenciaOficial(alerta = {}) {
   };
 }
 
-function resultado(action, reasonCode, evidencia, ruralSignals = [], nonRuralSignals = []) {
+function resultado(
+  action,
+  reasonCode,
+  evidencia,
+  ruralSignals = [],
+  nonRuralSignals = [],
+  reasonEvidence = null
+) {
   return {
     version: OFFICIAL_RURAL_GATE_VERSION,
     action,
@@ -161,8 +179,42 @@ function resultado(action, reasonCode, evidencia, ruralSignals = [], nonRuralSig
       official_metadata_available: evidencia.campos_metadata_disponible,
       rural_signals: ruralSignals,
       non_rural_signals: nonRuralSignals,
+      reason_evidence: reasonEvidence,
       generated_fields_ignored: CAMPOS_GENERADOS_IGNORADOS,
     },
+  };
+}
+
+function patronesCoincidentes(texto, patterns = []) {
+  return patterns
+    .filter(([, pattern]) => pattern.test(texto))
+    .map(([label]) => label);
+}
+
+function clasificarMotivoDescarte(candidatos = []) {
+  const auditables = candidatos.filter((candidato) =>
+    Array.isArray(candidato.matched_patterns) && candidato.matched_patterns.length > 0
+  );
+  const especifico = auditables.find((candidato) =>
+    SPECIFIC_DISCARD_REASON_CODES.has(candidato.code)
+      && candidato.code !== 'procedimiento_empresarial_individual_no_agrario'
+  );
+  const generico = auditables.find((candidato) =>
+    SPECIFIC_DISCARD_REASON_CODES.has(candidato.code)
+  );
+  const seleccionado = especifico ?? generico;
+  if (!seleccionado) {
+    const matchedPatterns = [...new Set(auditables.flatMap(({ matched_patterns: patterns }) => patterns))];
+    return {
+      code: matchedPatterns.length > 0 ? 'non_rural_content' : 'out_of_scope_unclassified',
+      matched_patterns: matchedPatterns,
+      source_candidate_codes: auditables.map(({ code }) => code),
+    };
+  }
+  return {
+    code: seleccionado.code,
+    matched_patterns: seleccionado.matched_patterns,
+    source_candidate_codes: auditables.map(({ code }) => code),
   };
 }
 
@@ -176,61 +228,84 @@ function evaluarBarreraRuralOficial(alerta = {}) {
   const ruralSignals = detectarSenalesRurales(texto);
   const impactoAgrarioColectivo = coincideAlguna(texto, IMPACTO_AGRARIO_COLECTIVO);
   const ambitoRuralGeneral = ruralSignals.length > 0 && coincideAlguna(texto, GENERAL_RURAL_SCOPE);
-  const nonRuralSignals = [];
+  const discardCandidates = [];
 
   const reglasFuertes = [
     {
       code: 'aviso_legal_privacidad_no_rural',
-      match: /\b(?:aviso legal|avis legal|proteccion de datos|proteccio de dades|politica de privacidad|politica de privacitat|delegado de proteccion de datos|tractament de dades personals)\b/.test(texto),
+      patterns: [
+        ['legal_or_privacy_notice', /\b(?:aviso legal|avis legal|proteccion de datos|proteccio de dades|politica de privacidad|politica de privacitat|delegado de proteccion de datos|tractament de dades personals)\b/],
+      ],
     },
     {
       code: 'actividad_cultural_no_rural',
-      match: /\b(?:premios?|premis?)\b/.test(texto)
-        && /\b(?:musica|musical(?:es)?|composicion|composicio|cancion|interpretacion musical)\b/.test(texto),
+      patterns: [
+        ['award', /\b(?:premios?|premis?)\b/],
+        ['musical_activity', /\b(?:musica|musical(?:es)?|composicion|composicio|cancion|interpretacion musical)\b/],
+      ],
     },
     {
       code: 'centro_educativo_privado_no_rural',
-      match: /\b(?:apertura|obertura|autoriza\w*)\b/.test(texto)
-        && /\b(?:centro|centre)\b/.test(texto)
-        && /\b(?:educacion|educatiu|educativo|ensenanza|ensenyament|docente|docent)\b/.test(texto)
-        && /\b(?:privado|privada|privat|titularidad privada|titularitat privada)\b/.test(texto),
+      patterns: [
+        ['opening_or_authorization', /\b(?:apertura|obertura|autoriza\w*)\b/],
+        ['education_center', /\b(?:centro|centre)\b/],
+        ['education_activity', /\b(?:educacion|educatiu|educativo|ensenanza|ensenyament|docente|docent)\b/],
+        ['private_ownership', /\b(?:privado|privada|privat|titularidad privada|titularitat privada)\b/],
+      ],
     },
     {
       code: 'instalacion_gas_individual_no_rural',
-      match: /\b(?:autorizacion|autoritzacio)\b/.test(texto)
-        && /\b(?:instalaciones? de gas|installacions? de gas|red de distribucion de gas|xarxa de distribucio de gas|gasoducto)\b/.test(texto),
+      patterns: [
+        ['authorization', /\b(?:autorizacion|autoritzacio)\b/],
+        ['gas_installation', /\b(?:instalaciones? de gas|installacions? de gas|red de distribucion de gas|xarxa de distribucio de gas|gasoducto)\b/],
+      ],
     },
     {
       code: 'urbanismo_no_agrario',
-      match: /\b(?:urbanismo|urbanisme|planeamiento|planejament|plan parcial|modificacion puntual|modificacio puntual)\b/.test(texto)
-        && /\b(?:industrial|terciario|terciari|poligono industrial|sector industrial)\b/.test(texto),
+      patterns: [
+        ['urban_planning', /\b(?:urbanismo|urbanisme|planeamiento|planejament|plan parcial|modificacion puntual|modificacio puntual)\b/],
+        ['industrial_or_tertiary_use', /\b(?:industrial|terciario|terciari|poligono industrial|sector industrial)\b/],
+      ],
     },
   ];
 
   for (const regla of reglasFuertes) {
-    if (regla.match) nonRuralSignals.push(regla.code);
+    const matchedPatterns = patronesCoincidentes(texto, regla.patterns);
+    if (matchedPatterns.length === regla.patterns.length) {
+      discardCandidates.push({ code: regla.code, matched_patterns: matchedPatterns });
+    }
   }
 
   const autorizacionAmbiental = /\b(?:autorizacion|autoritzacio) ambiental(?: integrada| unificada)?\b/.test(texto);
   const fertilizantes = /\b(?:fertilizantes?|fertilitzants?|abonos? quimicos?)\b/.test(texto);
   const identidadEmpresarial = coincideAlguna(texto, IDENTIDAD_EMPRESARIAL);
   if (autorizacionAmbiental && fertilizantes && identidadEmpresarial) {
-    nonRuralSignals.push('autorizacion_ambiental_individual_no_agraria');
+    discardCandidates.push({
+      code: 'autorizacion_ambiental_individual_no_agraria',
+      matched_patterns: ['environmental_authorization', 'fertilizer_activity', 'business_identity'],
+    });
   }
 
   const procedimientoIndividual = coincideAlguna(texto, PROCEDIMIENTO_INDIVIDUAL)
     && identidadEmpresarial;
   if (procedimientoIndividual && !ambitoRuralGeneral) {
-    nonRuralSignals.push('procedimiento_empresarial_individual_no_agrario');
+    discardCandidates.push({
+      code: 'procedimiento_empresarial_individual_no_agrario',
+      matched_patterns: ['individual_procedure', 'business_identity', 'no_general_rural_scope'],
+    });
   }
 
-  const uniqueNonRuralSignals = [...new Set(nonRuralSignals)];
+  const uniqueNonRuralSignals = [...new Set(discardCandidates.map(({ code }) => code))];
   if (uniqueNonRuralSignals.length > 0 && !impactoAgrarioColectivo) {
-    const specific = uniqueNonRuralSignals.find((code) =>
-      code !== 'procedimiento_empresarial_individual_no_agrario'
+    const reasonEvidence = clasificarMotivoDescarte(discardCandidates);
+    return resultado(
+      'discard',
+      reasonEvidence.code,
+      evidencia,
+      ruralSignals,
+      uniqueNonRuralSignals,
+      reasonEvidence
     );
-    const reasonCode = specific ?? uniqueNonRuralSignals[0];
-    return resultado('discard', reasonCode, evidencia, ruralSignals, uniqueNonRuralSignals);
   }
 
   if (ruralSignals.length > 0) {
@@ -312,8 +387,10 @@ module.exports = {
   CAMPOS_OFICIALES_TEXTO,
   FUENTES_CONTROLADAS,
   OFFICIAL_RURAL_GATE_VERSION,
+  SPECIFIC_DISCARD_REASON_CODES,
   construirEvidenciaOficial,
   construirPersistenciaBarreraRural,
   evaluarBarreraRuralOficial,
+  clasificarMotivoDescarte,
   normalizarTexto,
 };

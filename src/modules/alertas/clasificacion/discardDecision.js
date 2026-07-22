@@ -16,6 +16,8 @@ const DISCARD_REASON_MESSAGES = Object.freeze({
   urbanismo_no_agrario: 'La publicacion trata de urbanismo industrial o terciario sin impacto agrario expreso.',
   autorizacion_ambiental_individual_no_agraria: 'La publicacion tramita una autorizacion ambiental individual de una empresa sin impacto agrario colectivo expreso.',
   procedimiento_empresarial_individual_no_agrario: 'La publicacion tramita un procedimiento empresarial individual que no pertenece al digest rural general.',
+  non_rural_content: 'La evidencia disponible permite descartar el contenido como no rural, sin asignarle una categoria especifica no demostrada.',
+  out_of_scope_unclassified: 'La publicacion queda fuera del alcance y no existe evidencia suficiente para un motivo especifico fiable.',
   association_registration_without_user_action: 'La publicacion inscribe una asociacion en un registro y no abre ninguna actuacion para el usuario.',
   cultural_content_out_of_scope: 'La publicacion trata contenido cultural sin relacion operativa con la actividad agraria.',
   sports_grant_out_of_scope: 'La convocatoria se dirige exclusivamente a clubes, entidades o actividades deportivas.',
