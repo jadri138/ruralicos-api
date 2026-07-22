@@ -96,6 +96,12 @@ const FOCUSED_TESTS = Object.freeze([
   'tests/alertDiscardAudit.test.js',
   'tests/discardTraceabilityContract.test.js',
   'tests/p0AcceptanceCorpus.test.js',
+  'tests/p0OriginalEdges.test.js',
+  'tests/auditedFalseDiscardCorpus.test.js',
+  'tests/finalValidationAuthority.test.js',
+  'tests/bopzResilience.test.js',
+  'tests/pipelineShadowStale.test.js',
+  'tests/planAcceptanceMetrics.test.js',
 ]);
 
 const MATRIX_PATH = path.join(REPO_ROOT, 'scripts', 'p0-acceptance', 'guarantees.json');

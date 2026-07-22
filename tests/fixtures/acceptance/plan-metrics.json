@@ -1,0 +1,158 @@
+{
+  "now": "2026-07-22T12:00:00.000Z",
+  "stale_ms": 300000,
+  "expected": {
+    "discard_reason_coverage": 100,
+    "discard_reason_semantic_mismatch": 1,
+    "ready_alerts_without_taxonomy": 1,
+    "unsupported_taxonomy_tags": 1,
+    "cross_sector_matches": 1,
+    "decision_digest_missing": 1,
+    "review_only_sent": 1,
+    "final_validation_blocked_but_allowed": 1,
+    "final_validation_missing_but_allowed": 1,
+    "false_positive_confirmed": 1,
+    "false_negative_confirmed": 1,
+    "stale_pipeline_jobs": 2,
+    "scraper_source_total_failure": 1
+  },
+  "alertas": [
+    {
+      "id": 1,
+      "estado_ia": "descartado",
+      "discard_reason_code": "instalacion_gas_individual_no_rural",
+      "discard_reason": "Instalacion individual de gas sin impacto agrario.",
+      "discard_stage": "official_rural_gate",
+      "discard_confidence": 1,
+      "decision_audit": {
+        "discard": {
+          "code": "instalacion_gas_individual_no_rural",
+          "reason": "Instalacion individual de gas sin impacto agrario.",
+          "stage": "official_rural_gate",
+          "confidence": 1
+        },
+        "official_rural_gate": {
+          "action": "discard",
+          "reason_code": "instalacion_gas_individual_no_rural",
+          "diagnostics": {
+            "reason_evidence": {
+              "code": "instalacion_gas_individual_no_rural",
+              "matched_patterns": ["gas_installation", "individual_procedure"]
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "estado_ia": "descartado",
+      "discard_reason_code": "centro_educativo_privado_no_rural",
+      "discard_reason": "Centro educativo privado sin alcance rural.",
+      "discard_stage": "official_rural_gate",
+      "discard_confidence": 1,
+      "decision_audit": {
+        "discard": {
+          "code": "centro_educativo_privado_no_rural",
+          "reason": "Centro educativo privado sin alcance rural.",
+          "stage": "official_rural_gate",
+          "confidence": 1
+        },
+        "official_rural_gate": {
+          "action": "discard",
+          "reason_code": "centro_educativo_privado_no_rural",
+          "diagnostics": {
+            "reason_evidence": {
+              "code": "centro_educativo_privado_no_rural",
+              "matched_patterns": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "estado_ia": "listo",
+      "sectores": [],
+      "subsectores": [],
+      "tipos_alerta": [],
+      "fact_sheet": {
+        "unsupported_taxonomy_tags": ["tipo:fiscalidad"]
+      },
+      "audience_reach": {
+        "flags": ["cross_sector_mass_match"]
+      }
+    }
+  ],
+  "digest_items": [
+    {
+      "sent": true,
+      "selection_action": "review_only",
+      "tags_json": {
+        "final_validation_decision": { "status": "review_only" },
+        "automatic_send_allowed": false
+      }
+    },
+    {
+      "sent": false,
+      "selection_action": "include",
+      "tags_json": {
+        "final_validation_decision": { "status": "blocked" },
+        "automatic_send_allowed": true
+      }
+    },
+    {
+      "sent": true,
+      "selection_action": "include",
+      "tags_json": {
+        "automatic_send_allowed": false
+      }
+    }
+  ],
+  "candidate_decisions": [
+    {
+      "action": "blocked",
+      "reason": "decision_digest_missing",
+      "decision_json": {}
+    }
+  ],
+  "reviews": [
+    {
+      "verdict": "ruido",
+      "feedback_category": "false_positive_confirmed"
+    },
+    {
+      "expected_action": "incluir",
+      "decision_json": { "action": "blocked" },
+      "feedback_category": "false_negative_confirmed"
+    }
+  ],
+  "pipeline_jobs": [
+    {
+      "id": 1,
+      "status": "running",
+      "current_stage": null,
+      "heartbeat_at": null,
+      "updated_at": "2026-07-22T11:00:00.000Z"
+    },
+    {
+      "id": 2,
+      "status": "running",
+      "current_stage": "clasificar",
+      "heartbeat_at": "2026-07-22T11:00:00.000Z",
+      "updated_at": "2026-07-22T11:00:00.000Z"
+    },
+    {
+      "id": 3,
+      "status": "running",
+      "current_stage": "revisar",
+      "heartbeat_at": "2026-07-22T11:59:00.000Z",
+      "updated_at": "2026-07-22T11:59:00.000Z"
+    }
+  ],
+  "scraper_runs": [
+    { "fuente": "BOPZ", "status": "error" },
+    { "fuente": "BOPZ", "status": "timeout" },
+    { "fuente": "BOPA", "status": "error" },
+    { "fuente": "BOPA", "status": "warning" }
+  ]
+}

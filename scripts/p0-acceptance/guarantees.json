@@ -1,5 +1,5 @@
 {
-  "version": "p0_guarantee_matrix_v2",
+  "version": "p0_guarantee_matrix_v3",
   "guarantees": [
     {
       "id": "BASE-TAX-G1",
@@ -233,6 +233,66 @@
         { "file": "tests/p0AcceptanceCorpus.test.js", "case": "plan P0.8 agrupa las cuatro regresiones exigidas" }
       ],
       "fixtures": ["revised_plan.route_prefilter", "revised_plan.empty_taxonomy", "revised_plan.antibiotics.profiles"]
+    },
+    {
+      "id": "RP0-FINAL-G1",
+      "p0": "P0.6",
+      "scope": "final_acceptance",
+      "guarantee": "La validacion final es autoritativa: blocked, review_only, errores, timeouts y ausencia nunca habilitan el envio automatico.",
+      "tests": [
+        { "file": "tests/finalValidationAuthority.test.js", "case": "84 seleccionados, 81 blocked y 3 review_only quedan fail-closed" }
+      ],
+      "fixtures": ["audited-2026-07-21.final-validation-authority"]
+    },
+    {
+      "id": "RP0-AUDIT-G1",
+      "p0": "P0.3",
+      "scope": "final_acceptance",
+      "guarantee": "El corpus auditado del 21 de julio conserva los casos claros y todo motivo especifico requiere evidencia semantica positiva.",
+      "tests": [
+        { "file": "tests/auditedFalseDiscardCorpus.test.js", "case": "19 claros, 5 dudosos y 6 motivos incompatibles" }
+      ],
+      "fixtures": ["audited-2026-07-21.false-discard-corpus"]
+    },
+    {
+      "id": "RP0-EDGES-G1",
+      "p0": "P0.8",
+      "scope": "final_acceptance",
+      "guarantee": "Los bordes del corpus P0 original permanecen cerrados para taxonomia, evidencia oficial y deduplicacion.",
+      "tests": [
+        { "file": "tests/p0OriginalEdges.test.js", "case": "casos limite originales P0" }
+      ],
+      "fixtures": ["p0.original-edges"]
+    },
+    {
+      "id": "RP0-BOPZ-G1",
+      "p0": "P0.8",
+      "scope": "final_acceptance",
+      "guarantee": "BOPZ distingue timeout, recuperacion, fallo total, parseo roto y ausencia real de publicacion con limites acotados.",
+      "tests": [
+        { "file": "tests/bopzResilience.test.js", "case": "servidor simulado cubre retries, fallback y fallo total" }
+      ],
+      "fixtures": ["bopz.resilience-scenarios"]
+    },
+    {
+      "id": "RP0-PIPELINE-G1",
+      "p0": "P0.8",
+      "scope": "final_acceptance",
+      "guarantee": "Los jobs running sin heartbeat o sin fase durante mas del umbral son recuperables y auditables sin bloquear nuevos ticks.",
+      "tests": [
+        { "file": "tests/pipelineShadowStale.test.js", "case": "jobs shadow stale del 16 al 21 de julio" }
+      ],
+      "fixtures": ["pipeline.shadow-stale-jobs"]
+    },
+    {
+      "id": "RP0-METRICS-G1",
+      "p0": "P0.8",
+      "scope": "final_acceptance",
+      "guarantee": "El reporte operativo expone las 13 metricas del plan y objetivos booleanos para sus seis invariantes de aceptacion.",
+      "tests": [
+        { "file": "tests/planAcceptanceMetrics.test.js", "case": "corpus sintetico detecta cada metrica operativa" }
+      ],
+      "fixtures": ["acceptance.plan-metrics"]
     }
   ]
 }

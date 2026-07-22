@@ -1,4 +1,5 @@
 const { getRangoDiaMadridUTC } = require('../../shared/fechaMadrid');
+const { diagnosticarPipelineJob } = require('../tareas/pipelineJobs');
 
 const CRITICAL_ALERT_FLAGS = new Set([
   'duplicada',
@@ -47,6 +48,24 @@ const FUENTES_SCRAPER_ESPERADAS = [
   'FEGA',
   'BOTHA',
 ];
+
+const SPECIFIC_DISCARD_REASON_CODES = new Set([
+  'aviso_legal_privacidad_no_rural',
+  'actividad_cultural_no_rural',
+  'centro_educativo_privado_no_rural',
+  'instalacion_gas_individual_no_rural',
+  'urbanismo_no_agrario',
+  'autorizacion_ambiental_individual_no_agraria',
+  'procedimiento_empresarial_individual_no_agrario',
+]);
+
+const SCRAPER_TOTAL_FAILURE_STATUSES = new Set([
+  'error',
+  'failed',
+  'timeout',
+  'portal_down',
+  'parse_error',
+]);
 
 function clamp(value, min = 0, max = 100) {
   return Math.max(min, Math.min(max, Number(value || 0)));
@@ -1116,12 +1135,69 @@ function evaluarCalidadPipelineRuns(runs = [], { now = new Date(), runningStaleM
   };
 }
 
+function motivoDescarteSemanticamenteIncompatible(alerta = {}) {
+  const code = String(alerta.discard_reason_code || '').trim();
+  const gate = alerta.decision_audit?.official_rural_gate;
+  const evidence = gate?.diagnostics?.reason_evidence;
+
+  if (gate?.action === 'discard' && gate.reason_code && gate.reason_code !== code) return true;
+  if (!SPECIFIC_DISCARD_REASON_CODES.has(code)) return false;
+
+  return gate?.action !== 'discard'
+    || gate.reason_code !== code
+    || evidence?.code !== code
+    || !Array.isArray(evidence?.matched_patterns)
+    || evidence.matched_patterns.length === 0;
+}
+
+function tagsDigestItem(item = {}) {
+  return item.tags_json && typeof item.tags_json === 'object' ? item.tags_json : {};
+}
+
+function estadoValidacionFinalDigestItem(item = {}) {
+  const tags = tagsDigestItem(item);
+  return item.final_validation_status
+    || item.final_validation_decision?.status
+    || tags.final_validation_decision?.status
+    || tags.final_validation_status
+    || tags.contexto_mia_digest?.final_validation?.status
+    || null;
+}
+
+function envioPermitidoDigestItem(item = {}) {
+  const tags = tagsDigestItem(item);
+  return item.sent === true
+    || item.automatic_send_allowed === true
+    || tags.automatic_send_allowed === true;
+}
+
+function contarFuentesConFalloTotal(scraperRuns = []) {
+  const runsBySource = new Map();
+  for (const run of scraperRuns || []) {
+    const source = String(run.fuente || run.source || '').trim().toUpperCase();
+    if (!source) continue;
+    const runs = runsBySource.get(source) || [];
+    runs.push(run);
+    runsBySource.set(source, runs);
+  }
+  return [...runsBySource.values()].filter((runs) =>
+    runs.length > 0
+    && runs.every((run) => SCRAPER_TOTAL_FAILURE_STATUSES.has(
+      String(run.status || '').trim().toLowerCase()
+    ))
+  ).length;
+}
+
 function calcularMetricasCalidadPlan({
   alertas = [],
   digestItems = [],
   candidateDecisions = [],
   reviews = [],
+  pipelineJobs = [],
+  scraperRuns = [],
   cutoff = null,
+  now = new Date(),
+  staleMs = 5 * 60 * 1000,
 } = {}) {
   const cutoffDate = cutoff ? new Date(cutoff) : null;
   const discarded = alertas.filter((alerta) => alerta.estado_ia === 'descartado');
@@ -1166,8 +1242,21 @@ function calcularMetricasCalidadPlan({
     ? missingDecisionFromGate
     : missingDecisionFromAlerts;
   const reviewOnlySent = digestItems.filter((item) =>
-    item.sent === true &&
-    (item.selection_action === 'review_only' || item.selection_decision?.action === 'review_only')
+    item.sent === true && (
+      item.selection_action === 'review_only'
+      || item.selection_decision?.action === 'review_only'
+      || estadoValidacionFinalDigestItem(item) === 'review_only'
+    )
+  ).length;
+  const finalValidationBlockedButAllowed = digestItems.filter((item) => {
+    const status = estadoValidacionFinalDigestItem(item);
+    return Boolean(status)
+      && status !== 'send'
+      && status !== 'review_only'
+      && envioPermitidoDigestItem(item);
+  }).length;
+  const finalValidationMissingButAllowed = digestItems.filter((item) =>
+    !estadoValidacionFinalDigestItem(item) && envioPermitidoDigestItem(item)
   ).length;
   const falsePositiveConfirmed = reviews.filter((review) =>
     review.verdict === 'ruido' || review.feedback_category === 'false_positive_confirmed'
@@ -1179,21 +1268,35 @@ function calcularMetricasCalidadPlan({
   const discardReasonCoverage = discarded.length
     ? porcentaje(structuredDiscards.length, discarded.length)
     : 100;
+  const discardReasonSemanticMismatch = discarded.filter(
+    motivoDescarteSemanticamenteIncompatible
+  ).length;
+  const stalePipelineJobs = pipelineJobs.filter((job) =>
+    diagnosticarPipelineJob(job, { now, staleMs }).stale
+  ).length;
+  const scraperSourceTotalFailure = contarFuentesConFalloTotal(scraperRuns);
 
   return {
     discard_reason_coverage: discardReasonCoverage,
+    discard_reason_semantic_mismatch: discardReasonSemanticMismatch,
     ready_alerts_without_taxonomy: readyWithoutTaxonomy,
     unsupported_taxonomy_tags: unsupportedTaxonomyTags,
     cross_sector_matches: crossSectorMatches,
     decision_digest_missing: missingDecision,
     review_only_sent: reviewOnlySent,
+    final_validation_blocked_but_allowed: finalValidationBlockedButAllowed,
+    final_validation_missing_but_allowed: finalValidationMissingButAllowed,
     false_positive_confirmed: falsePositiveConfirmed,
     false_negative_confirmed: falseNegativeConfirmed,
+    stale_pipeline_jobs: stalePipelineJobs,
+    scraper_source_total_failure: scraperSourceTotalFailure,
     objectives: {
       discard_reason_coverage: discardReasonCoverage === 100,
       ready_alerts_without_taxonomy: readyWithoutTaxonomy === 0,
       review_only_sent: reviewOnlySent === 0,
       decision_digest_missing: missingDecision === 0,
+      final_validation_blocked_but_allowed: finalValidationBlockedButAllowed === 0,
+      final_validation_missing_but_allowed: finalValidationMissingButAllowed === 0,
     },
   };
 }
@@ -1205,6 +1308,7 @@ function construirReporteCalidadOperativa({
   alertas = [],
   scraperRuns = [],
   pipelineRuns = [],
+  pipelineJobs = [],
   expectedSources = [],
   availability = {},
   digestItems = [],
@@ -1263,7 +1367,10 @@ function construirReporteCalidadOperativa({
       digestItems,
       candidateDecisions,
       reviews,
+      pipelineJobs,
+      scraperRuns,
       cutoff: decisionDigestCutoff,
+      now: new Date(generatedAt),
     }),
     recommendations,
   };
@@ -1319,11 +1426,20 @@ async function generarReporteCalidadOperativaMIA(supabase, {
   const window = resolverVentanaCalidadOperativa({ days, fecha, now });
   const { since, until } = window;
 
-  const [alertas, scraperRuns, pipelineRuns, factSheets, candidateDecisions, digestItems, reviews] = await Promise.all([
+  const [
+    alertas,
+    scraperRuns,
+    pipelineRuns,
+    pipelineJobs,
+    factSheets,
+    candidateDecisions,
+    digestItems,
+    reviews,
+  ] = await Promise.all([
     selectSeguro(
       supabase,
       'alertas',
-      'id, titulo, resumen, resumenfree, resumen_borrador, resumen_final, url, fecha, region, created_at, contenido, provincias, sectores, subsectores, tipos_alerta, fuente, estado_ia, duplicado_de, embedding_generated_at, discard_reason_code, discard_reason, discard_stage, discard_confidence, audience_reach, audience_reach_updated_at',
+      'id, titulo, resumen, resumenfree, resumen_borrador, resumen_final, url, fecha, region, created_at, contenido, provincias, sectores, subsectores, tipos_alerta, fuente, estado_ia, duplicado_de, embedding_generated_at, discard_reason_code, discard_reason, discard_stage, discard_confidence, decision_audit, audience_reach, audience_reach_updated_at',
       { since, until, fecha, limit: safeLimit }
     ),
     selectSeguro(
@@ -1340,6 +1456,12 @@ async function generarReporteCalidadOperativaMIA(supabase, {
     ),
     selectSeguro(
       supabase,
+      'pipeline_jobs',
+      'id, kind, fecha, shadow, status, current_stage, claimed_by, heartbeat_at, started_at, finished_at, updated_at, ticks',
+      { since, until, fecha, timeColumn: 'updated_at', orderColumn: 'updated_at', limit: safeLimit }
+    ),
+    selectSeguro(
+      supabase,
       'alert_fact_sheets',
       'alerta_id, fact_sheet, flags, generated_at',
       { since, until, timeColumn: 'generated_at', orderColumn: 'generated_at', limit: safeLimit }
@@ -1353,7 +1475,7 @@ async function generarReporteCalidadOperativaMIA(supabase, {
     selectSeguro(
       supabase,
       'digest_items',
-      'alerta_id, selection_action, selection_decision, created_at, digests(enviado)',
+      'alerta_id, selection_action, selection_decision, tags_json, created_at, digests(enviado)',
       { since, until, fecha, fechaColumn: 'fecha', limit: safeLimit }
     ),
     selectSeguro(
@@ -1386,6 +1508,7 @@ async function generarReporteCalidadOperativaMIA(supabase, {
     alertas: alertasConFactSheet,
     scraperRuns: scraperRuns.data,
     pipelineRuns: pipelineRuns.data,
+    pipelineJobs: pipelineJobs.data,
     digestItems: digestItemsConEstado,
     candidateDecisions: candidateDecisions.data,
     reviews: reviews.data,
@@ -1395,6 +1518,7 @@ async function generarReporteCalidadOperativaMIA(supabase, {
       alertas: alertas.available,
       scraper_runs: scraperRuns.available,
       pipeline_runs: pipelineRuns.available,
+      pipeline_jobs: pipelineJobs.available,
       alert_fact_sheets: factSheets.available,
       digest_candidate_decisions: candidateDecisions.available,
       digest_items: digestItems.available,
