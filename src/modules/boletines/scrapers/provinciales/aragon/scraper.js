@@ -12,6 +12,14 @@ const {
 const { esProvincialRelevante } = require('../shared/provincialFilter');
 
 const BOPZ_DEFAULT_BASES = ['https://bop.dpz.es', 'https://boletin.dpz.es'];
+const BOPZ_STATE = Object.freeze({
+  SUCCESS: 'success',
+  NO_PUBLICATION: 'no_publication',
+  PARTIAL_RECOVERY: 'partial_recovery',
+  TIMEOUT: 'timeout',
+  PORTAL_DOWN: 'portal_down',
+  PARSE_ERROR: 'parse_error',
+});
 const BOPH_BASE = 'https://bop.dphuesca.es';
 const BOPH_PORTADA = `${BOPH_BASE}/publica/consulta-de-bops/`;
 const BOPT_BASE = 'https://236ws.dpteruel.es';
@@ -48,19 +56,73 @@ function bopzBases(env = process.env) {
   return [...new Set([...configured, ...BOPZ_DEFAULT_BASES])];
 }
 
+function enteroAcotado(value, fallback, min, max) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed)
+    ? Math.min(max, Math.max(min, Math.trunc(parsed)))
+    : fallback;
+}
+
+function clasificarErrorBopz(error = {}) {
+  if (error.code === 'BOPZ_PARSE_ERROR') {
+    return { code: 'BOPZ_PARSE_ERROR', state: BOPZ_STATE.PARSE_ERROR };
+  }
+  if (error.code === 'BOPZ_TIMEOUT'
+    || /(?:ETIMEDOUT|ECONNABORTED|timeout|timed out|aborted)/i.test(`${error.code || ''} ${error.message || ''}`)) {
+    return { code: 'BOPZ_TIMEOUT', state: BOPZ_STATE.TIMEOUT };
+  }
+  return { code: 'BOPZ_PORTAL_DOWN', state: BOPZ_STATE.PORTAL_DOWN };
+}
+
+function crearErrorBopz(code, message, diagnostics = {}, cause = null) {
+  const error = new Error(message);
+  error.code = code;
+  error.scrape_diagnostics = diagnostics;
+  if (cause) error.cause = cause;
+  return error;
+}
+
+function adjuntarDiagnosticoScrape(docs, diagnostics) {
+  Object.defineProperty(docs, 'scrape_diagnostics', {
+    value: diagnostics,
+    configurable: true,
+    enumerable: false,
+    writable: false,
+  });
+  return docs;
+}
+
 async function getHtml(url, options = {}) {
   const timeout = Number(options.timeout || process.env.BOP_ARAGON_HTML_TIMEOUT_MS || 45000);
-  const attempts = Math.max(1, Number(options.attempts || process.env.BOP_ARAGON_HTML_ATTEMPTS || 2));
+  const attempts = enteroAcotado(
+    options.attempts || process.env.BOP_ARAGON_HTML_ATTEMPTS,
+    2,
+    1,
+    3
+  );
+  const retryBackoffMs = enteroAcotado(
+    options.retryBackoffMs || process.env.BOP_ARAGON_RETRY_BACKOFF_MS,
+    1000,
+    0,
+    5000
+  );
+  const sleep = options.sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
   let lastError = null;
 
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
+      const remainingMs = options.deadlineMs
+        ? Math.max(0, options.deadlineMs - Date.now())
+        : timeout;
+      if (remainingMs <= 0) {
+        throw Object.assign(new Error('presupuesto total de descarga agotado'), { code: 'ETIMEDOUT' });
+      }
       const extraHeaders = {};
       if (options.referer) extraHeaders.Referer = options.referer;
       if (options.cookie) extraHeaders.Cookie = options.cookie;
       const response = await axios.get(url, {
         responseType: 'arraybuffer',
-        timeout,
+        timeout: Math.min(timeout, remainingMs),
         httpsAgent: options.insecure ? agenteResilienteInseguro : agenteResiliente,
         headers: cabecerasNavegador(extraHeaders),
       });
@@ -70,7 +132,10 @@ async function getHtml(url, options = {}) {
     } catch (err) {
       lastError = err;
       if (attempt < attempts) {
-        await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+        const delay = retryBackoffMs * attempt;
+        const remainingMs = options.deadlineMs ? options.deadlineMs - Date.now() : Infinity;
+        if (remainingMs <= delay) break;
+        await sleep(delay);
       }
     }
   }
@@ -153,41 +218,147 @@ function extraerBopzSumario(html, { baseUrl = BOPZ_DEFAULT_BASES[0] } = {}) {
   return docs;
 }
 
-async function obtenerDocumentosBopzConTexto(fechaISO) {
+function esPaginaBopzSinPublicacion(html) {
+  const texto = normalizarEspacios(cheerio.load(html || '')('body').text())
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toLowerCase();
+  return /\b(?:no hay|no existe|sin) boletin\b|\bboletin (?:no publicado|pendiente de publicacion)\b|\bdia (?:festivo|sin publicacion)\b/.test(texto);
+}
+
+async function obtenerDocumentosBopzConTexto(fechaISO, options = {}) {
   let html = '';
   let baseUrl = '';
+  let candidatosDetectados = [];
   const errores = [];
+  const env = options.env || process.env;
+  const requestHtml = options.getHtml || getHtml;
+  const bases = bopzBases(env).slice(0, enteroAcotado(env.BOPZ_MAX_ENDPOINTS, 3, 2, 5));
+  const indexTimeoutMs = enteroAcotado(env.BOPZ_HTML_TIMEOUT_MS, 3000, 1000, 8000);
+  const indexAttempts = enteroAcotado(env.BOPZ_HTML_ATTEMPTS, 2, 1, 3);
+  const retryBackoffMs = enteroAcotado(env.BOPZ_RETRY_BACKOFF_MS, 500, 0, 5000);
+  const indexBudgetMs = enteroAcotado(env.BOPZ_INDEX_TOTAL_BUDGET_MS, 7500, 3000, 12000);
+  const indexDeadlineMs = Date.now() + indexBudgetMs;
 
-  // La Diputacion publica el mismo BOP bajo dos hostnames. Desde Render el
-  // hostname historico lleva dias agotando el timeout aunque ambos respondan
-  // desde otras redes; probarlos por separado evita perder toda la fuente.
-  for (const candidateBase of bopzBases()) {
+  for (const candidateBase of bases) {
     try {
-      html = await getHtml(`${candidateBase}/BOPZ/`, {
+      const candidateHtml = await requestHtml(`${candidateBase}/BOPZ/`, {
         insecure: true,
         latin1: true,
-        timeout: Number(process.env.BOPZ_HTML_TIMEOUT_MS || 15000),
-        attempts: Number(process.env.BOPZ_HTML_ATTEMPTS || 1),
+        timeout: indexTimeoutMs,
+        attempts: indexAttempts,
+        retryBackoffMs,
+        deadlineMs: indexDeadlineMs,
+        sleep: options.sleep,
       });
+      const candidateDocs = extraerBopzSumario(candidateHtml, { baseUrl: candidateBase });
+      if (candidateDocs.length === 0 && !esPaginaBopzSinPublicacion(candidateHtml)) {
+        throw crearErrorBopz(
+          'BOPZ_PARSE_ERROR',
+          'el sumario no contiene los selectores oficiales esperados'
+        );
+      }
+      html = candidateHtml;
+      candidatosDetectados = candidateDocs;
       baseUrl = candidateBase;
       break;
     } catch (error) {
       const hostname = new URL(candidateBase).hostname;
       const ip = ipConocida(hostname);
-      errores.push(`${hostname}: ${error.message} [ip=${ip ? `${ip.ip} (${ip.origen})` : 'sin resolver'}]`);
+      errores.push({
+        endpoint: candidateBase,
+        message: error.message,
+        error_code: error.code || null,
+        state: clasificarErrorBopz(error).state,
+        dns: ip ? `${ip.ip} (${ip.origen})` : 'sin resolver',
+      });
     }
   }
 
   if (!html || !baseUrl) {
-    const error = new Error(`ningun endpoint oficial respondio (${errores.join(' | ')})`);
+    const allTimeout = errores.length > 0
+      && errores.every(({ state }) => state === BOPZ_STATE.TIMEOUT);
+    const anyParseError = errores.some(({ state }) => state === BOPZ_STATE.PARSE_ERROR);
+    const code = allTimeout
+      ? 'BOPZ_TIMEOUT'
+      : anyParseError
+        ? 'BOPZ_PARSE_ERROR'
+        : 'BOPZ_PORTAL_DOWN';
+    const state = allTimeout
+      ? BOPZ_STATE.TIMEOUT
+      : anyParseError
+        ? BOPZ_STATE.PARSE_ERROR
+        : BOPZ_STATE.PORTAL_DOWN;
+    const details = errores.map(({ endpoint, message, dns }) =>
+      `${new URL(endpoint).hostname}: ${message} [ip=${dns}]`
+    ).join(' | ');
+    const failureSummary = anyParseError
+      ? 'ningun endpoint produjo un sumario parseable'
+      : 'ningun endpoint oficial respondio';
+    const error = crearErrorBopz(
+      code,
+      `${failureSummary} (${details})`,
+      {
+        state,
+        endpoints_considered: bases,
+        endpoint_errors: errores,
+        timeout_strategy: 'axios_total_request_with_global_budget',
+        split_connect_read_timeout_supported: false,
+        index_timeout_ms: indexTimeoutMs,
+        index_total_budget_ms: indexBudgetMs,
+        attempts_per_endpoint: indexAttempts,
+        retry_backoff_ms: retryBackoffMs,
+      }
+    );
     console.error(`[BOPZ] Error operativo obteniendo el sumario/portada: ${error.message}`);
     throw error;
   }
 
-  const candidatos = extraerBopzSumario(html, { baseUrl });
-  console.log(`[BOPZ] ${candidatos.length} documentos detectados en el sumario`);
+  console.log(`[BOPZ] ${candidatosDetectados.length} documentos detectados en el sumario`);
 
-  if (fechaISO && candidatos[0]?.fecha && candidatos[0].fecha !== fechaISO) return [];
+  const baseDiagnostics = {
+    endpoints_considered: bases,
+    endpoint_used: baseUrl,
+    fallback_used: baseUrl !== bases[0],
+    endpoint_errors: errores,
+    timeout_strategy: 'axios_total_request_with_global_budget',
+    split_connect_read_timeout_supported: false,
+    index_timeout_ms: indexTimeoutMs,
+    index_total_budget_ms: indexBudgetMs,
+    attempts_per_endpoint: indexAttempts,
+    retry_backoff_ms: retryBackoffMs,
+  };
+
+  if (candidatosDetectados.length === 0) {
+    if (esPaginaBopzSinPublicacion(html)) {
+      return adjuntarDiagnosticoScrape([], {
+        ...baseDiagnostics,
+        state: BOPZ_STATE.NO_PUBLICATION,
+        reason: 'official_page_reports_no_publication',
+      });
+    }
+    throw crearErrorBopz('BOPZ_PARSE_ERROR', 'sumario oficial sin documentos ni aviso de no publicacion', {
+      ...baseDiagnostics,
+      state: BOPZ_STATE.PARSE_ERROR,
+    });
+  }
+
+  if (fechaISO && candidatosDetectados[0]?.fecha && candidatosDetectados[0].fecha !== fechaISO) {
+    return adjuntarDiagnosticoScrape([], {
+      ...baseDiagnostics,
+      state: BOPZ_STATE.NO_PUBLICATION,
+      reason: 'published_issue_date_does_not_match_target',
+      published_date: candidatosDetectados[0].fecha,
+    });
+  }
+
+  const maxDocuments = enteroAcotado(env.BOPZ_MAX_DOCUMENTS, 200, 1, 500);
+  const candidatos = candidatosDetectados.slice(0, maxDocuments);
+  const detailTimeoutMs = enteroAcotado(env.BOPZ_DETAIL_TIMEOUT_MS, 3000, 1000, 8000);
+  const detailAttempts = enteroAcotado(env.BOPZ_DETAIL_ATTEMPTS, 2, 1, 3);
+  const detailBudgetMs = enteroAcotado(env.BOPZ_DETAIL_TOTAL_BUDGET_MS, 9500, 3000, 12000);
+  const detailDeadlineMs = Date.now() + detailBudgetMs;
+  let detailErrors = 0;
 
   // Captura bruta: se devuelven TODOS los detectados anotados con `_relevante`. Si
   // no se puede leer el detalle, el documento se registra igual (no se pierde).
@@ -195,14 +366,21 @@ async function obtenerDocumentosBopzConTexto(fechaISO) {
   for (const doc of candidatos) {
     let htmlDetalle = '';
     try {
-      htmlDetalle = await getHtml(doc.urlHtml, {
+      if (Date.now() >= detailDeadlineMs) {
+        throw Object.assign(new Error('presupuesto de detalles agotado'), { code: 'ETIMEDOUT' });
+      }
+      htmlDetalle = await requestHtml(doc.urlHtml, {
         insecure: true,
         referer: `${baseUrl}/BOPZ/`,
         latin1: true,
-        timeout: Number(process.env.BOPZ_DETAIL_TIMEOUT_MS || 45000),
-        attempts: Number(process.env.BOPZ_DETAIL_ATTEMPTS || 2),
+        timeout: detailTimeoutMs,
+        attempts: detailAttempts,
+        retryBackoffMs,
+        deadlineMs: detailDeadlineMs,
+        sleep: options.sleep,
       });
     } catch (error) {
+      detailErrors += 1;
       console.warn(`[BOPZ] No se pudo leer detalle ${doc.id}: ${error.message}`);
       docs.push({
         ...doc,
@@ -234,7 +412,20 @@ async function obtenerDocumentosBopzConTexto(fechaISO) {
   }
 
   console.log(`[BOPZ] ${docs.length} documentos detectados (captura bruta)`);
-  return docs;
+  return adjuntarDiagnosticoScrape(docs, {
+    ...baseDiagnostics,
+    state: detailErrors > 0 || candidatosDetectados.length > candidatos.length
+      ? BOPZ_STATE.PARTIAL_RECOVERY
+      : BOPZ_STATE.SUCCESS,
+    candidates_detected: candidatosDetectados.length,
+    documents_processed: docs.length,
+    documents_truncated: Math.max(0, candidatosDetectados.length - candidatos.length),
+    max_documents: maxDocuments,
+    detail_timeout_ms: detailTimeoutMs,
+    detail_total_budget_ms: detailBudgetMs,
+    detail_attempts: detailAttempts,
+    detail_errors: detailErrors,
+  });
 }
 
 function extraerBophEntradasLegacy(html) {
@@ -490,11 +681,17 @@ async function obtenerDocumentosBoptConTexto(fechaISO) {
 }
 
 module.exports = {
+  BOPZ_STATE,
+  clasificarErrorBopz,
   obtenerDocumentosBopzConTexto,
   obtenerDocumentosBophConTexto,
   obtenerDocumentosBoptConTexto,
   __testing: {
+    BOPZ_STATE,
+    adjuntarDiagnosticoScrape,
     bopzBases,
+    clasificarErrorBopz,
+    esPaginaBopzSinPublicacion,
     fechaTextoAISO,
     extraerBopzSumario,
     extraerBophListadoUrl,

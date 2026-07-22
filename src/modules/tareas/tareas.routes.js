@@ -633,6 +633,7 @@ module.exports = function tareasRoutes(app, supabase) {
               err.status = response.status;
               err.body = body;
               err.retryable = isRetryableStatus(response.status) &&
+                body?.retryable !== false &&
                 !/429|quota|exceeded your current quota/i.test(JSON.stringify(body || {}));
               throw err;
             }

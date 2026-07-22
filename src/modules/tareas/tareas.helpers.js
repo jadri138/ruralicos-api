@@ -190,6 +190,7 @@ function isRetryableStatus(status) {
 }
 
 function isRetryableError(err) {
+  if (err?.retryable === false) return false;
   return err?.retryable === true || /fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN/i.test(String(err?.message || ''));
 }
 

@@ -43,6 +43,11 @@ function evaluarRespuestaScraper({
     recommendations.push('Revisar error interno del scraper.');
   }
 
+  if (body?.scrape_state === 'partial_recovery') {
+    flags.push('recuperacion_parcial');
+    recommendations.push('Revisar detalles no descargados o el limite acotado del scraper.');
+  }
+
   const nuevas = numeroBody(body, ['nuevas']);
   const duplicadas = numeroBody(body, ['duplicadas']);
   const relevantes = numeroBody(body, ['relevantes', 'documentos_insertables', 'coincidencias']);

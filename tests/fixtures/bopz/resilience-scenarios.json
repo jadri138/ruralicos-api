@@ -1,0 +1,12 @@
+{
+  "fecha": "2026-07-22",
+  "endpoints": ["https://primary.bopz.test", "https://secondary.bopz.test"],
+  "expected": {
+    "retry_recovery_state": "success",
+    "fallback_recovery_state": "success",
+    "total_timeout_code": "BOPZ_TIMEOUT",
+    "broken_parse_code": "BOPZ_PARSE_ERROR",
+    "no_publication_state": "no_publication",
+    "max_documents": 2
+  }
+}
