@@ -116,6 +116,10 @@ function calcularSaludRecomendaciones({
 async function generarSaludRecomendaciones(supabase, { days = 14, persist = true, now = new Date() } = {}) {
   const dias = Math.max(1, Math.min(90, Number(days) || 14));
   const desde = new Date(now.getTime() - dias * 24 * 60 * 60 * 1000).toISOString();
+  const traceCutoff = new Date(process.env.DIGEST_DECISION_REQUIRED_FROM || '2026-07-21T00:00:00+02:00');
+  const traceDesde = !Number.isNaN(traceCutoff.getTime()) && traceCutoff > new Date(desde)
+    ? traceCutoff.toISOString()
+    : desde;
   const fecha = now.toISOString().slice(0, 10);
 
   const [digestsRes, clicksRes, feedbackRes, attemptsRes, decisionsRes] = await Promise.all([
@@ -123,7 +127,7 @@ async function generarSaludRecomendaciones(supabase, { days = 14, persist = true
     supabase.from('alerta_clicks').select('digest_id, user_id, alerta_id').gte('created_at', desde),
     supabase.from('alerta_feedback').select('digest_id, user_id, alerta_id, valor, feedback_category').gte('created_at', desde),
     supabase.from('digest_attempts').select('user_id, status, motivo_no_envio').gte('created_at', desde),
-    supabase.from('digest_candidate_decisions').select('stage, action, decision_json').eq('stage', 'selection').gte('created_at', desde),
+    supabase.from('digest_candidate_decisions').select('stage, action, decision_json').eq('stage', 'selection').gte('created_at', traceDesde),
   ]);
   for (const result of [digestsRes, clicksRes, feedbackRes, attemptsRes, decisionsRes]) {
     if (result.error) throw result.error;
@@ -134,6 +138,7 @@ async function generarSaludRecomendaciones(supabase, { days = 14, persist = true
     fecha,
     period_days: dias,
     period_start: desde,
+    trace_period_start: traceDesde,
     evaluated_at: now.toISOString(),
     ...calcularSaludRecomendaciones({
       digests: digestsRes.data || [],
