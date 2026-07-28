@@ -2,10 +2,14 @@ process.env.SUPABASE_URL = process.env.SUPABASE_URL || 'https://example.supabase
 process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || 'test-service-role-key';
 
 const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
 const {
+  analizarControlExploracion,
   analizarRespuestaExploracion,
   construirPreguntaExploracion,
   detectarZonaIncertidumbre,
+  estadoExploracionDesdeMemorias,
 } = require('../src/modules/mia/exploration');
 const { decidirMensajeMIA } = require('../src/modules/mia/decisionCore');
 const { construirMemoriasEstructuradas } = require('../src/modules/mia/structuredMemory');
@@ -21,7 +25,7 @@ async function main() {
     },
   });
   assert.strictEqual(zona.topic, 'agua_riego');
-  assert(construirPreguntaExploracion(zona).includes('sí o no'));
+  assert(construirPreguntaExploracion(zona).includes('propias palabras'));
 
   const conversacion = {
     tipo: 'pregunta_exploracion',
@@ -29,6 +33,19 @@ async function main() {
   };
   assert.strictEqual(analizarRespuestaExploracion('sí', conversacion).polarity, 'positive');
   assert.strictEqual(analizarRespuestaExploracion('no', conversacion).polarity, 'negative');
+  assert.strictEqual(analizarRespuestaExploracion('sí, pero solo cuando haya ayudas', conversacion), null);
+
+  const pause = analizarControlExploracion('No me preguntes más', conversacion);
+  assert.strictEqual(pause.action, 'paused');
+  assert.strictEqual(analizarControlExploracion('No quiero preguntas', null).action, 'paused');
+  assert.strictEqual(
+    estadoExploracionDesdeMemorias([{ contenido: pause.content }]),
+    'paused'
+  );
+  assert.strictEqual(
+    analizarControlExploracion('Ahora no, quizá más adelante', conversacion).action,
+    'snoozed'
+  );
 
   const positiva = await decidirMensajeMIA({
     mensajeUsuario: 'sí',
@@ -53,7 +70,22 @@ async function main() {
   assert.strictEqual(rows[0].topic, 'agua_riego');
   assert.strictEqual(rows[0].polarity, 'negative');
 
-  console.log('OK: MIA pregunta por conflictos y entiende respuestas cortas sin revision humana');
+  const control = await decidirMensajeMIA({
+    mensajeUsuario: 'no quiero preguntas',
+    conversacionActiva: conversacion,
+    alertasDelDigest: [],
+  });
+  assert.strictEqual(control.memory_actions[0].tipo, 'mensaje_libre');
+  assert(control.memory_actions[0].contenido.endsWith(':paused'));
+
+  const routesSource = fs.readFileSync(
+    path.join(__dirname, '..', 'src', 'modules', 'aprendizaje', 'cerebro.routes.js'),
+    'utf8'
+  );
+  assert(routesSource.includes('const elegible = force || tieneConflictos'));
+  assert(routesSource.includes("reason: 'sin_digest_enviado_hoy'"));
+
+  console.log('OK: MIA entiende matices, respeta pausas y solo pregunta cuando aporta valor');
 }
 
 main().catch((error) => {

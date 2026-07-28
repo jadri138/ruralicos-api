@@ -22,6 +22,7 @@ const { cargarPerfilOperativoMIA } = require('../mia/userProfile');
 const {
   construirPreguntaExploracion,
   detectarZonaIncertidumbre: detectarZonaIncertidumbreInteligente,
+  estadoExploracionDesdeMemorias,
 } = require('../mia/exploration');
 const { generarSaludRecomendaciones } = require('../mia/recommendationHealth');
 
@@ -239,12 +240,18 @@ module.exports = function cerebroRoutes(app, supabase) {
     if (errMemorias) throw errMemorias;
 
     const memoriaLista = memorias || [];
+    if (!force && estadoExploracionDesdeMemorias(memoriaLista) === 'paused') {
+      return {
+        ok: true,
+        skipped: true,
+        reason: 'preguntas_automaticas_desactivadas_por_usuario',
+        user_id: userId,
+      };
+    }
+
     const perfilOperativo = await cargarPerfilOperativoMIA(supabase, userId, { user });
-    const ultimaInteraccion = user.ultima_interaccion_at ? new Date(user.ultima_interaccion_at) : null;
-    const inactivo7Dias = !ultimaInteraccion || ultimaInteraccion < restarDias(new Date(), 7);
-    const pocaMemoria = memoriaLista.length < 5;
     const tieneConflictos = (perfilOperativo.uncertain_topics || []).length > 0;
-    const elegible = force || tieneConflictos || inactivo7Dias || pocaMemoria;
+    const elegible = force || tieneConflictos;
 
     if (!elegible) {
       return {
@@ -252,9 +259,30 @@ module.exports = function cerebroRoutes(app, supabase) {
         skipped: true,
         reason: 'usuario_no_elegible',
         user_id: userId,
+        detail: 'sin_contradicciones_importantes',
         memoria_total: memoriaLista.length,
         ultima_interaccion_at: user.ultima_interaccion_at,
       };
+    }
+
+    if (!force) {
+      const { data: digestHoy, error: digestError } = await supabase
+        .from('digests')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('fecha', getFechaMadridISO())
+        .eq('enviado', true)
+        .limit(1)
+        .maybeSingle();
+      if (digestError) throw digestError;
+      if (!digestHoy) {
+        return {
+          ok: true,
+          skipped: true,
+          reason: 'sin_digest_enviado_hoy',
+          user_id: userId,
+        };
+      }
     }
 
     if (!force && await tienePreguntaExploracionReciente(userId)) {

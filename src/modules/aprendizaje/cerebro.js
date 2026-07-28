@@ -243,7 +243,9 @@ Plan: ${usuario?.subscription || 'desconocido'}
 Memoria/contexto: ${contextoUsuario}
 
 CONVERSACION ACTIVA
-${conversacionActiva ? JSON.stringify(conversacionActiva.contexto_json || {}) : 'No hay conversacion activa.'}
+${conversacionActiva
+    ? `Tipo: ${conversacionActiva.tipo || 'desconocido'}\nContexto: ${JSON.stringify(conversacionActiva.contexto_json || {})}`
+    : 'No hay conversacion activa.'}
 
 ALERTAS DEL DIGEST
 ${formatearAlertas(alertasDelDigest)}
@@ -275,6 +277,10 @@ Devuelve exactamente JSON valido:
 }
 
 Reglas:
+- Si responde a una pregunta de exploracion, entiende la respuesta completa: condiciones, excepciones, temporadas, tipos de ayuda, cultivos y cualquier otro matiz. No la reduzcas a si/no.
+- En una respuesta con "si, pero...", guarda por separado lo que le interesa y lo que no. No conviertas una excepcion concreta en rechazo de todo el tema.
+- Cuando la conversacion activa sea pregunta_exploracion, trata la respuesta como memoria de preferencias. No crees feedback del digest salvo que valore explicitamente un item numerado o una alerta concreta.
+- Si no expresa una preferencia clara, no inventes memoria. Puede responder con sus propias palabras y no tiene obligacion de decidir en ese momento.
 - feedbacks solo sobre items del digest.
 - valor: 1 interesa, -1 no interesa, 0 neutro.
 - confianza: alta, media o baja.

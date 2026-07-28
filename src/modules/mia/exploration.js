@@ -17,6 +17,7 @@ const TOPIC_LABELS = {
   plazos: 'los plazos y fechas límite',
   normativa_general: 'los cambios normativos',
 };
+const EXPLORATION_CONTROL_PREFIX = 'MIA_EXPLORATION_CONTROL:';
 
 function normalizar(texto = '') {
   return String(texto)
@@ -85,7 +86,7 @@ function construirPreguntaExploracion(zona = {}) {
     const inicio = zona.kind === 'conflicting_topic'
       ? 'He recibido señales contradictorias'
       : 'Quiero confirmar una preferencia';
-    return `${inicio} sobre ${zona.label}. ¿Quieres que priorice esas alertas? Responde sí o no.`;
+    return `${inicio} sobre ${zona.label}. ¿Cuándo te interesa recibir esas alertas y cuándo no? Puedes responder con tus propias palabras.`;
   }
   return '¿Qué tema agrícola o ganadero quieres que priorice en tus próximas alertas?';
 }
@@ -115,11 +116,50 @@ function analizarRespuestaExploracion(texto = '', conversacion = null) {
   };
 }
 
+function analizarControlExploracion(texto = '', conversacion = null) {
+  const value = normalizar(texto);
+
+  if (/\b(vuelve|puedes|quiero que)\b.*\b(preguntar|preguntarme|preguntas)\b/.test(value)) {
+    return {
+      action: 'active',
+      content: `${EXPLORATION_CONTROL_PREFIX}active`,
+      reply: 'Entendido. Solo preguntaré cuando necesite aclarar algo importante.',
+    };
+  }
+  if (/\b(no me preguntes|deja de preguntarme|no quiero preguntas|sin preguntas)\b/.test(value)) {
+    return {
+      action: 'paused',
+      content: `${EXPLORATION_CONTROL_PREFIX}paused`,
+      reply: 'Entendido. No volveré a hacerte preguntas automáticas.',
+    };
+  }
+  if (!esConversacionExploracion(conversacion)) return null;
+  if (/\b(ahora no|mas adelante|otro dia|no lo se|no se|prefiero no responder)\b/.test(value)) {
+    return {
+      action: 'snoozed',
+      content: `${EXPLORATION_CONTROL_PREFIX}snoozed`,
+      reply: 'De acuerdo. No hace falta responder ahora.',
+    };
+  }
+  return null;
+}
+
+function estadoExploracionDesdeMemorias(memorias = []) {
+  const control = (memorias || []).find((memoria) =>
+    String(memoria?.contenido || '').startsWith(EXPLORATION_CONTROL_PREFIX)
+  );
+  if (!control) return 'active';
+  return String(control.contenido).slice(EXPLORATION_CONTROL_PREFIX.length) || 'active';
+}
+
 module.exports = {
+  EXPLORATION_CONTROL_PREFIX,
   TOPIC_LABELS,
+  analizarControlExploracion,
   analizarRespuestaExploracion,
   construirPreguntaExploracion,
   detectarZonaIncertidumbre,
   esConversacionExploracion,
+  estadoExploracionDesdeMemorias,
   etiquetaTema,
 };

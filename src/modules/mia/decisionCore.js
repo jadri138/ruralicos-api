@@ -1,5 +1,8 @@
 const { interpretarMensaje } = require('../aprendizaje/cerebro');
-const { analizarRespuestaExploracion } = require('./exploration');
+const {
+  analizarControlExploracion,
+  analizarRespuestaExploracion,
+} = require('./exploration');
 
 const DECISION_VERSION = 'mia_decision_v1';
 
@@ -310,6 +313,30 @@ function construirDecisionDesdeInterpretacion({
 }
 
 async function decidirMensajeMIA({ mensajeUsuario, usuario, conversacionActiva, digest, alertasDelDigest }) {
+  const controlExploracion = analizarControlExploracion(mensajeUsuario, conversacionActiva);
+  if (controlExploracion) {
+    const memoria = {
+      tipo: 'mensaje_libre',
+      contenido: controlExploracion.content,
+      peso_inicial: 1,
+    };
+    return aplicarContratoAcciones(normalizarDecision({
+      intent: 'actualizar_preferencias',
+      confidence: 0.99,
+      memory_actions: [memoria],
+      reply_action: { canal: 'whatsapp', texto: controlExploracion.reply },
+      summary: `Control de preguntas automáticas: ${controlExploracion.action}.`,
+      legacy_interpretacion: {
+        feedbacks: [],
+        memoria: [memoria],
+        requiere_respuesta: true,
+        respuesta: controlExploracion.reply,
+        intencion: 'preferencia',
+        resumen_para_log: `Control de exploración ${controlExploracion.action}`,
+      },
+    }), { digest, alertasDelDigest });
+  }
+
   const respuestaExploracion = analizarRespuestaExploracion(mensajeUsuario, conversacionActiva);
   if (respuestaExploracion) {
     const memoria = {
