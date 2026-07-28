@@ -1,24 +1,79 @@
-# modules/digest
+# Digest
 
-Genera y envía **un único mensaje de WhatsApp al día** por usuario, con las
-alertas relevantes según su plan y preferencias. Si no hay nada relevante, no
-se envía nada (silencio total).
+Construye el resumen que recibe cada usuario. Es la última frontera entre las alertas candidatas y un envío real.
 
-## Estructura
+## Archivos
 
-- `digest.routes.js` — capa HTTP: registra los endpoints
-  (`/alertas/preparar-digest`, `/alertas/enviar-digest`,
-  `/alertas/preview-digest`, `/alertas/diagnosticar-digest`).
-- `digest.service.js` — el motor: carga de alertas/usuarios, selección (con MIA
-  y fallbacks), generación del mensaje IA, rescate semanal, tracking de enlaces
-  y construcción del preview.
+| Archivo | Función |
+| --- | --- |
+| `digest.routes.js` | Preparación, diagnóstico, preview y envío |
+| `digest.service.js` | Selección integrada, composición, enlaces y persistencia |
+| `finalDigestValidator.js` | Validación del conjunto y del texto final |
+| `digestOutbox.js` | Encolado idempotente para entrega asíncrona |
 
-## Lógica por plan
+## Endpoints
 
-- `corral` — solo BOE, límites estrictos de provincia/sector.
-- `agricultor` — BOE + autonómicos, más límites y campo libre.
-- `cooperativa` — todas las fuentes, sin límites, modelo IA más potente.
-- `free` — no recibe digest (usa `alertas/alertasFree.routes.js`).
+| Endpoint | Uso |
+| --- | --- |
+| `/alertas/preparar-digest` | Crea digests pendientes por usuario |
+| `/alertas/diagnosticar-digest` | Explica candidatos, filtros y ausencia de envío |
+| `/alertas/preview-digest` | Simula sin entregar |
+| `/alertas/enviar-digest` | Envía o encola digests preparados |
 
-Configurable por entorno (`PREPARAR_DIGEST_BATCH_SIZE`, `DIGEST_RESCUE_*`,
-`DIGEST_MAX_ALERTAS_*`…). Ver [.env.example](../../../.env.example).
+GET y POST se conservan por compatibilidad operativa; las rutas siguen protegidas por cron/admin.
+
+## Preparación
+
+1. Carga usuario, plan y preferencias canónicas.
+2. Obtiene alertas del periodo y une fuentes de candidatas.
+3. Evalúa exclusiones y selección por usuario.
+4. Aplica diversidad y límites del plan.
+5. Registra decisiones por candidata.
+6. Genera texto claro y enlaces de tracking.
+7. Ejecuta validación final.
+8. Guarda digest, elementos e intento.
+
+Un digest vacío es un resultado válido si no hay contenido suficientemente bueno. No se rellena con ruido para forzar un envío.
+
+## Validación final
+
+`DIGEST_FINAL_VALIDATION_MODE`:
+
+- `shadow`: calcula el veredicto y mide, sin bloquear.
+- `critical`: bloquea únicamente fallos críticos.
+- `enforce`: aplica toda la política configurada.
+
+Revisa, entre otros:
+
+- coincidencia entre IDs, elementos y texto;
+- geografía/sector y exclusiones;
+- evidencia y URLs;
+- duplicados;
+- lenguaje engañoso o promesas no respaldadas;
+- calidad mínima;
+- autoridad de una decisión previa auditada.
+
+## Entrega e idempotencia
+
+Con `DIGEST_VIA_OUTBOX=true`, `/enviar-digest` crea una entrada en `mia_outbox`; el drenador la entrega con reintentos y backoff. Sin esa opción, el envío es síncrono. En ambos casos deben existir:
+
+- una clave que impida duplicar el mismo digest;
+- estado del intento;
+- motivo de no envío;
+- delay anti-spam;
+- relación con los elementos realmente enviados.
+
+## Explicabilidad
+
+`digest_attempts`, `digest_items` y `digest_candidate_decisions` permiten contestar:
+
+- qué se consideró;
+- qué se descartó y por qué;
+- qué se eligió;
+- qué validador actuó;
+- si se envió o no;
+- qué clic/feedback recibió después.
+
+## Pruebas clave
+
+`digestCandidateDecisions`, `digestAttempts`, `digestOutbox`, `digestAutoSendGuard`, `digestNoSendReason`, `digestMessageTone`, `finalDigestValidator`, `finalValidationAuthority` y `runDigestWorkflow`.

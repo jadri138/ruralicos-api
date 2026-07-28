@@ -1,27 +1,62 @@
-# modules/aprendizaje
+# Aprendizaje
 
-Aprendizaje **ligero y determinista** del sistema: a partir del feedback del
-usuario y de las características de las alertas, calcula prioridades y un perfil
-de intereses que afina la selección del digest.
+Sistema determinista que convierte acciones del usuario en señales útiles para ordenar alertas. Complementa las preferencias explícitas; nunca las sustituye ni rompe filtros duros.
 
-No es un LLM: son reglas, keywords y scores. Para el **agente conversacional**
-(LLM, decisiones, memoria) ver [`../mia/`](../mia/README.md).
+## Archivos
 
-## Piezas
+| Archivo | Función |
+| --- | --- |
+| `feedbackParser.js` | Extrae referencias y valoración desde respuestas breves o naturales |
+| `alertFeatures.js` | Convierte alertas en features comparables |
+| `alertPriority.js` | Calcula prioridad y peso operativo |
+| `taxonomiaRuralicos.js` | Taxonomía rural y detección de conceptos |
+| `userInterestProfile.js` | Actualiza intereses positivos/negativos con decay |
+| `miaProfile.js` | Recalcula el perfil consolidado usado por MIA/selección |
+| `cerebro.js` | Operaciones de perfil y similitud |
+| `cerebro.routes.js` | Inicialización, diagnóstico, backfill, exploración y ciclo diario |
+| `index.js` | Exportación pública del módulo |
 
-- `feedbackParser.js` — interpreta los votos del digest (`+1 -2`, "bien 1 y 3"…).
-- `alertPriority.js` — clasifica la prioridad de una alerta (urgente/…/baja).
-- `alertFeatures.js` — extrae features (conceptos, entidades) de una alerta.
-- `userInterestProfile.js` — perfil de intereses del usuario a partir del histórico.
-- `miaProfile.js` — perfil/embedding del usuario para ordenación.
-- `taxonomiaRuralicos.js` — taxonomía de sectores/subsectores rurales.
-- `cerebro.js` + `cerebro.routes.js` — perfilado, embeddings y exploración
-  (endpoints `/cerebro/*`). El nombre "cerebro" es anterior a la separación
-  con `mia/`; aquí no hay conversación.
-- `index.js` — superficie pública del módulo.
+## Qué aprende
 
-## Dónde encaja
+- temas y subtemas que reciben clic o feedback;
+- señales negativas explícitas;
+- recencia de las acciones;
+- preferencias y memoria estructurada compatibles;
+- afinidad semántica;
+- respuesta a exploraciones controladas.
 
-Lo usan principalmente `digest/` (para ordenar y priorizar alertas por usuario)
-y `feedback/` (para registrar votos). Ver la frontera completa en
-[docs/ARQUITECTURA.md](../../../docs/ARQUITECTURA.md#frontera-aprendizaje-brain--mia).
+El peso decae con el tiempo para no convertir una acción antigua en una preferencia permanente.
+
+## Lo que no puede hacer
+
+- enviar una alerta de otra provincia incompatible;
+- ignorar una exclusión explícita;
+- rescatar contenido sin evidencia o calidad;
+- asumir que un clic significa aprobación total;
+- modificar el perfil por un mensaje ambiguo sin conservar confianza/origen.
+
+## “Cerebro” y MIA
+
+`/cerebro/*` es el subsistema de perfil y recomendación. `modules/mia/` es el agente conversacional. Comparten señales, pero no son lo mismo:
+
+| Aprendizaje | MIA |
+| --- | --- |
+| reglas, features, scores y perfiles | conversación, decisiones, memoria y acciones |
+| mayormente determinista | usa LLM bajo políticas |
+| ordena contenido permitido | entiende y responde al usuario |
+
+## Exploración
+
+La exploración prueba un interés cercano con presupuesto limitado. Debe:
+
+- mantenerse dentro de territorio y seguridad;
+- estar claramente registrada;
+- no desplazar contenido de alta relevancia;
+- parar cuando genera rechazo o baja salud;
+- aportar información medible al perfil.
+
+`recommendationHealth` en MIA consolida métricas para detectar si personalización o exploración empeoran.
+
+## Pruebas
+
+`feedbackParser`, `clickLearningWeight`, `alertPriority`, `taxonomiaRuralicos`, `userInterestProfile`, `miaProfileRecalculation`, `miaExploration` y `miaRecommendationHealth`.

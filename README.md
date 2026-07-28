@@ -1,191 +1,161 @@
-# Ruralicos
+# Ruralicos API
 
-![Status](https://img.shields.io/badge/status-beta-green)
-![License](https://img.shields.io/badge/license-MIT-blue)
-![Node](https://img.shields.io/badge/node-%3E%3D20.18.1-brightgreen)
-![API](https://img.shields.io/badge/type-REST_API-orange)
-![IA](https://img.shields.io/badge/IA-OpenAI-purple)
+Backend de Ruralicos. Es un monolito modular que ingiere publicaciones oficiales, crea alertas trazables, decide cuáles son relevantes para cada persona, genera digests y los entrega por WhatsApp. También sirve al panel interno y al panel de cooperativas.
 
-Ruralicos es un sistema de **procesado y filtrado de boletines oficiales** orientado al sector agrario y rural.
+## Responsabilidades
 
-El objetivo del proyecto es **extraer, resumir y clasificar información relevante** de boletines oficiales y generar alertas personalizadas para los usuarios que se envian via whatsapp.
+- Descargar BOE, boletines autonómicos, fuentes provinciales y fuentes complementarias.
+- Conservar documentos originales y registrar la salud de cada fuente.
+- Clasificar, resumir, revisar, relacionar y deduplicar alertas.
+- Aplicar filtros territoriales, taxonomía, plan, preferencias y aprendizaje.
+- Construir y validar el digest final de cada usuario.
+- Enviar WhatsApp mediante UltraMsg con cola, reintentos y trazabilidad.
+- Procesar clics, feedback conversacional y acciones de MIA.
+- Separar los datos de cada organización en el panel partner.
+- Exponer operaciones, explicaciones y auditorías al panel interno.
 
----
-
-## Qué hace el proyecto
-
-- Procesa boletines oficiales (BOE y autonómicos)
-- Genera resúmenes en lenguaje claro mediante IA
-- Detecta provincias y sectores afectados
-- Clasifica alertas por temática
-- Permite marcar alertas como revisadas o no relevantes
-- Sirve como backend para una plataforma de alertas rurales
-
----
-
-## Qué NO hace
-
-- No sustituye asesoramiento legal o técnico
-- No publica textos oficiales completos
-- No incluye datos personales ni claves privadas
-- No es un producto final cerrado (está en beta)
-
----
-
-## Funcionamiento general
-
-1. Descarga de boletines oficiales
-2. Identificación de nuevos anuncios
-3. Procesado mediante IA:
-   - Resumen
-   - Clasificación territorial
-   - Clasificación sectorial
-4. Almacenamiento en base de datos
-5. Consulta y filtrado según preferencias del usuario
-
-## Flujo recomendado de envío (sin spam)
-
-Para evitar enviar muchas alertas sueltas al mismo usuario, el flujo recomendado es:
-
-1. `/alertas/clasificar`
-2. `/alertas/resumir`
-3. `/alertas/revisar`
-4. `/alertas/deduplicar`
-5. `/alertas/preparar-digest` (genera 1 mensaje diario por usuario)
-6. `/alertas/enviar-digest` (envía los digest pendientes)
-
-La ruta legacy `/alertas/enviar-whatsapp` queda desactivada por defecto con `DIGEST_ONLY_MODE=true`.
-
-### Requisito de base de datos para digest
-
-Si en tu diagrama solo aparecen `users` y `alertas`, te falta crear la tabla `digests`
-(y algunos indices/constraints). Aplica la migracion operativa en Supabase antes de
-lanzar el pipeline de digest.
-
-### Cron recomendado (pipeline completo)
-
-Todas las rutas de cron validan el header `x-cron-token` o `Authorization: Bearer`.
-El query `?token=CRON_TOKEN` queda solo como compatibilidad local/opt-in con `ALLOW_CRON_TOKEN_QUERY=true`.
-
-El cron recomendado es un unico golpe diario al pipeline completo:
-
-```bash
-curl -fsS -H "x-cron-token: $CRON_TOKEN" "$PUBLIC_BASE_URL/tareas/pipeline-diario"
-```
-
-Ese endpoint ejecuta scrapers BOE/autonomicos, fuentes complementarias
-provinciales, FEGA si esta activado, cotejo de listados, IA por lotes,
-deduplicacion, digest y resumen free.
-
-Detalle y comandos listos para copiar:
-
-- `docs/cron_digest_setup.md`
-- Guia rapida de Render: `docs/render_quick_start.md`
-
----
-
-## Estados de las alertas
-
-- `procesando IA`
-- `no importa`
-- `pendiente de revisión`
-- `revisada`
-
-Las alertas se revisan automáticamente salvo que se marquen como no relevantes.
-
----
-
-## Tecnologías utilizadas
-
-- Node.js
-- Express
-- Supabase
-- OpenAI API
-- Cron jobs
-- WordPress (frontend externo)
-
-Requisito de runtime: Node.js `>=20.18.1`.
-
----
-
-## Estructura del proyecto
-
-El código sigue una organización **modular por dominio** (modular monolith).
-Mapa rápido:
+## Arquitectura rápida
 
 ```text
-src/
-├─ server.js              # entrypoint: arranca el servidor (app.listen)
-├─ app.js                 # construye la app Express (seguridad, /health, /stats)
-├─ routes.js              # registro central de todas las rutas
-├─ config/                # planes de suscripción y configuración
-├─ middleware/            # requireAdmin, cronToken
-├─ platform/              # clientes de infraestructura: supabase, whatsapp, ia/, http
-├─ shared/                # utilidades puras (fechas, similitud, html/pdf, teléfono…)
-├─ services/              # servicios de negocio transversales (listas oficiales, planes)
-└─ modules/               # un dominio por carpeta:
-   ├─ boletines/          #   scrapers + rutas de cada fuente oficial (BOE, BOJA, DOG…)
-   ├─ alertas/            #   alta/revisión/dedup + motor de selección (seleccion/)
-   ├─ digest/             #   mensaje diario por usuario (routes + service)
-   ├─ feedback/           #   webhooks de feedback y tracking de clics
-   ├─ aprendizaje/        #   aprendizaje por keywords/score + perfilado (cerebro)
-   ├─ mia/                #   agente conversacional (decisión, outbox, conocimiento…)
-   ├─ usuarios/           #   usuarios, auth y preferencias
-   ├─ admin/              #   panel de administración (5 sub-rutas + helpers)
-   ├─ tareas/             #   orquestación del pipeline diario
-   ├─ embeddings/         #   generación de embeddings de alertas
-   └─ taxonomy/           #   taxonomía rural (sectores/subsectores)
+src/server.js
+  └─ src/app.js
+       ├─ seguridad, CORS, rate-limit, /health y /stats
+       └─ src/routes.js
+            ├─ modules/boletines  → ingesta
+            ├─ modules/alertas    → inteligencia y selección
+            ├─ modules/digest     → composición y envío
+            ├─ modules/feedback   → clics y respuestas
+            ├─ modules/aprendizaje + modules/mia
+            ├─ modules/usuarios + modules/partner
+            └─ modules/admin + modules/tareas
 ```
 
-Para entender cómo encaja todo (ciclo de vida de una petición, el pipeline
-diario y la frontera entre `aprendizaje` y `mia`), ver **[docs/ARQUITECTURA.md](docs/ARQUITECTURA.md)**.
-Convenciones de código y dónde va cada cosa: **[CONTRIBUTING.md](CONTRIBUTING.md)**.
+La organización completa está en [`src/README.md`](src/README.md) y cada dominio está indexado en [`src/modules/README.md`](src/modules/README.md).
 
-## Arranque local
+## Requisitos
 
-```bash
+- Node.js `>=20.18.1`
+- npm
+- Proyecto Supabase compatible con [`supabase/migrations/`](supabase/migrations/)
+- Credenciales de OpenAI para funciones de IA
+- Cuenta UltraMsg para envío real por WhatsApp
+
+## Instalación
+
+```powershell
 npm install
-cp .env.example .env   # y rellena las variables
-npm start              # o: node src/server.js
+Copy-Item .env.example .env
+# Completar las variables de .env
+npm start
 ```
 
-Comprobaciones de salud: `GET /health` (incluye estado de Supabase y de las env)
-y `GET /stats` (cifras públicas).
+La API escucha en `PORT`, por defecto `3000`.
+
+Comprobaciones básicas:
+
+```text
+GET /health   comprueba API, entorno y Supabase
+GET /stats    devuelve cifras públicas redondeadas
+```
+
+Todas las rutas actuales tienen también alias `/v1`: por ejemplo, `/v1/health` y `/health` resuelven el mismo contrato.
 
 ## Variables de entorno
 
-Todas las variables están documentadas en **[.env.example](.env.example)**.
-Las imprescindibles para arrancar:
+La referencia completa y comentada es [`.env.example`](.env.example). Los grupos principales son:
 
-| Variable | Para qué sirve |
+| Grupo | Variables principales |
 | --- | --- |
-| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | Acceso a la base de datos (backend) |
-| `OPENAI_API_KEY` | Resúmenes, clasificación y embeddings |
-| `JWT_SECRET` | Firma de tokens de sesión |
-| `CRON_TOKEN` | Autoriza las rutas de cron por header `x-cron-token` o Bearer |
-| `VERIFICATION_CODE_PEPPER` | Pepper opcional para hashear códigos temporales |
-| `ALLOW_CRON_TOKEN_QUERY` | Compatibilidad temporal para aceptar `?token=` en producción; recomendado `false` |
-| `ULTRAMSG_INSTANCE_ID`, `ULTRAMSG_TOKEN` | Envío de WhatsApp vía UltraMsg |
-| `ULTRAMSG_WEBHOOK_TOKEN` | Valida el webhook entrante `/webhooks/ultramsg/feedback` |
-| `PUBLIC_BASE_URL` | URL pública (enlaces de tracking, cron internos) |
+| Base de datos | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` |
+| IA | `OPENAI_API_KEY`, `IA_GPT5_NANO_REASONING_EFFORT` |
+| Sesiones y tareas | `JWT_SECRET`, `CRON_TOKEN`, `VERIFICATION_CODE_PEPPER` |
+| WhatsApp | `ULTRAMSG_INSTANCE_ID`, `ULTRAMSG_TOKEN`, `ULTRAMSG_WEBHOOK_TOKEN` |
+| Digest | `DIGEST_ONLY_MODE`, `DIGEST_VIA_OUTBOX`, `DIGEST_FINAL_VALIDATION_MODE`, límites de lote |
+| Pipeline | `PIPELINE_TICK_*`, `PIPELINE_HTTP_TIMEOUT_MS`, `PIPELINE_PREFLIGHT_TIMEOUT_MS` |
+| URLs | `PUBLIC_BASE_URL`, `PIPELINE_INTERNAL_BASE_URL`, `FRONTEND_ORIGINS` |
+| Observabilidad y retención | `SENTRY_DSN`, `RETENTION_ENABLED` |
 
-El resto (lotes de IA, ajustes de digest, timeouts de scrapers, etc.) son
-opcionales y tienen valores por defecto sensatos.
+No se debe subir `.env` a Git ni exponer la clave `SUPABASE_SERVICE_ROLE_KEY` en un frontend.
 
-## Pruebas
+## Flujo diario
 
-```bash
-npm run test:local   # suite local (tests unitarios, sin red)
-npm run check:core   # invariantes de lógica de negocio
+El orquestador con checkpoints es `GET /tareas/pipeline-tick`; el flujo monolítico de compatibilidad es `GET /tareas/pipeline-diario`.
+
+```text
+scrapers
+  → documentos y alertas
+  → cotejo con listados oficiales
+  → clasificación y ficha de hechos
+  → resumen, revisión y deduplicación
+  → cálculo de audiencia y candidatos
+  → preparación del digest
+  → validación final
+  → envío directo o mediante outbox
+  → feedback, clics y aprendizaje
 ```
 
-## Estado del proyecto
+Las tareas aceptan `x-cron-token` o `Authorization: Bearer <CRON_TOKEN>`. El token por query solo existe como compatibilidad opcional y no es el patrón recomendado.
 
-Beta activa con usuarios reales y ajustes continuos en clasificación, resúmenes
-y experiencia del digest.
+## Seguridad y permisos
 
-## Licencia
+| Contexto | Protección |
+| --- | --- |
+| Administración | JWT emitido por `/admin/login` y `requireAdmin` |
+| Usuario | JWT de teléfono y `requireAuth` |
+| Organización | JWT de partner y `requireOrg`, con consultas limitadas al tenant |
+| Cron | `CRON_TOKEN` con comparación segura |
+| Webhook UltraMsg | `ULTRAMSG_WEBHOOK_TOKEN` |
+| Tráfico general | Helmet, CORS explícito, límite de tamaño y rate-limit |
 
-MIT. Las contribuciones son bienvenidas mediante issues o pull requests.
+Las mutaciones importantes del panel se escriben en el registro de auditoría cuando corresponde. Los errores incluyen `x-request-id` para cruzar respuesta y logs.
 
-> Nota: este repositorio contiene únicamente la lógica del sistema (backend).
+## Comandos
+
+```powershell
+npm start                 # servidor
+npm run lint              # ESLint
+npm run test:local        # suite local sin servicios reales
+npm run check:core        # invariantes críticas
+npm test                  # lint + suite + invariantes
+npm run rutas:inventario  # inventario de endpoints
+npm run openapi:generar   # actualiza docs/openapi.json
+npm run p0:acceptance     # puerta de aceptación P0
+```
+
+Los scripts operativos, sus riesgos y ejemplos están en [`scripts/README.md`](scripts/README.md). Las pruebas están agrupadas en [`tests/README.md`](tests/README.md).
+
+## Mapa de carpetas
+
+| Carpeta | Contenido |
+| --- | --- |
+| [`src/config/`](src/config/) | Entorno y planes |
+| [`src/middleware/`](src/middleware/) | Autorización, validación y contexto |
+| [`src/platform/`](src/platform/) | Supabase, IA, HTTP, Sentry y WhatsApp |
+| [`src/shared/`](src/shared/) | Reglas y utilidades reutilizables |
+| [`src/services/`](src/services/) | Servicios de negocio transversales |
+| [`src/modules/`](src/modules/) | Dominios funcionales |
+| [`supabase/`](supabase/) | Esquema y migraciones |
+| [`tests/`](tests/) | Pruebas y corpus auditados |
+| [`scripts/`](scripts/) | Diagnóstico, backfills y herramientas |
+| [`docs/`](docs/) | Arquitectura, operación y runbooks |
+
+## Documentación recomendada
+
+- Explicación no técnica: [`docs/EXPLICACION_SIMPLE.md`](docs/EXPLICACION_SIMPLE.md)
+- Arquitectura: [`docs/ARQUITECTURA.md`](docs/ARQUITECTURA.md)
+- Sistema de recomendación: [`docs/sistema_recomendacion_inteligente.md`](docs/sistema_recomendacion_inteligente.md)
+- Validación final: [`docs/final-digest-validator.md`](docs/final-digest-validator.md)
+- Evidencia y trazabilidad: [`docs/fact-sheet.md`](docs/fact-sheet.md) y [`docs/document-trace.md`](docs/document-trace.md)
+- Operación y despliegue: [`docs/README.md`](docs/README.md)
+- Cumplimiento y retención: [`docs/CUMPLIMIENTO.md`](docs/CUMPLIMIENTO.md)
+
+## Regla para cambios
+
+Empieza por una prueba focalizada, modifica el módulo dueño del comportamiento y ejecuta:
+
+```powershell
+node tests\<prueba-relacionada>.test.js
+npm run check:core
+```
+
+Para cambios amplios usa `npm test`. Si cambia un contrato HTTP, actualiza el inventario/OpenAPI y su documentación. Si cambia el esquema, crea una migración nueva: nunca se reescribe una migración ya aplicada.

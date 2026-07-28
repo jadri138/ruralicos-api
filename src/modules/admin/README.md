@@ -1,18 +1,48 @@
-# modules/admin
+# Administración
 
-Endpoints del **panel de administración** (`/admin/*`, protegidos con
-`requireAdmin`). El monolito original se dividió por área para que sea navegable.
+API privada consumida por `ruralicos-panel`. Presenta datos operativos y acciones de soporte sin trasladar reglas de negocio al frontend.
 
-## Estructura
+## Archivos
 
-- `admin.routes.js` — agregador: registra las 5 sub-rutas.
-- `admin.panel.routes.js` — dashboard, logs de WhatsApp, digests, auditoría.
-- `admin.usuarios.routes.js` — usuarios y organizaciones (cooperativas).
-- `admin.alertas.routes.js` — alertas y cotejo con listas oficiales.
-- `admin.operaciones.routes.js` — estado de boletines, scrapers, pipeline, salud.
-- `admin.mia.routes.js` — consola y trazabilidad del agente MIA (`/admin/mia/*`).
-- `admin.helpers.js` — requires, constantes y helpers compartidos por todas.
-- `auditLog.js` — registro de auditoría.
+| Archivo | Área |
+| --- | --- |
+| `admin.routes.js` | Agregador y login/montaje común |
+| `admin.panel.routes.js` | Dashboard, digests, WhatsApp, audiencia y explicaciones |
+| `admin.usuarios.routes.js` | Usuarios, organizaciones y diagnósticos |
+| `admin.alertas.routes.js` | Edición, reproceso y cotejo oficial |
+| `admin.operaciones.routes.js` | Scrapers, pipeline, salud y calidad |
+| `admin.cerebro.routes.js` | Diagnóstico y perfil de aprendizaje |
+| `admin.mia.routes.js` | Consola completa de MIA |
+| `admin.helpers.js` | Piezas compartidas de consulta/formato |
+| `auditLog.js` | Auditoría de acciones administrativas |
+| `digestExplain.js` | “Por qué se envió/no se envió” |
 
-Al añadir un endpoint, colócalo en la sub-ruta de su área y reutiliza los
-helpers de `admin.helpers.js`.
+## Regla de diseño
+
+Una ruta admin puede coordinar una operación, pero debe reutilizar el servicio dueño. Por ejemplo, reprocesar una alerta no debe implementar un clasificador distinto del pipeline.
+
+## Seguridad
+
+- Toda ruta `/admin/*`, salvo `/admin/login`, exige `requireAdmin`.
+- Las consultas deben paginar y limitar tamaños.
+- No devolver hashes, tokens, claves, teléfono completo innecesario ni PII sensible.
+- Mutaciones, impersonación, replay y envíos deben dejar auditoría.
+- Un preview o `dry_run` no debe producir efectos.
+- Errores al cargar métricas opcionales no deben ocultar fallos críticos.
+
+## Explicabilidad
+
+`digestExplain.js` reconstruye candidatos, decisiones, intento, elementos y envío. La explicación debe distinguir:
+
+- no hubo alertas;
+- las alertas fueron excluidas;
+- falló la preparación;
+- bloqueó la validación final;
+- quedó en cola;
+- falló la entrega.
+
+No usar “no enviado” como una única categoría.
+
+## Pruebas
+
+`adminAuditLog`, `adminDigestExplain`, `adminAlertRecipients` y las pruebas del módulo sobre el que actúa cada endpoint.

@@ -1,61 +1,33 @@
-# Boletines
+# Scrapers
 
-Este directorio contiene los extractores de diarios y boletines oficiales.
+Un scraper conoce el portal oficial y devuelve documentos normalizados. No escribe directamente el digest, no elige usuarios y no debe depender de una respuesta concreta de IA.
 
-## Estructura
+## Fuentes
 
-Los scrapers autonómicos existentes se mantienen en sus carpetas actuales para no
-romper imports ya desplegados:
+Cada boletín autonómico tiene su carpeta (`BOCAN`, `BOCANT`, `BOCCE`, `BOCM`, `BOCYL`, `BOIB`, `BOJA`, `BOME`, `BON`, `BOPA`, `BOPV`, `BOR`, `BORM`, `DOCM`, `DOE`, `DOG`, `DOGC`, `DOGV`). BOA conserva su extractor PDF en `boa/`. BOE se procesa desde su ruta específica.
 
-- `BOE`, `BOJA`, `BOCYL`, `DOGC`, etc.
+Subcarpetas:
 
-Los boletines nuevos deben entrar con esta estructura:
+- [`provinciales/`](provinciales/): Aragón, País Vasco y preparación de Canarias.
+- [`estatales/fega/`](estatales/fega/): listados FEGA y caché.
+- [`shared/`](shared/): filtro rural y detección de páginas de error.
 
-```text
-src/boletines/
-  estatales/
-    <codigo_fuente>/
-      scraper.js
-  provinciales/
-    <comunidad>/
-      <codigo_boletin>/
-        scraper.js
-        README.md
-```
+## Requisitos de calidad
 
-Las rutas nuevas deben seguir la misma jerarquía:
+- Timeout finito y número limitado de reintentos.
+- User-Agent identificable y frecuencia razonable.
+- URL oficial absoluta.
+- Fecha ISO `YYYY-MM-DD`.
+- Dedupe estable por ID/URL oficial.
+- Distinción entre no publicación, portal caído y parseo roto.
+- Recuperación parcial visible cuando falta contenido.
+- Texto limitado y limpio.
+- Fixtures y pruebas que no dependan de internet.
 
-```text
-src/routes/
-  boletines/
-    provinciales/
-      <comunidad>/
-        <codigo_boletin>.js
-```
+## Cuando cambia un portal
 
-## Convenciones
-
-- `codigo_boletin`: minúsculas y estable, por ejemplo `botha`, `bob`,
-  `bog`, `bop_las_palmas`.
-- `fuente`: mayúsculas y única en base de datos, por ejemplo `BOTHA`, `BOB`.
-- Endpoint: `/scrape-<codigo>-oficial`, por ejemplo `/scrape-botha-oficial`.
-- Cada scraper debe devolver documentos normalizados con:
-  `titulo`, `url`, `fecha`, `texto`, y cuando exista `organismo`, `seccion`,
-  `boletin`, `urlPdf`, `urlHtml`, `idOficial`.
-- La ruta es responsable de deduplicar por `url` e insertar en `alertas`.
-- El pipeline diario decide qué endpoints ejecuta desde `src/routes/tareas.js`.
-
-## Prioridad Provincial
-
-Primera tanda:
-
-1. País Vasco: `BOTHA` (Álava), `BOB` (Bizkaia), `BOG` (Gipuzkoa).
-2. Canarias: `BOP_LAS_PALMAS`, `BOP_SANTA_CRUZ_TENERIFE`.
-
-Después:
-
-- Comunitat Valenciana: Alicante, Castellón, Valencia.
-- Galicia: A Coruña, Lugo, Ourense, Pontevedra.
-- Andalucía: Almería, Cádiz, Córdoba, Granada, Huelva, Jaén, Málaga, Sevilla.
-- Castilla y León: Ávila, Burgos, León, Palencia, Salamanca, Segovia, Soria,
-  Valladolid, Zamora.
+1. Guardar una muestra mínima del nuevo HTML/PDF como fixture si su licencia/privacidad lo permite.
+2. Actualizar el parser, no ocultar el error con un array vacío.
+3. Ejecutar la prueba focalizada.
+4. Hacer un `dry-run`/fecha concreta.
+5. Revisar `scraper_runs`, documentos, duplicados y calidad antes de devolverlo al pipeline.

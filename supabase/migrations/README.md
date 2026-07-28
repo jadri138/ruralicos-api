@@ -1,56 +1,68 @@
-# Migraciones Supabase
+# Migraciones
 
-Las migraciones se aplican en orden por su prefijo de timestamp y quedan registradas
-en la tabla `supabase_migrations.schema_migrations` (columna `version` = el timestamp
-del fichero, p. ej. `20260617120000`).
+Se aplican en orden por el timestamp del nombre y Supabase registra la versión en `supabase_migrations.schema_migrations`.
+
+Formato:
+
+```text
+AAAAMMDDHHMMSS_descripcion.sql
+```
+
+## Baseline
+
+`20260101000000_baseline_schema.sql` es una fotografía idempotente del esquema consolidado a comienzos de julio de 2026. Define 39 tablas base, constraints, índices, funciones, secuencias y políticas conocidas entonces.
+
+- En una base fresca crea el punto de partida.
+- En una base existente usa `if not exists` donde corresponde.
+- No contiene las evoluciones posteriores a su fecha; las migraciones siguientes siguen siendo obligatorias.
+- No se debe actualizar el baseline cada vez que aparece una migración.
+
+## Evolución posterior
+
+Las migraciones incrementales añaden, entre otros:
+
+- auditoría de selección e intentos de digest;
+- verificación telefónica;
+- aislamiento y analítica partner;
+- documentos brutos, preclasificación y fichas;
+- base del motor de inteligencia;
+- ejecuciones de IA, auditoría admin y jobs;
+- restricciones/índices y deduplicación de outbox;
+- versión de credenciales;
+- retención operativa y diagnósticos;
+- descarte auditable/estructurado;
+- snapshots de audiencia;
+- snapshots de salud de recomendaciones de MIA.
+
+Consultar los nombres de los archivos en orden para el detalle exacto.
 
 ## Convenciones
 
-- **Nombre:** `AAAAMMDDHHMMSS_descripcion.sql`. El timestamp debe ser **posterior** al
-  de la ultima migracion ya aplicada para que se ejecute en orden.
-- **Idempotencia:** preferir `create table/index if not exists` y
-  `alter table ... add column if not exists`, de modo que reaplicar una migracion no
-  rompa un entorno donde el objeto ya existe.
+- No editar una migración aplicada.
+- Preferir operaciones idempotentes cuando sea razonable.
+- Añadir constraint `not null` solo después de rellenar datos existentes.
+- Crear índices para claves foráneas y filtros frecuentes.
+- Evitar bloqueos largos: separar backfills grandes.
+- Cualificar objetos con `public.`.
+- Revisar permisos/RLS al crear tabla o función.
+- Añadir comentarios SQL cuando una restricción no sea obvia.
 
-## Baseline del schema (`20260101000000_baseline_schema.sql`)
+## `raw_documents` e historial
 
-Volcado completo del schema de produccion (2026-07-05): 39 tablas, constraints,
-indices, funciones, triggers, secuencias, RLS y comentarios. Va con timestamp
-**anterior** a todas las demas migraciones a proposito:
+En un entorno antiguo, `raw_documents` pudo crearse manualmente sin quedar la versión `20260617120000` en el historial. Primero comparar esquema. Si coincide, reparar solo el historial:
 
-- **Entorno fresco:** el baseline crea el schema completo primero y las
-  migraciones posteriores (idempotentes) hacen no-op donde ya exista el objeto.
-- **Produccion:** no hace falta aplicarlo (el schema ya existe); es 100%
-  idempotente, asi que aplicarlo tampoco rompe nada.
-- **Contrato:** a partir del baseline, el codigo asume que TODAS las tablas
-  existen. El patron defensivo `MISSING_TABLE_CODES`/`esTablaNoDisponible`/
-  `isMissingTableError` se elimino de `src/` y no debe reintroducirse; un error
-  de PostgREST por tabla/columna inexistente es un bug de despliegue, no un
-  estado tolerable.
+```powershell
+supabase migration repair --status applied 20260617120000
+```
 
-## Reconciliar `raw_documents` (la tabla existe en prod pero no figura en el historial)
+Si faltan objetos y la migración es segura en ese entorno, aplicar con `supabase db push`. No marcar como aplicada una migración cuyo esquema no existe.
 
-Sintoma observado: `public.raw_documents` existe en produccion, pero
-`supabase_migrations.schema_migrations` **no** contiene la fila `20260617120000`
-(`20260617120000_add_raw_documents.sql`). Esto ocurre cuando la tabla se creo fuera
-del flujo de migraciones (p. ej. ejecutando el SQL a mano en el panel).
+## Verificación
 
-No hay tabla duplicada: solo existe **una** definicion de `raw_documents` en el repo
-(`20260617120000_add_raw_documents.sql`) y es idempotente.
+```powershell
+supabase migration list
+supabase db reset
+npm run test:local
+```
 
-Para dejar el historial coherente **sin recrear ni romper la tabla**, usar una de:
-
-1. **Marcar como aplicada (recomendado, no toca el esquema):**
-   ```bash
-   supabase migration repair --status applied 20260617120000
-   ```
-
-2. **Reaplicar la migracion (segura por ser `if not exists`):**
-   ```bash
-   supabase db push
-   ```
-   Al ser toda la migracion `create ... if not exists`, no duplica objetos; si faltara
-   algun indice/columna, lo crea, y queda registrada en el historial.
-
-Tras cualquiera de las dos, `supabase migration list` debe mostrar `20260617120000`
-como aplicada tanto en local como en remoto.
+Para cambios específicos, ejecutar además la prueba de migración/contrato correspondiente, por ejemplo audiencia, inteligencia, descartes o retención.
