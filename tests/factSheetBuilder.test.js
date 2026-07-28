@@ -139,6 +139,24 @@ test('extrae un plazo real cuando el texto oficial dice que finaliza en una fech
   assert(/30 de septiembre de 2028/i.test(sheet.plazo.valor || sheet.plazo.evidencia || ''), 'deberia conservar la fecha de fin real');
 });
 
+test('verifica comunidades autonomas declaradas sin exigir que sean una provincia', () => {
+  const sheet = construirFactSheetAlertaSync({
+    id: 'territorio-ccaa',
+    titulo: 'Ayudas para explotaciones agrarias de Castilla y Leon',
+    contenido: 'Se convocan ayudas para explotaciones agrarias de Castilla y Leon.',
+    provincias: ['Castilla y Leon'],
+    sectores: ['agricultura'],
+    tipos_alerta: ['ayudas_subvenciones'],
+    url: 'https://bocyl.jcyl.es/territorio-ccaa',
+  });
+
+  assert(
+    sheet.territorio.some((item) => item.valor === 'castilla y leon' && item.status === 'verified'),
+    'la comunidad autonoma declarada y visible debe quedar verificada'
+  );
+  assert(!sheet.flags.includes('territorio_no_verificado'));
+});
+
 test('separa fechas juridicas y accion estructurada del caso de antibioticos', () => {
   const sheet = construirFactSheetAlertaSync({
     id: 15110,
@@ -166,7 +184,7 @@ test('separa fechas juridicas y accion estructurada del caso de antibioticos', (
   assert(sheet.taxonomy_evidence.some((item) => item.tag === 'tipo:sanidad_animal'));
 });
 
-test('una etiqueta sin evidencia queda marcada para revision', () => {
+test('una etiqueta auxiliar sin evidencia queda auditada sin bloquear por acumulacion', () => {
   const sheet = construirFactSheetAlertaSync({
     id: 8,
     titulo: 'Resolucion sobre explotaciones ganaderas',
@@ -178,7 +196,7 @@ test('una etiqueta sin evidencia queda marcada para revision', () => {
 
   assert(sheet.unsupported_taxonomy_tags.includes('tipo:fiscalidad'));
   assert(sheet.flags.includes('unsupported_taxonomy_tag'));
-  assert.notStrictEqual(sheet.status, 'ready_for_digest');
+  assert.strictEqual(sheet.status, 'ready_for_digest');
 });
 
 test('acciones estructuradas exigen evidencia documental y cubren el catalogo P1.6', () => {
@@ -190,6 +208,10 @@ test('acciones estructuradas exigen evidencia documental y cubren el catalogo P1
     ['subsanar_documentacion', 'Los solicitantes deberan subsanar la documentacion.'],
     ['justificar_ayuda', 'Los beneficiarios deberan justificar la ayuda.'],
     ['contactar_organismo', 'Para resolver dudas se deberan dirigir al organismo gestor.'],
+    ['cumplir_obligacion', 'Las explotaciones deberan mantener actualizado el cuaderno.'],
+    ['respetar_restriccion', 'Queda prohibido el movimiento de animales en la zona.'],
+    ['inscribirse_formacion', 'La inscripcion para el curso se abrira el lunes.'],
+    ['actualizar_registro', 'Los titulares deberan actualizar el registro agrario.'],
     ['sin_accion_inmediata', 'La publicacion no requiere accion inmediata.'],
     ['solo_informativo', 'El contenido se publica a efectos informativos.'],
   ];

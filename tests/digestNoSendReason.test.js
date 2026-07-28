@@ -8,7 +8,14 @@ const {
   resolverMotivoNoEnvioDigest,
   resumirSeleccionDigest,
   seleccionarAlertasRescate,
+  filtrarAlertasNoEnviadas,
 } = require('../src/modules/digest/digest.service');
+
+assert.deepStrictEqual(
+  filtrarAlertasNoEnviadas([{ id: 1 }, { id: 2 }, { id: 3 }], new Set([2, 3])).map((a) => a.id),
+  [1],
+  'el rescate no debe repetir alertas ya enviadas al mismo usuario'
+);
 
 const base = {
   totalAlertasDia: 10,
@@ -138,6 +145,10 @@ const rescate = seleccionarAlertasRescate({
 
 assert.strictEqual(rescate.tipo, 'suave');
 assert.deepStrictEqual(rescate.alertas.map((alerta) => alerta.id), [2]);
+const decisionRescateSuave = rescate.decisiones.find((decision) => decision.id === 2);
+assert.strictEqual(decisionRescateSuave.action, 'review_only');
+assert.strictEqual(decisionRescateSuave.incluir, false);
+assert.strictEqual(decisionRescateSuave.motivo, 'rescue_soft_selected_requires_review');
 assert.strictEqual(
   rescate.decisiones.find((decision) => decision.id === 1).motivo,
   'alerta_sin_taxonomia'

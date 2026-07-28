@@ -103,6 +103,10 @@ const ACTION_DEFINITIONS = Object.freeze([
   ['subsanar_documentacion', [/subsanar/i, /subsanacion/i]],
   ['justificar_ayuda', [/justificar (?:la )?ayuda/i, /cuenta justificativa/i, /plazo de justificacion/i]],
   ['contactar_organismo', [/contactar con/i, /dirigir(?:se)?\s+(?:a|al)/i]],
+  ['inscribirse_formacion', [/\binscripcion\b.{0,100}\bcurso\b/i, /\bmatricula\b.{0,100}\bcurso\b/i]],
+  ['actualizar_registro', [/\binscripcion en el registro\b/i, /\bactualizar (?:el )?registro\b/i]],
+  ['respetar_restriccion', [/\bse prohibe\b/i, /\bqueda prohibid[oa]\b/i, /\brestriccion de\b/i]],
+  ['cumplir_obligacion', [/\bdebera[n]?\b/i, /\bes obligatorio\b/i, /\bobligacion de\b/i]],
   ['sin_accion_inmediata', [/sin accion inmediata/i, /no requiere accion inmediata/i]],
   ['solo_informativo', [/solo informativo/i, /a efectos informativos/i]],
 ]);
@@ -428,7 +432,7 @@ function extraerValoresConEvidencia(values, aliasMap, blocks) {
 
 function extraerTerritorio(alerta = {}, blocks = []) {
   const declared = normalizarLista(alerta.provincias, normalizarTexto)
-    .filter((value) => PROVINCE_ALIASES[value]);
+    .filter(Boolean);
   return extraerValoresConEvidencia(declared, PROVINCE_ALIASES, blocks);
 }
 
@@ -638,7 +642,7 @@ function construirFactSheetDesdeTrace(alerta = {}, trace = null, options = {}) {
   sheet.unsupported_taxonomy_tags = taxonomyEvidence.unsupported;
   sheet.resumen_estructurado = extraerResumenEstructurado(blocks, sheet);
 
-  return validarFactSheet(sheet, { alerta });
+  return validarFactSheet(sheet, { alerta, now: options.now });
 }
 
 function construirFactSheetAlertaSync(alerta = {}, options = {}) {

@@ -909,7 +909,7 @@ module.exports = function tareasRoutes(app, supabase) {
       const enviarDigest = await runSimpleStage('enviar_digest', '/alertas/enviar-digest');
       const miaCicloPostDigest = await runOptionalStage(
         'mia_ciclo_post_digest',
-        '/cerebro/ciclo-diario?explorar=false&limit=100&maxLoops=1'
+        '/cerebro/ciclo-diario?explorar=true&dryRunExploracion=false&limit=100&maxLoops=1'
       );
       const miaOutbox = await runOptionalStage(
         'mia_outbox',

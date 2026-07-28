@@ -18,10 +18,23 @@ const {
   vectorToSql,
   vectorValido,
 } = require('./miaProfile');
+const { cargarPerfilOperativoMIA } = require('../mia/userProfile');
+const {
+  construirPreguntaExploracion,
+  detectarZonaIncertidumbre: detectarZonaIncertidumbreInteligente,
+} = require('../mia/exploration');
+const { generarSaludRecomendaciones } = require('../mia/recommendationHealth');
 
 const DEFAULT_SELECT_LIMIT = 100;
 const DEFAULT_MAX_LOOPS = 1;
-const MAX_PREGUNTAS_EXPLORACION_DIA = 3;
+const MAX_PREGUNTAS_EXPLORACION_DIA = Math.max(
+  1,
+  Math.min(100, Number(process.env.MIA_MAX_PREGUNTAS_EXPLORACION_DIA || 20))
+);
+const EXPLORACION_COOLDOWN_DIAS = Math.max(
+  7,
+  Math.min(90, Number(process.env.MIA_EXPLORACION_COOLDOWN_DIAS || 30))
+);
 function clampNumber(value, fallback, min, max) {
   const n = Number(value);
   if (!Number.isFinite(n)) return fallback;
@@ -52,56 +65,6 @@ function restarDias(fecha, dias) {
 function inicioDiaISO(fecha = new Date()) {
   return new Date(Date.UTC(fecha.getUTCFullYear(), fecha.getUTCMonth(), fecha.getUTCDate())).toISOString();
 }
-
-function extraerPreferenciasDeclaradas(user = {}) {
-  const prefs = user.preferences || {};
-  const tipos = Object.entries(prefs.tipos_alerta || {})
-    .filter(([, activo]) => activo === true)
-    .map(([tipo]) => tipo);
-
-  return {
-    sectores: Array.isArray(prefs.sectores) ? prefs.sectores : [],
-    provincias: Array.isArray(prefs.provincias) ? prefs.provincias : [],
-    subsectores: Array.isArray(prefs.subsectores) ? prefs.subsectores : [],
-    tipos_alerta: tipos,
-  };
-}
-
-function detectarZonaIncertidumbre(user, memorias = []) {
-  const declaradas = extraerPreferenciasDeclaradas(user);
-  const textoMemoria = memorias
-    .map((m) => `${m.tipo} ${m.contenido}`)
-    .join(' ')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase();
-
-  const temasDeclarados = [
-    ...declaradas.subsectores.map((tema) => ({ tipo: 'subsector', tema })),
-    ...declaradas.provincias.map((tema) => ({ tipo: 'provincia', tema })),
-    ...declaradas.tipos_alerta.map((tema) => ({ tipo: 'tipo de alerta', tema })),
-    ...declaradas.sectores.map((tema) => ({ tipo: 'sector', tema })),
-  ];
-
-  const sinConfirmar = temasDeclarados.find(({ tema }) => {
-    const normalizado = String(tema || '')
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .toLowerCase();
-    return normalizado && !textoMemoria.includes(normalizado);
-  });
-
-  if (sinConfirmar) {
-    return `No sabemos aun si el ${sinConfirmar.tipo} "${sinConfirmar.tema}" sigue siendo prioritario para el usuario.`;
-  }
-
-  if (user.preferencias_extra && memorias.length < 5) {
-    return `Hay poca memoria acumulada. Conviene confirmar que sigue buscando esto: "${String(user.preferencias_extra).slice(0, 180)}".`;
-  }
-
-  return 'Perfil con poca señal reciente. Conviene preguntar que tema agricola o ganadero quiere priorizar en sus proximas alertas.';
-}
-
 
 async function iniciarPipelineRun(supabase, { stage, endpoint, fechaObjetivo }) {
   const startedAt = new Date();
@@ -238,6 +201,19 @@ module.exports = function cerebroRoutes(app, supabase) {
     return count || 0;
   }
 
+  async function tienePreguntaExploracionReciente(userId) {
+    const desde = restarDias(new Date(), EXPLORACION_COOLDOWN_DIAS).toISOString();
+    const { count, error } = await supabase
+      .from('user_memory')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .eq('tipo', 'pregunta_sistema')
+      .gte('created_at', desde);
+
+    if (error) throw error;
+    return (count || 0) > 0;
+  }
+
   async function explorarUsuarioMIA(userId, options = {}) {
     const dryRun = Boolean(options.dryRun);
     const force = Boolean(options.force);
@@ -263,10 +239,12 @@ module.exports = function cerebroRoutes(app, supabase) {
     if (errMemorias) throw errMemorias;
 
     const memoriaLista = memorias || [];
+    const perfilOperativo = await cargarPerfilOperativoMIA(supabase, userId, { user });
     const ultimaInteraccion = user.ultima_interaccion_at ? new Date(user.ultima_interaccion_at) : null;
     const inactivo7Dias = !ultimaInteraccion || ultimaInteraccion < restarDias(new Date(), 7);
     const pocaMemoria = memoriaLista.length < 5;
-    const elegible = force || inactivo7Dias || pocaMemoria;
+    const tieneConflictos = (perfilOperativo.uncertain_topics || []).length > 0;
+    const elegible = force || tieneConflictos || inactivo7Dias || pocaMemoria;
 
     if (!elegible) {
       return {
@@ -276,6 +254,16 @@ module.exports = function cerebroRoutes(app, supabase) {
         user_id: userId,
         memoria_total: memoriaLista.length,
         ultima_interaccion_at: user.ultima_interaccion_at,
+      };
+    }
+
+    if (!force && await tienePreguntaExploracionReciente(userId)) {
+      return {
+        ok: true,
+        skipped: true,
+        reason: 'cooldown_exploracion_usuario',
+        user_id: userId,
+        cooldown_dias: EXPLORACION_COOLDOWN_DIAS,
       };
     }
 
@@ -290,8 +278,14 @@ module.exports = function cerebroRoutes(app, supabase) {
       };
     }
 
-    const zonaIncertidumbre = detectarZonaIncertidumbre(user, memoriaLista);
-    const pregunta = await generarPreguntaExploracion(user, zonaIncertidumbre);
+    const zonaIncertidumbre = detectarZonaIncertidumbreInteligente({
+      user,
+      memorias: memoriaLista,
+      perfil: perfilOperativo,
+    });
+    const pregunta = zonaIncertidumbre.topic
+      ? construirPreguntaExploracion(zonaIncertidumbre)
+      : await generarPreguntaExploracion(user, zonaIncertidumbre);
 
     if (dryRun) {
       return {
@@ -704,7 +698,7 @@ module.exports = function cerebroRoutes(app, supabase) {
 
     try {
       const forceMock = req.body?.forceMock || req.query.forceMock === 'true';
-      const dryRunExploracion = req.body?.dryRunExploracion !== false && req.query.dryRunExploracion !== 'false';
+      const dryRunExploracion = req.body?.dryRunExploracion === true || req.query.dryRunExploracion === 'true';
 
       const embeddings = await inicializarEmbeddingsAlertas({
         fechaObjetivo,
@@ -735,6 +729,11 @@ module.exports = function cerebroRoutes(app, supabase) {
 
       if (errExpirar) throw errExpirar;
 
+      const saludRecomendaciones = await generarSaludRecomendaciones(supabase, {
+        days: req.body?.healthDays || req.query.healthDays || 14,
+        persist: true,
+      });
+
       const explorar = req.body?.explorar === true || req.query.explorar === 'true';
       const exploraciones = [];
       if (explorar) {
@@ -750,11 +749,12 @@ module.exports = function cerebroRoutes(app, supabase) {
             .neq('phone', '')
             .or('phone_verified.is.null,phone_verified.eq.true')
             .order('ultima_interaccion_at', { ascending: true, nullsFirst: true })
-            .limit(disponibles);
+            .limit(Math.min(100, Math.max(disponibles * 5, disponibles)));
 
           if (errUsuarios) throw errUsuarios;
 
           for (const user of candidatos || []) {
+            if (exploraciones.filter((item) => item.ok && !item.skipped).length >= disponibles) break;
             try {
               exploraciones.push(await explorarUsuarioMIA(user.id, {
                 dryRun: dryRunExploracion,
@@ -774,6 +774,7 @@ module.exports = function cerebroRoutes(app, supabase) {
         perfiles_actualizados: perfiles.filter((p) => p.ok).length,
         perfiles,
         conversaciones_expiradas: (conversacionesExpiradas || []).length,
+        salud_recomendaciones: saludRecomendaciones,
         exploracion: {
           habilitada: explorar,
           dry_run: dryRunExploracion,
@@ -782,7 +783,7 @@ module.exports = function cerebroRoutes(app, supabase) {
       };
 
       await cerrarPipelineRun(supabase, run, {
-        status: 'ok',
+        status: saludRecomendaciones.status === 'critical' ? 'warning' : 'ok',
         procesadas: embeddings.actualizadas + perfiles.filter((p) => p.ok).length + exploraciones.filter((e) => e.ok && !e.skipped).length,
         errores: perfiles.filter((p) => !p.ok).length + exploraciones.filter((e) => !e.ok).length,
         response_json: result,
@@ -801,6 +802,20 @@ module.exports = function cerebroRoutes(app, supabase) {
     }
   };
 
+  const saludRecomendacionesHandler = async (req, res) => {
+    if (!checkCronToken(req, res)) return;
+    try {
+      const report = await generarSaludRecomendaciones(supabase, {
+        days: req.body?.days || req.query.days || 14,
+        persist: req.body?.persist !== false && req.query.persist !== 'false',
+      });
+      return res.json({ ok: true, ...report });
+    } catch (error) {
+      console.error('[mia] Error en /cerebro/salud-recomendaciones:', error.message);
+      return res.status(500).json({ ok: false, error: error.message });
+    }
+  };
+
   app.post('/cerebro/embeddings/inicializar', inicializarEmbeddingsHandler);
   app.get('/cerebro/embeddings/inicializar', inicializarEmbeddingsHandler);
   app.post('/cerebro/perfil/actualizar/:userId', actualizarPerfilHandler);
@@ -812,4 +827,6 @@ module.exports = function cerebroRoutes(app, supabase) {
   app.get('/cerebro/explorar/:userId', explorarUsuarioHandler);
   app.post('/cerebro/ciclo-diario', cicloDiarioHandler);
   app.get('/cerebro/ciclo-diario', cicloDiarioHandler);
+  app.post('/cerebro/salud-recomendaciones', saludRecomendacionesHandler);
+  app.get('/cerebro/salud-recomendaciones', saludRecomendacionesHandler);
 };

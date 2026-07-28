@@ -149,5 +149,64 @@ const sparseScore = puntuarAlertaConPerfilOperativoMIA({
 assert(sparseScore.score > 2, 'Perfil sin memoria aprende de preferencias declaradas y texto libre');
 assert(sparseProfile.hard_filters.exclusiones_texto.some((item) => /licitacion/.test(item)), 'Taxonomia convierte exclusiones declaradas en filtro duro');
 
+const conflictedProfile = construirPerfilOperativoMIA({
+  user: {
+    id: 201,
+    preferences: {
+      provincias: ['Huesca'],
+      sectores: ['agricultura'],
+      subsectores: [],
+      tipos_alerta: {},
+    },
+  },
+  structuredMemories: [
+    {
+      memory_type: 'interes_detectado',
+      topic: 'agua_riego',
+      detail: 'Le interesa el regadio',
+      polarity: 'positive',
+      confidence: 0.9,
+      last_seen_at: new Date().toISOString(),
+    },
+    {
+      memory_type: 'desinteres_detectado',
+      topic: 'agua_riego',
+      detail: 'No quiere avisos de agua',
+      polarity: 'negative',
+      confidence: 0.9,
+      last_seen_at: new Date().toISOString(),
+    },
+  ],
+});
+assert(conflictedProfile.uncertain_topics.some((item) => item.topic === 'agua_riego'), 'Detecta preferencias aprendidas contradictorias');
+assert(!conflictedProfile.interests.some((item) => item.topic === 'agua_riego'), 'No recomienda usando un interes contradictorio');
+assert(!conflictedProfile.dislikes.some((item) => item.topic === 'agua_riego'), 'No excluye usando un desinteres contradictorio');
+assert(conflictedProfile.prompt_block.includes('No usarlas para recomendar ni excluir'), 'Explica a MIA como tratar preferencias contradictorias');
+
+const declaredConflict = construirPerfilOperativoMIA({
+  user: {
+    id: 202,
+    preferences: {
+      provincias: ['Huesca'],
+      sectores: ['agricultura'],
+      subsectores: ['cereal'],
+      tipos_alerta: {},
+    },
+  },
+  structuredMemories: [
+    {
+      memory_type: 'desinteres_detectado',
+      topic: 'cereal',
+      detail: 'No quiere cereal',
+      polarity: 'negative',
+      confidence: 1,
+      duplicate_count: 5,
+      last_seen_at: new Date().toISOString(),
+    },
+  ],
+});
+assert(!declaredConflict.dislikes.some((item) => item.topic === 'cereal'), 'Una senal aprendida no convierte una preferencia declarada en exclusion');
+assert(declaredConflict.uncertain_topics.some((item) => item.topic === 'cereal'), 'Marca para confirmar el conflicto con una preferencia declarada');
+
 console.log(`\nResultados: ${passed} aprobados, ${failed} fallidos`);
 process.exit(failed > 0 ? 1 : 0);

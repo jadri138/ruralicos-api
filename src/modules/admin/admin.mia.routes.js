@@ -23,6 +23,7 @@ const { generarAnswerAuditMIA } = require('../mia/answerAudit');
 const { cargarPerfilOperativoMIA } = require('../mia/userProfile');
 const { ejecutarEvalsMIA } = require('../mia/evalHarness');
 const { generarReporteCalidadOperativaMIA } = require('../mia/alertQuality');
+const { generarSaludRecomendaciones } = require('../mia/recommendationHealth');
 const {
   ingestKnowledgeDocument,
   normalizeBase64,
@@ -587,6 +588,19 @@ module.exports = (app, supabase) => {
     } catch (err) {
       console.error('Error en /admin/mia/outbox-health:', err);
       return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/admin/mia/recommendation-health', requireAdmin, async (req, res) => {
+    try {
+      const report = await generarSaludRecomendaciones(supabase, {
+        days: req.query.days || 14,
+        persist: true,
+      });
+      return res.json({ ok: true, ...report });
+    } catch (error) {
+      console.error('Error en /admin/mia/recommendation-health:', error);
+      return res.status(500).json({ ok: false, error: error.message });
     }
   });
 

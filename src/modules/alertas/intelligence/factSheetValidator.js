@@ -31,6 +31,8 @@ const FLAG_SEVERITY = {
   unsupported_taxonomy_tag: 18,
   empty_taxonomy_ready: 55,
   cross_sector_match: 55,
+  operative_deadline_expired: 70,
+  accion_no_verificada: 22,
 };
 
 function textoFactSheet(sheet = {}) {
@@ -70,6 +72,37 @@ function textoAlerta(alerta = {}) {
 
 function addIssue(issues, flag, reason, severity = FLAG_SEVERITY[flag] || 10) {
   issues.push({ flag, reason, severity });
+}
+
+function fechaIsoExpirada(value, now = new Date()) {
+  const match = String(value || '').match(/^(20\d{2})-(\d{2})-(\d{2})$/);
+  if (!match) return false;
+  const deadlineEndUtc = Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 23, 59, 59, 999);
+  return Number.isFinite(deadlineEndUtc) && deadlineEndUtc < now.getTime();
+}
+
+function tiposAlerta(alerta = {}) {
+  return new Set((alerta.tipos_alerta || []).map(normalizarTexto).filter(Boolean));
+}
+
+function requiereAccionVerificada(alerta = {}) {
+  const tipos = tiposAlerta(alerta);
+  return [
+    'ayudas_subvenciones',
+    'obligaciones',
+    'restricciones',
+    'registros_certificaciones',
+    'plazos_alegaciones',
+  ].some((tipo) => tipos.has(tipo));
+}
+
+function plazosOperativos(sheet = {}) {
+  return [
+    ['application_deadline', sheet.application_deadline],
+    ['allegation_deadline', sheet.allegation_deadline],
+    ['appeal_deadline', sheet.appeal_deadline],
+    ['justification_deadline', sheet.justification_deadline],
+  ].filter(([, field]) => campoVerificado(field));
 }
 
 function esAyuda(sheet = {}, alerta = {}) {
@@ -179,6 +212,7 @@ function estadoDesdeIssues(issues, coverage) {
     || flags.has('taxonomy_conflict')
     || flags.has('empty_taxonomy_ready')
     || flags.has('cross_sector_match')
+    || flags.has('operative_deadline_expired')
   ) {
     return FACT_SHEET_STATUS.BLOCKED;
   }
@@ -197,7 +231,7 @@ function estadoDesdeIssues(issues, coverage) {
   return FACT_SHEET_STATUS.READY;
 }
 
-function validarFactSheet(input = {}, { alerta = {} } = {}) {
+function validarFactSheet(input = {}, { alerta = {}, now = new Date() } = {}) {
   const sheet = recalcularEvidencias(input);
   const issues = [];
 
@@ -254,6 +288,25 @@ function validarFactSheet(input = {}, { alerta = {} } = {}) {
 
   if (hayContradiccionSector(sheet, alerta)) {
     addIssue(issues, 'contradiccion_sector_tipo', 'Hay contradiccion entre texto, sector o tipo documental.');
+  }
+
+  const expiredDeadlines = plazosOperativos(sheet)
+    .filter(([, field]) => fechaIsoExpirada(field.valor, now))
+    .map(([name, field]) => `${name}:${field.valor}`);
+  if (expiredDeadlines.length > 0) {
+    addIssue(
+      issues,
+      'operative_deadline_expired',
+      `El plazo operativo ya ha finalizado: ${expiredDeadlines.join(', ')}.`
+    );
+  }
+
+  if (requiereAccionVerificada(alerta) && !campoVerificado(sheet.accion_requerida) && !campoVerificado(sheet.accion_codigo)) {
+    addIssue(
+      issues,
+      'accion_no_verificada',
+      'La alerta exige una decisión o actuación, pero no hay una acción verificable en el documento.'
+    );
   }
 
   const taxonomyValidation = alerta.taxonomy_validation || {};
@@ -316,5 +369,7 @@ module.exports = {
   camposCoverage,
   calcularCoverage,
   resolverProcedenciaEvidencia,
+  fechaIsoExpirada,
+  requiereAccionVerificada,
   validarFactSheet,
 };

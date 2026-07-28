@@ -1,9 +1,10 @@
 const crypto = require('crypto');
 const { checkCronToken } = require('../../middleware/cronToken');
 const { conOrganizationId, extraerOrganizationId } = require('../mia/organizationContext');
+const { aplicarClickAlPerfil } = require('../aprendizaje/userInterestProfile');
 
-// Un click indica curiosidad, no una preferencia declarada. Se incorpora al
-// embedding con menos peso que el feedback explicito y no actualiza tags.
+// Un click indica curiosidad, no una preferencia declarada. Se incorpora con
+// poco peso y solo aprende temas concretos; nunca cambia territorio o sector.
 const CLICK_INTEREST_WEIGHT = 0.45;
 
 function hashIp(ip) {
@@ -46,7 +47,7 @@ async function guardarMemoriaClickSiPrimero(supabase, link) {
 
   const { data: alerta, error: alertaError } = await supabase
     .from('alertas')
-    .select('titulo')
+    .select('titulo, provincias, sectores, subsectores, tipos_alerta, taxonomy_tags, contenido, resumen_final')
     .eq('id', link.alerta_id)
     .maybeSingle();
 
@@ -67,6 +68,10 @@ async function guardarMemoriaClickSiPrimero(supabase, link) {
 
   if (memoriaError) {
     console.warn('[clicks] No se pudo guardar memoria de click:', memoriaError.message);
+  }
+
+  if (alerta) {
+    await aplicarClickAlPerfil(supabase, { userId: link.user_id, alerta });
   }
 }
 

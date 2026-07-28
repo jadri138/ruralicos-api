@@ -188,11 +188,25 @@ function sumarPreferenciasDeclaradas(temas, declared = {}) {
 }
 
 function normalizarTemaEntry(entry) {
+  const positive = Number(entry.positive || 0);
+  const negative = Number(entry.negative || 0);
+  const conflictRatio = positive > 0 && negative > 0
+    ? Math.min(positive, negative) / Math.max(positive, negative)
+    : 0;
+  const conflicted = positive >= 0.35 && negative >= 0.35 && conflictRatio >= 0.3;
+  const declared = entry.sources.has('declared_preferences') ||
+    entry.sources.has('declared_text_taxonomy');
   return {
     ...entry,
     score: Number(entry.score.toFixed(3)),
-    confidence: clamp(Math.abs(entry.score) / 4, 0.15, 1),
-    polarity: entry.score >= 0 ? 'positive' : 'negative',
+    confidence: conflicted
+      ? clamp((Math.abs(entry.score) / 4) * (1 - conflictRatio), 0.05, 0.45)
+      : clamp(Math.abs(entry.score) / 4, 0.15, 1),
+    polarity: conflicted ? 'mixed' : (entry.score >= 0 ? 'positive' : 'negative'),
+    conflicted,
+    conflict_ratio: Number(conflictRatio.toFixed(3)),
+    declared,
+    declared_conflict: declared && negative >= 0.35,
     sources: [...entry.sources],
   };
 }
@@ -260,13 +274,18 @@ function construirPerfilOperativoMIA({
     .sort((a, b) => Math.abs(b.score) - Math.abs(a.score));
 
   const interests = temasOrdenados
-    .filter((item) => item.score > 0.25)
+    .filter((item) => !item.conflicted && item.score > 0.25)
     .sort((a, b) => b.score - a.score)
     .slice(0, 10);
 
   const dislikes = temasOrdenados
-    .filter((item) => item.score < -0.25)
+    .filter((item) => !item.conflicted && !item.declared && item.score < -0.25)
     .sort((a, b) => a.score - b.score)
+    .slice(0, 10);
+
+  const uncertainTopics = temasOrdenados
+    .filter((item) => item.conflicted || item.declared_conflict)
+    .sort((a, b) => b.conflict_ratio - a.conflict_ratio)
     .slice(0, 10);
 
   const hardFilters = {
@@ -281,6 +300,7 @@ function construirPerfilOperativoMIA({
     declared,
     interests,
     dislikes,
+    uncertainTopics,
     facts,
   });
 
@@ -295,31 +315,46 @@ function construirPerfilOperativoMIA({
     hard_filters: hardFilters,
     interests,
     dislikes,
+    uncertain_topics: uncertainTopics,
     facts,
     raw_tag_scores: rawTagScores,
     prompt_block: promptBlock,
-    summary: construirResumenPerfilOperativoMIA({ declared, interests, dislikes, facts }),
+    summary: construirResumenPerfilOperativoMIA({ declared, interests, dislikes, uncertainTopics, facts }),
     stats: {
       interest_rows: (interestRows || []).length,
       legacy_memories: (legacyMemories || []).length,
       structured_memories: (structuredMemories || []).length,
       topics_total: temasOrdenados.length,
+      topics_uncertain: uncertainTopics.length,
     },
   };
 }
 
-function construirResumenPerfilOperativoMIA({ declared = {}, interests = [], dislikes = [], facts = [] } = {}) {
+function construirResumenPerfilOperativoMIA({
+  declared = {},
+  interests = [],
+  dislikes = [],
+  uncertainTopics = [],
+  facts = [],
+} = {}) {
   const lines = [];
   if (declared.perfil) lines.push(`Perfil declarado: ${declared.perfil}.`);
   if (declared.provincias?.length) lines.push(`Zonas declaradas: ${declared.provincias.join(', ')}.`);
   if (declared.sectores?.length) lines.push(`Sectores declarados: ${declared.sectores.join(', ')}.`);
   if (interests.length) lines.push(`Intereses aprendidos: ${interests.slice(0, 5).map((i) => i.topic).join(', ')}.`);
   if (dislikes.length) lines.push(`Temas a tratar con cuidado: ${dislikes.slice(0, 5).map((i) => i.topic).join(', ')}.`);
+  if (uncertainTopics.length) lines.push(`Preferencias contradictorias pendientes de confirmar: ${uncertainTopics.slice(0, 5).map((i) => i.topic).join(', ')}.`);
   if (facts.length) lines.push(`Datos operativos: ${facts.slice(0, 3).map((f) => f.detail).join(' | ')}.`);
   return lines.join(' ').slice(0, 1200);
 }
 
-function construirBloquePerfilOperativoMIA({ declared = {}, interests = [], dislikes = [], facts = [] } = {}) {
+function construirBloquePerfilOperativoMIA({
+  declared = {},
+  interests = [],
+  dislikes = [],
+  uncertainTopics = [],
+  facts = [],
+} = {}) {
   const lines = [
     'PERFIL OPERATIVO MIA',
     '- Usar solo para priorizar, interpretar preferencias y ajustar nivel de detalle.',
@@ -332,6 +367,9 @@ function construirBloquePerfilOperativoMIA({ declared = {}, interests = [], disl
   if (declared.exclusiones_texto?.length) lines.push(`- Evitar si aparece claramente: ${declared.exclusiones_texto.join(', ')}`);
   if (interests.length) lines.push(`- Intereses fuertes: ${interests.slice(0, 6).map((i) => `${i.topic} (${i.score})`).join(', ')}`);
   if (dislikes.length) lines.push(`- Senales negativas: ${dislikes.slice(0, 6).map((i) => `${i.topic} (${i.score})`).join(', ')}`);
+  if (uncertainTopics.length) {
+    lines.push(`- Preferencias contradictorias: ${uncertainTopics.slice(0, 6).map((i) => i.topic).join(', ')}. No usarlas para recomendar ni excluir hasta confirmarlas.`);
+  }
   if (facts.length) lines.push(`- Datos utiles: ${facts.slice(0, 4).map((f) => f.detail).join(' | ')}`);
 
   return lines.join('\n').slice(0, 1600);

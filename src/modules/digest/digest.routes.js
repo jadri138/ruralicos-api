@@ -99,6 +99,7 @@ const {
   cargarAlertasListasDigest,
   cargarUsuariosPagoDigest,
   cargarUltimosDigestEnviados,
+  filtrarAlertasNoEnviadas,
   necesitaRescateSemanal,
   extraerExclusionesDesdeTexto,
   aplicarExclusionesPreferenciasExtra,
@@ -216,6 +217,7 @@ function decisionesValidacionFinal(alertas = [], validation = null) {
       status: item.status || 'missing',
       flags: item.flags || [],
       reasons: item.reasons || [],
+      match_trace: alerta.decision_digest?.match_trace || alerta.decision_digest?.diagnostico?.match_trace || null,
     };
   });
 }
@@ -257,6 +259,9 @@ function decisionesGateEfectivo(enforcement = null) {
     automatic_send_allowed: entry.automatic_send_allowed,
     gate_version: entry.gate_version,
     context: entry.context,
+    match_trace: entry.selection_decision?.match_trace ||
+      entry.selection_decision?.diagnostico?.match_trace ||
+      null,
   }));
 }
 
@@ -498,12 +503,11 @@ module.exports = function digestRoutes(app, supabase) {
       });
       const usuariosBatch = usuariosPendientes.slice(0, limiteDigests);
       const userIds = usuarios.map((user) => user.id).filter(Boolean);
-      const fechaCorteRescate = sumarDiasFechaISO(hoy, -DIGEST_RESCUE_AFTER_DAYS);
       const desdeRescate = sumarDiasFechaISO(hoy, -(DIGEST_RESCUE_LOOKBACK_DAYS - 1));
       const ultimosEnviadosPorUsuario = await cargarUltimosDigestEnviados(
         supabase,
         userIds,
-        fechaCorteRescate
+        desdeRescate
       );
       let alertasRescateCache = null;
 
@@ -719,8 +723,13 @@ module.exports = function digestRoutes(app, supabase) {
               }
             }
 
+            const idsYaEnviados = ultimosEnviadosPorUsuario.get(user.id)?.alerta_ids_enviadas || new Set();
+            const alertasRescateNoRepetidas = filtrarAlertasNoEnviadas(
+              alertasRescateCache.alertas,
+              idsYaEnviados
+            );
             const rescate = seleccionarAlertasRescate({
-              alertas: alertasRescateCache.alertas,
+              alertas: alertasRescateNoRepetidas,
               user: userConPerfilMIA,
               aprendizaje,
               perfilOperativoMIA,
@@ -873,6 +882,9 @@ module.exports = function digestRoutes(app, supabase) {
               ? 'selection_gate_passed_pending_final_validation'
               : (retenidasPorId.get(String(alerta.id))?.motivo || 'automatic_send_retained'),
             selection_decision: alerta.decision_digest || null,
+            match_trace: alerta.decision_digest?.match_trace ||
+              alerta.decision_digest?.diagnostico?.match_trace ||
+              null,
           })),
         });
 

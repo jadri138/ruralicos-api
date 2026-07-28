@@ -70,7 +70,7 @@ function construirStagesPipeline(opciones = {}) {
     { name: 'mia_ciclo_pre_digest', type: 'simple', optional: true, path: '/cerebro/ciclo-diario?explorar=false&limit=100&maxLoops=1' },
     { name: 'preparar_digest', type: 'batched', path: '/alertas/preparar-digest', abortaSiLimitado: true },
     { name: 'enviar_digest', type: 'simple', path: '/alertas/enviar-digest', outbound: true },
-    { name: 'mia_ciclo_post_digest', type: 'simple', optional: true, path: '/cerebro/ciclo-diario?explorar=false&limit=100&maxLoops=1' },
+    { name: 'mia_ciclo_post_digest', type: 'simple', optional: true, path: '/cerebro/ciclo-diario?explorar=true&dryRunExploracion=false&limit=100&maxLoops=1' },
     { name: 'mia_outbox', type: 'simple', optional: true, path: '/tareas/mia-outbox?limit=50', outbound: true },
     { name: 'generar_resumen_free', type: 'simple', path: '/alertas/generar-resumen-free' },
     { name: 'enviar_resumen_free', type: 'simple', path: '/alertas/enviar-resumen-free', outbound: true },

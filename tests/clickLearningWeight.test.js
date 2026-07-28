@@ -8,6 +8,10 @@ const path = require('path');
 const {
   CLICK_INTEREST_WEIGHT,
 } = require('../src/modules/feedback/clicks.routes');
+const {
+  calcularAjusteClickTag,
+  limitarScore,
+} = require('../src/modules/aprendizaje/userInterestProfile');
 
 assert(CLICK_INTEREST_WEIGHT > 0 && CLICK_INTEREST_WEIGHT < 0.5);
 
@@ -15,7 +19,14 @@ const source = fs.readFileSync(
   path.join(__dirname, '..', 'src', 'modules', 'feedback', 'clicks.routes.js'),
   'utf8'
 );
-assert(!source.includes('aplicarFeedbackAlPerfil'));
+assert(source.includes('aplicarClickAlPerfil'));
 assert(source.includes('peso_inicial: CLICK_INTEREST_WEIGHT'));
+assert.strictEqual(calcularAjusteClickTag('provincia:teruel'), 0);
+assert.strictEqual(calcularAjusteClickTag('sector:agricultura'), 0);
+assert.strictEqual(calcularAjusteClickTag('fuente:boe'), 0);
+assert.strictEqual(calcularAjusteClickTag('concepto:agua_riego'), 0.12);
+assert.strictEqual(calcularAjusteClickTag('tipo:ayudas_subvenciones'), 0.06);
+assert.strictEqual(limitarScore(20), 5);
+assert.strictEqual(limitarScore(-20), -5);
 
-console.log('OK: los clicks siguen siendo una senal positiva debil y no refuerzan todos los tags');
+console.log('OK: los clicks aprenden temas concretos con peso debil y limites seguros');

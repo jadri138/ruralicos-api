@@ -205,7 +205,7 @@ async function main() {
     PREPARAR_DIGEST_MAX_LOOPS
   );
   const enviarDigest = await runSingleStep('enviar-digest', conFecha('/alertas/enviar-digest'));
-  const miaCicloPostDigest = await runOptionalStep('mia-ciclo-post-digest', '/cerebro/ciclo-diario?explorar=false&limit=100&maxLoops=1');
+  const miaCicloPostDigest = await runOptionalStep('mia-ciclo-post-digest', '/cerebro/ciclo-diario?explorar=true&dryRunExploracion=false&limit=100&maxLoops=1');
 
   const generarFree = await runSingleStep('generar-resumen-free', conFecha('/alertas/generar-resumen-free'));
   const enviarFree = await runSingleStep('enviar-resumen-free', conFecha('/alertas/enviar-resumen-free'));

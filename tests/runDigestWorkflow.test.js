@@ -63,5 +63,12 @@ test('permite completar la preparacion segura usuario a usuario', () => {
   );
 });
 
+test('activa preguntas automaticas despues del digest real', () => {
+  assert(
+    script.includes('/cerebro/ciclo-diario?explorar=true&dryRunExploracion=false'),
+    'el ciclo posterior debe preguntar y aprender sin quedarse en simulacion'
+  );
+});
+
 console.log(`\nResultados runDigestWorkflow: ${passed} aprobados, ${failed} fallidos`);
 if (failed > 0) process.exit(1);

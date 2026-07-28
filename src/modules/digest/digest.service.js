@@ -166,16 +166,40 @@ function fechaCreacionAlerta(alerta = {}) {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+function tieneTrazabilidadMatchingValida(decision = {}) {
+  const trace = decision?.match_trace || decision?.diagnostico?.match_trace;
+  if (!trace || typeof trace !== 'object') return false;
+  return String(trace.version || '').startsWith('matching_trace_') &&
+    String(trace.decision || '').toLowerCase() === 'include' &&
+    Boolean(String(trace.reason || '').trim());
+}
+
 function evaluarPermisoEnvioAutomatico(decision = null, options = {}) {
   const action = accionDecisionDigest(decision);
-  if (action === 'include') return { allowed: true, reason: 'decision_digest_include', action };
+  const cutoff = new Date(options.cutoff || DECISION_DIGEST_REQUIRED_FROM);
+  const createdAt = fechaCreacionAlerta(options.alerta);
+  // Solo aplicamos el contrato nuevo cuando la fecha demuestra que el registro
+  // pertenece a la etapa moderna. Fixtures y auditorias historicas sin fecha
+  // mantienen compatibilidad; las alertas de produccion actuales llevan created_at.
+  const isRecent = Boolean(createdAt) &&
+    !Number.isNaN(cutoff.getTime()) &&
+    createdAt >= cutoff;
+
+  if (action === 'include') {
+    if (isRecent && !tieneTrazabilidadMatchingValida(decision)) {
+      return {
+        allowed: false,
+        reason: 'decision_digest_match_trace_missing',
+        action,
+      };
+    }
+    return { allowed: true, reason: 'decision_digest_include', action };
+  }
   if (action) {
     return { allowed: false, reason: `decision_digest_${action}`, action };
   }
 
   const mode = String(options.mode || 'automatic_daily').trim().toLowerCase();
-  const cutoff = new Date(options.cutoff || DECISION_DIGEST_REQUIRED_FROM);
-  const createdAt = fechaCreacionAlerta(options.alerta);
   const legacyExplicit = options.allowLegacyWithoutDecision === true &&
     LEGACY_DECISION_BYPASS_MODES.has(mode);
   const historical = createdAt && !Number.isNaN(cutoff.getTime()) && createdAt < cutoff;
@@ -449,7 +473,7 @@ async function cargarUltimosDigestEnviados(supabase, userIds = [], desdeFecha) {
 
   const { data, error } = await supabase
     .from('digests')
-    .select('id, user_id, fecha, enviado_at, created_at')
+    .select('id, user_id, fecha, enviado_at, created_at, alerta_ids')
     .in('user_id', userIds)
     .eq('enviado', true)
     .gte('fecha', desdeFecha)
@@ -464,7 +488,14 @@ async function cargarUltimosDigestEnviados(supabase, userIds = [], desdeFecha) {
   for (const digest of data || []) {
     const actual = map.get(digest.user_id);
     if (!actual || String(digest.fecha || '') > String(actual.fecha || '')) {
-      map.set(digest.user_id, digest);
+      map.set(digest.user_id, {
+        ...digest,
+        alerta_ids_enviadas: new Set(actual?.alerta_ids_enviadas || []),
+      });
+    }
+    const agregado = map.get(digest.user_id);
+    for (const alertaId of digest.alerta_ids || []) {
+      agregado.alerta_ids_enviadas.add(Number(alertaId));
     }
   }
   return map;
@@ -1194,6 +1225,13 @@ function itemValidationPorAlerta(validation = {}, alerta = {}, index = 0) {
   );
   if (byId) return byId;
   return (validation.item_results || [])[index] || null;
+}
+
+function filtrarAlertasNoEnviadas(alertas = [], idsEnviados = new Set()) {
+  const enviados = idsEnviados instanceof Set
+    ? idsEnviados
+    : new Set((idsEnviados || []).map(Number));
+  return (alertas || []).filter((alerta) => !enviados.has(Number(alerta?.id)));
 }
 
 function itemValidationPorAlertaEstricta(validation = {}, alerta = {}) {
@@ -2278,9 +2316,11 @@ function seleccionarAlertasRescate({
       ...bloqueosRescate,
       ...suavesBase.map((alerta) => ({
         id: alerta.id,
-        action: seleccionadasIds.has(String(alerta.id)) ? 'include' : 'exclude',
+        action: seleccionadasIds.has(String(alerta.id)) ? 'review_only' : 'exclude',
+        incluir: false,
+        review_required: seleccionadasIds.has(String(alerta.id)),
         motivo: seleccionadasIds.has(String(alerta.id))
-          ? 'rescue_soft_selected'
+          ? 'rescue_soft_selected_requires_review'
           : 'rescue_soft_not_selected',
       })),
     ],
@@ -3031,6 +3071,7 @@ module.exports = {
   cargarAlertasListasDigest,
   cargarUsuariosPagoDigest,
   cargarUltimosDigestEnviados,
+  filtrarAlertasNoEnviadas,
   necesitaRescateSemanal,
   extraerExclusionesDesdeTexto,
   aplicarExclusionesPreferenciasExtra,

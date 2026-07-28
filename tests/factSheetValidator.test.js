@@ -263,6 +263,50 @@ test('el resumen generado no convierte una etiqueta inventada en evidencia taxon
   assert(!sheet.taxonomy_evidence.some((item) => item.tag === 'subsector:vacuno'));
 });
 
+test('bloquea una oportunidad cuyo plazo operativo ya ha terminado', () => {
+  const alerta = alertaBase(13, {
+    fecha: '2026-06-01',
+    titulo: 'Ayudas para explotaciones agrarias en Huesca',
+    contenido: 'Se convocan ayudas para explotaciones agrarias en Huesca. El plazo de presentacion de solicitudes finaliza el 15 de junio de 2026. Los interesados pueden presentar solicitud.',
+    tipos_alerta: ['ayudas_subvenciones'],
+    subsectores: [],
+  });
+  const sheet = construirFactSheetAlertaSync(alerta, {
+    now: new Date('2026-07-01T10:00:00Z'),
+  });
+
+  assert.strictEqual(sheet.status, FACT_SHEET_STATUS.BLOCKED);
+  assert(sheet.flags.includes('operative_deadline_expired'));
+});
+
+test('mantiene vigente una oportunidad cuyo plazo termina en el futuro', () => {
+  const alerta = alertaBase(14, {
+    fecha: '2026-06-01',
+    titulo: 'Ayudas para explotaciones agrarias en Huesca',
+    contenido: 'Se convocan ayudas para explotaciones agrarias en Huesca. El plazo de presentacion de solicitudes finaliza el 15 de agosto de 2026. Los interesados pueden presentar solicitud.',
+    tipos_alerta: ['ayudas_subvenciones'],
+    subsectores: [],
+  });
+  const sheet = construirFactSheetAlertaSync(alerta, {
+    now: new Date('2026-07-01T10:00:00Z'),
+  });
+
+  assert(!sheet.flags.includes('operative_deadline_expired'));
+});
+
+test('una alerta accionable sin accion demostrada queda para revision', () => {
+  const alerta = alertaBase(15, {
+    titulo: 'Bases generales de ayudas en Huesca',
+    contenido: 'Se publican las bases generales de ayudas en Huesca.',
+    tipos_alerta: ['ayudas_subvenciones'],
+    subsectores: [],
+  });
+  const sheet = construirFactSheetAlertaSync(alerta);
+
+  assert.strictEqual(sheet.status, FACT_SHEET_STATUS.REVIEW);
+  assert(sheet.flags.includes('accion_no_verificada'));
+});
+
 process.on('beforeExit', () => {
   console.log(`\nResultados factSheetValidator: ${passed} aprobados, ${failed} fallidos`);
   if (failed > 0) process.exitCode = 1;

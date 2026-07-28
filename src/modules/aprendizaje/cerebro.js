@@ -314,7 +314,9 @@ Eres el asistente de Ruralicos. Necesitas hacer UNA pregunta corta a ${usuario?.
 para entender mejor sus intereses agricolas.
 
 Lo que sabes: ${usuario?.contexto_narrativo || usuario?.preferencias_extra || 'usuario nuevo'}
-Incertidumbre: ${zonaIncertidumbre}
+Incertidumbre: ${typeof zonaIncertidumbre === 'string'
+    ? zonaIncertidumbre
+    : JSON.stringify(zonaIncertidumbre || {})}
 
 Devuelve solo una pregunta natural de WhatsApp, maximo 2 frases.
 `.trim();

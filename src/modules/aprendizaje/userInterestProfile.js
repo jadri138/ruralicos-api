@@ -72,6 +72,19 @@ function calcularAjusteFeedbackTag(tag = '', delta = 0, rawText = '') {
   return Math.max(ajuste, -0.25);
 }
 
+function calcularAjusteClickTag(tag = '') {
+  const normalizedTag = norm(tag);
+  // Un click expresa curiosidad, no una preferencia geográfica ni sectorial.
+  // Solo aprende conceptos suficientemente concretos y con un peso pequeño.
+  if (/^(concepto|subsector|tramite|entidad):/.test(normalizedTag)) return 0.12;
+  if (/^tipo:/.test(normalizedTag)) return 0.06;
+  return 0;
+}
+
+function limitarScore(score = 0) {
+  return Math.max(-5, Math.min(5, Number(score || 0)));
+}
+
 async function leerPerfilIntereses(supabase, userId) {
   const { data, error } = await supabase
     .from('user_interest_profile')
@@ -134,7 +147,7 @@ async function aplicarFeedbackAlPerfil(supabase, { userId, alerta, delta, rawTex
     const next = {
       user_id: userId,
       tag,
-      score: Number(actual?.score || 0) + ajusteTag,
+      score: limitarScore(Number(actual?.score || 0) + ajusteTag),
       positivos: Number(actual?.positivos || 0) + (ajusteTag > 0 ? 1 : 0),
       negativos: Number(actual?.negativos || 0) + (ajusteTag < 0 ? 1 : 0),
       updated_at: new Date().toISOString(),
@@ -154,6 +167,39 @@ async function aplicarFeedbackAlPerfil(supabase, { userId, alerta, delta, rawTex
   return { updated, skipped };
 }
 
+async function aplicarClickAlPerfil(supabase, { userId, alerta }) {
+  const tags = tagsAlerta(alerta);
+  if (!userId || tags.length === 0) return { updated: 0 };
+
+  let updated = 0;
+  for (const tag of tags) {
+    const ajusteTag = calcularAjusteClickTag(tag);
+    if (!ajusteTag) continue;
+
+    const { data: actual, error: selectError } = await supabase
+      .from('user_interest_profile')
+      .select('score, positivos, negativos')
+      .eq('user_id', userId)
+      .eq('tag', tag)
+      .maybeSingle();
+    if (selectError) continue;
+
+    const { error } = await supabase
+      .from('user_interest_profile')
+      .upsert({
+        user_id: userId,
+        tag,
+        score: limitarScore(Number(actual?.score || 0) + ajusteTag),
+        positivos: Number(actual?.positivos || 0) + 1,
+        negativos: Number(actual?.negativos || 0),
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'user_id,tag' });
+    if (!error) updated++;
+  }
+
+  return { updated };
+}
+
 function ordenarAlertasPorPerfil(alertas, perfil) {
   const pesos = perfil?.pesos || {};
   return [...alertas].sort((a, b) => scoreAlerta(b, pesos) - scoreAlerta(a, pesos));
@@ -161,10 +207,13 @@ function ordenarAlertasPorPerfil(alertas, perfil) {
 
 module.exports = {
   aplicarFeedbackAlPerfil,
+  aplicarClickAlPerfil,
   calcularAjusteFeedbackTag,
+  calcularAjusteClickTag,
   esTagPositivoAtribuible,
   esRechazoGlobalFeedback,
   leerPerfilIntereses,
+  limitarScore,
   ordenarAlertasPorPerfil,
   scoreAlerta,
   tagsAlerta,

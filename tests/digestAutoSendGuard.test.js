@@ -36,9 +36,26 @@ test('una alerta review_only con incluir=true NO es enviable automaticamente', (
 
 test('una alerta include con riesgo bajo SI es enviable automaticamente', () => {
   assert.strictEqual(
-    esEnvioAutomaticoPermitido({ action: 'include', incluir: true, riesgo: 'bajo' }),
+    esEnvioAutomaticoPermitido({
+      action: 'include',
+      incluir: true,
+      riesgo: 'bajo',
+      match_trace: {
+        version: 'matching_trace_v1',
+        decision: 'include',
+        reason: 'coincidencia_sectorial_verificada',
+      },
+    }),
     true
   );
+});
+
+test('una inclusion reciente sin explicacion verificable queda retenida', () => {
+  const evaluacion = esEnvioAutomaticoPermitido(
+    { action: 'include', incluir: true },
+    { alerta: { created_at: '2026-07-28T10:00:00.000Z' } }
+  );
+  assert.strictEqual(evaluacion, false);
 });
 
 test('blocked y exclude nunca son enviables automaticamente', () => {
@@ -83,7 +100,19 @@ test('compatibilidad historica exige alerta anterior al corte y modo legacy/manu
 
 test('filtra alertas no enviables y conserva las include', () => {
   const { enviables, retenidas } = filtrarAlertasEnviablesAutomaticamente([
-    { id: 1, decision_digest: { action: 'include', incluir: true } },
+    {
+      id: 1,
+      created_at: '2026-07-28T10:00:00.000Z',
+      decision_digest: {
+        action: 'include',
+        incluir: true,
+        match_trace: {
+          version: 'matching_trace_v1',
+          decision: 'include',
+          reason: 'coincidencia_sectorial_verificada',
+        },
+      },
+    },
     { id: 2, decision_digest: { action: 'review_only', incluir: true, motivo: 'relleno_revision_segura' } },
     { id: 3, decision_digest: { action: 'exclude', incluir: false } },
     { id: 4 },
