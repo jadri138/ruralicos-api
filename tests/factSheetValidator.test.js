@@ -59,7 +59,7 @@ function rawDocument(alerta, texto, overrides = {}) {
 
 console.log('\n=== TESTS: fact sheet evidence-first ===\n');
 
-test('ayuda con subsector no demostrado queda en revision aunque el plazo sea claro', () => {
+test('ayuda con subsector auxiliar no demostrado conserva auditoria sin bloquear', () => {
   const alerta = alertaBase(1, {
     titulo: 'Convocatoria de ayudas para modernizacion de explotaciones agrarias en Huesca',
     resumen_final: 'FICHA_IA\nTIPO: ayudas_subvenciones\nRESUMEN_DIGEST: Convocatoria de ayudas para modernizacion de explotaciones agrarias.\nBENEFICIARIOS: explotaciones agrarias\nPLAZO: hasta el 30 de julio de 2026\nACCION: presentar solicitud.',
@@ -71,7 +71,7 @@ test('ayuda con subsector no demostrado queda en revision aunque el plazo sea cl
     now: new Date('2026-06-20T10:00:00Z'),
   });
 
-  assert.strictEqual(sheet.status, FACT_SHEET_STATUS.REVIEW);
+  assert.strictEqual(sheet.status, FACT_SHEET_STATUS.READY);
   assert(sheet.unsupported_taxonomy_tags.includes('subsector:cereal'));
   assert.strictEqual(sheet.raw_document_id, 9001);
   assert.strictEqual(sheet.content_hash, 'hash-1');
@@ -83,7 +83,7 @@ test('ayuda con subsector no demostrado queda en revision aunque el plazo sea cl
   assert(sheet.truth_score >= 70);
 });
 
-test('curso de bienestar animal conserva evidencias y revisa el subsector no demostrado', () => {
+test('curso de bienestar animal conserva evidencias sin aceptar el resumen generado como prueba', () => {
   const alerta = alertaBase(2, {
     titulo: 'Curso de bienestar animal para titulares de explotaciones ganaderas en Huesca',
     resumen_final: 'FICHA_IA\nTIPO: cursos_formacion\nRESUMEN_DIGEST: Curso de bienestar animal para titulares de explotaciones ganaderas.\nACCION: revisar inscripcion.',
@@ -94,7 +94,7 @@ test('curso de bienestar animal conserva evidencias y revisa el subsector no dem
   });
   const sheet = construirFactSheetAlertaSync(alerta);
 
-  assert.strictEqual(sheet.status, FACT_SHEET_STATUS.REVIEW);
+  assert.strictEqual(sheet.status, FACT_SHEET_STATUS.READY);
   assert(sheet.unsupported_taxonomy_tags.includes('subsector:vacuno'));
   assert.strictEqual(sheet.tipo_documento.valor, 'curso_formacion');
   assert(sheet.sectores.some((field) => field.valor === 'ganaderia'));
@@ -184,7 +184,7 @@ test('provincia no demostrada no se copia a territorio', () => {
   assert(sheet.flags.includes('territorio_no_verificado'));
 });
 
-test('builder async usa documentTrace y mantiene la revision por etiqueta sin evidencia', async () => {
+test('builder async usa documentTrace y audita etiqueta auxiliar sin bloquear', async () => {
   const alerta = alertaBase(9, {
     titulo: 'Convocatoria de ayudas para explotaciones agrarias en Huesca',
     resumen_final: 'FICHA_IA\nTIPO: ayudas_subvenciones\nRESUMEN_DIGEST: Convocatoria de ayudas para explotaciones agrarias.\nBENEFICIARIOS: explotaciones agrarias\nPLAZO: 30 dias\nACCION: presentar solicitud.',
@@ -210,7 +210,7 @@ test('builder async usa documentTrace y mantiene la revision por etiqueta sin ev
 
   assert.strictEqual(sheet.document_trace.status, 'linked');
   assert.strictEqual(sheet.raw_document_id, raw.id);
-  assert.strictEqual(sheet.status, FACT_SHEET_STATUS.REVIEW);
+  assert.strictEqual(sheet.status, FACT_SHEET_STATUS.READY);
   assert(sheet.unsupported_taxonomy_tags.includes('subsector:cereal'));
 });
 
@@ -244,6 +244,23 @@ test('alerta historica sin raw document conserva evidencia derivada de menor niv
   assert.strictEqual(sheet.evidence_provenance, 'derived');
   assert.strictEqual(sheet.official_evidence_coverage, 0);
   assert(sheet.evidence_coverage > 0, 'la ausencia historica de raw_document no borra toda la cobertura');
+});
+
+test('el resumen generado no convierte una etiqueta inventada en evidencia taxonomica', () => {
+  const alerta = alertaBase(12, {
+    titulo: 'Resolucion administrativa general en Huesca',
+    contenido: 'Resolucion administrativa publicada en Huesca.',
+    resumen_final: 'FICHA_IA\nAFECTA_A: ganaderos de vacuno\nRESUMEN_DIGEST: Aviso para explotaciones de vacuno.',
+    sectores: ['ganaderia'],
+    subsectores: ['vacuno'],
+    tipos_alerta: ['normativa_general'],
+  });
+  const sheet = construirFactSheetAlertaSync(alerta);
+
+  assert(sheet.unsupported_taxonomy_tags.includes('sector:ganaderia'));
+  assert(sheet.unsupported_taxonomy_tags.includes('subsector:vacuno'));
+  assert(!sheet.taxonomy_evidence.some((item) => item.tag === 'sector:ganaderia'));
+  assert(!sheet.taxonomy_evidence.some((item) => item.tag === 'subsector:vacuno'));
 });
 
 process.on('beforeExit', () => {

@@ -187,6 +187,23 @@ function tieneMatchFuerte(decision = {}) {
   return actionDecision(decision) === 'include' && riesgoBajo && score >= 75 && territorio && tema;
 }
 
+function matchTaxonomicoRespaldado(decision = {}, sheet = {}) {
+  const trace = decision.match_trace || decision.diagnostico?.match_trace;
+  // Compatibilidad con decisiones históricas anteriores a matching_trace_v1.
+  if (!trace || typeof trace !== 'object') return true;
+
+  const evidenceTags = new Set((sheet.taxonomy_evidence || [])
+    .map((item) => normalizarTexto(item?.tag))
+    .filter(Boolean));
+  const candidates = [
+    trace.sector_match ? `sector:${trace.sector_match}` : null,
+    trace.subsector_match ? `subsector:${trace.subsector_match}` : null,
+    trace.type_match ? `tipo:${trace.type_match}` : null,
+  ].map(normalizarTexto).filter(Boolean);
+
+  return candidates.length > 0 && candidates.some((tag) => evidenceTags.has(tag));
+}
+
 const NATIONAL_SCOPE_PATTERN = /\b(nacional|estatal|espana|todo el territorio|ambito estatal|ambito nacional)\b/;
 
 function territoriosVerificados(sheet = {}) {
@@ -347,6 +364,15 @@ function validarItemDigestFinal({
     addIssue(issues, 'blocked', 'selection_not_sendable', `La decision de seleccion es ${action}.`);
   } else if (!action) {
     addIssue(issues, 'review_only', 'selection_missing', 'No hay decision de seleccion auditable.');
+  }
+
+  if (action === 'include' && sheet && !matchTaxonomicoRespaldado(decision, sheet)) {
+    addIssue(
+      issues,
+      'blocked',
+      'selection_match_without_taxonomy_evidence',
+      'La coincidencia tematica que selecciono la alerta no esta respaldada por evidencia documental.'
+    );
   }
 
   if (decision.riesgo_de_ruido === 'alto' || decision.riesgo === 'alto') {

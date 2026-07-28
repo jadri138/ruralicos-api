@@ -28,6 +28,9 @@ const classifierEnum = CLASIFICACION_TEXT_FORMAT
 const factSheetEnum = FICHA_IA_TEXT_FORMAT
   .schema.properties.resultados.items.properties.tipo.enum;
 const prompt = buildPromptClasificar('ID=1 | Titulo=prueba');
+assert(prompt.includes('Incluye SOLO valores demostrados de forma directa'));
+assert(prompt.includes('"Agrario" no autoriza a enumerar todos los cultivos'));
+assert(prompt.includes('Prioriza precision frente a cobertura'));
 
 for (const type of firstPriorityTypes) {
   assert(CLASSIFICATION_ALERT_TYPES.includes(type), `${type}: registro del clasificador`);

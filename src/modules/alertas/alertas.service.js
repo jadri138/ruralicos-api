@@ -1199,6 +1199,11 @@ Te paso una lista de alertas de boletines oficiales. Para CADA una debes:
 - "sectores": uno o varios de ["ganaderia","agricultura","mixto","otros"]
 - "subsectores": uno o varios de ["ovino","vacuno","caprino","porcino","avicultura","cunicultura","equinocultura","apicultura","trigo","cebada","cereal","maiz","arroz","hortalizas","frutales","olivar","trufas","viñedo","almendro","citricos","frutos_secos","leguminosas","patata","forrajes","forestal","agua","energia","medio_ambiente"]
 - "tipos_alerta": uno o varios de ["${CLASSIFICATION_ALERT_TYPES.join('","')}"]
+- Incluye SOLO valores demostrados de forma directa por el titulo o el texto del documento.
+- No completes listas por afinidad, contexto rural general ni por posibilidades. Si no hay evidencia, usa [].
+- Un cultivo, especie, sector o tipo no mencionado no debe aparecer. "Agrario" no autoriza a enumerar todos los cultivos.
+- Devuelve "mixto" solo si el texto demuestra a la vez actividad agricola y ganadera.
+- Prioriza precision frente a cobertura: una etiqueta falsa puede enviar el aviso a un usuario incorrecto.
 
 3) Justificar cualquier descarte de forma estable y basada solo en el texto:
 - Si "es_relevante" es true, devuelve discard_reason_code, discard_reason y discard_confidence como null.

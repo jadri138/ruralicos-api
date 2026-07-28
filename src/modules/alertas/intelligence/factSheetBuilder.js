@@ -184,6 +184,11 @@ function sourceField(block = {}) {
 }
 
 function extraerEvidenciaTaxonomia(alerta = {}, blocks = []) {
+  // No usar resúmenes generados para probar la clasificación: contienen
+  // campos derivados de esa misma clasificación y crearían evidencia circular.
+  const documentaryBlocks = blocks.filter((block) =>
+    !['alerta.resumen_final', 'alerta.resumen_borrador'].includes(block.source)
+  );
   const tags = [
     ...normalizarLista(alerta.sectores, canonicalSector).map((value) => ({
       tag: `sector:${value}`,
@@ -205,7 +210,7 @@ function extraerEvidenciaTaxonomia(alerta = {}, blocks = []) {
   for (const item of tags) {
     if (!item.tag || seen.has(item.tag)) continue;
     seen.add(item.tag);
-    const block = buscarEvidencia(blocks, item.aliases);
+    const block = buscarEvidencia(documentaryBlocks, item.aliases);
     if (!block) {
       unsupported.push(item.tag);
       continue;

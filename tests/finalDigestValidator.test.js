@@ -46,6 +46,10 @@ function sheet(overrides = {}) {
     beneficiarios: field('explotaciones agrarias'),
     importe: field('hasta 10.000 euros'),
     requisitos: [field('estar inscrito en el registro de explotaciones')],
+    taxonomy_evidence: [
+      { tag: 'sector:agricultura', evidence: 'explotaciones agrarias' },
+      { tag: 'tipo:ayudas_subvenciones', evidence: 'convocatoria de ayudas' },
+    ],
     url_oficial: field('https://boletin.example/100'),
     truth_score: 96,
     risk_score: 8,
@@ -62,6 +66,12 @@ function decision(overrides = {}) {
     incluir: true,
     riesgo: 'bajo',
     score: 88,
+    match_trace: {
+      sector_match: 'agricultura',
+      subsector_match: null,
+      type_match: 'ayudas_subvenciones',
+      territory_match: 'huesca',
+    },
     diagnostico: {
       policy: {
         matches: {
@@ -214,6 +224,33 @@ test('bloquea afectacion directa sin match fuerte', () => {
 
   assert.strictEqual(result.status, 'blocked');
   assert(result.flags.includes('direct_impact_without_strong_match'));
+});
+
+test('bloquea una seleccion apoyada solo en taxonomia sin evidencia documental', () => {
+  const result = validarItemDigestFinal({
+    alerta,
+    factSheet: sheet({
+      taxonomy_evidence: [
+        { tag: 'tipo:normativa_general', evidence: 'resolucion' },
+      ],
+    }),
+    decisionDigest: decision({
+      match_trace: {
+        sector_match: 'ganaderia',
+        subsector_match: 'vacuno',
+        type_match: 'sanidad_animal',
+        territory_match: 'huesca',
+      },
+    }),
+    texto: [
+      '*1. NORMAL - Aviso supuestamente ganadero*',
+      'En sencillo: Publicacion general en Huesca.',
+      'https://boletin.example/100',
+    ].join('\n'),
+  });
+
+  assert.strictEqual(result.status, 'blocked');
+  assert(result.flags.includes('selection_match_without_taxonomy_evidence'));
 });
 
 test('deja en revision decisiones review_only', () => {

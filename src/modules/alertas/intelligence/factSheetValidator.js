@@ -187,7 +187,10 @@ function estadoDesdeIssues(issues, coverage) {
     return FACT_SHEET_STATUS.INSUFFICIENT_EVIDENCE;
   }
 
-  if (issues.length > 0 || coverage < 0.7) {
+  const issuesQueRequierenRevision = issues.filter((issue) =>
+    issue.flag !== 'unsupported_taxonomy_tag'
+  );
+  if (issuesQueRequierenRevision.length > 0 || coverage < 0.7) {
     return FACT_SHEET_STATUS.REVIEW;
   }
 
@@ -262,8 +265,13 @@ function validarFactSheet(input = {}, { alerta = {} } = {}) {
     addIssue(issues, 'taxonomy_conflict', 'La validacion taxonomica detecta una incoherencia no reparada.');
   }
 
-  for (const tag of sheet.unsupported_taxonomy_tags || []) {
-    addIssue(issues, 'unsupported_taxonomy_tag', `La etiqueta ${tag} no tiene evidencia textual.`);
+  const unsupportedTaxonomyTags = [...new Set(sheet.unsupported_taxonomy_tags || [])];
+  if (unsupportedTaxonomyTags.length > 0) {
+    addIssue(
+      issues,
+      'unsupported_taxonomy_tag',
+      `${unsupportedTaxonomyTags.length} etiquetas no tienen evidencia textual: ${unsupportedTaxonomyTags.slice(0, 8).join(', ')}.`
+    );
   }
 
   if (
