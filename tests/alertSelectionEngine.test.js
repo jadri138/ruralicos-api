@@ -73,15 +73,35 @@ test('incluye alertas accionables con score explicable', () => {
   assert(decision.score >= 80);
   assert(decision.diagnostico.ranking.reasons.some((reason) => reason.code === 'accion_con_plazo'));
   assert.deepStrictEqual(decision.match_trace, {
-    version: 'matching_trace_v1',
+    version: 'matching_trace_v2',
+    territory_matches: ['teruel'],
     territory_match: 'teruel',
+    sector_matches: ['agricultura'],
     sector_match: 'agricultura',
+    subsector_matches: ['agua'],
     subsector_match: 'agua',
+    type_matches: ['ayudas_subvenciones'],
     type_match: 'ayudas_subvenciones',
     score: decision.score,
     decision: 'include',
     reason: decision.motivo,
   });
+});
+
+test('conserva todas las coincidencias del perfil sin depender de su orden', () => {
+  const decision = decidirAlertaParaDigest(alerta(2, {
+    titulo: 'Convocatoria agraria para la provincia de Teruel y la provincia de Zaragoza',
+    contenido: 'Se convocan ayudas para explotaciones de la provincia de Teruel y la provincia de Zaragoza.',
+    provincias: ['Teruel', 'Zaragoza'],
+    sectores: ['ganaderia', 'agricultura'],
+    subsectores: ['vacuno', 'agua'],
+    tipos_alerta: ['normativa_general', 'ayudas_subvenciones'],
+  }), user);
+
+  assert.deepStrictEqual(decision.match_trace.territory_matches, ['teruel', 'zaragoza']);
+  assert.deepStrictEqual(decision.match_trace.sector_matches, ['agricultura', 'ganaderia']);
+  assert.deepStrictEqual(decision.match_trace.subsector_matches, ['agua', 'vacuno']);
+  assert.deepStrictEqual(decision.match_trace.type_matches, ['ayudas_subvenciones', 'normativa_general']);
 });
 
 test('taxonomia vacia es bloqueo duro antes del scoring y no admite rescate', () => {

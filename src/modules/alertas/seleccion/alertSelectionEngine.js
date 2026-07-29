@@ -320,8 +320,8 @@ function coincidenciasDeclaradas(alerta = {}, user = {}) {
   };
 }
 
-function primeraInterseccion(left = [], right = []) {
-  return left.find((item) => right.includes(item)) || null;
+function intersecciones(left = [], right = []) {
+  return [...new Set(left.filter((item) => right.includes(item)))];
 }
 
 function construirTrazabilidadMatching({ alerta = {}, user = {}, matches = {}, base = {}, verdict = {}, score = 0 } = {}) {
@@ -335,17 +335,38 @@ function construirTrazabilidadMatching({ alerta = {}, user = {}, matches = {}, b
   const tiposUser = tiposActivosUsuario(user);
   const tiposAlerta = tiposDerivadosAlerta(alerta);
   const sectorInferred = obtenerSectorImplicitoUsuario(user).sectores_inferidos;
+  const sectoresUsuarioMatching = [...new Set([...sectoresUser, ...sectorInferred])];
+  const sectoresAgrarios = ['agricultura', 'ganaderia'];
+  const territoryMatches = matches.provincia_nacional
+    ? ['national']
+    : (
+      intersecciones(provinciasUser, provinciasAlerta).length > 0
+        ? intersecciones(provinciasUser, provinciasAlerta)
+        : (provinciasUser.length === 0 ? ['open_profile'] : [])
+    );
+  const sectorMatches = intersecciones(sectoresUsuarioMatching, sectoresAlerta);
+
+  if (sectoresUsuarioMatching.includes('mixto')) {
+    sectorMatches.push(...intersecciones(sectoresAgrarios, sectoresAlerta));
+  }
+  if (sectoresAlerta.includes('mixto') && intersecta(sectoresAgrarios, sectoresUsuarioMatching)) {
+    sectorMatches.push('mixto');
+  }
+
+  const sectorMatchesUnicos = [...new Set(sectorMatches)];
+  const subsectorMatches = intersecciones(subsectoresUser, subsectoresAlerta);
+  const typeMatches = intersecciones(tiposUser, tiposAlerta);
 
   return {
-    version: 'matching_trace_v1',
-    territory_match: matches.provincia_nacional
-      ? 'national'
-      : (primeraInterseccion(provinciasUser, provinciasAlerta) || (provinciasUser.length === 0 ? 'open_profile' : null)),
-    sector_match: primeraInterseccion(sectoresUser, sectoresAlerta)
-      || primeraInterseccion(sectorInferred, sectoresAlerta)
-      || (sectoresUser.includes('mixto') && sectoresAlerta.length ? 'mixto' : null),
-    subsector_match: primeraInterseccion(subsectoresUser, subsectoresAlerta),
-    type_match: primeraInterseccion(tiposUser, tiposAlerta),
+    version: 'matching_trace_v2',
+    territory_matches: territoryMatches,
+    territory_match: territoryMatches[0] || null,
+    sector_matches: sectorMatchesUnicos,
+    sector_match: sectorMatchesUnicos[0] || null,
+    subsector_matches: subsectorMatches,
+    subsector_match: subsectorMatches[0] || null,
+    type_matches: typeMatches,
+    type_match: typeMatches[0] || null,
     score: Number(score || 0),
     decision: verdict.action || (base.ok ? 'include' : 'exclude'),
     reason: verdict.motivo || base.motivo || null,

@@ -35,6 +35,38 @@ const PROVINCIAS_POR_FUENTE = Object.freeze({
   BOCCE: ['ceuta'],
 });
 
+const PROVINCIAS_POR_COMUNIDAD = Object.freeze({
+  andalucia: ['almeria', 'cadiz', 'cordoba', 'granada', 'huelva', 'jaen', 'malaga', 'sevilla'],
+  aragon: ['huesca', 'teruel', 'zaragoza'],
+  asturias: ['asturias'],
+  'principado de asturias': ['asturias'],
+  'illes balears': ['illes balears'],
+  'islas baleares': ['illes balears'],
+  baleares: ['illes balears'],
+  canarias: ['las palmas', 'santa cruz de tenerife'],
+  cantabria: ['cantabria'],
+  'castilla la mancha': ['albacete', 'ciudad real', 'cuenca', 'guadalajara', 'toledo'],
+  'castilla-la mancha': ['albacete', 'ciudad real', 'cuenca', 'guadalajara', 'toledo'],
+  'castilla y leon': ['avila', 'burgos', 'leon', 'palencia', 'salamanca', 'segovia', 'soria', 'valladolid', 'zamora'],
+  cataluna: ['barcelona', 'girona', 'lleida', 'tarragona'],
+  catalunya: ['barcelona', 'girona', 'lleida', 'tarragona'],
+  'comunidad valenciana': ['alicante', 'castellon', 'valencia'],
+  'comunitat valenciana': ['alicante', 'castellon', 'valencia'],
+  extremadura: ['badajoz', 'caceres'],
+  galicia: ['a coruna', 'lugo', 'ourense', 'pontevedra'],
+  madrid: ['madrid'],
+  'comunidad de madrid': ['madrid'],
+  murcia: ['murcia'],
+  'region de murcia': ['murcia'],
+  navarra: ['navarra'],
+  'comunidad foral de navarra': ['navarra'],
+  'pais vasco': ['alava', 'bizkaia', 'gipuzkoa'],
+  euskadi: ['alava', 'bizkaia', 'gipuzkoa'],
+  'la rioja': ['la rioja'],
+  ceuta: ['ceuta'],
+  melilla: ['melilla'],
+});
+
 const MARCADORES_NACIONALES = new Set([
   'nacional',
   'espana',
@@ -118,6 +150,29 @@ const PROVINCE_ALIASES = Object.freeze(PROVINCIAS_TEXTO.reduce((acc, item) => {
   todas: [...MARCADORES_NACIONALES],
 }));
 
+function expandirTerritoriosGeograficos(values = []) {
+  const expanded = new Set();
+
+  for (const value of values || []) {
+    const territorio = normalizarGeografia(value);
+    if (!territorio) continue;
+
+    expanded.add(territorio);
+    for (const alias of PROVINCE_ALIASES[territorio] || []) {
+      expanded.add(normalizarGeografia(alias));
+    }
+
+    for (const provincia of PROVINCIAS_POR_COMUNIDAD[territorio] || []) {
+      expanded.add(provincia);
+      for (const alias of PROVINCE_ALIASES[provincia] || []) {
+        expanded.add(normalizarGeografia(alias));
+      }
+    }
+  }
+
+  return [...expanded];
+}
+
 const MUNICIPIOS_PROVINCIA_HINTS = Object.freeze([
   { terms: ['useras', 'useres', 'les useres'], provincias: ['castellon', 'castello'] },
   { terms: ['corullon'], provincias: ['leon'] },
@@ -130,7 +185,9 @@ module.exports = {
   MARCADORES_NACIONALES,
   MUNICIPIOS_PROVINCIA_HINTS,
   PROVINCE_ALIASES,
+  PROVINCIAS_POR_COMUNIDAD,
   PROVINCIAS_POR_FUENTE,
   PROVINCIAS_TEXTO,
+  expandirTerritoriosGeograficos,
   normalizarGeografia,
 };

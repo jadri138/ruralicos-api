@@ -63,6 +63,28 @@ test('permite completar la preparacion segura usuario a usuario', () => {
   );
 });
 
+test('muestra cuantas propuestas reales produjo la preparacion', () => {
+  assert(
+    script.includes("'digests_generados'") && script.includes("'rescates_generados'"),
+    'debe acumular digests normales y rescates'
+  );
+  assert(
+    script.includes('[digest-silence] Se evaluaron usuarios pero no se creo ningun digest'),
+    'debe avisar de forma visible cuando procesa usuarios sin crear digests'
+  );
+  assert(
+    script.includes('usuarios_evaluados: prepararDigest?.totalProgress ?? null'),
+    'el resumen debe separar usuarios evaluados de digests generados'
+  );
+});
+
+test('reconoce el campo success del envio free', () => {
+  assert(
+    script.includes('enviarFree?.success ?? enviarFree?.ok ?? null'),
+    'el resumen final debe reflejar correctamente el envio free'
+  );
+});
+
 test('activa preguntas automaticas despues del digest real', () => {
   assert(
     script.includes('/cerebro/ciclo-diario?explorar=true&dryRunExploracion=false'),

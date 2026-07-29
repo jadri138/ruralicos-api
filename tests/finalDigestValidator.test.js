@@ -97,7 +97,7 @@ const alerta = {
 console.log('\n=== TESTS: final digest validator ===\n');
 
 test('declara version estable', () => {
-  assert.strictEqual(FINAL_DIGEST_VALIDATOR_VERSION, 'final_digest_validator_v1');
+  assert.strictEqual(FINAL_DIGEST_VALIDATOR_VERSION, 'final_digest_validator_v2');
 });
 
 test('extrae bloques numerados de un mensaje con cabeceras', () => {
@@ -206,6 +206,41 @@ test('no bloquea provincias concretas en alertas de ambito nacional', () => {
   assert(!result.flags.includes('territory_claim_without_evidence'));
 });
 
+test('entiende que una comunidad autonoma verificada incluye sus provincias', () => {
+  const result = validarItemDigestFinal({
+    alerta: { ...alerta, provincias: ['Leon'] },
+    factSheet: sheet({ territorio: [field('Castilla y Leon')] }),
+    decisionDigest: decision({
+      match_trace: {
+        ...decision().match_trace,
+        territory_match: 'leon',
+      },
+    }),
+    texto: [
+      '*1. NORMAL - Ayuda maquinaria agricola*',
+      'En sencillo: Se convocan ayudas para explotaciones agrarias de Leon.',
+      'https://boletin.example/100',
+    ].join('\n'),
+  });
+
+  assert(!result.flags.includes('territory_claim_without_evidence'));
+});
+
+test('no extiende una comunidad autonoma a provincias ajenas', () => {
+  const result = validarItemDigestFinal({
+    alerta: { ...alerta, provincias: ['Huesca'] },
+    factSheet: sheet({ territorio: [field('Castilla y Leon')] }),
+    decisionDigest: decision(),
+    texto: [
+      '*1. NORMAL - Ayuda maquinaria agricola*',
+      'En sencillo: Se convocan ayudas para explotaciones agrarias de Huesca.',
+      'https://boletin.example/100',
+    ].join('\n'),
+  });
+
+  assert(result.flags.includes('territory_claim_without_evidence'));
+});
+
 test('bloquea afectacion directa sin match fuerte', () => {
   const result = validarItemDigestFinal({
     alerta,
@@ -265,6 +300,58 @@ test('exige evidencia para todos los ejes tematicos que causaron la seleccion', 
     texto: [
       '*1. Ayuda supuestamente agricola*',
       'Se publica una convocatoria de ayudas.',
+      'https://boletin.example/100',
+    ].join('\n'),
+  });
+
+  assert.strictEqual(result.status, 'blocked');
+  assert(result.flags.includes('selection_match_without_taxonomy_evidence'));
+});
+
+test('acepta una coincidencia demostrada entre varias opciones del mismo eje', () => {
+  const result = validarItemDigestFinal({
+    alerta,
+    factSheet: sheet(),
+    decisionDigest: decision({
+      match_trace: {
+        version: 'matching_trace_v2',
+        territory_matches: ['huesca'],
+        territory_match: 'huesca',
+        sector_matches: ['ganaderia', 'agricultura'],
+        sector_match: 'ganaderia',
+        subsector_matches: [],
+        subsector_match: null,
+        type_matches: ['normativa_general', 'ayudas_subvenciones'],
+        type_match: 'normativa_general',
+      },
+    }),
+    texto: [
+      '*1. NORMAL - Ayuda maquinaria agricola*',
+      'En sencillo: Se convocan ayudas para explotaciones agrarias de Huesca.',
+      'https://boletin.example/100',
+    ].join('\n'),
+  });
+
+  assert.strictEqual(result.status, 'send');
+  assert(!result.flags.includes('selection_match_without_taxonomy_evidence'));
+});
+
+test('sigue bloqueando si un eje completo carece de evidencia', () => {
+  const result = validarItemDigestFinal({
+    alerta,
+    factSheet: sheet(),
+    decisionDigest: decision({
+      match_trace: {
+        version: 'matching_trace_v2',
+        territory_matches: ['huesca'],
+        sector_matches: ['agricultura'],
+        subsector_matches: [],
+        type_matches: ['normativa_general', 'sanidad_animal'],
+      },
+    }),
+    texto: [
+      '*1. NORMAL - Publicacion supuestamente relevante*',
+      'En sencillo: Se publica informacion para explotaciones agrarias de Huesca.',
       'https://boletin.example/100',
     ].join('\n'),
   });

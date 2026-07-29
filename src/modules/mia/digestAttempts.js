@@ -1,7 +1,7 @@
 // Versiona la decision completa del digest, no solo el esquema de la fila.
 // Al cambiar filtros/validadores, subir esta version permite reevaluar una vez
 // los no-envios antiguos sin tocar digests ya generados o enviados.
-const DIGEST_DECISION_VERSION = 'digest_decision_v4';
+const DIGEST_DECISION_VERSION = 'digest_decision_v5';
 
 const ESTADOS_TERMINALES_INMUTABLES = new Set([
   'generated',

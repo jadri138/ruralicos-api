@@ -32,6 +32,14 @@ const PREPARAR_DIGEST_MAX_LOOPS = Number(process.env.PREPARAR_DIGEST_MAX_LOOPS |
 const STEP_DELAY_MS = Number(process.env.STEP_DELAY_MS || 800);
 const HTTP_RETRIES = Number(process.env.HTTP_RETRIES || 3);
 const HTTP_RETRY_DELAY_MS = Number(process.env.HTTP_RETRY_DELAY_MS || 5000);
+const BATCH_METRIC_KEYS = [
+  'digests_generados',
+  'rescates_generados',
+  'usuarios_sin_alertas',
+  'usuarios_sin_telefono',
+  'saltados',
+  'fallback_local',
+];
 
 if (!BASE_URL) {
   console.error('Falta BASE_URL');
@@ -121,6 +129,7 @@ async function runBatchedStep(name, path, options = {}, maxLoops = MAX_LOOPS) {
   let total = 0;
   let totalProgress = 0;
   let lastBody = null;
+  const metrics = Object.fromEntries(BATCH_METRIC_KEYS.map((key) => [key, 0]));
 
   while (loops < maxLoops) {
     loops++;
@@ -134,6 +143,10 @@ async function runBatchedStep(name, path, options = {}, maxLoops = MAX_LOOPS) {
     total += procesadas;
     totalProgress += progress;
     lastBody = body;
+    for (const key of BATCH_METRIC_KEYS) {
+      const value = Number(body?.[key]);
+      if (Number.isFinite(value)) metrics[key] += value;
+    }
 
     console.log(`[${name}] vuelta ${loops}: procesadas=${procesadas}, actualizadas=${progress}`);
 
@@ -154,7 +167,7 @@ async function runBatchedStep(name, path, options = {}, maxLoops = MAX_LOOPS) {
     );
   }
 
-  return { loops, total, totalProgress };
+  return { loops, total, totalProgress, metrics };
 }
 
 async function runSingleStep(name, path, options = {}) {
@@ -204,6 +217,14 @@ async function main() {
     {},
     PREPARAR_DIGEST_MAX_LOOPS
   );
+  const digestsPreparados = Number(prepararDigest.metrics.digests_generados || 0);
+  const rescatesPreparados = Number(prepararDigest.metrics.rescates_generados || 0);
+  if (prepararDigest.totalProgress > 0 && digestsPreparados + rescatesPreparados === 0) {
+    console.warn('[digest-silence] Se evaluaron usuarios pero no se creo ningun digest', {
+      usuarios_evaluados: prepararDigest.totalProgress,
+      ...prepararDigest.metrics,
+    });
+  }
   const enviarDigest = await runSingleStep('enviar-digest', conFecha('/alertas/enviar-digest'));
   const miaCicloPostDigest = await runOptionalStep('mia-ciclo-post-digest', '/cerebro/ciclo-diario?explorar=true&dryRunExploracion=false&limit=100&maxLoops=1');
 
@@ -220,11 +241,14 @@ async function main() {
     deduplicar: deduplicar?.deduplicadas ?? null,
     miaEmbeddings: miaEmbeddings?.ok ?? null,
     miaCicloPreDigest: miaCicloPreDigest?.ok ?? null,
-    prepararDigest: prepararDigest?.totalProgress ?? null,
+    prepararDigest: {
+      usuarios_evaluados: prepararDigest?.totalProgress ?? null,
+      ...prepararDigest.metrics,
+    },
     enviarDigest: enviarDigest?.enviados ?? null,
     miaCicloPostDigest: miaCicloPostDigest?.ok ?? null,
     generarFree: generarFree?.procesadas ?? null,
-    enviarFree: enviarFree?.ok ?? null,
+    enviarFree: enviarFree?.success ?? enviarFree?.ok ?? null,
   });
 }
 

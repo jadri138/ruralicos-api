@@ -3,8 +3,9 @@ const {
   campoVerificado,
   normalizarTexto,
 } = require('../alertas/intelligence/factSheetSchema');
+const { expandirTerritoriosGeograficos } = require('../../shared/geography');
 
-const FINAL_DIGEST_VALIDATOR_VERSION = 'final_digest_validator_v1';
+const FINAL_DIGEST_VALIDATOR_VERSION = 'final_digest_validator_v2';
 
 const STATUS_WEIGHT = {
   send: 0,
@@ -189,7 +190,7 @@ function tieneMatchFuerte(decision = {}) {
 
 function matchTaxonomicoRespaldado(decision = {}, sheet = {}) {
   const trace = decision.match_trace || decision.diagnostico?.match_trace;
-  // Compatibilidad con decisiones históricas anteriores a matching_trace_v1.
+  // Compatibilidad con decisiones historicas anteriores a matching_trace_v1.
   if (!trace || typeof trace !== 'object') return true;
 
   const evidenceTags = new Set((sheet.taxonomy_evidence || [])
@@ -199,25 +200,33 @@ function matchTaxonomicoRespaldado(decision = {}, sheet = {}) {
     )
     .map((item) => normalizarTexto(item?.tag))
     .filter(Boolean));
-  const candidates = [
-    trace.sector_match ? `sector:${trace.sector_match}` : null,
-    trace.subsector_match ? `subsector:${trace.subsector_match}` : null,
-    trace.type_match ? `tipo:${trace.type_match}` : null,
-  ].map(normalizarTexto).filter(Boolean);
+  const valoresTrace = (plural, singular) => {
+    const values = Array.isArray(trace[plural]) && trace[plural].length > 0
+      ? trace[plural]
+      : (trace[singular] ? [trace[singular]] : []);
+    return [...new Set(values.map(normalizarTexto).filter(Boolean))];
+  };
+  const axisCandidates = [
+    valoresTrace('sector_matches', 'sector_match').map((value) => `sector:${value}`),
+    valoresTrace('subsector_matches', 'subsector_match').map((value) => `subsector:${value}`),
+    valoresTrace('type_matches', 'type_match').map((value) => `tipo:${value}`),
+  ].filter((axis) => axis.length > 0);
 
-  // El matcher exige simultaneamente los ejes declarados por el usuario. La
-  // validacion final debe demostrar esos mismos ejes, no salvar una taxonomia
-  // falsa porque otro tag mas generico si aparezca en el documento.
-  return candidates.length > 0 && candidates.every((tag) => evidenceTags.has(tag));
+  // Cada eje que hizo posible la seleccion debe estar demostrado. Dentro de un
+  // mismo eje basta una coincidencia real: el perfil puede tener varios sectores
+  // o tipos activos y el orden de esos valores no debe bloquear una alerta valida.
+  return axisCandidates.length > 0 &&
+    axisCandidates.every((axis) => axis.some((tag) => evidenceTags.has(tag)));
 }
 
 const NATIONAL_SCOPE_PATTERN = /\b(nacional|estatal|espana|todo el territorio|ambito estatal|ambito nacional)\b/;
 
 function territoriosVerificados(sheet = {}) {
-  return new Set((sheet.territorio || [])
+  const territorios = (sheet.territorio || [])
     .filter(campoVerificado)
     .map((item) => normalizarTexto(item.valor))
-    .filter(Boolean));
+    .filter(Boolean);
+  return new Set(expandirTerritoriosGeograficos(territorios));
 }
 
 // Una alerta de ambito nacional/estatal cubre cualquier provincia: nombrar provincias
