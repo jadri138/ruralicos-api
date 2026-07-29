@@ -50,7 +50,7 @@ No se debe reordenar [`routes.js`](routes.js) sin ejecutar el inventario y prueb
 
 | Endpoint | Acceso | Uso |
 | --- | --- | --- |
-| `GET /health` | Público | Estado de API, entorno y Supabase |
+| `GET /health` | Público | Estado de API, entorno, Supabase y versión desplegada (`checks.release`) |
 | `GET /stats` | Público | Estadísticas redondeadas y cacheables |
 | `POST /admin/send-broadcast` | Admin | Envío manual a todos los destinatarios válidos |
 

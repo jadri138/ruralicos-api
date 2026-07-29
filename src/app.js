@@ -124,6 +124,13 @@ app.get('/health', async (req, res) => {
   const checks = {
     api: true,
     fecha_madrid: getFechaMadridISO(),
+    release: {
+      commit: String(process.env.RENDER_GIT_COMMIT || process.env.GIT_COMMIT || '')
+        .trim()
+        .slice(0, 12) || null,
+      branch: String(process.env.RENDER_GIT_BRANCH || process.env.GIT_BRANCH || '')
+        .trim() || null,
+    },
     env: {
       SUPABASE_URL: Boolean(process.env.SUPABASE_URL),
       SUPABASE_SERVICE_ROLE_KEY: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),

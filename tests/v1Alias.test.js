@@ -9,6 +9,8 @@ process.env.SUPABASE_URL = process.env.SUPABASE_URL || 'https://placeholder.supa
 process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || 'placeholder-key';
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'placeholder-jwt';
 process.env.CRON_TOKEN = process.env.CRON_TOKEN || 'placeholder-cron';
+process.env.RENDER_GIT_COMMIT = '1234567890abcdef';
+process.env.RENDER_GIT_BRANCH = 'main';
 
 const app = require('../src/app.js');
 
@@ -57,6 +59,8 @@ const server = app.listen(0, async () => {
     assert.strictEqual(conV1.status, sinV1.status);
     const body = await conV1.json();
     assert(typeof body.ok === 'boolean', 'respuesta de /health con forma esperada');
+    assert.strictEqual(body.checks.release.commit, '1234567890ab');
+    assert.strictEqual(body.checks.release.branch, 'main');
   });
 
   test('una ruta inexistente bajo /v1 sigue siendo 404', async () => {
