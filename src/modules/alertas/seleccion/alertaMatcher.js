@@ -515,9 +515,14 @@ function textoRelevanteAlerta(alerta = {}) {
 }
 
 function esConvocatoriaAyudaGeneral(alerta = {}) {
-  const texto = textoRelevanteAlerta(alerta);
+  const texto = textoDocumentalAlerta(alerta);
   const tipos = tiposDerivadosAlerta(alerta);
   const featureTags = featureTagsAlerta(alerta);
+  const analisisDocumental = construirPreferenciasDesdeTexto(texto);
+  const subsectoresDocumentados = listaCanonica(
+    analisisDocumental.preferencias?.subsectores,
+    canonicalSubsector
+  );
 
   const esAyuda = tipos.includes('ayudas_subvenciones') ||
     featureTags.includes('concepto:ayuda_directa') ||
@@ -528,7 +533,11 @@ function esConvocatoriaAyudaGeneral(alerta = {}) {
   const marcadorIndividual = /\b(notificacion individual|procedimiento sancionador|expediente individual|solicitud de concesion|concesion de aguas?|aprovechamiento de aguas?|solicitada por|titular concreto|parcela concreta|pago indebido|reintegro)\b/.test(texto) ||
     (/\bexpediente\b/.test(texto) && !esConvocatoriaAmplia);
 
-  return esAyuda && (esConvocatoriaAmplia || destinatarioAgrarioAmplio) && !marcadorIndividual;
+  return esAyuda &&
+    esConvocatoriaAmplia &&
+    destinatarioAgrarioAmplio &&
+    subsectoresDocumentados.length === 0 &&
+    !marcadorIndividual;
 }
 
 function usuarioAceptaAyudasGenerales(tiposUserActivos = []) {

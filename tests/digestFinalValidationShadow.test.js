@@ -7,9 +7,11 @@ const {
   DIGEST_FINAL_VALIDATION_MODE,
   filtrarAlertasPorValidacionFinalDigest,
   guardarFactSheetsDigestShadow,
+  preseleccionarAlertasConFactSheet,
   prepararValidacionFinalDigestShadow,
   resolverModoValidacionFinal,
   resumirValidacionFinalDigest,
+  validacionReintentablePorTextoAusente,
 } = require('../src/modules/digest/digest.service');
 
 let passed = 0;
@@ -296,6 +298,57 @@ test('resume validacion final para digest_attempts', async () => {
   assert.strictEqual(summary.status, 'review_only');
   assert.strictEqual(summary.items_total, 2);
   assert(summary.flags.includes('selection_review_only'));
+});
+
+test('usa la siguiente candidata cuando la primera fact sheet queda bloqueada', async () => {
+  const stored = [];
+  const result = await preseleccionarAlertasConFactSheet({
+    supabase: {},
+    alertas: [
+      { id: 701, titulo: 'Primera candidata' },
+      { id: 702, titulo: 'Segunda candidata' },
+      { id: 703, titulo: 'Reserva no necesaria' },
+    ],
+    maxItems: 1,
+    loadFactSheetFn: async () => null,
+    buildFactSheetFn: async (candidate) => ({
+      alerta_id: candidate.id,
+      status: candidate.id === 701 ? 'blocked' : 'ready_for_digest',
+      flags: candidate.id === 701 ? ['taxonomy_conflict'] : [],
+      reasons: [],
+    }),
+    storeFactSheetFn: async (_supabase, options) => {
+      stored.push(options.factSheet.alerta_id);
+      return { ok: true, stored: true };
+    },
+  });
+
+  assert.deepStrictEqual(result.alertas.map((item) => item.id), [702]);
+  assert.deepStrictEqual(stored, [701, 702]);
+  assert.strictEqual(result.decisions[0].motivo, 'fact_sheet_blocked');
+  assert.strictEqual(result.decisions[1].motivo, 'fact_sheet_preselection_pass');
+  assert.strictEqual(result.decisions[2].motivo, 'fact_sheet_backfill_not_needed');
+  assert.deepStrictEqual(result.diagnostics, {
+    candidates: 3,
+    evaluated: 2,
+    selected: 1,
+    rejected: 1,
+  });
+});
+
+test('reintenta con fallback si el generador omitio todos los bloques del mensaje', async () => {
+  assert.strictEqual(validacionReintentablePorTextoAusente({
+    aceptadas: [],
+    rechazadas: [
+      { flags: ['item_text_missing', 'message_url_missing'] },
+      { flags: ['item_text_missing'] },
+    ],
+  }), true);
+
+  assert.strictEqual(validacionReintentablePorTextoAusente({
+    aceptadas: [],
+    rechazadas: [{ flags: ['fact_sheet_blocked'] }],
+  }), false);
 });
 
 (async () => {

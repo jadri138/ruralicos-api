@@ -105,13 +105,94 @@ test('regresion 17231: una ayuda FEADER valida no queda bloqueada por taxonomia 
     now: new Date('2026-07-29T15:00:00Z'),
   });
 
-  assert.strictEqual(sheet.builder_version, 'fact_sheet_builder_v4');
+  assert.strictEqual(sheet.builder_version, 'fact_sheet_builder_v5');
   assert.strictEqual(sheet.status, FACT_SHEET_STATUS.READY);
   assert(sheet.truth_score >= 85);
   assert.strictEqual(sheet.risk_score, 0);
   assert(sheet.territorio.some((item) => item.valor === 'castilla y leon'));
   assert(sheet.taxonomy_evidence.some((item) => item.tag === 'subsector:forestal'));
   assert(sheet.unsupported_taxonomy_tags.includes('sector:ganaderia'));
+});
+
+test('regresion 19467: ayuda ovina de Navarra no queda retenida por contrato o etiquetas auxiliares', () => {
+  const alerta = alertaBase(19467, {
+    fuente: 'BON',
+    fecha: '2026-07-28',
+    titulo: 'Convocatoria de ayuda a la transformacion de leche de oveja latxa de la propia explotacion',
+    url: 'https://bon.navarra.es/es/anuncio/-/texto/2026/146/5',
+    provincias: ['Navarra'],
+    sectores: ['agricultura'],
+    subsectores: ['ovino', 'leguminosas', 'frutales', 'olivar', 'patata'],
+    tipos_alerta: ['ayudas_subvenciones', 'normativa_general', 'plazos_alegaciones', 'formacion'],
+    taxonomy_tags: [
+      'sector:agricultura',
+      'sector:ganaderia',
+      'subsector:ovino',
+      'subsector:leguminosas',
+      'subsector:frutal',
+      'subsector:olivar',
+      'subsector:patata',
+      'tipo:ayudas_subvenciones',
+      'tipo:normativa_general',
+      'tipo:plazos_alegaciones',
+      'tipo:formacion',
+      'tramite:licitacion',
+    ],
+  });
+  const sheet = construirFactSheetAlertaSync(alerta, {
+    rawDocument: rawDocument(alerta, [
+      'Se aprueba la convocatoria de subvenciones para explotaciones ganaderas de ovino de leche de raza latxa de Navarra.',
+      'Podran ser beneficiarias las personas titulares de explotaciones ganaderas radicadas en Navarra.',
+      'El plazo para la presentacion de solicitudes sera de un mes a contar desde el dia siguiente al de la publicacion.',
+      'La cuantia total maxima sera de 6.000 euros por explotacion.',
+      'Puede existir un complemento para quien tenga suscrito un contrato de asesoramiento externo.',
+    ].join(' ')),
+    now: new Date('2026-07-29T15:00:00Z'),
+  });
+
+  assert.strictEqual(sheet.status, FACT_SHEET_STATUS.READY);
+  assert(sheet.sectores.some((item) => item.valor === 'ganaderia'));
+  assert.strictEqual(sheet.plazo.status, 'verified');
+  assert(sheet.unsupported_taxonomy_tags.includes('subsector:olivar'));
+});
+
+test('regresion 20349: oportunidad apicola conserva solo la taxonomia documentada', async () => {
+  const alerta = alertaBase(20349, {
+    fuente: 'DOGV',
+    fecha: '2026-07-29',
+    titulo: 'Concesion de asentamientos apicolas en montes propios de Alicante',
+    url: 'https://dogv.gva.es/datos/2026/07/29/pdf/2026_25424_es.pdf',
+    provincias: ['Alicante'],
+    sectores: ['agricultura', 'otros'],
+    subsectores: ['apicultura', 'forestal', 'agua'],
+    tipos_alerta: ['normativa_general', 'sanidad_animal', 'formacion', 'obligaciones'],
+    taxonomy_tags: [
+      'sector:agricultura',
+      'sector:otros',
+      'subsector:apicultura',
+      'subsector:forestal',
+      'subsector:agua',
+      'tipo:normativa_general',
+      'tipo:sanidad_animal',
+      'tipo:formacion',
+      'tipo:obligaciones',
+      'concepto:sanidad_animal',
+    ],
+  });
+  const sheet = await construirFactSheetAlerta(alerta, {
+    rawDocument: rawDocument(alerta, [
+      'La Direccion Territorial de Alicante resuelve la concesion de asentamientos apicolas en montes propios.',
+      'Quedan libres para la proxima campana varios asentamientos apicolas situados en Alicante, Petrer, Biar y Castalla.',
+      'La resolucion identifica los asentamientos concedidos, denegados y disponibles.',
+    ].join(' ')),
+    now: new Date('2026-07-29T15:00:00Z'),
+  });
+
+  assert.strictEqual(sheet.status, FACT_SHEET_STATUS.READY);
+  assert(sheet.sectores.some((item) => item.valor === 'ganaderia'));
+  assert(sheet.subsectores.some((item) => item.valor === 'apicultura'));
+  assert(sheet.unsupported_taxonomy_tags.includes('tipo:sanidad_animal'));
+  assert(!sheet.flags.includes('accion_no_verificada'));
 });
 
 test('curso de bienestar animal conserva evidencias sin aceptar el resumen generado como prueba', () => {

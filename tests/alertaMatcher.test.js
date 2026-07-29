@@ -800,5 +800,73 @@ test('obligacion de entidad concreta exige una relacion declarada con esa entida
   assert.strictEqual(diagnosticarAlertaUsuario(alerta, relacionado).ok, true);
 });
 
+test('retira sanidad animal falsa sin perder una oportunidad apicola documentada', () => {
+  const alerta = {
+    fuente: 'DOGV',
+    provincias: ['Alicante'],
+    titulo: 'Concesion de asentamientos apicolas en montes de Alicante',
+    contenido: [
+      'Se resuelve la concesion de asentamientos apicolas solicitados.',
+      'Quedan libres para la proxima campana varios asentamientos en montes de Alicante.',
+    ].join(' '),
+    sectores: ['agricultura', 'otros'],
+    subsectores: ['apicultura', 'forestal'],
+    tipos_alerta: ['normativa_general', 'sanidad_animal'],
+    taxonomy_tags: [
+      'sector:agricultura',
+      'sector:otros',
+      'subsector:apicultura',
+      'subsector:forestal',
+      'tipo:normativa_general',
+      'tipo:sanidad_animal',
+      'concepto:sanidad_animal',
+    ],
+  };
+  const apicultor = {
+    subscription: 'cooperativa',
+    preferences: {
+      provincias: ['Alicante'],
+      sectores: ['ganaderia'],
+      subsectores: ['apicultura'],
+      tipos_alerta: { normativa_general: true },
+    },
+  };
+
+  const safe = resolverTaxonomiaSeguraAlerta(alerta);
+  assert.deepStrictEqual(safe.sectores, ['ganaderia']);
+  assert(!safe.tipos.includes('sanidad_animal'));
+  assert.strictEqual(safe.topic_validation.status, 'repaired');
+  assert.strictEqual(diagnosticarAlertaUsuario(alerta, apicultor).ok, true);
+});
+
+test('una ayuda forestal especifica no salta el subsector por ser convocatoria', () => {
+  const alerta = {
+    fuente: 'DOG',
+    provincias: ['galicia'],
+    titulo: 'Se establecen las bases reguladoras y se convocan subvenciones para proyectos y obras que empleen productos de madera',
+    contenido: [
+      'La Agencia Gallega de la Industria Forestal establece las bases reguladoras y convoca subvenciones.',
+      'Las ayudas financian proyectos y obras que empleen productos de madera como elementos estructurales.',
+      'Las actuaciones deberan ejecutarse en Galicia.',
+    ].join(' '),
+    sectores: ['agricultura', 'mixto'],
+    subsectores: ['forestal'],
+    tipos_alerta: ['ayudas_subvenciones'],
+  };
+  const ganaderoGalicia = {
+    subscription: 'cooperativa',
+    preferences: {
+      provincias: ['Ourense'],
+      sectores: ['ganaderia'],
+      subsectores: ['apicultura'],
+      tipos_alerta: { ayudas_subvenciones: true },
+    },
+  };
+
+  const result = diagnosticarAlertaUsuario(alerta, ganaderoGalicia);
+  assert.strictEqual(result.ok, false);
+  assert.strictEqual(result.motivo, 'subsector_no_coincide');
+});
+
 console.log(`\nResultados alertaMatcher: ${passed} aprobados, ${failed} fallidos`);
 if (failed > 0) process.exit(1);

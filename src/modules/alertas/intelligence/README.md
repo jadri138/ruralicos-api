@@ -22,6 +22,10 @@ Capa que convierte texto oficial en datos verificables. Su propósito no es escr
 - Los resúmenes generados nunca prueban su propia taxonomía.
 - Una etiqueta auxiliar sin evidencia se audita y se neutraliza; no rebaja por sí
   sola la veracidad de los hechos que sí están demostrados.
+- Los requisitos de plazo, acción o tipo se calculan con la taxonomía demostrada
+  en el documento, no con etiquetas del clasificador que hayan quedado sin respaldo.
+- Expresiones como “un mes desde la publicación” cuentan como plazo solo cuando
+  el texto oficial conserva el anclaje temporal completo.
 - No se inventan importes, plazos, beneficiarios ni ámbito.
 - Una corrección posterior puede cambiar la interpretación del documento anterior.
 - Fallar la validación retiene la alerta; no se rellena el hueco con una suposición.

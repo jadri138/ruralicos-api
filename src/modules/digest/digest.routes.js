@@ -85,6 +85,7 @@ const {
   DIGEST_RESCUE_MAX_ALERTAS,
   DIGEST_RESCUE_MESSAGE_MAX_CHARS,
   DIGEST_VECTOR_BACKFILL_MIN,
+  DIGEST_FACT_SHEET_BACKFILL_RESERVE,
   DIGEST_FINAL_VALIDATION_MODE,
   DIGEST_FINAL_VALIDATION_ENFORCEMENT,
   norm,
@@ -130,8 +131,10 @@ const {
   prepararAlertasFinalesDigest,
   resumirValidacionFinalDigest,
   prepararValidacionFinalDigestShadow,
+  preseleccionarAlertasConFactSheet,
   guardarFactSheetsDigestShadow,
   filtrarAlertasPorValidacionFinalDigest,
+  validacionReintentablePorTextoAusente,
   filtrarAlertasEnviablesAutomaticamente,
   resumirSeleccionDigest,
   contarDecisionesTrasScoring,
@@ -656,6 +659,10 @@ module.exports = function digestRoutes(app, supabase) {
           ? ordenarAlertasConPerfilOperativoMIA(candidatasFinales, perfilOperativoMIA, { excludeHard: false })
           : ordenarPorAprendizaje(candidatasFinales, aprendizaje);
         const maxAlertasUsuario = getMaxAlertasDigestUsuario(userConPerfilMIA);
+        const maxCandidatasConBackfill = Math.min(
+          alertasOrdenadas.length,
+          maxAlertasUsuario + DIGEST_FACT_SHEET_BACKFILL_RESERVE
+        );
         const seleccionFinal = seleccionarAlertasParaDigest(alertasOrdenadas, userConPerfilMIA, {
           qualityGate: DIGEST_QUALITY_GATE,
           allowReview: DIGEST_INCLUDE_REVIEW,
@@ -663,7 +670,7 @@ module.exports = function digestRoutes(app, supabase) {
           allowIndividualWithoutMunicipio: DIGEST_INCLUDE_INDIVIDUAL_PROVINCIAL,
           minItems: Math.min(DIGEST_VECTOR_BACKFILL_MIN, maxAlertasUsuario),
           targetItems: maxAlertasUsuario,
-          maxItems: maxAlertasUsuario,
+          maxItems: maxCandidatasConBackfill,
           origen: usandoMIA ? seleccionMIA.origen : 'perfil_tags_prioridad',
           exclusionPreferencias: (item) => alertaExcluidaPorPreferenciasExtra(item, user.preferencias_extra),
         });
@@ -739,7 +746,10 @@ module.exports = function digestRoutes(app, supabase) {
               aprendizaje,
               perfilOperativoMIA,
               organizationId,
-              maxItems: Math.min(DIGEST_RESCUE_MAX_ALERTAS, getMaxAlertasDigestUsuario(userConPerfilMIA)),
+              maxItems: Math.min(
+                getMaxAlertasDigestUsuario(userConPerfilMIA),
+                DIGEST_RESCUE_MAX_ALERTAS + DIGEST_FACT_SHEET_BACKFILL_RESERVE
+              ),
             });
 
             alertasFinales = rescate.alertas;
@@ -846,6 +856,49 @@ module.exports = function digestRoutes(app, supabase) {
             console.log(`[digest] User ${user.id} (${plan.nombre}) → 0 alertas relevantes → sin digest`);
             continue;
           }
+        }
+
+        const maxAlertasTrasFactSheet = modoRescate
+          ? Math.min(DIGEST_RESCUE_MAX_ALERTAS, maxAlertasUsuario)
+          : maxAlertasUsuario;
+        const preseleccionFactSheet = await preseleccionarAlertasConFactSheet({
+          supabase,
+          alertas: alertasFinales,
+          maxItems: maxAlertasTrasFactSheet,
+          organizationId,
+        });
+        alertasFinales = preseleccionFactSheet.alertas;
+        await registrarDigestCandidateDecisions(supabase, {
+          userId: user.id,
+          organizationId,
+          fecha: hoy,
+          kind: attemptKind,
+          stage: 'fact_sheet_preselection',
+          digestAttemptId,
+          decisions: preseleccionFactSheet.decisions,
+          metadata: preseleccionFactSheet.diagnostics,
+        });
+        for (const warning of preseleccionFactSheet.warnings) {
+          errores.push({ userId: user.id, ...warning });
+        }
+
+        if (alertasFinales.length === 0) {
+          await registrarDigestAttempt(supabase, {
+            userId: user.id,
+            fecha: hoy,
+            kind: attemptKind,
+            status: 'no_send',
+            ...funnelActual(0),
+            motivoNoEnvio: 'fact_sheet_preselection_no_send',
+            metadata: {
+              plan: plan.nombre,
+              rescate: modoRescate,
+              fact_sheet_preselection: preseleccionFactSheet.diagnostics,
+            },
+          });
+          sinAlertas++;
+          console.log(`[digest] User ${user.id} -> ninguna candidata supero la ficha previa -> sin digest`);
+          continue;
         }
 
         const origenDigest = modoRescate
@@ -1077,7 +1130,20 @@ module.exports = function digestRoutes(app, supabase) {
                 gate_version: finalValidationEnforcement.summary.gate_version,
               },
             });
-            if (finalValidationEnforcement.aceptadas.length === 0) {
+            const reintentarMensajeCompleto = validacionReintentablePorTextoAusente(
+              finalValidationEnforcement
+            );
+            if (reintentarMensajeCompleto) {
+              errores.push({
+                userId: user.id,
+                warning: 'final_validation_retry_with_local_fallback',
+              });
+              finalValidationEnforcement = {
+                ...finalValidationEnforcement,
+                aceptadas: alertasFinales,
+                retry_all_with_fallback: true,
+              };
+            } else if (finalValidationEnforcement.aceptadas.length === 0) {
               await registrarDigestAttempt(supabase, {
                 userId: user.id,
                 fecha: hoy,

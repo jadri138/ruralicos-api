@@ -226,6 +226,17 @@ function detectarExclusionPreferencias(alerta, exclusionPreferencias) {
   return exclusionPreferencias(alerta) || null;
 }
 
+function tieneEvidenciaDocumentalLicitacion(alerta = {}) {
+  const texto = norm([
+    alerta.titulo,
+    alerta.contenido,
+    alerta.texto_oficial,
+    alerta.texto_raw,
+  ].filter(Boolean).join(' '));
+
+  return /\b(?:licitacion(?:es)?|expediente(?:s)? de contratacion|organo de contratacion|pliegos? de (?:clausulas|prescripciones)|contratacion publica|contratos? del sector publico|adjudicacion(?:es)? de contratos?|formalizacion(?:es)? de contratos?|anuncio de formalizacion)\b/.test(texto);
+}
+
 function construirSignals(alerta = {}, calidad = {}) {
   const features = extraerFeaturesAlerta(alerta);
   const flags = Array.isArray(calidad.flags) ? calidad.flags : [];
@@ -239,9 +250,14 @@ function construirSignals(alerta = {}, calidad = {}) {
   const tieneSociedadAgrariaIndividual = /\b(sociedad agraria de transformacion|registro general de sociedades agrarias de transformacion|sat\s*(?:n|num|numero|n\.)?)\b/.test(textoSinAccionGenerica) &&
     /\b(disolucion|disuelve|disuelta|liquidacion|liquida|cancelacion|baja|concurso voluntario|juzgado de lo mercantil|mercantil)\b/.test(textoSinAccionGenerica);
   const expedienteNoGeneral = /\bexpediente\b/.test(textoSinAccionGenerica) && !esConvocatoriaAyuda;
+  const licitacionDocumentada = features.includes('tramite:licitacion') &&
+    tieneEvidenciaDocumentalLicitacion(alerta);
+  const featuresVerificadas = licitacionDocumentada
+    ? features
+    : features.filter((feature) => feature !== 'tramite:licitacion');
   const intencion = clasificarIntencionOperativa({
     texto: textoSinAccionGenerica,
-    features,
+    features: featuresVerificadas,
     plazoNoVerificado,
     tienePlazoVerificable,
     esConvocatoriaAyuda,
@@ -269,7 +285,10 @@ function construirSignals(alerta = {}, calidad = {}) {
     // generica que llevan muchas fichas. Ignoramos esa linea, pero conservamos
     // marcadores fuertes de expedientes particulares en el contenido real.
     es_individual: flags.includes('expediente_individual') || tieneMarcadorIndividualFuerte || tieneSociedadAgrariaIndividual || expedienteNoGeneral || intencion.es_sancion_control,
-    es_licitacion: features.includes('tramite:licitacion'),
+    // Las etiquetas IA pueden contener falsos positivos por expresiones como
+    // "contrato de asesoramiento". Un bloqueo duro exige evidencia de
+    // contratacion publica en el titulo o documento oficial.
+    es_licitacion: licitacionDocumentada,
     es_nombramiento: features.includes('tramite:nombramiento'),
     generico: /\b(revisar si aplica|revisar si afecta|determinar su aplicabilidad|publicacion oficial relevante|consulta el documento|sin extracto oficial suficiente)\b/.test(texto),
   };

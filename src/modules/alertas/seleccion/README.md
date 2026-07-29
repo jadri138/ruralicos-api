@@ -31,6 +31,10 @@ candidata
 - Un perfil vacío no autoriza contenido crítico o de baja calidad.
 - El aprendizaje ordena candidatos permitidos; no elimina bloqueos.
 - Una señal semántica no reemplaza territorio o sector explícitos.
+- Una etiqueta IA de licitación no produce un bloqueo duro sin evidencia de
+  contratación pública en el título o documento oficial.
+- Una convocatoria especializada no usa el atajo de “ayuda general” para saltar
+  el subsector del usuario.
 - Cada exclusión debe devolver un motivo legible.
 - La diversidad nunca debe rescatar una alerta bloqueada.
 

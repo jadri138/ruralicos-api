@@ -1,7 +1,7 @@
 const FACT_SHEET_SCHEMA_VERSION = 'fact_sheet_v3';
 // Incrementar esta version cuando cambie la forma de extraer o validar evidencia.
 // La store la usa como parte de la clave para no reutilizar fichas antiguas.
-const FACT_SHEET_BUILDER_VERSION = 'fact_sheet_builder_v4';
+const FACT_SHEET_BUILDER_VERSION = 'fact_sheet_builder_v5';
 
 const FACT_SHEET_STATUS = Object.freeze({
   READY: 'ready_for_digest',

@@ -493,7 +493,7 @@ test('convocatoria general sin plazo verificado se envia sin inventar fecha limi
   assert.strictEqual(decision.diagnostico.policy.signals.es_individual, false);
 });
 
-test('ayuda autonomica andaluza sin provincia explicita entra para agricultor andaluz', () => {
+test('ayuda andaluza especifica de sanidad animal no entra para un olivarero', () => {
   const agricultorAndaluz = {
     subscription: 'cooperativa',
     preferences: {
@@ -532,12 +532,10 @@ test('ayuda autonomica andaluza sin provincia explicita entra para agricultor an
     ].join(' '),
   }), agricultorAndaluz);
 
-  assert.strictEqual(decision.action, 'include');
-  assert.strictEqual(decision.incluir, true);
-  assert.strictEqual(decision.motivo, 'incluida_sin_plazo_verificado');
+  assert.strictEqual(decision.action, 'exclude');
+  assert.strictEqual(decision.incluir, false);
+  assert.strictEqual(decision.motivo, 'sector_no_coincide');
   assert.strictEqual(decision.diagnostico.policy.matches.provincia_expresa, true);
-  assert.strictEqual(decision.diagnostico.policy.matches.sector_expreso, true);
-  assert.strictEqual(decision.diagnostico.policy.matches.tipo_expreso, true);
   assert.strictEqual(decision.diagnostico.policy.signals.es_individual, false);
   assert.strictEqual(decision.diagnostico.policy.signals.es_nombramiento, false);
 });
@@ -828,6 +826,42 @@ test('expedientes individuales provinciales quedan en revision y no se autoenvia
   assert.strictEqual(result.resumen.expediente_individual_requiere_revision, 3);
   assert(result.decisiones.every((decision) => decision.action === 'review_only'));
   assert(result.decisiones.every((decision) => decision.incluir === false));
+});
+
+test('una ayuda con contrato de asesoramiento no se confunde con una licitacion', () => {
+  const ganaderoNavarra = {
+    subscription: 'cooperativa',
+    preferences: {
+      provincias: ['Navarra'],
+      sectores: ['ganaderia'],
+      subsectores: ['ovino'],
+      tipos_alerta: { ayudas_subvenciones: true },
+    },
+  };
+  const decision = decidirAlertaParaDigest(alerta(19467, {
+    fuente: 'BON',
+    titulo: 'Convocatoria de ayuda a la transformacion de leche de oveja latxa',
+    contenido: [
+      'Se aprueba la convocatoria de subvenciones para explotaciones ganaderas de ovino de leche de Navarra.',
+      'El plazo para presentar solicitudes sera de un mes.',
+      'La ayuda puede incluir un complemento para explotaciones que tengan suscrito un contrato de asesoramiento externo.',
+    ].join(' '),
+    provincias: ['Navarra'],
+    sectores: ['agricultura'],
+    subsectores: ['ovino'],
+    tipos_alerta: ['ayudas_subvenciones'],
+    taxonomy_tags: [
+      'sector:agricultura',
+      'sector:ganaderia',
+      'subsector:ovino',
+      'tipo:ayudas_subvenciones',
+      'tramite:licitacion',
+    ],
+  }), ganaderoNavarra);
+
+  assert.strictEqual(decision.diagnostico.policy.signals.es_licitacion, false);
+  assert.strictEqual(decision.incluir, true);
+  assert.notStrictEqual(decision.motivo, 'licitacion_bajo_valor');
 });
 
 console.log(`\nResultados alertSelectionEngine: ${passed} aprobados, ${failed} fallidos`);

@@ -326,7 +326,7 @@ const TAXONOMIA_RURALICOS = [
     id: 'tramite:licitacion',
     label: 'Licitacion',
     featureTag: 'tramite:licitacion',
-    featureRegex: /\b(licitacion|contrato|contratos|adjudicacion de contrato|formalizacion de contrato|formalizacion de contratos|anuncio de formalizacion)\b/,
+    featureRegex: /\b(licitacion(?:es)?|expediente(?:s)? de contratacion|organo de contratacion|pliegos? de (?:clausulas|prescripciones)|contratacion publica|contratos? del sector publico|adjudicacion(?:es)? de contratos?|formalizacion(?:es)? de contratos?|anuncio de formalizacion)\b/,
     excludeRegex: /\bcontrato\s+de\s+obras?\s+(del\s+)?ayuntamiento\b/,
     aliases: ['licitacion', 'licitaciones', 'contrato', 'contratos', 'adjudicacion de contrato', 'formalizacion de contrato'],
     feedbackCanonico: 'licitacion',

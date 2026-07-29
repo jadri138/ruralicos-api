@@ -27,13 +27,20 @@ GET y POST se conservan por compatibilidad operativa; las rutas siguen protegida
 1. Carga usuario, plan y preferencias canónicas.
 2. Obtiene alertas del periodo y une fuentes de candidatas.
 3. Evalúa exclusiones y selección por usuario.
-4. Aplica diversidad y límites del plan.
-5. Registra decisiones por candidata.
-6. Genera texto claro y enlaces de tracking.
-7. Ejecuta validación final.
-8. Guarda digest, elementos e intento.
+4. Aplica diversidad y crea una reserva limitada de candidatas.
+5. Valida las fichas en orden hasta completar el cupo; si una falla, prueba la
+   siguiente sin ampliar el número final de alertas.
+6. Registra decisiones por candidata.
+7. Genera texto claro y enlaces de tracking.
+8. Ejecuta validación final. Si el generador omite todos los bloques, hace un
+   único reintento determinista; una ficha realmente bloqueada no se reintenta.
+9. Guarda digest, elementos e intento.
 
 Un digest vacío es un resultado válido si no hay contenido suficientemente bueno. No se rellena con ruido para forzar un envío.
+
+`DIGEST_FACT_SHEET_BACKFILL_RESERVE` limita cuántas candidatas adicionales
+pueden examinarse (20 por defecto, 30 como máximo). El proceso se detiene en
+cuanto encuentra suficientes fichas `ready_for_digest`.
 
 ## Validación final
 

@@ -17,6 +17,9 @@ const {
   canonicalSubsector,
   canonicalTipoAlerta,
 } = require('../../../shared/preferenceCanonical');
+const {
+  resolverTaxonomiaSeguraAlerta,
+} = require('../seleccion/alertaMatcher');
 const { aliasesCanonicos } = require('../../../shared/taxonomyRegistry');
 
 const SECTOR_ALIASES = {
@@ -195,16 +198,26 @@ function extraerEvidenciaTaxonomia(alerta = {}, blocks = []) {
     || block.source === 'alerta.contenido'
     || block.source === 'alerta.titulo'
   );
+  const original = alerta.taxonomy_original || {};
   const tags = [
-    ...normalizarLista(alerta.sectores, canonicalSector).map((value) => ({
+    ...[
+      ...normalizarLista(alerta.sectores, canonicalSector),
+      ...normalizarLista(original.sectores, canonicalSector),
+    ].map((value) => ({
       tag: `sector:${value}`,
       aliases: SECTOR_EVIDENCE_ALIASES[value] || [value],
     })),
-    ...normalizarLista(alerta.subsectores, canonicalSubsector).map((value) => ({
+    ...[
+      ...normalizarLista(alerta.subsectores, canonicalSubsector),
+      ...normalizarLista(original.subsectores, canonicalSubsector),
+    ].map((value) => ({
       tag: `subsector:${value}`,
       aliases: SUBSECTOR_EVIDENCE_ALIASES[value] || [value],
     })),
-    ...normalizarLista(alerta.tipos_alerta, canonicalTipoAlerta).map((value) => ({
+    ...[
+      ...normalizarLista(alerta.tipos_alerta, canonicalTipoAlerta),
+      ...normalizarLista(original.tipos_alerta, canonicalTipoAlerta),
+    ].map((value) => ({
       tag: `tipo:${value}`,
       aliases: TYPE_EVIDENCE_ALIASES[value] || [value.replace(/_/g, ' ')],
     })),
@@ -474,6 +487,7 @@ const PATRONES_PLAZO_VERIFICABLE = [
   /\balegaciones?\s+(durante|por)\s+\d{1,3}\s+dias?\b/i,
   /\bdentro del plazo de\s+\d{1,3}\s+dias?\b/i,
   /\bplazo de presentacion\b.{0,140}\b(solicitudes?|alegaciones?|subsanacion)\b/i,
+  /\bplazo\b.{0,140}\b(?:un|uno|dos|tres|cuatro|cinco|seis|\d{1,2})\s+mes(?:es)?\b.{0,120}\b(?:a contar desde|desde|a partir de|siguiente al|publicacion)\b/i,
 ];
 
 function tienePlazoVerificable(sentence = '') {
@@ -644,24 +658,56 @@ function construirFactSheetDesdeTrace(alerta = {}, trace = null, options = {}) {
   sheet.unsupported_taxonomy_tags = taxonomyEvidence.unsupported;
   sheet.resumen_estructurado = extraerResumenEstructurado(blocks, sheet);
 
-  return validarFactSheet(sheet, { alerta, now: options.now });
+  const tagsRespaldados = new Set(
+    taxonomyEvidence.evidence.map((item) => String(item.tag || ''))
+  );
+  const alertaRespaldada = {
+    ...alerta,
+    sectores: normalizarLista(alerta.sectores, canonicalSector)
+      .filter((value) => tagsRespaldados.has(`sector:${value}`)),
+    subsectores: normalizarLista(alerta.subsectores, canonicalSubsector)
+      .filter((value) => tagsRespaldados.has(`subsector:${value}`)),
+    tipos_alerta: normalizarLista(alerta.tipos_alerta, canonicalTipoAlerta)
+      .filter((value) => tagsRespaldados.has(`tipo:${value}`)),
+  };
+
+  return validarFactSheet(sheet, { alerta: alertaRespaldada, now: options.now });
+}
+
+function aplicarTaxonomiaSeguraFactSheet(alerta = {}) {
+  const safe = resolverTaxonomiaSeguraAlerta(alerta);
+  return {
+    ...alerta,
+    taxonomy_original: {
+      sectores: alerta.sectores,
+      subsectores: alerta.subsectores,
+      tipos_alerta: alerta.tipos_alerta,
+    },
+    sectores: safe.sectores,
+    subsectores: safe.subsectores,
+    tipos_alerta: safe.tipos,
+    taxonomy_validation: safe.topic_validation,
+  };
 }
 
 function construirFactSheetAlertaSync(alerta = {}, options = {}) {
-  const trace = crearTraceLocal(alerta, options);
-  return construirFactSheetDesdeTrace(alerta, trace, options);
+  const alertaSegura = aplicarTaxonomiaSeguraFactSheet(alerta);
+  const trace = crearTraceLocal(alertaSegura, options);
+  return construirFactSheetDesdeTrace(alertaSegura, trace, options);
 }
 
 async function construirFactSheetAlerta(alerta = {}, options = {}) {
+  const alertaSegura = aplicarTaxonomiaSeguraFactSheet(alerta);
   if (options.documentTrace || options.rawDocument || !options.supabase) {
-    return construirFactSheetAlertaSync(alerta, options);
+    const trace = crearTraceLocal(alertaSegura, options);
+    return construirFactSheetDesdeTrace(alertaSegura, trace, options);
   }
 
   const trace = await resolverDocumentTrace(options.supabase, {
-    alerta,
+    alerta: alertaSegura,
     organizationId: options.organizationId,
   }, options.traceOptions || {});
-  return construirFactSheetDesdeTrace(alerta, trace, options);
+  return construirFactSheetDesdeTrace(alertaSegura, trace, options);
 }
 
 module.exports = {

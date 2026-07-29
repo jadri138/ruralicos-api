@@ -111,6 +111,12 @@ const DIGEST_VECTOR_BACKFILL_MIN = Math.max(
   1,
   Math.min(DIGEST_MAX_ALERTAS_USUARIO, Number(process.env.DIGEST_VECTOR_BACKFILL_MIN || 3))
 );
+const DIGEST_FACT_SHEET_BACKFILL_RESERVE = numeroConfig(
+  'DIGEST_FACT_SHEET_BACKFILL_RESERVE',
+  20,
+  0,
+  30
+);
 const DECISION_DIGEST_REQUIRED_FROM =
   process.env.DIGEST_DECISION_REQUIRED_FROM || '2026-07-21T00:00:00+02:00';
 const LEGACY_DECISION_BYPASS_MODES = new Set([
@@ -1435,6 +1441,108 @@ async function resolverFactSheetDigestShadow({
   return { factSheet: built, source: 'built' };
 }
 
+async function preseleccionarAlertasConFactSheet({
+  supabase,
+  alertas = [],
+  maxItems = DIGEST_MAX_ALERTAS_USUARIO,
+  organizationId = null,
+  loadFactSheetFn = cargarFactSheetActual,
+  buildFactSheetFn = construirFactSheetAlerta,
+  storeFactSheetFn = guardarFactSheetShadow,
+} = {}) {
+  const objetivo = Math.max(0, Number(maxItems) || 0);
+  const seleccionadas = [];
+  const decisions = [];
+  const warnings = [];
+
+  for (const alerta of alertas || []) {
+    if (seleccionadas.length >= objetivo) {
+      decisions.push({
+        id: alerta.id,
+        action: 'exclude',
+        motivo: 'fact_sheet_backfill_not_needed',
+      });
+      continue;
+    }
+
+    try {
+      const resolved = await resolverFactSheetDigestShadow({
+        supabase,
+        alerta,
+        organizationId,
+        loadFactSheetFn,
+        buildFactSheetFn,
+      });
+      const factSheet = resolved.factSheet || null;
+      const status = factSheet?.status || 'missing';
+      const ready = status === 'ready_for_digest';
+
+      if (factSheet && resolved.source === 'built') {
+        const stored = await storeFactSheetFn(supabase, {
+          factSheet,
+          organizationId,
+          enforcementMode: DIGEST_FINAL_VALIDATION_MODE,
+          shadowDecision: {
+            stage: 'fact_sheet_preselection',
+            status: ready ? 'ready_for_digest' : status,
+          },
+        });
+        if (!stored?.ok) {
+          warnings.push({
+            alerta_id: alerta.id,
+            warning: 'fact_sheet_preselection_not_stored',
+            error: stored?.error || stored?.reason || null,
+          });
+        }
+      }
+
+      decisions.push({
+        id: alerta.id,
+        action: ready ? 'include' : (status === 'review_only' ? 'review_only' : 'blocked'),
+        motivo: ready ? 'fact_sheet_preselection_pass' : `fact_sheet_${status}`,
+        status,
+        source: resolved.source,
+        flags: factSheet?.flags || [],
+        reasons: factSheet?.reasons || [],
+      });
+      if (ready) {
+        seleccionadas.push({
+          ...alerta,
+          fact_sheet: factSheet,
+          fact_sheet_status: factSheet.status,
+          truth_score: factSheet.truth_score,
+          risk_score: factSheet.risk_score,
+          evidence_coverage: factSheet.evidence_coverage,
+        });
+      }
+    } catch (error) {
+      decisions.push({
+        id: alerta.id,
+        action: 'blocked',
+        motivo: 'fact_sheet_preselection_error',
+        status: 'error',
+      });
+      warnings.push({
+        alerta_id: alerta.id,
+        warning: 'fact_sheet_preselection_error',
+        error: error.message,
+      });
+    }
+  }
+
+  return {
+    alertas: seleccionadas,
+    decisions,
+    warnings,
+    diagnostics: {
+      candidates: (alertas || []).length,
+      evaluated: decisions.filter((item) => item.motivo !== 'fact_sheet_backfill_not_needed').length,
+      selected: seleccionadas.length,
+      rejected: decisions.filter((item) => ['blocked', 'review_only'].includes(item.action)).length,
+    },
+  };
+}
+
 function resumirValidacionFinalDigest(validation = null) {
   if (!validation) return null;
   return {
@@ -1730,6 +1838,17 @@ function filtrarAlertasPorValidacionFinalDigest(
       }, {}),
     },
   };
+}
+
+function validacionReintentablePorTextoAusente(enforcement = null) {
+  const rechazadas = Array.isArray(enforcement?.rechazadas)
+    ? enforcement.rechazadas
+    : [];
+  return rechazadas.length > 0 &&
+    Number(enforcement?.aceptadas?.length || 0) === 0 &&
+    rechazadas.every((item) =>
+      Array.isArray(item.flags) && item.flags.includes('item_text_missing')
+    );
 }
 
 function agruparAlertasDigest(alertas = []) {
@@ -3042,6 +3161,7 @@ module.exports = {
   DIGEST_RESCUE_MAX_ALERTAS,
   DIGEST_RESCUE_MESSAGE_MAX_CHARS,
   DIGEST_VECTOR_BACKFILL_MIN,
+  DIGEST_FACT_SHEET_BACKFILL_RESERVE,
   DECISION_DIGEST_REQUIRED_FROM,
   LEGACY_DECISION_BYPASS_MODES,
   FINAL_VALIDATION_MODE,
@@ -3107,9 +3227,11 @@ module.exports = {
   aplicarDecisionEfectivaEnvio,
   resumirValidacionFinalDigest,
   prepararValidacionFinalDigestShadow,
+  preseleccionarAlertasConFactSheet,
   guardarFactSheetsDigestShadow,
   motivosCriticosValidacionFinal,
   filtrarAlertasPorValidacionFinalDigest,
+  validacionReintentablePorTextoAusente,
   agruparAlertasDigest,
   obtenerNombreCortoDigest,
   construirSaludoDigest,
