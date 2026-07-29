@@ -47,8 +47,8 @@ function sheet(overrides = {}) {
     importe: field('hasta 10.000 euros'),
     requisitos: [field('estar inscrito en el registro de explotaciones')],
     taxonomy_evidence: [
-      { tag: 'sector:agricultura', evidence: 'explotaciones agrarias' },
-      { tag: 'tipo:ayudas_subvenciones', evidence: 'convocatoria de ayudas' },
+      { tag: 'sector:agricultura', evidence: 'explotaciones agrarias', source_field: 'content' },
+      { tag: 'tipo:ayudas_subvenciones', evidence: 'convocatoria de ayudas', source_field: 'content' },
     ],
     url_oficial: field('https://boletin.example/100'),
     truth_score: 96,
@@ -245,6 +245,47 @@ test('bloquea una seleccion apoyada solo en taxonomia sin evidencia documental',
     texto: [
       '*1. NORMAL - Aviso supuestamente ganadero*',
       'En sencillo: Publicacion general en Huesca.',
+      'https://boletin.example/100',
+    ].join('\n'),
+  });
+
+  assert.strictEqual(result.status, 'blocked');
+  assert(result.flags.includes('selection_match_without_taxonomy_evidence'));
+});
+
+test('exige evidencia para todos los ejes tematicos que causaron la seleccion', () => {
+  const result = validarItemDigestFinal({
+    alerta,
+    factSheet: sheet({
+      taxonomy_evidence: [
+        { tag: 'tipo:ayudas_subvenciones', evidence: 'convocatoria de ayudas', source_field: 'content' },
+      ],
+    }),
+    decisionDigest: decision(),
+    texto: [
+      '*1. Ayuda supuestamente agricola*',
+      'Se publica una convocatoria de ayudas.',
+      'https://boletin.example/100',
+    ].join('\n'),
+  });
+
+  assert.strictEqual(result.status, 'blocked');
+  assert(result.flags.includes('selection_match_without_taxonomy_evidence'));
+});
+
+test('no acepta un resumen generado como evidencia de matching', () => {
+  const result = validarItemDigestFinal({
+    alerta,
+    factSheet: sheet({
+      taxonomy_evidence: [
+        { tag: 'sector:agricultura', evidence: 'AFECTA_A: agricultura', source_field: 'summary' },
+        { tag: 'tipo:ayudas_subvenciones', evidence: 'TIPO: ayudas_subvenciones', source_field: 'summary' },
+      ],
+    }),
+    decisionDigest: decision(),
+    texto: [
+      '*1. Ayuda supuestamente agricola*',
+      'Se publica una convocatoria.',
       'https://boletin.example/100',
     ].join('\n'),
   });

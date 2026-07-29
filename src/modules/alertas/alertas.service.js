@@ -198,7 +198,7 @@ function esProcesoAdministrativoPersonal(alerta = {}) {
   const texto = textoAlertaNormalizado(alerta);
   if (!texto) return false;
 
-  return contieneAlguno(texto, [
+  const terminosEmpleo = [
     'concurso especifico de meritos',
     'concurso específico de méritos',
     'concurso de meritos y capacidades',
@@ -222,7 +222,25 @@ function esProcesoAdministrativoPersonal(alerta = {}) {
     'proceso selectivo',
     'oposicion',
     'oposición',
+  ];
+  const titulo = normalizarTexto(alerta.titulo);
+  const empleoEnTitulo = contieneAlguno(titulo, terminosEmpleo);
+  const anclaRuralEnTitulo = contieneAlguno(titulo, [
+    'agrario',
+    'agraria',
+    'agricola',
+    'agricultura',
+    'ganadero',
+    'ganaderia',
+    'desarrollo rural',
+    'forestal',
+    'maderable',
+    'aprovechamiento forestal',
+    'monte de utilidad publica',
   ]);
+
+  return contieneAlguno(texto, terminosEmpleo)
+    && (empleoEnTitulo || !anclaRuralEnTitulo);
 }
 
 function esPescaOMaritimoNoAgrario(alerta = {}) {
@@ -399,7 +417,7 @@ function clasificarLocalmente(alerta) {
     'aves', 'apicultura', 'colmena', 'sanidad animal', 'bienestar animal',
   ]);
   const agricultura = contieneAlguno(texto, [
-    'agricultor', 'agricola', 'agrario', 'agraria', 'cultivo', 'explotacion agraria', 'olivar',
+    'agricultura', 'agricultor', 'agricola', 'agrario', 'agraria', 'cultivo', 'explotacion agraria', 'olivar',
     'vinedo', 'vitivinicol', 'cereal', 'trigo', 'cebada', 'maiz', 'arroz',
     'hortaliza', 'frutal', 'almendro', 'citric', 'fitosanit', 'sanidad vegetal',
     'plaga', 'fertiliz', 'cuaderno de campo',
@@ -410,14 +428,8 @@ function clasificarLocalmente(alerta) {
   ]);
   const ayuda = contieneAlguno(texto, ['ayuda', 'subvencion', 'convocatoria', 'bases reguladoras', 'beneficiario']);
   const fiscalidad = contieneAlguno(texto, ['irpf', 'iva', 'modulos', 'fiscal', 'tributari']);
-  const exclusionAdministrativa = contieneAlguno(texto, [
-    'oposicion', 'oposicion', 'proceso selectivo', 'bolsa de empleo', 'bolsa de trabajo',
-    'concurso especifico de meritos', 'concurso de meritos y capacidades',
-    'provision de puestos', 'puesto singular', 'personal funcionario', 'empleo publico',
-    'universidad', 'beca', 'notario', 'registrador', 'urbanismo',
-  ]);
   const pescaAcuicultura = contieneAlguno(texto, ['pesca', 'acuicultura']);
-  const exclusionFuerte = exclusionAdministrativa || (pescaAcuicultura && !ganaderia && !agricultura && !rural);
+  const exclusionFuerte = pescaAcuicultura && !ganaderia && !agricultura && !rural;
 
   const esRelevante = (ganaderia || agricultura || rural) && !exclusionFuerte;
   if (!esRelevante) {

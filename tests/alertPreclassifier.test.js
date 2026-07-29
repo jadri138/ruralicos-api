@@ -55,6 +55,30 @@ test('oposicion -> discard_rule', () => {
   assert.strictEqual(result.pre_status, 'discard');
 });
 
+test('no descarta una subasta forestal por ruido de empleo de otro anuncio', () => {
+  const result = preclassifyAlerta({
+    id: 31,
+    titulo: 'Subasta de aprovechamientos forestales maderables del Monte de Utilidad Publica',
+    contenido: [
+      'Enajenacion de aprovechamientos forestales maderables.',
+      'Texto residual del boletin: relacion de puestos de trabajo.',
+    ].join(' '),
+  });
+
+  assert.notStrictEqual(result.candidate_level, CANDIDATE_LEVEL.DISCARD);
+  assert(!result.pre_reasons.some((reason) => reason.tag === 'proceso_personal_publico'));
+});
+
+test('mantiene el descarte si el propio titulo rural es una oferta de empleo', () => {
+  const result = preclassifyAlerta({
+    id: 32,
+    titulo: 'Proceso selectivo de personal del Servicio de Agricultura',
+    contenido: 'Oferta publica de empleo para personal funcionario.',
+  });
+
+  assert.strictEqual(result.candidate_level, CANDIDATE_LEVEL.DISCARD);
+});
+
 test('nombramiento -> discard_rule', () => {
   const result = preclassifyAlerta({
     id: 4,

@@ -342,7 +342,11 @@ function validarFactSheet(input = {}, { alerta = {}, now = new Date() } = {}) {
 
   const coverage = calcularCoverage(sheet, alerta);
   const officialCoverage = calcularCoverage(sheet, alerta, campoConEvidenciaOficial);
-  const risk = Math.min(100, issues.reduce((acc, issue) => acc + Number(issue.severity || 0), 0));
+  // Una etiqueta auxiliar sin respaldo queda auditada, pero no reduce por si
+  // sola la veracidad del contenido demostrado. El gate final comprueba que
+  // cada eje usado para seleccionar al usuario tenga evidencia documental.
+  const scoringIssues = issues.filter((issue) => issue.flag !== 'unsupported_taxonomy_tag');
+  const risk = Math.min(100, scoringIssues.reduce((acc, issue) => acc + Number(issue.severity || 0), 0));
   const truth = Math.max(0, Math.round((coverage * 100) - Math.min(35, risk * 0.35)));
   const status = estadoDesdeIssues(issues, coverage);
 

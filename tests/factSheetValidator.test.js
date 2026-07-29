@@ -83,6 +83,37 @@ test('ayuda con subsector auxiliar no demostrado conserva auditoria sin bloquear
   assert(sheet.truth_score >= 70);
 });
 
+test('regresion 17231: una ayuda FEADER valida no queda bloqueada por taxonomia auxiliar antigua', () => {
+  const alerta = alertaBase(17231, {
+    fuente: 'BOCYL',
+    fecha: '2026-07-23',
+    titulo: 'Extracto de la Orden de ayudas FEADER para plantaciones forestales de alto valor',
+    url: 'https://bocyl.jcyl.es/boletines/2026/07/23/pdf/ejemplo.pdf',
+    provincias: ['Castilla y Leon'],
+    sectores: ['agricultura', 'ganaderia', 'mixto'],
+    subsectores: ['frutales', 'olivar', 'trigo', 'forestal', 'agua', 'energia'],
+    tipos_alerta: ['ayudas_subvenciones', 'normativa_general', 'registros_certificaciones'],
+  });
+  const sheet = construirFactSheetAlertaSync(alerta, {
+    rawDocument: rawDocument(alerta, [
+      'Consejeria de Medio Ambiente y Energia de Castilla y Leon.',
+      'Se convocan ayudas cofinanciadas por el Fondo Europeo Agricola de Desarrollo Rural FEADER.',
+      'Las ayudas se destinan a plantaciones de especies con producciones forestales de alto valor.',
+      'Beneficiarios: entidades publicas o privadas propietarias de terrenos susceptibles de plantacion.',
+      'La solicitud de ayuda se podra presentar hasta el 25 de septiembre de 2026.',
+    ].join(' ')),
+    now: new Date('2026-07-29T15:00:00Z'),
+  });
+
+  assert.strictEqual(sheet.builder_version, 'fact_sheet_builder_v4');
+  assert.strictEqual(sheet.status, FACT_SHEET_STATUS.READY);
+  assert(sheet.truth_score >= 85);
+  assert.strictEqual(sheet.risk_score, 0);
+  assert(sheet.territorio.some((item) => item.valor === 'castilla y leon'));
+  assert(sheet.taxonomy_evidence.some((item) => item.tag === 'subsector:forestal'));
+  assert(sheet.unsupported_taxonomy_tags.includes('sector:ganaderia'));
+});
+
 test('curso de bienestar animal conserva evidencias sin aceptar el resumen generado como prueba', () => {
   const alerta = alertaBase(2, {
     titulo: 'Curso de bienestar animal para titulares de explotaciones ganaderas en Huesca',

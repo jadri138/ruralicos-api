@@ -19,9 +19,16 @@ Capa que convierte texto oficial en datos verificables. Su propósito no es escr
 
 - El documento oficial es la fuente de verdad.
 - Cada dato importante debe apuntar a evidencia o marcarse como no verificado.
+- Los resúmenes generados nunca prueban su propia taxonomía.
+- Una etiqueta auxiliar sin evidencia se audita y se neutraliza; no rebaja por sí
+  sola la veracidad de los hechos que sí están demostrados.
 - No se inventan importes, plazos, beneficiarios ni ámbito.
 - Una corrección posterior puede cambiar la interpretación del documento anterior.
 - Fallar la validación retiene la alerta; no se rellena el hueco con una suposición.
+
+`FACT_SHEET_BUILDER_VERSION` forma parte de la clave persistida. Hay que
+incrementarla cuando cambian las reglas de extracción o validación: así una ficha
+antigua no puede seguir decidiendo con criterios obsoletos.
 
 ## Ficha de hechos
 

@@ -194,18 +194,28 @@ const ANCLA_AGRARIA = [
 //  - empleo publico / provision de puestos / oposiciones
 //  - pesca o maritimo sin relacion agraria
 //  - administracion general (universidad, notarios, urbanismo) sin relacion agraria
-function detectarExclusionDuraAlerta(texto) {
-  const descarteEstructurado = detectarDescarteEstructuradoFueraAlcance(texto);
+function detectarExclusionDuraAlerta(alerta = {}, texto = textoAlertaNormalizado(alerta)) {
+  const descarteEstructurado = detectarDescarteEstructuradoFueraAlcance(alerta);
   if (descarteEstructurado) return descarteEstructurado.reasonCode;
 
-  const empleoPublico = contieneAlguno(texto, [
+  const terminosEmpleo = [
     'concurso especifico de meritos', 'concurso de meritos y capacidades',
     'provision de un puesto', 'provision de puestos', 'puesto singular',
     'relacion de puestos de trabajo', 'personal funcionario', 'personal laboral',
     'funcionarios de carrera', 'empleo publico', 'oferta publica de empleo',
     'bolsa de trabajo', 'proceso selectivo', 'oposicion',
+  ];
+  const titulo = normalizarTexto(alerta.titulo);
+  const empleoEnTitulo = contieneAlguno(titulo, terminosEmpleo);
+  const anclaRuralEnTitulo = contieneAlguno(titulo, [
+    ...ANCLA_AGRARIA,
+    'forestal', 'maderable', 'aprovechamiento forestal', 'agricultura',
+    'ganaderia', 'desarrollo rural',
   ]);
-  if (empleoPublico) return 'proceso_personal_publico';
+  const empleoPublico = contieneAlguno(texto, terminosEmpleo);
+  if (empleoPublico && (empleoEnTitulo || !anclaRuralEnTitulo)) {
+    return 'proceso_personal_publico';
+  }
 
   const pescaOMaritimo = contieneAlguno(texto, [
     'politica maritima', 'pesca maritima', 'sector pesquero', 'actividad pesquera',
@@ -260,7 +270,7 @@ function preclassifyAlerta(alerta = {}) {
 
   // 2) Exclusion dura ya consensuada en el pipeline (empleo publico, pesca no
   //    agraria, administracion general). Si dispara, es descarte por regla.
-  const exclusionDura = detectarExclusionDuraAlerta(texto);
+  const exclusionDura = detectarExclusionDuraAlerta(alerta, texto);
   if (exclusionDura) {
     reasons.push({ tag: exclusionDura, weight: -10 });
   }

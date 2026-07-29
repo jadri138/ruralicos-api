@@ -191,7 +191,9 @@ function extraerEvidenciaTaxonomia(alerta = {}, blocks = []) {
   // No usar resúmenes generados para probar la clasificación: contienen
   // campos derivados de esa misma clasificación y crearían evidencia circular.
   const documentaryBlocks = blocks.filter((block) =>
-    !['alerta.resumen_final', 'alerta.resumen_borrador'].includes(block.source)
+    block.official
+    || block.source === 'alerta.contenido'
+    || block.source === 'alerta.titulo'
   );
   const tags = [
     ...normalizarLista(alerta.sectores, canonicalSector).map((value) => ({

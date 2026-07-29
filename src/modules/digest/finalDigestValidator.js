@@ -193,6 +193,10 @@ function matchTaxonomicoRespaldado(decision = {}, sheet = {}) {
   if (!trace || typeof trace !== 'object') return true;
 
   const evidenceTags = new Set((sheet.taxonomy_evidence || [])
+    .filter((item) =>
+      item?.evidence
+      && item?.source_field !== 'summary'
+    )
     .map((item) => normalizarTexto(item?.tag))
     .filter(Boolean));
   const candidates = [
@@ -201,7 +205,10 @@ function matchTaxonomicoRespaldado(decision = {}, sheet = {}) {
     trace.type_match ? `tipo:${trace.type_match}` : null,
   ].map(normalizarTexto).filter(Boolean);
 
-  return candidates.length > 0 && candidates.some((tag) => evidenceTags.has(tag));
+  // El matcher exige simultaneamente los ejes declarados por el usuario. La
+  // validacion final debe demostrar esos mismos ejes, no salvar una taxonomia
+  // falsa porque otro tag mas generico si aparezca en el documento.
+  return candidates.length > 0 && candidates.every((tag) => evidenceTags.has(tag));
 }
 
 const NATIONAL_SCOPE_PATTERN = /\b(nacional|estatal|espana|todo el territorio|ambito estatal|ambito nacional)\b/;

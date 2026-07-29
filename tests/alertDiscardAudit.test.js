@@ -211,6 +211,24 @@ test('2. clasificador local sin senal rural devuelve causa estructurada', () => 
   assert.strictEqual(result.discard_confidence, 0.9);
 });
 
+test('2b. el clasificador local no descarta un asunto rural por texto residual de empleo', () => {
+  const forestal = service.clasificarLocalmente({
+    id: 20025,
+    titulo: 'Subasta de aprovechamientos forestales maderables del Monte de Utilidad Publica',
+    contenido: 'Aprovechamientos forestales. Texto residual: relacion de puestos de trabajo.',
+  });
+  const agricultura = service.clasificarLocalmente({
+    id: 20068,
+    titulo: 'Servicio Territorial de Agricultura, Ganaderia y Desarrollo Rural: informacion publica',
+    contenido: 'Bases provisionales. Texto residual: personal funcionario.',
+  });
+
+  assert.strictEqual(forestal.es_relevante, true);
+  assert(forestal.subsectores.includes('forestal'));
+  assert.strictEqual(agricultura.es_relevante, true);
+  assert(agricultura.sectores.includes('mixto'));
+});
+
 test('3. respuesta negativa de IA persiste codigo libre estable y confianza 0.94', async () => {
   const alertas = new Map([['3', { id: 3, titulo: 'Anuncio general', contenido: 'Texto administrativo.' }]]);
   const result = service.normalizarResultadoClasificacion({

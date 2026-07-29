@@ -196,7 +196,25 @@ test('una etiqueta auxiliar sin evidencia queda auditada sin bloquear por acumul
 
   assert(sheet.unsupported_taxonomy_tags.includes('tipo:fiscalidad'));
   assert(sheet.flags.includes('unsupported_taxonomy_tag'));
+  assert.strictEqual(sheet.risk_score, 0);
   assert.strictEqual(sheet.status, 'ready_for_digest');
+});
+
+test('no usa el resumen aceptado como prueba circular de taxonomia', () => {
+  const sheet = construirFactSheetAlertaSync({
+    id: 81,
+    titulo: 'Anuncio administrativo general',
+    contenido: 'Se publica un anuncio administrativo sin relacion agraria.',
+    resumen: 'AFECTA_A: ganaderos de vacuno',
+    sectores: ['ganaderia'],
+    subsectores: ['vacuno'],
+    tipos_alerta: ['normativa_general'],
+    url: 'https://www.boe.es/ejemplo-resumen-circular',
+  });
+
+  assert(sheet.unsupported_taxonomy_tags.includes('sector:ganaderia'));
+  assert(sheet.unsupported_taxonomy_tags.includes('subsector:vacuno'));
+  assert(!sheet.taxonomy_evidence.some((item) => item.source_field === 'summary'));
 });
 
 test('acciones estructuradas exigen evidencia documental y cubren el catalogo P1.6', () => {

@@ -47,6 +47,8 @@ Revisa, entre otros:
 
 - coincidencia entre IDs, elementos y texto;
 - geografía/sector y exclusiones;
+- evidencia documental para cada eje temático que provocó el match (sector,
+  subsector y tipo), no solo para uno cualquiera;
 - evidencia y URLs;
 - duplicados;
 - lenguaje engañoso o promesas no respaldadas;

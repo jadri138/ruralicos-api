@@ -35,6 +35,8 @@ Por item, el validador exige:
 - URL oficial verificada en la fact sheet;
 - bloque de mensaje con enlace;
 - decision de seleccion `include`;
+- evidencia documental para todos los ejes tematicos usados por el matcher;
+- ninguna evidencia taxonomica circular procedente de un resumen generado;
 - plazos mencionados solo si `factSheet.plazo` esta verificado;
 - importes mencionados solo si `factSheet.importe` esta verificado;
 - territorios mencionados solo si `factSheet.territorio` los verifica;
