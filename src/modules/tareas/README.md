@@ -22,7 +22,7 @@ Orquestador de trabajos programados. Coordina las fases sin duplicar la lógica 
 | `/tareas/cotejar-listados-oficiales` | Coincidencias con listados |
 | `/tareas/pipeline-tick` | Runner reanudable recomendado |
 | `/tareas/pipeline-jobs` | Diagnóstico de jobs |
-| `/tareas/pipeline-diario` | Flujo monolítico de compatibilidad |
+| `/tareas/pipeline-diario` | Rescate monolítico de emergencia (`force_legacy=true`) |
 
 ## Runner con checkpoints
 
@@ -39,7 +39,10 @@ Los límites `PIPELINE_TICK_*` impiden jobs huérfanos y permiten recuperar un c
 
 ## Sombra y producción
 
-`PIPELINE_TICK_SHADOW=true` ejecuta el flujo sin efectos de envío previstos para el corte. Cambiarlo afecta producción: comprobar primero métricas, variables y runbook `docs/pipeline_tick_rollout.md`.
+`PIPELINE_TICK_SHADOW=false` es el modo normal de producción. En este modo el
+runner envía y el interlock jubila `pipeline-diario` para impedir duplicados.
+`PIPELINE_TICK_SHADOW=true` queda solo para diagnóstico sin envíos. El runbook
+completo está en `docs/pipeline_tick_rollout.md`.
 
 ## Reglas operativas
 

@@ -4,7 +4,7 @@ Las fuentes complementarias ya no necesitan un cron diario separado. El pipeline
 principal las ejecuta antes de la IA y del digest:
 
 ```bash
-curl -fsS -H "x-cron-token: $CRON_TOKEN" "$BASE_URL/tareas/pipeline-diario"
+curl -fsS -H "x-cron-token: $CRON_TOKEN" "$BASE_URL/tareas/pipeline-tick"
 ```
 
 Por defecto se incluyen los endpoints definidos en `COMPLEMENTARY_SCRAPE_PATHS`.
@@ -33,7 +33,7 @@ FEGA_ENVIAR_MATCHES=false
 Tambien puede lanzarse puntualmente:
 
 ```bash
-curl -fsS -H "x-cron-token: $CRON_TOKEN" "$BASE_URL/tareas/pipeline-diario?fega=true&ejercicio=2024"
+curl -fsS -H "x-cron-token: $CRON_TOKEN" "$BASE_URL/tareas/pipeline-tick?fega=true&ejercicio=2024"
 ```
 
 El endpoint auxiliar queda disponible como herramienta manual:

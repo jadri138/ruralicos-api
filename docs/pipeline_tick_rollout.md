@@ -1,4 +1,4 @@
-# Rollout del runner de pipeline con checkpoints (C1)
+# Operacion del runner de pipeline con checkpoints (C1)
 
 `/tareas/pipeline-tick` es la evolucion de `/tareas/pipeline-diario`: en vez de
 un unico HTTP larguisimo (que el proxy de Render corta a los ~55s), **UN cron lo
@@ -12,19 +12,20 @@ NO tumba el dia (lo registra y sigue; de las caidas sostenidas ya avisa el vigia
 `/tareas/salud-fuentes`), y si una fase por lotes queda bloqueada o al limite de
 vueltas, **aborta ANTES del digest** y avisa al admin con la URL de reset.
 
-`pipeline-diario` y los crons sueltos siguen intactos: conviven con el tick hasta
-el cutover. La migracion `pipeline_jobs` ya esta aplicada en produccion.
+`pipeline-diario` queda jubilado por el interlock mientras el tick corre en
+produccion. Solo se usa como rescate puntual con `force_legacy=true`.
 
-## Fase 1 — Sombra (por defecto)
+## Modo sombra de diagnostico
 
-El tick arranca en **sombra** (`shadow=true` es el DEFAULT). En sombra ejecuta
-toda la orquestacion pero **no llama a las fases outbound** (`enviar_digest`,
+El tick arranca en **produccion** (`shadow=false` es el DEFAULT). En sombra
+explicita (`shadow=true`) ejecuta toda la orquestacion pero **no llama a las
+fases outbound** (`enviar_digest`,
 `enviar_resumen_free`, `mia_outbox`), **no escribe `scraper_runs`** (para no
 contaminar el vigia de salud de fuentes) y sus `pipeline_runs` van con el stage
 prefijado `shadow:*`. Sirve para validar la orquestacion corriendo en paralelo a
 los crons reales, sin efectos hacia el usuario.
 
-Cron de sombra en Render (cada 10 min). **Render corre los crons en UTC**, asi
+Cron de produccion en Render (cada 10 min). **Render corre los crons en UTC**, asi
 que la ventana se pone en UTC: `6-14` cubre la franja de publicacion de boletines
 (~8:00–15:00 peninsular en verano) **con margen para que, si un tick muere, el
 siguiente lo recupere dentro de la ventana** (ver heartbeat rancio abajo):
@@ -36,7 +37,7 @@ siguiente lo recupere dentro de la ventana** (ver heartbeat rancio abajo):
 `BASE_URL` debe ser el dominio que responde de verdad a `/health` (el
 `.onrender.com`, no un dominio custom sin DNS). `CRON_TOKEN` igual al del backend
 **y presente en el env del propio servicio de cron** (si falta, el tick responde
-403 y la sombra no arranca nunca).
+403 y el pipeline no arranca nunca).
 
 ### Resiliencia de un tick (por que no se cuelga)
 
@@ -97,15 +98,13 @@ curl -fsS -H "x-cron-token: $CRON_TOKEN" "$BASE_URL/tareas/pipeline-tick?fecha=Y
 
 El propio aviso al admin incluye esta URL.
 
-## Fase 2 — Cutover (decision del usuario)
+## Fase 2 — Cutover completado
 
-Tras varios dias de sombra limpia (job completa, sin abortos, los `shadow:*`
-`pipeline_runs` cuadran con lo que hizo `pipeline-diario`):
+El coordinador con checkpoints es ya el camino principal:
 
-1. Poner `PIPELINE_TICK_SHADOW=false` en el servicio de la API **o** cambiar el
-   cron a `.../pipeline-tick?shadow=false`. Ahora el tick SI envia y escribe
-   `scraper_runs`.
-2. Retirar los crons sueltos / `pipeline-diario` para que no se solapen envios.
+1. `PIPELINE_TICK_SHADOW=false` es el valor por defecto y el tick envia y
+   escribe `scraper_runs`.
+2. Los crons sueltos / `pipeline-diario` no deben usarse a la vez.
 
 **Interlock automatico:** con `PIPELINE_TICK_SHADOW=false` en el env del
 servicio, `/tareas/pipeline-diario` responde **410 jubilado** y no ejecuta nada
@@ -122,7 +121,7 @@ Ver `.env.example` (seccion "Runner de pipeline con checkpoints"):
 
 | Variable | Default | Que hace |
 | --- | --- | --- |
-| `PIPELINE_TICK_SHADOW` | `true` | Sombra on/off. `false` = cutover real. |
+| `PIPELINE_TICK_SHADOW` | `false` | `false` = produccion real. `true` = diagnostico en sombra. |
 | `PIPELINE_TICK_BUDGET_MS` | `50000` | Presupuesto por tick con margen frente al timeout de proxy de Render. |
 | `PIPELINE_HTTP_TIMEOUT_MS` | `20000` | Timeout duro por request HTTP del tick (evita cuelgues). |
 | `PIPELINE_TICK_RESERVE_MS` | `PIPELINE_HTTP_TIMEOUT_MS` | Reserva de presupuesto: no arranca una request que no quepa antes del deadline. |

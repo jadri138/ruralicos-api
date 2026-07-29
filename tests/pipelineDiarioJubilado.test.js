@@ -21,8 +21,8 @@ function test(name, fn) {
 
 console.log('\n=== TESTS: interlock de cutover de pipeline-diario ===\n');
 
-test('con el tick en sombra (default, sin variable) pipeline-diario sigue activo', () => {
-  assert.strictEqual(pipelineDiarioJubilado({}, {}), false);
+test('sin variable el tick corre en real y pipeline-diario queda jubilado', () => {
+  assert.strictEqual(pipelineDiarioJubilado({}, {}), true);
 });
 
 test('con PIPELINE_TICK_SHADOW=true explicito sigue activo', () => {
@@ -47,7 +47,7 @@ test('force_legacy no valido (typo) no reactiva', () => {
   );
 });
 
-test('force_legacy=true con el tick aun en sombra no cambia nada (sigue activo)', () => {
+test('force_legacy=true reactiva el legado incluso con el default real', () => {
   assert.strictEqual(pipelineDiarioJubilado({}, { force_legacy: 'true' }), false);
 });
 

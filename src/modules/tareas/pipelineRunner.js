@@ -286,39 +286,51 @@ async function ejecutarPipelineTick(supabase, opcionesTick = {}) {
     };
   }
 
-  let opcionesJob = claimed.options_json || {};
-  const stages = construirStagesPipeline(opcionesJob);
-  const stagesState = { ...(claimed.stages_json || {}) };
-  const deadline = ahora() + budgetMs;
-  const ejecutar = ejecutarParam || crearEjecutorHttp({ baseUrl, token, fecha, opciones: opcionesJob, httpTimeoutMs, sleep });
+  try {
+    let opcionesJob = claimed.options_json || {};
+    const stages = construirStagesPipeline(opcionesJob);
+    const stagesState = { ...(claimed.stages_json || {}) };
 
-  // Tras un reset, las fases failed/aborted vuelven a pending con el contador
-  // de vueltas y los flags de bloqueo limpios (si no, re-abortarian al instante).
-  if (reset) {
-    for (const state of Object.values(stagesState)) {
-      if (state.status === STAGE_FAILED || state.status === STAGE_ABORTED) {
-        state.status = STAGE_PENDING;
-        state.attempts = 0;
-        state.loops = 0;
-        delete state.bloqueado;
-        delete state.cola_vacia;
-        delete state.max_loops_alcanzado;
+    // Tras un reset, las fases failed/aborted vuelven a pending con el contador
+    // de vueltas y los flags de bloqueo limpios (si no, re-abortarian al instante).
+    if (reset) {
+      for (const state of Object.values(stagesState)) {
+        if (state.status === STAGE_FAILED || state.status === STAGE_ABORTED) {
+          state.status = STAGE_PENDING;
+          state.attempts = 0;
+          state.loops = 0;
+          delete state.bloqueado;
+          delete state.cola_vacia;
+          delete state.max_loops_alcanzado;
+        }
       }
     }
-  }
 
-  const nowISO = () => new Date(ahora()).toISOString();
-  // Reserva: exige que quepa una request entera antes del deadline. Los tests
-  // con ejecutor inyectado conservan 0 salvo que indiquen otra reserva.
-  const quedaPresupuesto = () => ahora() + reservaTickMs < deadline;
+    const nowISO = () => new Date(ahora()).toISOString();
 
-  async function checkpoint(currentStage, extraPatch = {}) {
-    await store.guardar({
-      jobId: claimed.id,
-      tickId,
-      patch: { stages_json: stagesState, current_stage: currentStage, ...extraPatch },
-    });
-  }
+    async function checkpoint(currentStage, extraPatch = {}) {
+      await store.guardar({
+        jobId: claimed.id,
+        tickId,
+        patch: { stages_json: stagesState, current_stage: currentStage, ...extraPatch },
+      });
+    }
+
+    // Sella el job inmediatamente despues del claim. Incluso si falla la
+    // configuracion del ejecutor, el finally libera la posesion del tick.
+    const primeraPendiente = stages.find(
+      (s) => ![STAGE_COMPLETED, STAGE_SKIPPED, STAGE_SHADOW_SKIPPED].includes((stagesState[s.name] || {}).status)
+    );
+    const initialStage = primeraPendiente ? primeraPendiente.name : null;
+    opcionesJob = actualizarEventoRecuperacion(opcionesJob, tickId, { initial_stage: initialStage });
+    claimed.options_json = opcionesJob;
+    await checkpoint(initialStage, { options_json: opcionesJob });
+
+    const deadline = ahora() + budgetMs;
+    const ejecutar = ejecutarParam || crearEjecutorHttp({ baseUrl, token, fecha, opciones: opcionesJob, httpTimeoutMs, sleep });
+    // Reserva: exige que quepa una request entera antes del deadline. Los tests
+    // con ejecutor inyectado conservan 0 salvo que indiquen otra reserva.
+    const quedaPresupuesto = () => ahora() + reservaTickMs < deadline;
 
   async function registrarRunStage(stageDef, state, status, extra = {}) {
     await guardarRunPipeline(supabase, {
@@ -521,19 +533,6 @@ async function ejecutarPipelineTick(supabase, opcionesTick = {}) {
   }
 
   // --- Bucle principal de fases --------------------------------------------
-
-  try {
-    // Checkpoint inicial: sella current_stage y renueva el heartbeat ANTES de la
-    // primera fase. Si el proceso muere aqui (Render, deploy, OOM), el job queda
-    // reanudable/observable en vez de huerfano en 'running' con current_stage
-    // null (estado que ni el reset rescataba).
-    const primeraPendiente = stages.find(
-      (s) => ![STAGE_COMPLETED, STAGE_SKIPPED, STAGE_SHADOW_SKIPPED].includes((stagesState[s.name] || {}).status)
-    );
-    const initialStage = primeraPendiente ? primeraPendiente.name : null;
-    opcionesJob = actualizarEventoRecuperacion(opcionesJob, tickId, { initial_stage: initialStage });
-    claimed.options_json = opcionesJob;
-    await checkpoint(initialStage, { options_json: opcionesJob });
 
     for (const stageDef of stages) {
       const state = stagesState[stageDef.name] || { status: STAGE_PENDING, attempts: 0 };

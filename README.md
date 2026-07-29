@@ -79,7 +79,9 @@ No se debe subir `.env` a Git ni exponer la clave `SUPABASE_SERVICE_ROLE_KEY` en
 
 ## Flujo diario
 
-El orquestador con checkpoints es `GET /tareas/pipeline-tick`; el flujo monolítico de compatibilidad es `GET /tareas/pipeline-diario`.
+El orquestador de producción con checkpoints es `GET /tareas/pipeline-tick`.
+`GET /tareas/pipeline-diario` queda bloqueado para evitar duplicados y solo se
+reactiva como rescate puntual con `force_legacy=true`.
 
 ```text
 scrapers

@@ -8,6 +8,10 @@ const { checkCronToken, hasCronToken } = require('../../middleware/cronToken');
 const { llamarIA, parsearJSON } = require('../../platform/ia/llamarIA');
 const { enviarWhatsAppResumen } = require('../../platform/whatsapp');
 const { getFechaMadridISO } = require('../../shared/fechaMadrid');
+const {
+  sanitizarTextoPostgres,
+  recortarUnicodeSeguro,
+} = require('../../shared/postgresText');
 const { requireAdmin } = require('../../middleware/requireAdmin');
 const {
   construirClasificacionTratamientoEspecial,
@@ -543,12 +547,11 @@ function normalizarResultadoClasificacion(item, alertasPorId) {
 }
 
 function limpiarTextoMensaje(texto, max = 420) {
-  return String(texto || '')
+  const limpio = sanitizarTextoPostgres(texto, { preservarSaltos: false })
     .replace(/\s+/g, ' ')
     .replace(/https?:\/\/\S+/g, '')
-    .trim()
-    .slice(0, max)
     .trim();
+  return recortarUnicodeSeguro(limpio, max).trim();
 }
 
 function lineaBoletinPocoUtil(linea) {
@@ -715,22 +718,25 @@ function construirMensajeFallback(alerta) {
     ? `Dato oficial: ${contexto}`
     : 'no_detectado';
 
-  return [
-    'FICHA_IA',
-    `TIPO: ${tipo}`,
-    'PRIORIDAD: media',
-    `TERRITORIO: ${territorio}`,
-    `AFECTA_A: ${sectores}`,
-    `HECHO: ${contexto || titulo}`,
-    `OBJETO: ${titulo}`,
-    'IMPACTO: no_detectado',
-    'PLAZO: no_detectado',
-    'ACCION_CODIGO: no_detectado',
-    'ACCION: no_detectado',
-    `DETALLE: ${detalle}`,
-    `RESUMEN_DIGEST: ${contexto ? `En sencillo: ${contexto}` : 'no_detectado'}`,
-    `CLAVES: ${titulo}`,
-  ].join('\n').slice(0, 2200).trim();
+  return recortarUnicodeSeguro(
+    sanitizarTextoPostgres([
+      'FICHA_IA',
+      `TIPO: ${tipo}`,
+      'PRIORIDAD: media',
+      `TERRITORIO: ${territorio}`,
+      `AFECTA_A: ${sectores}`,
+      `HECHO: ${contexto || titulo}`,
+      `OBJETO: ${titulo}`,
+      'IMPACTO: no_detectado',
+      'PLAZO: no_detectado',
+      'ACCION_CODIGO: no_detectado',
+      'ACCION: no_detectado',
+      `DETALLE: ${detalle}`,
+      `RESUMEN_DIGEST: ${contexto ? `En sencillo: ${contexto}` : 'no_detectado'}`,
+      `CLAVES: ${titulo}`,
+    ].join('\n')),
+    2200
+  ).trim();
 }
 
 function limpiarMensajeFinal(mensaje, alerta = {}) {
@@ -749,12 +755,11 @@ const FICHA_TIPOS = new Set([
 const FICHA_PRIORIDADES = new Set(['alta', 'media', 'baja']);
 
 function limpiarCampoFicha(texto, max = 160) {
-  return String(texto || '')
+  const limpio = sanitizarTextoPostgres(texto, { preservarSaltos: false })
     .replace(/https?:\/\/\S+/g, '')
     .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, max)
     .trim();
+  return recortarUnicodeSeguro(limpio, max).trim();
 }
 
 function limitarPalabras(texto, maxPalabras, maxChars) {
@@ -942,22 +947,25 @@ function construirFichaIA(data = {}, alerta = {}) {
     titulo,
   });
 
-  return [
-    'FICHA_IA',
-    `TIPO: ${ficha.tipo}`,
-    `PRIORIDAD: ${ficha.prioridad}`,
-    `TERRITORIO: ${ficha.territorio}`,
-    `AFECTA_A: ${ficha.afecta_a}`,
-    `HECHO: ${ficha.hecho}`,
-    `OBJETO: ${ficha.objeto}`,
-    `IMPACTO: ${ficha.impacto}`,
-    `PLAZO: ${ficha.plazo}`,
-    `ACCION_CODIGO: ${ficha.accion_codigo}`,
-    `ACCION: ${ficha.accion}`,
-    `DETALLE: ${ficha.detalle}`,
-    `RESUMEN_DIGEST: ${ficha.resumen_digest}`,
-    `CLAVES: ${ficha.claves.join(', ')}`,
-  ].join('\n').slice(0, 2200).trim();
+  return recortarUnicodeSeguro(
+    sanitizarTextoPostgres([
+      'FICHA_IA',
+      `TIPO: ${ficha.tipo}`,
+      `PRIORIDAD: ${ficha.prioridad}`,
+      `TERRITORIO: ${ficha.territorio}`,
+      `AFECTA_A: ${ficha.afecta_a}`,
+      `HECHO: ${ficha.hecho}`,
+      `OBJETO: ${ficha.objeto}`,
+      `IMPACTO: ${ficha.impacto}`,
+      `PLAZO: ${ficha.plazo}`,
+      `ACCION_CODIGO: ${ficha.accion_codigo}`,
+      `ACCION: ${ficha.accion}`,
+      `DETALLE: ${ficha.detalle}`,
+      `RESUMEN_DIGEST: ${ficha.resumen_digest}`,
+      `CLAVES: ${ficha.claves.join(', ')}`,
+    ].join('\n')),
+    2200
+  ).trim();
 }
 
 function parsearFichaIA(texto) {

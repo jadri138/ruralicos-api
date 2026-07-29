@@ -18,8 +18,8 @@ Boletines oficiales ──► scrapers ──► tabla `alertas`
                        feedback del usuario ──► aprendizaje + agente MIA
 ```
 
-Todo el ciclo diario se dispara con **un único endpoint de cron**:
-`GET /tareas/pipeline-diario`.
+Todo el ciclo diario se reanuda con **un único endpoint de cron**:
+`GET /tareas/pipeline-tick`.
 
 ## Capas y carpetas
 
@@ -84,9 +84,10 @@ por área + `admin.helpers.js`).
 > algunas rutas comparten prefijo y Express resuelve por orden de registro
 > (p. ej. el tracking de clics se registra primero).
 
-## El pipeline diario (`/tareas/pipeline-diario`)
+## El pipeline diario (`/tareas/pipeline-tick`)
 
-Un solo cron diario encadena:
+Un cron frecuente reanuda un job diario con claim, heartbeat y checkpoints, y
+encadena:
 
 1. **Scrapers** BOE + autonómicos + complementarios provinciales (+ FEGA opcional).
 2. **Cotejo** con listados oficiales.

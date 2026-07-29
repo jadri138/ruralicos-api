@@ -8,7 +8,7 @@ API.
 Comando:
 
 ```bash
-curl -fsS -H "x-cron-token: $CRON_TOKEN" "$BASE_URL/tareas/pipeline-diario"
+curl -fsS -H "x-cron-token: $CRON_TOKEN" "$BASE_URL/tareas/pipeline-tick"
 ```
 
 Variables del cron:
@@ -18,7 +18,7 @@ Variables del cron:
 
 Frecuencia recomendada:
 
-- 1 vez al dia. Ejemplo UTC: `0 6 * * *`
+- Cada 10 minutos en la ventana operativa. Ejemplo UTC: `*/10 6-14 * * *`
 
 ## Variables en la API
 
@@ -66,5 +66,5 @@ Requiere `ADMIN_ALERT_PHONE` (o `ADMIN_ALERT_PHONES`) configurado.
 - [ ] `CRON_TOKEN` configurado en la API y en el Cron Job.
 - [ ] `PUBLIC_BASE_URL` configurado en la API.
 - [ ] Si usas dominio custom, `https://tu-dominio/health` responde; si no, usa el dominio `.onrender.com`.
-- [ ] Cron Job en Render con `curl -fsS -H "x-cron-token: $CRON_TOKEN" "$BASE_URL/tareas/pipeline-diario"`.
+- [ ] Cron Job en Render con `curl -fsS -H "x-cron-token: $CRON_TOKEN" "$BASE_URL/tareas/pipeline-tick"`.
 - [ ] Si activas FEGA con envios individuales, comprobar antes identidad legal en `users` y `official_list_matches`.

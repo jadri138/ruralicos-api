@@ -507,9 +507,8 @@ module.exports = function tareasRoutes(app, supabase) {
   // C1: runner de pipeline con checkpoints. UN cron dispara este tick cada
   // ~10 min; cada tick reclama el job del dia, avanza fases dentro de su
   // presupuesto (budget_ms) y el siguiente tick reanuda desde el checkpoint.
-  // shadow=true (el DEFAULT, por seguridad durante el rollout) = sombra: no
-  // envia WhatsApp ni escribe scraper_runs; pipeline_runs van como 'shadow:*'.
-  // Cutover real: cron con ?shadow=false o PIPELINE_TICK_SHADOW=false.
+  // shadow=false es produccion: envia y escribe scraper_runs. shadow=true queda
+  // como diagnostico explicito sin fases outbound ni efectos de envio.
   app.all('/tareas/pipeline-tick', async (req, res) => {
     if (!checkCronToken(req, res)) return;
 
@@ -517,7 +516,7 @@ module.exports = function tareasRoutes(app, supabase) {
       const fecha = /^\d{4}-\d{2}-\d{2}$/.test(req.query.fecha || '')
         ? req.query.fecha
         : getFechaMadridISO();
-      const shadow = boolValue(req.query.shadow, boolValue(process.env.PIPELINE_TICK_SHADOW, true));
+      const shadow = boolValue(req.query.shadow, boolValue(process.env.PIPELINE_TICK_SHADOW, false));
 
       const resultado = await ejecutarPipelineTick(supabase, {
         fecha,

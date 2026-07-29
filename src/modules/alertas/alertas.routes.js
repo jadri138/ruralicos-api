@@ -8,6 +8,10 @@ const { checkCronToken, hasCronToken } = require('../../middleware/cronToken');
 const { llamarIA, parsearJSON } = require('../../platform/ia/llamarIA');
 const { enviarWhatsAppResumen } = require('../../platform/whatsapp');
 const { getFechaMadridISO } = require('../../shared/fechaMadrid');
+const {
+  sanitizarTextoPostgres,
+  sanitizarValorPostgres,
+} = require('../../shared/postgresText');
 const { requireAdmin } = require('../../middleware/requireAdmin');
 const {
   CANDIDATE_LEVEL,
@@ -256,10 +260,10 @@ module.exports = function alertasRoutes(app, supabase) {
           });
           const { error: updError } = await supabase
             .from('alertas')
-            .update({
+            .update(sanitizarValorPostgres({
               ...patchPreclasificacion(preclassification, item),
               ...discardPatch,
-            })
+            }))
             .eq('id', item.id);
           if (updError) {
             erroresUpdate.push({ id: item.id, error: updError.message });
@@ -271,7 +275,7 @@ module.exports = function alertasRoutes(app, supabase) {
         } else {
           const { error: updError } = await supabase
             .from('alertas')
-            .update({
+            .update(sanitizarValorPostgres({
               estado_ia: 'pendiente_resumir',
               provincias: item.provincias ?? [],
               sectores: item.sectores ?? [],
@@ -280,7 +284,7 @@ module.exports = function alertasRoutes(app, supabase) {
               taxonomy_tags: item.taxonomy_tags ?? [],
               ...limpiarCamposDescarte(),
               ...patchPreclasificacion(preclassification, item),
-            })
+            }))
             .eq('id', item.id);
           if (updError) {
             erroresUpdate.push({ id: item.id, error: updError.message });
@@ -303,7 +307,7 @@ module.exports = function alertasRoutes(app, supabase) {
         if (!preclassification) continue;
         const { error: preError } = await supabase
           .from('alertas')
-          .update(patchPreclasificacion(preclassification))
+          .update(sanitizarValorPostgres(patchPreclasificacion(preclassification)))
           .eq('id', id);
         if (preError) erroresUpdate.push({ id, fase: 'preclasificacion', error: preError.message });
       }
@@ -366,15 +370,18 @@ module.exports = function alertasRoutes(app, supabase) {
       const {
         resultados,
         errores: erroresFichas,
-        fallbackLocal,
+        fallbackLocal: fallbackGenerador,
       } = alertasParaResumir.length > 0
         ? await generarFichasIAEnLote(alertasParaResumir)
         : { resultados: [], errores: [], fallbackLocal: 0 };
 
       let actualizadas = 0;
       let descartadas = 0;
+      let fallbackLocal = fallbackGenerador;
+      let recuperadasPersistencia = 0;
       const erroresUpdate = [];
       const idsActualizados = new Set();
+      const alertasPorId = new Map(alertas.map((alerta) => [String(alerta.id), alerta]));
 
       for (const { alerta, motivo } of alertasDescartadasPrefiltro) {
         const discardPatch = construirDescarteAuditable({
@@ -387,10 +394,10 @@ module.exports = function alertasRoutes(app, supabase) {
         });
         const { error: updError } = await supabase
           .from('alertas')
-          .update({
+          .update(sanitizarValorPostgres({
             ...discardPatch,
             resumen_borrador: null,
-          })
+          }))
           .eq('id', alerta.id)
           .eq('estado_ia', 'pendiente_resumir');
 
@@ -404,11 +411,12 @@ module.exports = function alertasRoutes(app, supabase) {
       }
 
       for (const item of resultados) {
+        const fichaSegura = sanitizarTextoPostgres(item.ficha);
         const { error: updError } = await supabase
           .from('alertas')
           .update({
             estado_ia: 'pendiente_revisar',
-            resumen_borrador: item.ficha,
+            resumen_borrador: fichaSegura,
             ...limpiarCamposDescarte(),
           })
           .eq('id', item.id)
@@ -419,7 +427,31 @@ module.exports = function alertasRoutes(app, supabase) {
           idsActualizados.add(String(item.id));
         } else {
           console.error('Error actualizando alerta', item.id, updError.message);
-          erroresUpdate.push({ id: item.id, fase: 'update', error: updError.message });
+          const alerta = alertasPorId.get(String(item.id));
+          const fichaFallback = sanitizarTextoPostgres(construirMensajeFallback(alerta || {}));
+          const { error: fallbackError } = await supabase
+            .from('alertas')
+            .update({
+              estado_ia: 'pendiente_revisar',
+              resumen_borrador: fichaFallback,
+              ...limpiarCamposDescarte(),
+            })
+            .eq('id', item.id)
+            .eq('estado_ia', 'pendiente_resumir');
+
+          if (!fallbackError) {
+            actualizadas++;
+            fallbackLocal++;
+            recuperadasPersistencia++;
+            idsActualizados.add(String(item.id));
+            console.warn(`[resumir] Alerta ${item.id} recuperada con ficha local segura`);
+          } else {
+            erroresUpdate.push({
+              id: item.id,
+              fase: 'update',
+              error: `${updError.message}; fallback: ${fallbackError.message}`,
+            });
+          }
         }
       }
 
@@ -433,6 +465,7 @@ module.exports = function alertasRoutes(app, supabase) {
         actualizadas,
         descartadas_prefiltro: descartadas,
         fallback_local: fallbackLocal,
+        recuperadas_persistencia: recuperadasPersistencia,
         errores: [...erroresFichas, ...erroresUpdate].slice(0, 20),
         pendientes_reintento: idsNoResueltos,
         ids: alertas.map((a) => a.id),
@@ -526,10 +559,10 @@ module.exports = function alertasRoutes(app, supabase) {
             });
             const { error: updError } = await supabase
               .from('alertas')
-              .update({
+              .update(sanitizarValorPostgres({
                 ...discardPatch,
                 resumen_final: null,
-              })
+              }))
               .eq('id', a.id)
               .eq('estado_ia', 'pendiente_revisar');
 
@@ -603,8 +636,8 @@ Responde UNICAMENTE con la ficha final. Sin JSON, sin explicaciones, sin nada ma
             .from('alertas')
             .update({
               estado_ia: 'listo',
-              resumen_final: resumenFinal,
-              resumen: resumenFinal, // sync para compatibilidad con whatsapp.js
+              resumen_final: sanitizarTextoPostgres(resumenFinal),
+              resumen: sanitizarTextoPostgres(resumenFinal), // sync para compatibilidad con whatsapp.js
               ...limpiarCamposDescarte(),
             })
             .eq('id', a.id)
@@ -626,8 +659,8 @@ Responde UNICAMENTE con la ficha final. Sin JSON, sin explicaciones, sin nada ma
             .from('alertas')
             .update({
               estado_ia: 'listo',
-              resumen_final: resumenFallback,
-              resumen: resumenFallback,
+              resumen_final: sanitizarTextoPostgres(resumenFallback),
+              resumen: sanitizarTextoPostgres(resumenFallback),
               ...limpiarCamposDescarte(),
             })
             .eq('id', a.id)

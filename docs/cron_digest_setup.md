@@ -1,9 +1,9 @@
 # Cron setup recomendado (Ruralicos)
 
-El camino recomendado es un unico cron diario contra el pipeline completo:
+El camino recomendado es un unico cron frecuente contra el runner reanudable:
 
 ```bash
-curl -fsS -H "x-cron-token: $CRON_TOKEN" "$BASE_URL/tareas/pipeline-diario"
+curl -fsS -H "x-cron-token: $CRON_TOKEN" "$BASE_URL/tareas/pipeline-tick"
 ```
 
 Ese endpoint ejecuta, en orden:
@@ -64,7 +64,7 @@ FEGA_ENVIAR_MATCHES=false
 Tambien puedes lanzarlo puntualmente:
 
 ```bash
-curl -fsS -H "x-cron-token: $CRON_TOKEN" "$BASE_URL/tareas/pipeline-diario?fega=true&ejercicio=2024"
+curl -fsS -H "x-cron-token: $CRON_TOKEN" "$BASE_URL/tareas/pipeline-tick?fega=true&ejercicio=2024"
 ```
 
 Antes de activar envios individuales de coincidencias nominales, comprueba que
@@ -74,11 +74,11 @@ migracion operativa vigente.
 
 ## Horario recomendado
 
-Una vez al dia, despues de que los boletines del dia suelan estar disponibles.
-Ejemplo UTC:
+Cada 10 minutos durante la ventana de publicación. Cada llamada retoma el
+checkpoint anterior y no repite fases completadas. Ejemplo UTC:
 
 ```cron
-0 6 * * * curl -fsS -H "x-cron-token: $CRON_TOKEN" "$BASE_URL/tareas/pipeline-diario"
+*/10 6-14 * * * curl -fsS -H "x-cron-token: $CRON_TOKEN" "$BASE_URL/tareas/pipeline-tick"
 ```
 
 En hora peninsular, ajusta segun invierno/verano y segun la hora real de

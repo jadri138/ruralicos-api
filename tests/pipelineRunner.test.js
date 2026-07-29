@@ -452,6 +452,55 @@ async function main() {
     assert.strictEqual(store.log.liberado, true);
   });
 
+  await test('guarda el checkpoint inicial antes de ejecutar cualquier fase', async () => {
+    const store = crearStoreFake();
+    const ctx = contexto();
+    let primeraLlamada = true;
+    const ejecutar = async (path) => {
+      if (primeraLlamada) {
+        primeraLlamada = false;
+        assert(store.log.guardados.length > 0, 'debe existir un checkpoint antes de la primera request');
+        assert.strictEqual(store.log.guardados[0].patch.current_stage, 'scrapers');
+      }
+      return { path, status: 200, body: { procesadas: 0 } };
+    };
+
+    const result = await ejecutarPipelineTick(
+      {},
+      {
+        fecha: FECHA,
+        budgetMs: 10_000_000,
+        maxLoops: 5,
+        stepDelayMs: 0,
+        ...inyectables({ store, ejecutar, reloj: null, ...ctx }),
+      }
+    );
+
+    assert.strictEqual(result.tick, 'completed');
+    assert.strictEqual(primeraLlamada, false);
+  });
+
+  await test('libera el claim si falla el primer checkpoint', async () => {
+    const store = crearStoreFake();
+    const ctx = contexto();
+    store.guardar = async () => {
+      throw new Error('fallo simulado de checkpoint');
+    };
+
+    await assert.rejects(
+      () => ejecutarPipelineTick(
+        {},
+        {
+          fecha: FECHA,
+          budgetMs: 10_000_000,
+          ...inyectables({ store, ejecutar: crearEjecutar({}), reloj: null, ...ctx }),
+        }
+      ),
+      /fallo simulado de checkpoint/
+    );
+    assert.strictEqual(store.log.liberado, true, 'el tick no debe dejar un claim huerfano');
+  });
+
   await test('reset: reabre un job fallido, limpia flags de bloqueo y completa', async () => {
     const store = crearStoreFake({
       job: {

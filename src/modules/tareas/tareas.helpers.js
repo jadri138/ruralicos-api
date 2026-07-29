@@ -93,7 +93,7 @@ function uniquePaths(paths) {
 // nadie retiro no duplique envios de WhatsApp. force_legacy=true lo reactiva
 // puntualmente (emergencia con el runner caido).
 function pipelineDiarioJubilado(env = process.env, query = {}) {
-  const tickEnReal = !boolValue(env.PIPELINE_TICK_SHADOW, true);
+  const tickEnReal = !boolValue(env.PIPELINE_TICK_SHADOW, false);
   return tickEnReal && !boolValue(query.force_legacy, false);
 }
 

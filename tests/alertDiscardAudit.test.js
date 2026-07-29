@@ -36,6 +36,15 @@ let respuestaClasificacion = (alertas) => ({
   fallbackLocal: 0,
 });
 service.clasificarConReintento = async (alertas) => respuestaClasificacion(alertas);
+let respuestaFichas = (alertas) => ({
+  resultados: alertas.map((alerta) => ({
+    id: String(alerta.id),
+    ficha: `FICHA_IA\nTIPO: ayudas\nHECHO: ${alerta.titulo}`,
+  })),
+  errores: [],
+  fallbackLocal: 0,
+});
+service.generarFichasIAEnLote = async (alertas) => respuestaFichas(alertas);
 
 delete require.cache[require.resolve('../src/modules/alertas/alertas.routes')];
 const alertasRoutes = require('../src/modules/alertas/alertas.routes');
@@ -48,6 +57,7 @@ function crearSupabaseFalso(rows = [], {
   rawError = null,
   respectFilters = false,
   respectSelectColumns = false,
+  updateErrors = [],
 } = {}) {
   const updates = [];
   const queries = [];
@@ -116,7 +126,12 @@ function crearSupabaseFalso(rows = [], {
             ? table === 'raw_documents' && rawError
               ? { data: null, error: { message: rawError } }
               : { data: selectedRows, error: null }
-            : { data: null, error: null };
+            : {
+              data: null,
+              error: updateErrors[updates.indexOf(patch)]
+                ? { message: updateErrors[updates.indexOf(patch)] }
+                : null,
+            };
           return Promise.resolve(result).then(onFulfilled, onRejected);
         },
       };
@@ -321,6 +336,36 @@ test('5. prefiltro de resumen usa su etapa y mantiene NO IMPORTA sin dos puntos'
   assert.strictEqual(patch.discard_reason_code, 'pesca_maritimo_no_agrario');
   assert.strictEqual(patch.discard_stage, 'summarizer_prefilter');
   assert(!Object.hasOwn(patch, 'sectores'), 'el descarte no debe borrar taxonomia existente');
+});
+
+test('5b. un fallo al guardar una ficha se recupera localmente sin bloquear el lote', async () => {
+  respuestaFichas = (alertas) => ({
+    resultados: [{
+      id: String(alertas[0].id),
+      ficha: `FICHA_IA\nHECHO: ayuda dañada \uD800`,
+    }],
+    errores: [],
+    fallbackLocal: 0,
+  });
+  const supabase = crearSupabaseFalso([{
+    id: 51,
+    estado_ia: 'pendiente_resumir',
+    titulo: 'Ayuda para explotaciones agrícolas de Teruel',
+    contenido: 'Convocatoria oficial para agricultores.',
+    provincias: ['Teruel'],
+    sectores: ['agricultura'],
+  }], {
+    updateErrors: ['unsupported Unicode escape sequence', null],
+  });
+  const routes = registrarRutas(alertasRoutes, supabase);
+
+  const response = await invocar(routes['POST /alertas/resumir']);
+
+  assert.strictEqual(response.body.actualizadas, 1);
+  assert.strictEqual(response.body.recuperadas_persistencia, 1);
+  assert.strictEqual(response.body.pendientes_reintento.length, 0);
+  assert.strictEqual(supabase.updates.length, 2, 'hace un unico reintento local');
+  assert(!/[\uD800-\uDFFF]/.test(supabase.updates[1].resumen_borrador));
 });
 
 test('6. prefiltro de revision registra review_prefilter sin borrar taxonomia', async () => {
