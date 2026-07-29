@@ -46,6 +46,7 @@ const {
 } = require('./digestOutbox');
 const {
   actualizarDigestAttemptPorDigest,
+  esDigestAttemptTerminalActual,
   registrarDigestAttempt,
 } = require('../mia/digestAttempts');
 const {
@@ -485,7 +486,7 @@ module.exports = function digestRoutes(app, supabase) {
       if (!force) {
         const { data: attemptsTerminales, error: errAttemptsTerminales } = await supabase
           .from('digest_attempts')
-          .select('user_id, status')
+          .select('user_id, status, metadata_json')
           .eq('fecha', hoy)
           .in('status', estadosAttemptTerminales);
 
@@ -493,7 +494,11 @@ module.exports = function digestRoutes(app, supabase) {
           return res.status(500).json({ error: errAttemptsTerminales.message });
         }
 
-        usuariosAttemptTerminal = new Set((attemptsTerminales || []).map((attempt) => attempt.user_id));
+        usuariosAttemptTerminal = new Set(
+          (attemptsTerminales || [])
+            .filter(esDigestAttemptTerminalActual)
+            .map((attempt) => attempt.user_id)
+        );
       }
 
       const usuariosPendientes = usuarios.filter((user) => {

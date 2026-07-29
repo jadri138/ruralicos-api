@@ -65,6 +65,11 @@ Con `DIGEST_VIA_OUTBOX=true`, `/enviar-digest` crea una entrada en `mia_outbox`;
 - delay anti-spam;
 - relación con los elementos realmente enviados.
 
+Cada intento guarda además `decision_version`. Cuando cambia de forma material
+el motor de filtros o la validación, una versión nueva reabre una sola vez los
+intentos `no_send`/`failed` creados por la versión anterior. Los digests ya
+generados o enviados siguen siendo inmutables: una reparación nunca los duplica.
+
 ## Explicabilidad
 
 `digest_attempts`, `digest_items` y `digest_candidate_decisions` permiten contestar:

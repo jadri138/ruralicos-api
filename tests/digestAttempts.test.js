@@ -3,8 +3,10 @@ const fs = require('fs');
 const path = require('path');
 
 const {
+  DIGEST_DECISION_VERSION,
   actualizarDigestAttemptPorDigest,
   construirDigestAttemptRow,
+  esDigestAttemptTerminalActual,
   registrarDigestAttempt,
   seleccionarDigestAttemptCanonico,
 } = require('../src/modules/mia/digestAttempts');
@@ -70,7 +72,25 @@ test('normaliza fila de auditoria de digest', () => {
   assert.strictEqual(row.status, 'generated');
   assert.strictEqual(row.total_alertas_dia, 2);
   assert.strictEqual(row.digest_id, 77);
-  assert.deepStrictEqual(row.metadata_json, { tipo: 'suave' });
+  assert.deepStrictEqual(row.metadata_json, {
+    tipo: 'suave',
+    decision_version: DIGEST_DECISION_VERSION,
+  });
+});
+
+test('solo reabre no-envios producidos por una version anterior', () => {
+  assert.strictEqual(esDigestAttemptTerminalActual({
+    status: 'no_send',
+    metadata_json: { decision_version: 'digest_decision_v3' },
+  }), false);
+  assert.strictEqual(esDigestAttemptTerminalActual({
+    status: 'no_send',
+    metadata_json: { decision_version: DIGEST_DECISION_VERSION },
+  }), true);
+  assert.strictEqual(esDigestAttemptTerminalActual({
+    status: 'sent',
+    metadata_json: { decision_version: 'digest_decision_v1' },
+  }), true, 'un envio real nunca se reabre por un cambio de version');
 });
 
 test('un re-registro parcial no incluye columnas de embudo no pasadas (no machaca generated)', () => {
@@ -228,6 +248,7 @@ test('digest implementa rescate semanal y auditoria de no-envios', () => {
 
   assert(source.includes("const PREPARAR_DIGEST_BATCH_SIZE = numeroConfig('PREPARAR_DIGEST_BATCH_SIZE', 1"), 'El batch debe caber dentro del timeout de Render');
   assert(source.includes(".in('status', estadosAttemptTerminales)"), 'Debe omitir usuarios ya resueltos en lotes anteriores');
+  assert(source.includes('.filter(esDigestAttemptTerminalActual)'), 'Debe reabrir no-envios de una version anterior');
   assert(source.includes('usuarios_evaluados_batch: usuariosEvaluados'), 'El progreso debe contar usuarios evaluados, tengan o no digest');
   assert(source.includes('DIGEST_RESCUE_AFTER_DAYS'), 'Debe existir umbral de rescate semanal');
   assert(source.includes('generarMensajeDigestRescate'), 'Debe existir mensaje de rescate');

@@ -1,3 +1,15 @@
+// Versiona la decision completa del digest, no solo el esquema de la fila.
+// Al cambiar filtros/validadores, subir esta version permite reevaluar una vez
+// los no-envios antiguos sin tocar digests ya generados o enviados.
+const DIGEST_DECISION_VERSION = 'digest_decision_v4';
+
+const ESTADOS_TERMINALES_INMUTABLES = new Set([
+  'generated',
+  'rescued',
+  'sent',
+  'skipped_existing',
+]);
+
 function normalizarEntero(value, fallback = 0) {
   const number = Number(value);
   return Number.isFinite(number) && number >= 0 ? Math.floor(number) : fallback;
@@ -56,9 +68,11 @@ function construirDigestAttemptRow(input = {}) {
   incluirEntero('alertas_finales', 'alertas_finales', 'alertasFinales');
   incluirTexto('motivo_no_envio', 240, 'motivo_no_envio', 'motivoNoEnvio');
   incluirTexto('error_msg', 800, 'error_msg', 'errorMsg');
-  if (input.metadata_json !== undefined || input.metadata !== undefined) {
-    row.metadata_json = normalizarJson(input.metadata_json || input.metadata);
-  }
+  const metadata = normalizarJson(input.metadata_json || input.metadata);
+  row.metadata_json = {
+    ...metadata,
+    decision_version: DIGEST_DECISION_VERSION,
+  };
 
   const organizationId = input.organization_id ?? input.organizationId;
   if (organizationId !== undefined && organizationId !== null && organizationId !== '') {
@@ -71,6 +85,13 @@ function construirDigestAttemptRow(input = {}) {
   }
 
   return row;
+}
+
+function esDigestAttemptTerminalActual(attempt = {}) {
+  const status = normalizarTexto(attempt.status, 60);
+  if (ESTADOS_TERMINALES_INMUTABLES.has(status)) return true;
+  if (!['no_send', 'failed'].includes(status)) return false;
+  return attempt.metadata_json?.decision_version === DIGEST_DECISION_VERSION;
 }
 
 async function registrarDigestAttempt(supabase, input = {}) {
@@ -178,8 +199,10 @@ async function actualizarDigestAttemptPorDigest(supabase, digestId, patch = {}) 
 }
 
 module.exports = {
+  DIGEST_DECISION_VERSION,
   actualizarDigestAttemptPorDigest,
   construirDigestAttemptRow,
+  esDigestAttemptTerminalActual,
   registrarDigestAttempt,
   seleccionarDigestAttemptCanonico,
 };
