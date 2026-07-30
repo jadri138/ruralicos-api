@@ -62,6 +62,43 @@ assert(antibioticos.taxonomy_validation.topic_validation.repairs.length >= 3);
 assert(!antibioticos.taxonomy_tags.includes('subsector:olivar'));
 assert(!antibioticos.taxonomy_tags.includes('tipo:fiscalidad'));
 
+const controlLechero = normalizarClasificacionCanonica({
+  titulo: 'Subvenciones para el control lechero oficial',
+  contenido: [
+    'Ayudas destinadas a entidades de control lechero y asociaciones de criadores.',
+    'El programa comprende las especies bovina, ovina y caprina.',
+  ].join(' '),
+}, {
+  sectores: ['agricultura'],
+  subsectores: ['trigo', 'cereal', 'olivar', 'patata'],
+  tipos_alerta: ['ayudas_subvenciones', 'normativa_general', 'formacion'],
+});
+assert.deepStrictEqual(controlLechero.sectores, ['ganaderia']);
+assert.deepStrictEqual(controlLechero.subsectores, ['vacuno', 'ovino', 'caprino']);
+assert(!controlLechero.tipos_alerta.includes('sanidad_animal'), 'control lechero no se convierte en sanidad si el texto no lo afirma');
+assert(!controlLechero.taxonomy_tags.includes('sector:agricultura'));
+assert(controlLechero.taxonomy_tags.includes('sector:ganaderia'));
+assert(controlLechero.taxonomy_tags.includes('subsector:vacuno'));
+
+const controlLecheroConCabeceraInstitucional = normalizarClasificacionCanonica({
+  titulo: 'Extracto de ayudas al control del rendimiento lechero',
+  contenido: [
+    'Consejería de Agricultura, Ganadería, Medio Rural y Política Ambiental.',
+    'Convocatoria destinada a entidades autorizadas y asociaciones de criadores',
+    'que realizan el control oficial del rendimiento lechero.',
+  ].join(' '),
+}, {
+  sectores: ['agricultura'],
+  subsectores: ['trigo', 'cereal', 'frutales', 'olivar'],
+  tipos_alerta: ['ayudas_subvenciones', 'normativa_general'],
+});
+assert.deepStrictEqual(
+  controlLecheroConCabeceraInstitucional.sectores,
+  ['ganaderia'],
+  'la palabra institucional agricultura no debe pesar mas que la materia ganadera concreta'
+);
+assert.deepStrictEqual(controlLecheroConCabeceraInstitucional.subsectores, []);
+
 const fiscalGanadero = normalizarClasificacionCanonica({
   titulo: 'Deducción fiscal en el IRPF para explotaciones ganaderas',
   contenido: 'Se regula una deducción fiscal del IRPF aplicable a titulares de explotaciones ganaderas.',

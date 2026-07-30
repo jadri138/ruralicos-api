@@ -26,6 +26,7 @@ function construirRespuestaBopz(docs = [], stats = {}, fuente = 'BOPZ') {
     ...stats,
     scrape_state: diagnostics.state,
     scrape_warning_count: warningCount,
+    source_coverage_complete: diagnostics.source_coverage_complete !== false,
     scrape_diagnostics: diagnostics,
     mensaje: docs.length === 0
       ? `No hay boletin ${fuente} para la fecha objetivo (sin publicacion o festivo)`
@@ -46,6 +47,7 @@ function construirErrorBopz(error) {
       scrape_state: classified.state,
       errores: 1,
       retryable: false,
+      source_coverage_complete: false,
       scrape_diagnostics: error.scrape_diagnostics || null,
     },
   };

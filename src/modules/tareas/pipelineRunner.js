@@ -275,7 +275,20 @@ async function ejecutarPipelineTick(supabase, opcionesTick = {}) {
     };
   }
 
-  const claimed = await store.reclamar({ job, tickId, staleMs, now: new Date(ahora()) });
+  const stagesAntesDelClaim = construirStagesPipeline(job.options_json || jobOptions);
+  const stagesStateAntesDelClaim = job.stages_json || {};
+  const primeraPendienteAntesDelClaim = stagesAntesDelClaim.find(
+    (stage) => ![STAGE_COMPLETED, STAGE_SKIPPED, STAGE_SHADOW_SKIPPED]
+      .includes((stagesStateAntesDelClaim[stage.name] || {}).status)
+  );
+  const initialStageAtClaim = job.current_stage || primeraPendienteAntesDelClaim?.name || null;
+  const claimed = await store.reclamar({
+    job,
+    tickId,
+    staleMs,
+    initialStage: initialStageAtClaim,
+    now: new Date(ahora()),
+  });
   if (!claimed) {
     return {
       ok: true,
@@ -321,7 +334,7 @@ async function ejecutarPipelineTick(supabase, opcionesTick = {}) {
     const primeraPendiente = stages.find(
       (s) => ![STAGE_COMPLETED, STAGE_SKIPPED, STAGE_SHADOW_SKIPPED].includes((stagesState[s.name] || {}).status)
     );
-    const initialStage = primeraPendiente ? primeraPendiente.name : null;
+    const initialStage = claimed.current_stage || primeraPendiente?.name || null;
     opcionesJob = actualizarEventoRecuperacion(opcionesJob, tickId, { initial_stage: initialStage });
     claimed.options_json = opcionesJob;
     await checkpoint(initialStage, { options_json: opcionesJob });

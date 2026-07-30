@@ -63,6 +63,17 @@ Orden conceptual:
 
 Una señal aprendida puede mejorar el orden, pero no anula geografía, seguridad, exclusiones explícitas ni evidencia.
 
+## Resumen FREE
+
+`alertasFree.routes.js` no resume todas las alertas listas. Antes de llamar a la
+IA exige sector rural demostrado e impacto práctico (ayuda, plazo, sanidad,
+obligación, emergencia o regadío), descarta ruido administrativo, elimina URLs
+duplicadas, diversifica fuentes y limita la entrada a ocho avisos. La salida
+solo puede usar las URLs recibidas y nombra su fuente real (BOE, boletín
+autonómico o provincial). Si la IA falla o rompe el contrato, se genera un
+mensaje local seguro; un resumen antiguo con formato o candidatos no válidos no
+se envía.
+
 ## Política de selección
 
 `alertSelectionEngine.js` mantiene la política por defecto: umbrales de inclusión/revisión, calidad mínima, objetivo y máximo de elementos, diversidad por fuente/tipo y límite de anuncios individuales. El resultado incluye:

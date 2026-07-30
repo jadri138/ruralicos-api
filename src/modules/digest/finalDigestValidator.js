@@ -206,17 +206,35 @@ function matchTaxonomicoRespaldado(decision = {}, sheet = {}) {
       : (trace[singular] ? [trace[singular]] : []);
     return [...new Set(values.map(normalizarTexto).filter(Boolean))];
   };
-  const axisCandidates = [
-    valoresTrace('sector_matches', 'sector_match').map((value) => `sector:${value}`),
-    valoresTrace('subsector_matches', 'subsector_match').map((value) => `subsector:${value}`),
-    valoresTrace('type_matches', 'type_match').map((value) => `tipo:${value}`),
-  ].filter((axis) => axis.length > 0);
+  const sectorAxis = valoresTrace('sector_matches', 'sector_match')
+    .map((value) => `sector:${value}`);
+  const subsectorAxis = valoresTrace('subsector_matches', 'subsector_match')
+    .map((value) => `subsector:${value}`);
+  const typeAxis = valoresTrace('type_matches', 'type_match')
+    .map((value) => `tipo:${value}`);
+  const hasAnyAxis = sectorAxis.length + subsectorAxis.length + typeAxis.length > 0;
+  if (!hasAnyAxis) return false;
 
-  // Cada eje que hizo posible la seleccion debe estar demostrado. Dentro de un
-  // mismo eje basta una coincidencia real: el perfil puede tener varios sectores
-  // o tipos activos y el orden de esos valores no debe bloquear una alerta valida.
-  return axisCandidates.length > 0 &&
-    axisCandidates.every((axis) => axis.some((tag) => evidenceTags.has(tag)));
+  const sectorSupported = sectorAxis.some((tag) => evidenceTags.has(tag));
+  const subsectorSupported = subsectorAxis.some((tag) => evidenceTags.has(tag));
+  const typeSupported = typeAxis.some((tag) => evidenceTags.has(tag));
+  const evidencedSubsectors = [...evidenceTags]
+    .filter((tag) => tag.startsWith('subsector:'));
+
+  // Una publicacion sectorial general (por ejemplo PAC) no tiene que enumerar
+  // cada cultivo del perfil si sector y tipo estan documentados. En cambio, si
+  // el documento identifica otra especie/subsector concreto, la discrepancia
+  // sigue bloqueando (p. ej. curso porcino para un perfil exclusivamente vacuno).
+  const explicitSubsectorConflict = subsectorAxis.length > 0 &&
+    evidencedSubsectors.length > 0 &&
+    !subsectorSupported;
+  if (explicitSubsectorConflict) return false;
+
+  const hasDomainAxis = sectorAxis.length > 0 || subsectorAxis.length > 0;
+  if (hasDomainAxis && !sectorSupported && !subsectorSupported) return false;
+  if (typeAxis.length > 0 && !typeSupported) return false;
+
+  return true;
 }
 
 const NATIONAL_SCOPE_PATTERN = /\b(nacional|estatal|espana|todo el territorio|ambito estatal|ambito nacional)\b/;

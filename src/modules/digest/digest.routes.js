@@ -134,6 +134,7 @@ const {
   preseleccionarAlertasConFactSheet,
   guardarFactSheetsDigestShadow,
   filtrarAlertasPorValidacionFinalDigest,
+  alertasReintentablesPorTextoAusente,
   validacionReintentablePorTextoAusente,
   filtrarAlertasEnviablesAutomaticamente,
   resumirSeleccionDigest,
@@ -217,7 +218,9 @@ function decisionesValidacionFinal(alertas = [], validation = null) {
     return {
       id: alerta.id,
       action: item.status === 'send' ? 'include' : (item.status || 'blocked'),
-      motivo: item.reasons?.[0]?.code || item.flags?.[0] || 'final_validation_missing',
+      motivo: item.reasons?.[0]?.code ||
+        item.flags?.[0] ||
+        (item.status === 'send' ? 'final_validation_send' : 'final_validation_missing'),
       status: item.status || 'missing',
       flags: item.flags || [],
       reasons: item.reasons || [],
@@ -861,6 +864,7 @@ module.exports = function digestRoutes(app, supabase) {
         const maxAlertasTrasFactSheet = modoRescate
           ? Math.min(DIGEST_RESCUE_MAX_ALERTAS, maxAlertasUsuario)
           : maxAlertasUsuario;
+        const candidatasFactSheet = [...alertasFinales];
         const preseleccionFactSheet = await preseleccionarAlertasConFactSheet({
           supabase,
           alertas: alertasFinales,
@@ -868,6 +872,12 @@ module.exports = function digestRoutes(app, supabase) {
           organizationId,
         });
         alertasFinales = preseleccionFactSheet.alertas;
+        let reservasFactSheet = candidatasFactSheet.filter((alerta) =>
+          preseleccionFactSheet.decisions.some((decision) =>
+            String(decision.id) === String(alerta.id) &&
+            decision.motivo === 'fact_sheet_backfill_not_needed'
+          )
+        );
         await registrarDigestCandidateDecisions(supabase, {
           userId: user.id,
           organizationId,
@@ -945,6 +955,84 @@ module.exports = function digestRoutes(app, supabase) {
               null,
           })),
         });
+
+        const obtenerBackfillValidacionFinal = async (limit = 0) => {
+          const objetivo = Math.max(0, Number(limit) || 0);
+          if (objetivo === 0 || reservasFactSheet.length === 0) return [];
+
+          const candidatasReserva = reservasFactSheet;
+          const preseleccionReserva = await preseleccionarAlertasConFactSheet({
+            supabase,
+            alertas: candidatasReserva,
+            maxItems: objetivo,
+            organizationId,
+          });
+          const evaluadasIds = new Set(
+            preseleccionReserva.decisions
+              .filter((decision) => decision.motivo !== 'fact_sheet_backfill_not_needed')
+              .map((decision) => String(decision.id))
+          );
+          reservasFactSheet = candidatasReserva.filter((alerta) =>
+            !evaluadasIds.has(String(alerta.id))
+          );
+          await registrarDigestCandidateDecisions(supabase, {
+            userId: user.id,
+            organizationId,
+            fecha: hoy,
+            kind: attemptKind,
+            stage: 'final_validation_backfill',
+            digestAttemptId,
+            decisions: preseleccionReserva.decisions,
+            metadata: {
+              ...preseleccionReserva.diagnostics,
+              reason: 'replace_final_validation_rejection',
+            },
+          });
+          for (const warning of preseleccionReserva.warnings) {
+            errores.push({ userId: user.id, ...warning });
+          }
+
+          const preparadas = prepararAlertasFinalesDigest(
+            preseleccionReserva.alertas,
+            userConPerfilMIA,
+            { origenDigest, modoRescate, fecha: hoy }
+          );
+          const { enviables, retenidas } = filtrarAlertasEnviablesAutomaticamente(preparadas);
+          if (retenidas.length > 0) {
+            errores.push({
+              userId: user.id,
+              warning: 'final_validation_backfill_retained',
+              total: retenidas.length,
+            });
+          }
+          await registrarDigestCandidateDecisions(supabase, {
+            userId: user.id,
+            organizationId,
+            fecha: hoy,
+            kind: attemptKind,
+            stage: 'auto_send_gate',
+            digestAttemptId,
+            decisions: preparadas.map((alerta) => ({
+              id: alerta.id,
+              action: enviables.some((item) => String(item.id) === String(alerta.id))
+                ? 'include'
+                : 'blocked',
+              motivo: enviables.some((item) => String(item.id) === String(alerta.id))
+                ? 'final_validation_backfill_gate_passed'
+                : 'final_validation_backfill_retained',
+              selection_decision: alerta.decision_digest || null,
+              match_trace: alerta.decision_digest?.match_trace ||
+                alerta.decision_digest?.diagnostico?.match_trace ||
+                null,
+            })),
+            metadata: { final_validation_backfill: true },
+          });
+          return enviables;
+        };
+
+        if (alertasFinales.length === 0) {
+          alertasFinales = await obtenerBackfillValidacionFinal(maxAlertasTrasFactSheet);
+        }
 
         if (alertasFinales.length === 0) {
           await registrarDigestAttempt(supabase, {
@@ -1140,10 +1228,30 @@ module.exports = function digestRoutes(app, supabase) {
               });
               finalValidationEnforcement = {
                 ...finalValidationEnforcement,
-                aceptadas: alertasFinales,
-                retry_all_with_fallback: true,
+                aceptadas: alertasReintentablesPorTextoAusente(finalValidationEnforcement),
+                retry_items_with_fallback: true,
               };
-            } else if (finalValidationEnforcement.aceptadas.length === 0) {
+            }
+
+            const huecosBackfill = Math.max(
+              0,
+              maxAlertasTrasFactSheet - finalValidationEnforcement.aceptadas.length
+            );
+            if (finalValidationEnforcement.rechazadas.length > 0 && huecosBackfill > 0) {
+              const backfillFinal = await obtenerBackfillValidacionFinal(huecosBackfill);
+              if (backfillFinal.length > 0) {
+                finalValidationEnforcement = {
+                  ...finalValidationEnforcement,
+                  aceptadas: fusionarAlertasUnicas(
+                    finalValidationEnforcement.aceptadas,
+                    backfillFinal
+                  ).slice(0, maxAlertasTrasFactSheet),
+                  final_validation_backfill: backfillFinal.length,
+                };
+              }
+            }
+
+            if (finalValidationEnforcement.aceptadas.length === 0) {
               await registrarDigestAttempt(supabase, {
                 userId: user.id,
                 fecha: hoy,
@@ -1263,24 +1371,100 @@ module.exports = function digestRoutes(app, supabase) {
               }
 
               if (finalValidationEnforcement.rechazadas.length > 0) {
-                await registrarDigestAttempt(supabase, {
+                // El mensaje regenerado aun contenia items rechazados. No se
+                // pierde lo que si paso: se vuelve a renderizar solo el
+                // subconjunto aceptado y se valida una ultima vez.
+                alertasFinales = finalValidationEnforcement.aceptadas;
+                mensajeRaw = modoRescate
+                  ? generarMensajeDigestRescate({
+                    user: userConPerfilMIA,
+                    alertas: alertasFinales,
+                    fecha: hoy,
+                    desde: modoRescate.desde,
+                    tipo: modoRescate.tipo,
+                    organizationContext,
+                  })
+                  : generarMensajeDigestFallback({
+                    user: userConPerfilMIA,
+                    alertas: alertasFinales,
+                    fecha: hoy,
+                    organizationContext,
+                  });
+                mensaje = anadirInstruccionFeedback(
+                  aplicarTextoObligatorio(mensajeRaw, user.preferencias_extra),
+                  alertasFinales
+                );
+                const cleanupShadow = await prepararValidacionFinalDigestShadow({
+                  supabase,
+                  mensaje: mensaje.trim(),
+                  alertas: alertasFinales,
+                  user: userConPerfilMIA,
+                  organizationId,
+                });
+                alertasFinales = cleanupShadow.alertas;
+                finalValidationShadow = cleanupShadow.validation;
+                await registrarDigestCandidateDecisions(supabase, {
                   userId: user.id,
+                  organizationId,
                   fecha: hoy,
                   kind: attemptKind,
-                  status: 'no_send',
-                  ...funnelActual(0),
-                  motivoNoEnvio: 'final_validation_unstable_after_regeneration',
+                  stage: 'final_validation',
+                  digestAttemptId,
+                  decisions: decisionesValidacionFinal(alertasFinales, finalValidationShadow),
                   metadata: {
-                    plan: plan.nombre,
-                    origen: origenDigest,
-                    rescate: modoRescate,
-                    final_validation: resumirValidacionFinalDigest(finalValidationShadow),
-                    final_validation_enforcement: finalValidationEnforcement.summary,
+                    enforcement_enabled: true,
+                    enforcement_mode: DIGEST_FINAL_VALIDATION_MODE,
+                    regenerated: true,
+                    cleanup_accepted_only: true,
                   },
                 });
-                sinAlertas++;
-                console.log(`[digest] User ${user.id} -> validacion final inestable tras regenerar -> sin digest`);
-                continue;
+                finalValidationEnforcement = filtrarAlertasPorValidacionFinalDigest(
+                  alertasFinales,
+                  finalValidationShadow,
+                  {
+                    mode: DIGEST_FINAL_VALIDATION_MODE,
+                    context: modoRescate ? 'rescue' : 'automatic_daily',
+                  }
+                );
+                await registrarDigestCandidateDecisions(supabase, {
+                  userId: user.id,
+                  organizationId,
+                  fecha: hoy,
+                  kind: attemptKind,
+                  stage: 'effective_send_gate',
+                  digestAttemptId,
+                  decisions: decisionesGateEfectivo(finalValidationEnforcement),
+                  metadata: {
+                    enforcement_enabled: true,
+                    enforcement_mode: 'enforce',
+                    gate_version: finalValidationEnforcement.summary.gate_version,
+                    regenerated: true,
+                    cleanup_accepted_only: true,
+                  },
+                });
+                if (
+                  finalValidationEnforcement.aceptadas.length === 0 ||
+                  finalValidationEnforcement.rechazadas.length > 0
+                ) {
+                  await registrarDigestAttempt(supabase, {
+                    userId: user.id,
+                    fecha: hoy,
+                    kind: attemptKind,
+                    status: 'no_send',
+                    ...funnelActual(0),
+                    motivoNoEnvio: 'final_validation_unstable_after_regeneration',
+                    metadata: {
+                      plan: plan.nombre,
+                      origen: origenDigest,
+                      rescate: modoRescate,
+                      final_validation: resumirValidacionFinalDigest(finalValidationShadow),
+                      final_validation_enforcement: finalValidationEnforcement.summary,
+                    },
+                  });
+                  sinAlertas++;
+                  console.log(`[digest] User ${user.id} -> validacion final inestable tras limpieza -> sin digest`);
+                  continue;
+                }
               }
 
               alertasFinales = finalValidationEnforcement.aceptadas;

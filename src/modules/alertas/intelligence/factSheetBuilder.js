@@ -33,7 +33,8 @@ const SECTOR_ALIASES = {
   ganaderia: [
     'ganaderia', 'ganadero', 'ganadera', 'ganaderas', 'ganaderos',
     'vacuno', 'ovino', 'caprino', 'porcino', 'avicola', 'apicola', 'apicultura',
-    'bienestar animal', 'sanidad animal', 'cabaña ganadera',
+    'bienestar animal', 'sanidad animal', 'cabaña ganadera', 'criador', 'criadores',
+    'rendimiento lechero', 'produccion lechera', 'sector lechero',
   ],
   pesca: ['pesca', 'pesquero', 'pesquera', 'acuicultura', 'maritimo', 'maritima'],
 };

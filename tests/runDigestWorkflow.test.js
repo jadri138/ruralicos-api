@@ -24,6 +24,15 @@ function test(name, fn) {
 
 console.log('\n=== TESTS: run digest workflow script ===\n');
 
+test('el comando historico usa el pipeline reanudable por defecto', () => {
+  assert(
+    script.includes('mainPipelineDriver') &&
+    script.includes("appendQuery('/tareas/pipeline-tick'") &&
+    script.includes('ALLOW_LEGACY_DIGEST_WORKFLOW ? mainLegacy() : mainPipelineDriver()'),
+    'el cron historico debe conducir el job con checkpoints y reservar legacy para rescate'
+  );
+});
+
 test('el workflow diario ejecuta ingesta antes de IA y digest', () => {
   const scrapersIndex = script.indexOf("'/tareas/scrapers-diario'");
   const clasificarIndex = script.indexOf("'/alertas/clasificar'");

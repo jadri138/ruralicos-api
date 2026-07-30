@@ -19,6 +19,8 @@ const originalEnv = {
   BOPZ_HTML_ATTEMPTS: process.env.BOPZ_HTML_ATTEMPTS,
   BOPZ_RETRY_BACKOFF_MS: process.env.BOPZ_RETRY_BACKOFF_MS,
   BOPZ_MAX_DOCUMENTS: process.env.BOPZ_MAX_DOCUMENTS,
+  BOPZ_TOTAL_BUDGET_MS: process.env.BOPZ_TOTAL_BUDGET_MS,
+  BOPZ_INDEX_TOTAL_BUDGET_MS: process.env.BOPZ_INDEX_TOTAL_BUDGET_MS,
 };
 
 function response(html) {
@@ -89,6 +91,8 @@ async function expectRejectCode(promise, code) {
   assert.strictEqual(timeoutResponse.status, 504);
   assert.strictEqual(timeoutResponse.body.scrape_state, 'timeout');
   assert.strictEqual(timeoutResponse.body.retryable, false, 'no duplica fuera los retries internos agotados');
+  assert.strictEqual(timeoutResponse.body.source_coverage_complete, false);
+  assert.strictEqual(totalTimeout.scrape_diagnostics.source_coverage_complete, false);
   assert.strictEqual(
     evaluarRespuestaScraper({ responseOk: false, httpStatus: 504, body: timeoutResponse.body }).severity,
     'error'
@@ -136,6 +140,7 @@ async function expectRejectCode(promise, code) {
     errores: 0,
   });
   assert.strictEqual(limitedBody.scrape_state, 'partial_recovery');
+  assert.strictEqual(limitedBody.source_coverage_complete, false);
   assert.strictEqual(
     evaluarRespuestaScraper({ responseOk: true, body: limitedBody }).severity,
     'warning',

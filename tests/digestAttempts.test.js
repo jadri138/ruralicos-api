@@ -81,6 +81,10 @@ test('normaliza fila de auditoria de digest', () => {
 test('solo reabre no-envios producidos por una version anterior', () => {
   assert.strictEqual(esDigestAttemptTerminalActual({
     status: 'no_send',
+    metadata_json: { decision_version: 'digest_decision_v6' },
+  }), false, 'el despliegue reevalua una vez los bloqueos de la politica anterior');
+  assert.strictEqual(esDigestAttemptTerminalActual({
+    status: 'no_send',
     metadata_json: { decision_version: 'digest_decision_v3' },
   }), false);
   assert.strictEqual(esDigestAttemptTerminalActual({
@@ -259,6 +263,10 @@ test('digest implementa rescate semanal y auditoria de no-envios', () => {
   assert(source.includes('contexto_mia_digest'), 'El digest debe guardar explicacion interna por alerta');
   assert(source.includes('final_validation_no_send'), 'El digest debe auditar no-envios por validacion final');
   assert(source.includes('final_validation_enforcement'), 'El digest debe guardar resumen de enforcement final');
+  assert(source.includes("stage: 'final_validation_backfill'"), 'La validacion final debe reponer huecos con reservas');
+  assert(source.includes('alertasReintentablesPorTextoAusente'), 'Un item sin bloque de texto debe reintentarse sin recuperar descartes reales');
+  assert(source.includes('cleanup_accepted_only'), 'Un rechazo parcial debe conservar y volver a validar los items aceptados');
+  assert(source.includes("'final_validation_send'"), 'Un envio validado debe registrar una causa positiva y no un falso missing');
   assert(source.includes('agruparAlertasDigest'), 'El digest debe agrupar alertas por tipo');
   assert(source.includes('construirPreviewDigestUsuario'), 'Debe existir preview de digest sin escrituras');
   assert(source.includes("app.get('/alertas/preview-digest'"), 'Debe existir endpoint GET de preview seguro');

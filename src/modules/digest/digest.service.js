@@ -1840,15 +1840,34 @@ function filtrarAlertasPorValidacionFinalDigest(
   };
 }
 
+function alertasReintentablesPorTextoAusente(enforcement = null) {
+  const aceptadas = Array.isArray(enforcement?.aceptadas)
+    ? enforcement.aceptadas
+    : [];
+  const rechazadas = Array.isArray(enforcement?.rechazadas)
+    ? enforcement.rechazadas
+    : [];
+  const reintentables = rechazadas
+    .filter((item) =>
+      Array.isArray(item.flags) && item.flags.includes('item_text_missing')
+    )
+    .map((item) => item.alerta)
+    .filter(Boolean);
+  const byId = new Map();
+  for (const alerta of [...aceptadas, ...reintentables]) {
+    const key = String(alerta?.id ?? alerta?.alerta_id ?? '');
+    if (key && !byId.has(key)) byId.set(key, alerta);
+  }
+  return [...byId.values()];
+}
+
 function validacionReintentablePorTextoAusente(enforcement = null) {
   const rechazadas = Array.isArray(enforcement?.rechazadas)
     ? enforcement.rechazadas
     : [];
-  return rechazadas.length > 0 &&
-    Number(enforcement?.aceptadas?.length || 0) === 0 &&
-    rechazadas.every((item) =>
-      Array.isArray(item.flags) && item.flags.includes('item_text_missing')
-    );
+  return rechazadas.some((item) =>
+    Array.isArray(item.flags) && item.flags.includes('item_text_missing')
+  );
 }
 
 function agruparAlertasDigest(alertas = []) {
@@ -3035,6 +3054,13 @@ async function construirPreviewDigestUsuario(supabase, {
         finalValidationShadow,
         { mode: DIGEST_FINAL_VALIDATION_MODE, context: 'preview' }
       );
+      if (validacionReintentablePorTextoAusente(finalValidationEnforcement)) {
+        finalValidationEnforcement = {
+          ...finalValidationEnforcement,
+          aceptadas: alertasReintentablesPorTextoAusente(finalValidationEnforcement),
+          retry_items_with_fallback: true,
+        };
+      }
       if (finalValidationEnforcement.aceptadas.length === 0) {
         alertasFinales = [];
         mensaje = null;
@@ -3078,16 +3104,69 @@ async function construirPreviewDigestUsuario(supabase, {
           finalValidationShadow,
           { mode: DIGEST_FINAL_VALIDATION_MODE, context: 'preview' }
         );
+        if (validacionReintentablePorTextoAusente(finalValidationEnforcement)) {
+          finalValidationEnforcement = {
+            ...finalValidationEnforcement,
+            aceptadas: alertasReintentablesPorTextoAusente(finalValidationEnforcement),
+            retry_items_with_fallback: true,
+          };
+        }
         if (finalValidationEnforcement.aceptadas.length === 0) {
           alertasFinales = [];
           mensaje = null;
           motivoNoEnvio = finalValidationEnforcement.motivo_no_envio || 'final_validation_no_send';
           generador = `${generador}_bloqueado_validacion_final`;
         } else if (finalValidationEnforcement.rechazadas.length > 0) {
-          alertasFinales = [];
-          mensaje = null;
-          motivoNoEnvio = 'final_validation_unstable_after_regeneration';
-          generador = `${generador}_bloqueado_validacion_final`;
+          // Conserva lo que sí ha pasado el control y vuelve a construir un
+          // mensaje que ya no contenga los items rechazados.
+          alertasFinales = finalValidationEnforcement.aceptadas;
+          mensajeRaw = modoRescate
+            ? generarMensajeDigestRescate({
+              user: userConPerfilMIA,
+              alertas: alertasFinales,
+              fecha,
+              desde: modoRescate.desde,
+              tipo: modoRescate.tipo,
+              organizationContext: organization,
+            })
+            : generarMensajeDigestFallback({
+              user: userConPerfilMIA,
+              alertas: alertasFinales,
+              fecha,
+              organizationContext: organization,
+            });
+          generador = `${generador}_cleanup_accepted_only`;
+          mensaje = anadirInstruccionFeedback(
+            aplicarTextoObligatorio(mensajeRaw, user.preferencias_extra),
+            alertasFinales
+          ).trim();
+
+          const cleanupShadow = await prepararValidacionFinalDigestShadow({
+            supabase,
+            mensaje,
+            alertas: alertasFinales,
+            user: userConPerfilMIA,
+            organizationId,
+          });
+          alertasFinales = cleanupShadow.alertas;
+          finalValidationShadow = cleanupShadow.validation;
+          finalValidationWarnings = [...finalValidationWarnings, ...cleanupShadow.warnings];
+          finalValidationEnforcement = filtrarAlertasPorValidacionFinalDigest(
+            alertasFinales,
+            finalValidationShadow,
+            { mode: DIGEST_FINAL_VALIDATION_MODE, context: 'preview' }
+          );
+          if (
+            finalValidationEnforcement.aceptadas.length === 0 ||
+            finalValidationEnforcement.rechazadas.length > 0
+          ) {
+            alertasFinales = [];
+            mensaje = null;
+            motivoNoEnvio = 'final_validation_unstable_after_regeneration';
+            generador = `${generador}_bloqueado_validacion_final`;
+          } else {
+            alertasFinales = finalValidationEnforcement.aceptadas;
+          }
         } else {
           alertasFinales = finalValidationEnforcement.aceptadas;
         }
@@ -3231,6 +3310,7 @@ module.exports = {
   guardarFactSheetsDigestShadow,
   motivosCriticosValidacionFinal,
   filtrarAlertasPorValidacionFinalDigest,
+  alertasReintentablesPorTextoAusente,
   validacionReintentablePorTextoAusente,
   agruparAlertasDigest,
   obtenerNombreCortoDigest,

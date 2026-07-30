@@ -234,11 +234,20 @@ async function obtenerDocumentosBopzConTexto(fechaISO, options = {}) {
   const env = options.env || process.env;
   const requestHtml = options.getHtml || getHtml;
   const bases = bopzBases(env).slice(0, enteroAcotado(env.BOPZ_MAX_ENDPOINTS, 3, 2, 5));
-  const indexTimeoutMs = enteroAcotado(env.BOPZ_HTML_TIMEOUT_MS, 3000, 1000, 8000);
-  const indexAttempts = enteroAcotado(env.BOPZ_HTML_ATTEMPTS, 2, 1, 3);
+  // El BOPZ responde con frecuencia despacio. Damos más margen a cada dominio,
+  // pero compartiendo un presupuesto duro inferior al timeout HTTP del pipeline:
+  // una fuente caída nunca puede bloquear el resto del procesamiento diario.
+  const scrapeStartedAtMs = Date.now();
+  const totalBudgetMs = enteroAcotado(env.BOPZ_TOTAL_BUDGET_MS, 14000, 8000, 17000);
+  const totalDeadlineMs = scrapeStartedAtMs + totalBudgetMs;
+  const indexTimeoutMs = enteroAcotado(env.BOPZ_HTML_TIMEOUT_MS, 5000, 1000, 10000);
+  const indexAttempts = enteroAcotado(env.BOPZ_HTML_ATTEMPTS, 1, 1, 3);
   const retryBackoffMs = enteroAcotado(env.BOPZ_RETRY_BACKOFF_MS, 500, 0, 5000);
-  const indexBudgetMs = enteroAcotado(env.BOPZ_INDEX_TOTAL_BUDGET_MS, 7500, 3000, 12000);
-  const indexDeadlineMs = Date.now() + indexBudgetMs;
+  const indexBudgetMs = Math.min(
+    enteroAcotado(env.BOPZ_INDEX_TOTAL_BUDGET_MS, 10000, 3000, 14000),
+    totalBudgetMs
+  );
+  const indexDeadlineMs = Math.min(totalDeadlineMs, scrapeStartedAtMs + indexBudgetMs);
 
   for (const candidateBase of bases) {
     try {
@@ -306,8 +315,11 @@ async function obtenerDocumentosBopzConTexto(fechaISO, options = {}) {
         split_connect_read_timeout_supported: false,
         index_timeout_ms: indexTimeoutMs,
         index_total_budget_ms: indexBudgetMs,
+        total_budget_ms: totalBudgetMs,
+        elapsed_ms: Date.now() - scrapeStartedAtMs,
         attempts_per_endpoint: indexAttempts,
         retry_backoff_ms: retryBackoffMs,
+        source_coverage_complete: false,
       }
     );
     console.error(`[BOPZ] Error operativo obteniendo el sumario/portada: ${error.message}`);
@@ -325,8 +337,10 @@ async function obtenerDocumentosBopzConTexto(fechaISO, options = {}) {
     split_connect_read_timeout_supported: false,
     index_timeout_ms: indexTimeoutMs,
     index_total_budget_ms: indexBudgetMs,
+    total_budget_ms: totalBudgetMs,
     attempts_per_endpoint: indexAttempts,
     retry_backoff_ms: retryBackoffMs,
+    source_coverage_complete: true,
   };
 
   if (candidatosDetectados.length === 0) {
@@ -356,8 +370,14 @@ async function obtenerDocumentosBopzConTexto(fechaISO, options = {}) {
   const candidatos = candidatosDetectados.slice(0, maxDocuments);
   const detailTimeoutMs = enteroAcotado(env.BOPZ_DETAIL_TIMEOUT_MS, 3000, 1000, 8000);
   const detailAttempts = enteroAcotado(env.BOPZ_DETAIL_ATTEMPTS, 2, 1, 3);
-  const detailBudgetMs = enteroAcotado(env.BOPZ_DETAIL_TOTAL_BUDGET_MS, 9500, 3000, 12000);
-  const detailDeadlineMs = Date.now() + detailBudgetMs;
+  const configuredDetailBudgetMs = enteroAcotado(
+    env.BOPZ_DETAIL_TOTAL_BUDGET_MS,
+    totalBudgetMs,
+    3000,
+    17000
+  );
+  const detailDeadlineMs = Math.min(totalDeadlineMs, Date.now() + configuredDetailBudgetMs);
+  const detailBudgetMs = Math.max(0, detailDeadlineMs - Date.now());
   let detailErrors = 0;
 
   // Captura bruta: se devuelven TODOS los detectados anotados con `_relevante`. Si
@@ -425,6 +445,9 @@ async function obtenerDocumentosBopzConTexto(fechaISO, options = {}) {
     detail_total_budget_ms: detailBudgetMs,
     detail_attempts: detailAttempts,
     detail_errors: detailErrors,
+    elapsed_ms: Date.now() - scrapeStartedAtMs,
+    source_coverage_complete: detailErrors === 0
+      && candidatosDetectados.length <= candidatos.length,
   });
 }
 

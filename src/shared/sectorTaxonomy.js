@@ -70,12 +70,24 @@ const SUBSECTORES_TRANSVERSALES = new Set([
   'fauna_silvestre',
 ]);
 
-const ANIMAL_HEALTH_EVIDENCE = /\b(?:sanidad\s+animal|zoosanitari|antibiotic|presvet|veterinari|epizooti|bioseguridad|bienestar\s+animal|enfermedad(?:es)?\s+animal(?:es)?|explotaciones?\s+ganaderas?)\b/;
-const PLANT_HEALTH_EVIDENCE = /\b(?:sanidad\s+vegetal|fitosanitari|plagas?\s+(?:agricolas?|vegetales?)|enfermedad(?:es)?\s+(?:de\s+los?\s+)?cultivos?|organismos?\s+nocivos?\s+vegetales?)\b/;
-const LIVESTOCK_EVIDENCE = /\b(?:ganader|explotaciones?\s+ganaderas?|porcin|vacun|bovin|ovin|caprin|avicul|cunic|equin|apicult\w*|apicol\w*|abejas?|veterinari|animal(?:es)?)\b/;
-const AGRICULTURE_EVIDENCE = /\b(?:agricultur|agricol|explotaciones?\s+agricolas?|cultivos?|trigo|cebada|cereal|maiz|arroz|hortaliz|frutal|olivar|vined|almendr|patata|citric|leguminos|semillas?|viveros?)\b/;
+const ANIMAL_HEALTH_EVIDENCE = /\b(?:sanidad\s+animal|zoosanitari\w*|antibiotic\w*|presvet|veterinari\w*|epizooti\w*|bioseguridad|bienestar\s+animal|enfermedad(?:es)?\s+animal(?:es)?|explotaciones?\s+ganaderas?)\b/;
+const PLANT_HEALTH_EVIDENCE = /\b(?:sanidad\s+vegetal|fitosanitari\w*|plagas?\s+(?:agricolas?|vegetales?)|enfermedad(?:es)?\s+(?:de\s+los?\s+)?cultivos?|organismos?\s+nocivos?\s+vegetales?)\b/;
+const LIVESTOCK_EVIDENCE = /\b(?:ganader\w*|explotaciones?\s+ganaderas?|criadores?|rendimiento\s+lechero|produccion\s+lechera|sector\s+lechero|porcin\w*|vacunos?|bovin\w*|ovin\w*|caprin\w*|avicul\w*|cunic\w*|equin\w*|apicult\w*|apicol\w*|abejas?|veterinari\w*|animal(?:es)?)\b/;
+const AGRICULTURE_EVIDENCE = /\b(?:agricultur\w*|agricol\w*|explotaciones?\s+agricolas?|cultivos?|trigo|cebada|cereal(?:es)?|maiz|arroz|hortaliz\w*|frutal\w*|olivar|vined\w*|almendr\w*|patata|citric\w*|leguminos\w*|semillas?|viveros?)\b/;
+const LIVESTOCK_SPECIFIC_EVIDENCE = /\b(?:ganader\w*|explotaciones?\s+ganaderas?|criadores?|rendimiento\s+lechero|produccion\s+lechera|sector\s+lechero|porcin\w*|vacunos?|bovin\w*|ovin\w*|caprin\w*|avicul\w*|cunic\w*|equin\w*|apicult\w*|apicol\w*|abejas?|veterinari\w*)\b/;
+const AGRICULTURE_SPECIFIC_EVIDENCE = /\b(?:explotaciones?\s+agricolas?|cultivos?|trigo|cebada|cereal(?:es)?|maiz|arroz|hortaliz\w*|frutal\w*|olivar|vined\w*|almendr\w*|patata|citric\w*|leguminos\w*|semillas?|viveros?)\b/;
 const FISCAL_EVIDENCE = /\b(?:irpf|iva|tributaci|tributari|modulos?|impuestos?|deducci(?:o|ó)n\s+fiscal|regimen\s+fiscal|r[ée]gimen\s+fiscal)\b/;
-const WATER_EVIDENCE = /\b(?:agua|riego|regadio|regantes?|hidric|concesion\s+de\s+aguas?|aprovechamiento\s+de\s+aguas?)\b/;
+const WATER_EVIDENCE = /\b(?:agua|riego|regadio|regantes?|hidric\w*|concesion\s+de\s+aguas?|aprovechamiento\s+de\s+aguas?)\b/;
+const LIVESTOCK_SUBSECTOR_EVIDENCE_RULES = Object.freeze([
+  ['vacuno', /\b(?:bovin\w*|ganado\s+vacuno|vacunos?)\b/],
+  ['ovino', /\b(?:ovin\w*|ganado\s+ovino)\b/],
+  ['caprino', /\b(?:caprin\w*|ganado\s+caprino)\b/],
+  ['porcino', /\b(?:porcin\w*|ganado\s+porcino)\b/],
+  ['avicultura', /\b(?:avicultur\w*|aves?\s+de\s+corral|gallinas?)\b/],
+  ['cunicultura', /\b(?:cunicultur\w*|conejos?)\b/],
+  ['equinocultura', /\b(?:equin\w*|ganado\s+equino|caballos?)\b/],
+  ['apicultura', /\b(?:apicultur\w*|apicol\w*|colmenas?|abejas?)\b/],
+]);
 
 function textoDocumentalAlerta(alerta = {}) {
   return normalizarTag([
@@ -91,6 +103,13 @@ function tiposDerivadosClasificacion(alerta = {}) {
     ...listaCanonica(alerta.tipos_alerta, canonicalTipoAlerta),
     ...valoresTaxonomiaPorPrefijo(alerta, 'tipo:', canonicalTipoAlerta),
   ]);
+}
+
+function inferirSubsectoresGanaderosDesdeTexto(texto = '') {
+  const normalized = normalizarTag(texto);
+  return LIVESTOCK_SUBSECTOR_EVIDENCE_RULES
+    .filter(([, pattern]) => pattern.test(normalized))
+    .map(([subsector]) => subsector);
 }
 
 function tieneEvidenciaSanidadAnimal(alerta = {}) {
@@ -315,18 +334,40 @@ function repararClasificacionTematicaSegura(alerta = {}, clasificacion = {}) {
     }
   }
 
+  const textoDocumental = textoDocumentalAlerta(alerta);
+  const evidenciaGanaderaEspecifica = LIVESTOCK_SPECIFIC_EVIDENCE.test(textoDocumental);
+  const evidenciaAgricolaEspecifica = AGRICULTURE_SPECIFIC_EVIDENCE.test(textoDocumental);
   if (
     diagnosticoInicial.evidence.livestock &&
-    !diagnosticoInicial.evidence.agriculture
+    evidenciaGanaderaEspecifica &&
+    !evidenciaAgricolaEspecifica
   ) {
-    const next = subsectores.filter((value) => !SUBSECTORES_AGRICULTURA.has(value));
+    const subsectoresDocumentados = inferirSubsectoresGanaderosDesdeTexto(
+      textoDocumentalAlerta(alerta)
+    );
+    const next = dedupe([
+      ...subsectores.filter((value) => !SUBSECTORES_AGRICULTURA.has(value)),
+      ...subsectoresDocumentados,
+    ]);
     if (next.join('|') !== subsectores.join('|')) {
       repairs.push({
-        code: 'remove_unsupported_agriculture_subsectors_from_livestock_evidence',
+        code: 'repair_subsectors_from_livestock_evidence',
         before: subsectores,
         after: next,
       });
       subsectores = next;
+    }
+    const nextSectores = dedupe([
+      ...sectores.filter((value) => !['agricultura', 'mixto', 'otros'].includes(value)),
+      'ganaderia',
+    ]);
+    if (nextSectores.join('|') !== sectores.join('|')) {
+      repairs.push({
+        code: 'replace_unsupported_agriculture_with_livestock_sector',
+        before: sectores,
+        after: nextSectores,
+      });
+      sectores = nextSectores;
     }
   }
 
@@ -634,6 +675,7 @@ module.exports = {
   diagnosticarCoherenciaTaxonomicaAlerta,
   esAlertaSanidadAnimal,
   esAlertaSanidadVegetal,
+  inferirSubsectoresGanaderosDesdeTexto,
   inferirSectoresDesdeSubsectores,
   repararClasificacionSectorialSegura,
   repararClasificacionTematicaSegura,

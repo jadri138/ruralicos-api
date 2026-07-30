@@ -23,7 +23,14 @@ Fuentes de ámbito provincial, donde es especialmente importante distinguir inte
 
 Un único scraper contiene tres adaptadores:
 
-- BOPZ Zaragoza: varios endpoints, presupuesto total, diagnóstico y recuperación parcial.
+- BOPZ Zaragoza: prueba los dos dominios oficiales dentro de un presupuesto
+  único de 14 segundos (deja margen para persistir antes del timeout HTTP).
+  Distingue falta real de publicación, timeout, caída,
+  cambio de HTML y recuperación parcial; además expone
+  `source_coverage_complete=false` cuando no puede garantizar cobertura. Los
+  límites pueden ajustarse con `BOPZ_TOTAL_BUDGET_MS`,
+  `BOPZ_INDEX_TOTAL_BUDGET_MS`, `BOPZ_HTML_TIMEOUT_MS` y
+  `BOPZ_HTML_ATTEMPTS`, siempre por debajo de `PIPELINE_HTTP_TIMEOUT_MS`.
 - BOPH Huesca: navegación del portal y PDFs.
 - BOPT Teruel: portal específico y extracción de documentos.
 

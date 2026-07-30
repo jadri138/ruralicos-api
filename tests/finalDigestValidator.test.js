@@ -288,7 +288,7 @@ test('bloquea una seleccion apoyada solo en taxonomia sin evidencia documental',
   assert(result.flags.includes('selection_match_without_taxonomy_evidence'));
 });
 
-test('exige evidencia para todos los ejes tematicos que causaron la seleccion', () => {
+test('exige evidencia rural aunque exista evidencia del tipo de alerta', () => {
   const result = validarItemDigestFinal({
     alerta,
     factSheet: sheet({
@@ -300,6 +300,63 @@ test('exige evidencia para todos los ejes tematicos que causaron la seleccion', 
     texto: [
       '*1. Ayuda supuestamente agricola*',
       'Se publica una convocatoria de ayudas.',
+      'https://boletin.example/100',
+    ].join('\n'),
+  });
+
+  assert.strictEqual(result.status, 'blocked');
+  assert(result.flags.includes('selection_match_without_taxonomy_evidence'));
+});
+
+test('una alerta PAC general no necesita enumerar cada cultivo del perfil', () => {
+  const result = validarItemDigestFinal({
+    alerta,
+    factSheet: sheet({
+      taxonomy_evidence: [
+        { tag: 'sector:agricultura', evidence: 'beneficiarios de pagos PAC', source_field: 'content' },
+        { tag: 'tipo:ayudas_subvenciones', evidence: 'pagos directos FEAGA', source_field: 'content' },
+      ],
+    }),
+    decisionDigest: decision({
+      match_trace: {
+        sector_matches: ['agricultura'],
+        subsector_matches: ['trigo', 'olivar'],
+        type_matches: ['ayudas_subvenciones'],
+        territory_matches: ['leon'],
+      },
+    }),
+    texto: [
+      '*1. Beneficiarios de pagos PAC*',
+      'Se publica la relacion de beneficiarios de pagos directos FEAGA.',
+      'https://boletin.example/100',
+    ].join('\n'),
+  });
+
+  assert.strictEqual(result.status, 'send');
+  assert(!result.flags.includes('selection_match_without_taxonomy_evidence'));
+});
+
+test('mantiene el bloqueo si la evidencia demuestra otra especie ganadera', () => {
+  const result = validarItemDigestFinal({
+    alerta: { ...alerta, sectores: ['ganaderia'], subsectores: ['porcino'] },
+    factSheet: sheet({
+      taxonomy_evidence: [
+        { tag: 'sector:ganaderia', evidence: 'explotaciones ganaderas', source_field: 'content' },
+        { tag: 'subsector:porcino', evidence: 'curso para ganado porcino', source_field: 'content' },
+        { tag: 'tipo:formacion', evidence: 'curso homologado', source_field: 'content' },
+      ],
+    }),
+    decisionDigest: decision({
+      match_trace: {
+        sector_matches: ['ganaderia'],
+        subsector_matches: ['vacuno'],
+        type_matches: ['formacion'],
+        territory_matches: ['huesca'],
+      },
+    }),
+    texto: [
+      '*1. Curso para ganado porcino*',
+      'Curso homologado dirigido a explotaciones porcinas.',
       'https://boletin.example/100',
     ].join('\n'),
   });

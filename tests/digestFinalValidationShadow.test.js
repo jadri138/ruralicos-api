@@ -11,6 +11,7 @@ const {
   prepararValidacionFinalDigestShadow,
   resolverModoValidacionFinal,
   resumirValidacionFinalDigest,
+  alertasReintentablesPorTextoAusente,
   validacionReintentablePorTextoAusente,
 } = require('../src/modules/digest/digest.service');
 
@@ -349,6 +350,26 @@ test('reintenta con fallback si el generador omitio todos los bloques del mensaj
     aceptadas: [],
     rechazadas: [{ flags: ['fact_sheet_blocked'] }],
   }), false);
+});
+
+test('reintenta el item sin texto aunque otro falle por taxonomia', async () => {
+  const aceptada = { id: 801 };
+  const sinTexto = { id: 802 };
+  const taxonomiaBloqueada = { id: 803 };
+  const enforcement = {
+    aceptadas: [aceptada],
+    rechazadas: [
+      { alerta: sinTexto, flags: ['item_text_missing', 'message_url_missing'] },
+      { alerta: taxonomiaBloqueada, flags: ['selection_match_without_taxonomy_evidence'] },
+    ],
+  };
+
+  assert.strictEqual(validacionReintentablePorTextoAusente(enforcement), true);
+  assert.deepStrictEqual(
+    alertasReintentablesPorTextoAusente(enforcement).map((item) => item.id),
+    [801, 802],
+    'conserva lo valido, reintenta el texto y excluye el fallo taxonomico'
+  );
 });
 
 (async () => {

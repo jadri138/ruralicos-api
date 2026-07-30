@@ -105,7 +105,7 @@ test('regresion 17231: una ayuda FEADER valida no queda bloqueada por taxonomia 
     now: new Date('2026-07-29T15:00:00Z'),
   });
 
-  assert.strictEqual(sheet.builder_version, 'fact_sheet_builder_v5');
+  assert.strictEqual(sheet.builder_version, 'fact_sheet_builder_v6');
   assert.strictEqual(sheet.status, FACT_SHEET_STATUS.READY);
   assert(sheet.truth_score >= 85);
   assert.strictEqual(sheet.risk_score, 0);
@@ -154,6 +154,34 @@ test('regresion 19467: ayuda ovina de Navarra no queda retenida por contrato o e
   assert(sheet.sectores.some((item) => item.valor === 'ganaderia'));
   assert.strictEqual(sheet.plazo.status, 'verified');
   assert(sheet.unsupported_taxonomy_tags.includes('subsector:olivar'));
+});
+
+test('regresion control lechero: regenera ficha con sector ganadero aunque la cabecera diga agricultura', () => {
+  const alerta = alertaBase(20985, {
+    fuente: 'DOE',
+    fecha: '2026-07-30',
+    titulo: 'Extracto de ayudas para el control oficial del rendimiento lechero',
+    contenido: [
+      'Consejeria de Agricultura, Ganaderia y Medio Rural.',
+      'Ayudas destinadas a entidades autorizadas y asociaciones de criadores',
+      'para el control oficial del rendimiento lechero.',
+    ].join(' '),
+    sectores: ['agricultura'],
+    subsectores: ['trigo', 'cereal', 'frutales', 'olivar'],
+    tipos_alerta: ['ayudas_subvenciones', 'normativa_general'],
+  });
+  const sheet = construirFactSheetAlertaSync(alerta, {
+    rawDocument: rawDocument(alerta, [
+      'Convocatoria de subvenciones para entidades autorizadas y asociaciones de criadores.',
+      'El objeto es la realizacion del control oficial del rendimiento lechero.',
+      'El plazo de presentacion de solicitudes sera de 15 dias naturales desde la publicacion.',
+    ].join(' ')),
+    now: new Date('2026-07-30T12:00:00Z'),
+  });
+
+  assert.strictEqual(sheet.builder_version, 'fact_sheet_builder_v6');
+  assert(sheet.taxonomy_evidence.some((item) => item.tag === 'sector:ganaderia'));
+  assert(!sheet.subsectores.some((item) => ['trigo', 'cereal', 'frutales', 'olivar'].includes(item.valor)));
 });
 
 test('regresion 20349: oportunidad apicola conserva solo la taxonomia documentada', async () => {

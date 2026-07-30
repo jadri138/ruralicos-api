@@ -101,9 +101,9 @@ function crearStoreFake({ job: jobOverrides = {}, reclamarDevuelveNull = false, 
       log.reabierto = true;
       return { ...job };
     },
-    async reclamar({ job: j, tickId, staleMs, now }) {
+    async reclamar({ job: j, tickId, staleMs, initialStage, now }) {
       log.reclamos += 1;
-      log.ultimoReclamo = { jobId: j.id, tickId, staleMs, now };
+      log.ultimoReclamo = { jobId: j.id, tickId, staleMs, initialStage, now };
       if (reclamarDevuelveNull || (competitiveClaim && job.claimed_by)) return null;
       const diagnostic = diagnosticarPipelineJob(j, { now, staleMs });
       if (diagnostic.stale) {
@@ -122,6 +122,7 @@ function crearStoreFake({ job: jobOverrides = {}, reclamarDevuelveNull = false, 
       }
       job.status = 'running';
       job.claimed_by = tickId;
+      job.current_stage = job.current_stage || initialStage || null;
       job.ticks = Number(job.ticks || 0) + 1;
       job.started_at = job.started_at || (now ? now.toISOString() : new Date().toISOString());
       job.heartbeat_at = now ? now.toISOString() : new Date().toISOString();
@@ -478,6 +479,11 @@ async function main() {
 
     assert.strictEqual(result.tick, 'completed');
     assert.strictEqual(primeraLlamada, false);
+    assert.strictEqual(
+      store.log.ultimoReclamo.initialStage,
+      'scrapers',
+      'la fase inicial debe viajar en el claim atomico'
+    );
   });
 
   await test('libera el claim si falla el primer checkpoint', async () => {
@@ -744,7 +750,13 @@ async function main() {
   await test('store.reclamar devuelve la fila cuando el claim atomico afecta a una fila', async () => {
     const supabase = fakeSupabase({ data: [{ id: 7, status: 'running', options_json: {}, stages_json: {} }], error: null });
     const store = crearPipelineJobsStore(supabase);
-    const claimed = await store.reclamar({ job: { id: 7, ticks: 0 }, tickId: 'abc', staleMs: 1000, now: new Date() });
+    const claimed = await store.reclamar({
+      job: { id: 7, ticks: 0 },
+      tickId: 'abc',
+      staleMs: 1000,
+      initialStage: 'scrapers',
+      now: new Date(),
+    });
     assert(claimed && claimed.id === 7, 'devuelve la fila reclamada');
     const metodos = supabase.calls.map((c) => c.method);
     for (const m of ['update', 'eq', 'in', 'or', 'select']) {
@@ -752,6 +764,7 @@ async function main() {
     }
     const update = supabase.calls.find((c) => c.method === 'update');
     assert(update.args[0].claimed_by === 'abc' && update.args[0].heartbeat_at, 'toma el claim y sella heartbeat');
+    assert.strictEqual(update.args[0].current_stage, 'scrapers', 'el claim sella la fase inicial atomicamente');
     const orFilter = supabase.calls.find((c) => c.method === 'or');
     assert(
       orFilter.args[0].includes('heartbeat_at.is.null'),
@@ -790,12 +803,20 @@ async function main() {
     };
     const supabase = fakeSupabase({ data: [{ ...staleJob, claimed_by: 'nuevo-tick' }], error: null });
     const store = crearPipelineJobsStore(supabase);
-    await store.reclamar({ job: staleJob, tickId: 'nuevo-tick', staleMs: 5 * 60 * 1000, now });
+    await store.reclamar({
+      job: staleJob,
+      tickId: 'nuevo-tick',
+      staleMs: 5 * 60 * 1000,
+      initialStage: 'scrapers',
+      now,
+    });
     const update = supabase.calls.find((call) => call.method === 'update').args[0];
     const event = update.options_json.recovery_audit[0];
     assert.strictEqual(event.reason, 'current_stage_missing_too_long');
     assert.strictEqual(event.previous_job.claimed_by, 'tick-muerto');
     assert.strictEqual(event.new_claim.tick_id, 'nuevo-tick');
+    assert.strictEqual(event.initial_stage, 'scrapers');
+    assert.strictEqual(update.current_stage, 'scrapers');
     const orFilter = supabase.calls.find((call) => call.method === 'or').args[0];
     assert(orFilter.includes('and(current_stage.is.null,updated_at.lt.'));
   });

@@ -6,6 +6,13 @@ El camino recomendado es un unico cron frecuente contra el runner reanudable:
 curl -fsS -H "x-cron-token: $CRON_TOKEN" "$BASE_URL/tareas/pipeline-tick"
 ```
 
+Si Render aun tiene programado `node scripts/run_digest_workflow.js`, no hace
+falta cambiarlo de inmediato: el script actua como puente y conduce el mismo
+job reanudable de `pipeline-tick` hasta completarlo. No ejecuta un segundo flujo
+independiente. El runner antiguo solo se activa para un rescate puntual con
+`ALLOW_LEGACY_DIGEST_WORKFLOW=true` y tras pausar temporalmente cualquier otro
+cron de `pipeline-tick`.
+
 Ese endpoint ejecuta, en orden:
 
 1. Scrapers BOE y boletines autonomicos.

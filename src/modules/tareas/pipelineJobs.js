@@ -169,9 +169,10 @@ function crearPipelineJobsStore(supabase) {
     },
 
     // Claim atomico: solo reclama si nadie lo tiene o el heartbeat esta rancio.
-    async reclamar({ job, tickId, staleMs, now = new Date() }) {
+    async reclamar({ job, tickId, staleMs, initialStage = null, now = new Date() }) {
       const cutoff = new Date(now.getTime() - staleMs).toISOString();
       const diagnostic = diagnosticarPipelineJob(job, { now, staleMs });
+      const stageAtClaim = job.current_stage || initialStage || null;
       let optionsJson = job.options_json || {};
       if (diagnostic.stale) {
         optionsJson = anadirEventoRecuperacion(optionsJson, crearEventoRecuperacion({
@@ -184,12 +185,18 @@ function crearPipelineJobsStore(supabase) {
       } else {
         optionsJson = registrarClaimRecuperacion(optionsJson, tickId, now);
       }
+      optionsJson = actualizarEventoRecuperacion(optionsJson, tickId, {
+        initial_stage: stageAtClaim,
+      });
       const { data, error } = await supabase
         .from('pipeline_jobs')
         .update({
           claimed_by: tickId,
           heartbeat_at: now.toISOString(),
           status: 'running',
+          // El primer checkpoint forma parte del claim. Si el proceso muere
+          // justo despues, el siguiente tick sabe desde que fase recuperar.
+          current_stage: stageAtClaim,
           started_at: job.started_at || now.toISOString(),
           ticks: Number(job.ticks || 0) + 1,
           options_json: optionsJson,

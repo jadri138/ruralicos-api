@@ -1,6 +1,11 @@
 #!/usr/bin/env node
 /**
- * Ejecuta el pipeline diario completo de Ruralicos con reintentos por lotes.
+ * Puente compatible para el cron historico de Render.
+ *
+ * Por defecto llama repetidamente a /tareas/pipeline-tick hasta que el job con
+ * checkpoints termina. Así el comando antiguo sigue funcionando sin ejecutar
+ * un segundo pipeline independiente. El flujo legacy queda disponible solo
+ * para un rescate manual y explícito.
  *
  * Uso:
  *   BASE_URL="https://tu-api.onrender.com" CRON_TOKEN="xxx" node scripts/run_digest_workflow.js
@@ -15,6 +20,10 @@
  *   STEP_DELAY_MS=800
  *   HTTP_RETRIES=3
  *   HTTP_RETRY_DELAY_MS=5000
+ *   PIPELINE_DRIVER_MAX_TICKS=60
+ *   PIPELINE_DRIVER_DELAY_MS=1000
+ *   PIPELINE_DRIVER_BUDGET_MS=50000
+ *   ALLOW_LEGACY_DIGEST_WORKFLOW=true  (fuerza el flujo antiguo; solo rescate)
  */
 
 require('dotenv').config();
@@ -32,6 +41,14 @@ const PREPARAR_DIGEST_MAX_LOOPS = Number(process.env.PREPARAR_DIGEST_MAX_LOOPS |
 const STEP_DELAY_MS = Number(process.env.STEP_DELAY_MS || 800);
 const HTTP_RETRIES = Number(process.env.HTTP_RETRIES || 3);
 const HTTP_RETRY_DELAY_MS = Number(process.env.HTTP_RETRY_DELAY_MS || 5000);
+const HTTP_TIMEOUT_MS = Number(process.env.HTTP_TIMEOUT_MS || 65000);
+const PIPELINE_DRIVER_MAX_TICKS = Number(process.env.PIPELINE_DRIVER_MAX_TICKS || 60);
+const PIPELINE_DRIVER_DELAY_MS = Number(process.env.PIPELINE_DRIVER_DELAY_MS || 1000);
+const PIPELINE_DRIVER_BUDGET_MS = Number(process.env.PIPELINE_DRIVER_BUDGET_MS || 50000);
+const ALLOW_LEGACY_DIGEST_WORKFLOW = parseBool(
+  process.env.ALLOW_LEGACY_DIGEST_WORKFLOW,
+  false
+);
 const BATCH_METRIC_KEYS = [
   'digests_generados',
   'rescates_generados',
@@ -93,14 +110,17 @@ function isRetryableError(err) {
   return err?.retryable === true || /fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN/i.test(String(err?.message || ''));
 }
 
-async function hit(path, { method = 'GET' } = {}) {
+async function hit(path, { method = 'GET', maxRetries = HTTP_RETRIES } = {}) {
   const url = `${BASE_URL}${path}`;
 
-  for (let attempt = 1; attempt <= HTTP_RETRIES + 1; attempt++) {
+  for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), HTTP_TIMEOUT_MS);
     try {
       const res = await fetch(url, {
         method,
         headers: { 'x-cron-token': CRON_TOKEN },
+        signal: controller.signal,
       });
       const body = await readResponseBody(res);
 
@@ -108,18 +128,26 @@ async function hit(path, { method = 'GET' } = {}) {
         const err = new Error(`[${res.status}] ${method} ${path} -> ${JSON.stringify(body)}`);
         err.status = res.status;
         err.retryable = isRetryableStatus(res.status) &&
+          body?.retryable !== false &&
           !/429|quota|exceeded your current quota/i.test(JSON.stringify(body || {}));
         throw err;
       }
 
       return body;
-    } catch (err) {
-      const canRetry = attempt <= HTTP_RETRIES && isRetryableError(err);
+    } catch (rawError) {
+      const err = rawError?.name === 'AbortError'
+        ? Object.assign(new Error(`${method} ${path}: timeout tras ${HTTP_TIMEOUT_MS}ms`), {
+          retryable: true,
+        })
+        : rawError;
+      const canRetry = attempt <= maxRetries && isRetryableError(err);
       if (!canRetry) throw err;
 
       const delay = HTTP_RETRY_DELAY_MS * attempt;
-      console.warn(`[http] ${method} ${path} fallo transitorio (${err.message}). Reintento ${attempt}/${HTTP_RETRIES} en ${delay}ms`);
+      console.warn(`[http] ${method} ${path} fallo transitorio (${err.message}). Reintento ${attempt}/${maxRetries} en ${delay}ms`);
       await sleep(delay);
+    } finally {
+      clearTimeout(timer);
     }
   }
 }
@@ -185,7 +213,55 @@ async function runOptionalStep(name, path, options = {}) {
   }
 }
 
-async function main() {
+async function mainPipelineDriver() {
+  console.log('Iniciando pipeline reanudable desde el comando cron compatible...', {
+    baseUrl: BASE_URL,
+    fecha: FECHA || 'hoy Madrid',
+    maxTicks: PIPELINE_DRIVER_MAX_TICKS,
+  });
+
+  const path = appendQuery('/tareas/pipeline-tick', {
+    fecha: FECHA,
+    budget_ms: PIPELINE_DRIVER_BUDGET_MS,
+    complementarios: RUN_SCRAPERS,
+    enviar_listados: RUN_OFFICIAL_LISTS,
+  });
+
+  for (let tickNumber = 1; tickNumber <= PIPELINE_DRIVER_MAX_TICKS; tickNumber++) {
+    const body = await hit(path);
+    const tick = body?.tick || 'respuesta_desconocida';
+    const jobStatus = body?.job?.status || null;
+    const currentStage = body?.job?.current_stage || null;
+    console.log(`[pipeline-driver] tick ${tickNumber}: ${tick}`, {
+      jobStatus,
+      currentStage,
+    });
+
+    if (tick === 'completed' || (tick === 'noop_terminal' && jobStatus === 'completed')) {
+      console.log('Pipeline diario completado con checkpoints', {
+        ticks_driver: tickNumber,
+        job_id: body?.job?.id || null,
+      });
+      return;
+    }
+    if (['failed', 'aborted', 'preflight_failed'].includes(tick)) {
+      throw new Error(
+        `pipeline ${tick} en ${currentStage || 'fase desconocida'}: ${body?.error || 'revisa pipeline_jobs'}`
+      );
+    }
+    if (tick === 'noop_terminal') {
+      throw new Error(`pipeline ya estaba en estado terminal ${jobStatus || 'desconocido'}`);
+    }
+    await sleep(PIPELINE_DRIVER_DELAY_MS);
+  }
+
+  throw new Error(
+    `pipeline no termino tras ${PIPELINE_DRIVER_MAX_TICKS} ticks; queda reanudable y no se ejecutara un flujo paralelo`
+  );
+}
+
+async function mainLegacy() {
+  console.warn('Ejecutando workflow LEGACY de rescate sin checkpoints.');
   console.log('Iniciando workflow diario completo...', {
     baseUrl: BASE_URL,
     fecha: FECHA || 'hoy Madrid',
@@ -252,7 +328,7 @@ async function main() {
   });
 }
 
-main().catch((err) => {
+(ALLOW_LEGACY_DIGEST_WORKFLOW ? mainLegacy() : mainPipelineDriver()).catch((err) => {
   console.error('Error en workflow:', err.message);
   process.exit(1);
 });
