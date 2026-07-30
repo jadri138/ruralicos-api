@@ -123,10 +123,17 @@ function crearStoreFake({ job: jobOverrides = {}, reclamarDevuelveNull = false, 
       job.status = 'running';
       job.claimed_by = tickId;
       job.current_stage = job.current_stage || initialStage || null;
+      if (job.current_stage && !job.stages_json[job.current_stage]) {
+        job.stages_json[job.current_stage] = { status: 'pending', attempts: 0 };
+      }
       job.ticks = Number(job.ticks || 0) + 1;
       job.started_at = job.started_at || (now ? now.toISOString() : new Date().toISOString());
       job.heartbeat_at = now ? now.toISOString() : new Date().toISOString();
-      return { ...job };
+      return {
+        ...job,
+        stages_json: JSON.parse(JSON.stringify(job.stages_json || {})),
+        options_json: JSON.parse(JSON.stringify(job.options_json || {})),
+      };
     },
     async guardar({ jobId, tickId, patch = {} }) {
       assert.strictEqual(jobId, job.id);
@@ -453,17 +460,24 @@ async function main() {
     assert.strictEqual(store.log.liberado, true);
   });
 
-  await test('guarda el checkpoint inicial antes de ejecutar cualquier fase', async () => {
+  await test('el claim atomico guarda la fase inicial antes de ejecutar cualquier request', async () => {
     const store = crearStoreFake();
     const ctx = contexto();
-    let primeraLlamada = true;
-    const ejecutar = async (path) => {
-      if (primeraLlamada) {
-        primeraLlamada = false;
-        assert(store.log.guardados.length > 0, 'debe existir un checkpoint antes de la primera request');
-        assert.strictEqual(store.log.guardados[0].patch.current_stage, 'scrapers');
-      }
-      return { path, status: 200, body: { procesadas: 0 } };
+    let inspeccionado = false;
+    const omitirScraper = async () => {
+      inspeccionado = true;
+      assert.strictEqual(store.job.current_stage, 'scrapers');
+      assert.deepStrictEqual(
+        store.job.stages_json.scrapers,
+        { status: 'pending', attempts: 0 },
+        'la fase debe quedar persistida dentro del propio claim'
+      );
+      assert.strictEqual(
+        store.log.guardados.length,
+        0,
+        'no debe hacer una segunda escritura redundante antes de iniciar la fase'
+      );
+      return { ok: true, omitido: true };
     };
 
     const result = await ejecutarPipelineTick(
@@ -473,12 +487,18 @@ async function main() {
         budgetMs: 10_000_000,
         maxLoops: 5,
         stepDelayMs: 0,
-        ...inyectables({ store, ejecutar, reloj: null, ...ctx }),
+        ...inyectables({
+          store,
+          ejecutar: crearEjecutar({}),
+          reloj: null,
+          omitirScraper,
+          ...ctx,
+        }),
       }
     );
 
     assert.strictEqual(result.tick, 'completed');
-    assert.strictEqual(primeraLlamada, false);
+    assert.strictEqual(inspeccionado, true);
     assert.strictEqual(
       store.log.ultimoReclamo.initialStage,
       'scrapers',
@@ -486,7 +506,7 @@ async function main() {
     );
   });
 
-  await test('libera el claim si falla el primer checkpoint', async () => {
+  await test('libera el claim si falla el primer checkpoint posterior al claim atomico', async () => {
     const store = crearStoreFake();
     const ctx = contexto();
     store.guardar = async () => {
@@ -765,6 +785,11 @@ async function main() {
     const update = supabase.calls.find((c) => c.method === 'update');
     assert(update.args[0].claimed_by === 'abc' && update.args[0].heartbeat_at, 'toma el claim y sella heartbeat');
     assert.strictEqual(update.args[0].current_stage, 'scrapers', 'el claim sella la fase inicial atomicamente');
+    assert.deepStrictEqual(
+      update.args[0].stages_json.scrapers,
+      { status: 'pending', attempts: 0 },
+      'el claim sella tambien el checkpoint minimo de la fase'
+    );
     const orFilter = supabase.calls.find((c) => c.method === 'or');
     assert(
       orFilter.args[0].includes('heartbeat_at.is.null'),

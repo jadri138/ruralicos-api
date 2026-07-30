@@ -33,6 +33,18 @@ test('el comando historico usa el pipeline reanudable por defecto', () => {
   );
 });
 
+test('espera el tiempo suficiente cuando otro tick conserva el claim', () => {
+  assert(
+    script.includes('PIPELINE_DRIVER_BUSY_DELAY_MS') &&
+    script.includes("tick === 'already_running' ? PIPELINE_DRIVER_BUSY_DELAY_MS"),
+    'already_running debe usar una espera larga para cubrir la caducidad del heartbeat sin hacer polling agresivo'
+  );
+  assert(
+    script.includes("tickNumber % 6 === 0"),
+    'el log ocupado debe agruparse para no imprimir decenas de lineas identicas'
+  );
+});
+
 test('el workflow diario ejecuta ingesta antes de IA y digest', () => {
   const scrapersIndex = script.indexOf("'/tareas/scrapers-diario'");
   const clasificarIndex = script.indexOf("'/alertas/clasificar'");

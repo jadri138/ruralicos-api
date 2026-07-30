@@ -329,15 +329,16 @@ async function ejecutarPipelineTick(supabase, opcionesTick = {}) {
       });
     }
 
-    // Sella el job inmediatamente despues del claim. Incluso si falla la
-    // configuracion del ejecutor, el finally libera la posesion del tick.
+    // El claim ya ha sellado atomicamente current_stage y el estado pending de
+    // la primera fase. No hacemos una segunda escritura inmediata: ademas de
+    // ser redundante, si esa request de Supabase se queda colgada el tick no
+    // llega siquiera al primer trabajo ni puede renovar su heartbeat.
     const primeraPendiente = stages.find(
       (s) => ![STAGE_COMPLETED, STAGE_SKIPPED, STAGE_SHADOW_SKIPPED].includes((stagesState[s.name] || {}).status)
     );
     const initialStage = claimed.current_stage || primeraPendiente?.name || null;
     opcionesJob = actualizarEventoRecuperacion(opcionesJob, tickId, { initial_stage: initialStage });
     claimed.options_json = opcionesJob;
-    await checkpoint(initialStage, { options_json: opcionesJob });
 
     const deadline = ahora() + budgetMs;
     const ejecutar = ejecutarParam || crearEjecutorHttp({ baseUrl, token, fecha, opciones: opcionesJob, httpTimeoutMs, sleep });

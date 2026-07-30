@@ -13,6 +13,10 @@ independiente. El runner antiguo solo se activa para un rescate puntual con
 `ALLOW_LEGACY_DIGEST_WORKFLOW=true` y tras pausar temporalmente cualquier otro
 cron de `pipeline-tick`.
 
+Si encuentra un tick activo, el puente espera 10 segundos entre comprobaciones.
+Asi cubre la caducidad de 5 minutos de un heartbeat abandonado sin llenar el log
+de mensajes `already_running`.
+
 Ese endpoint ejecuta, en orden:
 
 1. Scrapers BOE y boletines autonomicos.

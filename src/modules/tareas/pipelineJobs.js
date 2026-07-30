@@ -173,6 +173,10 @@ function crearPipelineJobsStore(supabase) {
       const cutoff = new Date(now.getTime() - staleMs).toISOString();
       const diagnostic = diagnosticarPipelineJob(job, { now, staleMs });
       const stageAtClaim = job.current_stage || initialStage || null;
+      const stagesJson = { ...(job.stages_json || {}) };
+      if (stageAtClaim && !stagesJson[stageAtClaim]) {
+        stagesJson[stageAtClaim] = { status: 'pending', attempts: 0 };
+      }
       let optionsJson = job.options_json || {};
       if (diagnostic.stale) {
         optionsJson = anadirEventoRecuperacion(optionsJson, crearEventoRecuperacion({
@@ -197,6 +201,7 @@ function crearPipelineJobsStore(supabase) {
           // El primer checkpoint forma parte del claim. Si el proceso muere
           // justo despues, el siguiente tick sabe desde que fase recuperar.
           current_stage: stageAtClaim,
+          stages_json: stagesJson,
           started_at: job.started_at || now.toISOString(),
           ticks: Number(job.ticks || 0) + 1,
           options_json: optionsJson,
