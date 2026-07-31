@@ -5,7 +5,7 @@ const {
 } = require('../alertas/intelligence/factSheetSchema');
 const { expandirTerritoriosGeograficos } = require('../../shared/geography');
 
-const FINAL_DIGEST_VALIDATOR_VERSION = 'final_digest_validator_v2';
+const FINAL_DIGEST_VALIDATOR_VERSION = 'final_digest_validator_v3';
 
 const STATUS_WEIGHT = {
   send: 0,
@@ -188,10 +188,12 @@ function tieneMatchFuerte(decision = {}) {
   return actionDecision(decision) === 'include' && riesgoBajo && score >= 75 && territorio && tema;
 }
 
-function matchTaxonomicoRespaldado(decision = {}, sheet = {}) {
+function diagnosticarMatchTaxonomico(decision = {}, sheet = {}) {
   const trace = decision.match_trace || decision.diagnostico?.match_trace;
   // Compatibilidad con decisiones historicas anteriores a matching_trace_v1.
-  if (!trace || typeof trace !== 'object') return true;
+  if (!trace || typeof trace !== 'object') {
+    return { supported: true, explicitConflict: false, reason: 'legacy_without_trace' };
+  }
 
   const evidenceTags = new Set((sheet.taxonomy_evidence || [])
     .filter((item) =>
@@ -213,7 +215,9 @@ function matchTaxonomicoRespaldado(decision = {}, sheet = {}) {
   const typeAxis = valoresTrace('type_matches', 'type_match')
     .map((value) => `tipo:${value}`);
   const hasAnyAxis = sectorAxis.length + subsectorAxis.length + typeAxis.length > 0;
-  if (!hasAnyAxis) return false;
+  if (!hasAnyAxis) {
+    return { supported: false, explicitConflict: false, reason: 'taxonomy_axes_missing' };
+  }
 
   const sectorSupported = sectorAxis.some((tag) => evidenceTags.has(tag));
   const subsectorSupported = subsectorAxis.some((tag) => evidenceTags.has(tag));
@@ -228,13 +232,19 @@ function matchTaxonomicoRespaldado(decision = {}, sheet = {}) {
   const explicitSubsectorConflict = subsectorAxis.length > 0 &&
     evidencedSubsectors.length > 0 &&
     !subsectorSupported;
-  if (explicitSubsectorConflict) return false;
+  if (explicitSubsectorConflict) {
+    return { supported: false, explicitConflict: true, reason: 'explicit_subsector_conflict' };
+  }
 
   const hasDomainAxis = sectorAxis.length > 0 || subsectorAxis.length > 0;
-  if (hasDomainAxis && !sectorSupported && !subsectorSupported) return false;
-  if (typeAxis.length > 0 && !typeSupported) return false;
+  if (hasDomainAxis && !sectorSupported && !subsectorSupported) {
+    return { supported: false, explicitConflict: false, reason: 'domain_evidence_missing' };
+  }
+  if (typeAxis.length > 0 && !typeSupported) {
+    return { supported: false, explicitConflict: false, reason: 'type_evidence_missing' };
+  }
 
-  return true;
+  return { supported: true, explicitConflict: false, reason: 'taxonomy_supported' };
 }
 
 const NATIONAL_SCOPE_PATTERN = /\b(nacional|estatal|espana|todo el territorio|ambito estatal|ambito nacional)\b/;
@@ -251,6 +261,21 @@ function territoriosVerificados(sheet = {}) {
 // concretas en el mensaje no es un territorio inventado, es una concrecion legitima.
 function esAmbitoNacionalVerificado(sheet = {}) {
   return [...territoriosVerificados(sheet)].some((territorio) => NATIONAL_SCOPE_PATTERN.test(territorio));
+}
+
+function matchTerritorialRespaldado(decision = {}, sheet = {}) {
+  const trace = decision.match_trace || decision.diagnostico?.match_trace;
+  if (!trace || typeof trace !== 'object') return false;
+
+  const territoriosTrace = Array.isArray(trace.territory_matches) && trace.territory_matches.length > 0
+    ? trace.territory_matches
+    : (trace.territory_match ? [trace.territory_match] : []);
+  if (territoriosTrace.length === 0) return false;
+  if (esAmbitoNacionalVerificado(sheet)) return true;
+
+  const seleccionados = new Set(expandirTerritoriosGeograficos(territoriosTrace));
+  const verificados = territoriosVerificados(sheet);
+  return [...seleccionados].some((territorio) => verificados.has(territorio));
 }
 
 function territoriosCandidatos({ alerta = {}, user = {}, sheet = {} } = {}) {
@@ -400,7 +425,17 @@ function validarItemDigestFinal({
     addIssue(issues, 'review_only', 'selection_missing', 'No hay decision de seleccion auditable.');
   }
 
-  if (action === 'include' && sheet && !matchTaxonomicoRespaldado(decision, sheet)) {
+  const taxonomyMatch = sheet
+    ? diagnosticarMatchTaxonomico(decision, sheet)
+    : null;
+  const territorialFallback = Boolean(
+    taxonomyMatch &&
+    !taxonomyMatch.supported &&
+    !taxonomyMatch.explicitConflict &&
+    matchTerritorialRespaldado(decision, sheet)
+  );
+
+  if (action === 'include' && sheet && !taxonomyMatch.supported && !territorialFallback) {
     addIssue(
       issues,
       'blocked',
@@ -467,6 +502,8 @@ function validarItemDigestFinal({
       has_url: tieneUrl(text),
       selection_action: action,
       fact_sheet_status: sheet?.status || null,
+      taxonomy_match_reason: taxonomyMatch?.reason || null,
+      territorial_fallback: territorialFallback,
       truth_score: sheet?.truth_score ?? null,
       risk_score: sheet?.risk_score ?? null,
       evidence_coverage: sheet?.evidence_coverage ?? null,

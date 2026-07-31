@@ -1,70 +1,44 @@
-# Render: configuracion rapida
+# Render: configuración rápida
 
-La opcion mas simple es un unico Cron Job que llame al pipeline completo de la
-API.
-
-## Cron Job recomendado
+## Cron Job de producción
 
 Comando:
 
 ```bash
-curl -fsS -H "x-cron-token: $CRON_TOKEN" "$BASE_URL/tareas/pipeline-tick"
+node scripts/run_digest_workflow.js
 ```
 
 Variables del cron:
 
-- `BASE_URL=https://TU-SERVICIO.onrender.com`
-- `CRON_TOKEN=tu_token`
+- `BASE_URL=https://ruralicos-api.onrender.com`
+- `CRON_TOKEN`, idéntico al configurado en la API
 
-Frecuencia recomendada:
+Usa una sola ejecución diaria después de la publicación de boletines. No
+programes `/tareas/pipeline-tick` ni una frecuencia de diez minutos.
 
-- Cada 10 minutos en la ventana operativa. Ejemplo UTC: `*/10 6-14 * * *`
+## Variables mínimas en la API
 
-## Variables en la API
+- `CRON_TOKEN`
+- `PUBLIC_BASE_URL=https://ruralicos-api.onrender.com`, o el dominio público
+  solo cuando su DNS responda correctamente
+- Credenciales de Supabase, OpenAI y UltraMsg descritas en `.env.example`
 
-Minimas:
+## Vigía de fuentes
 
-- `CRON_TOKEN=tu_token`
-- `PUBLIC_BASE_URL=https://TU-SERVICIO.onrender.com` o tu dominio publico si ya resuelve DNS
-- Opcional: `PIPELINE_INTERNAL_BASE_URL=https://TU-SERVICIO.onrender.com`
-
-`PUBLIC_BASE_URL` se usa para enlaces publicos. Las llamadas internas del
-pipeline usan por defecto el host real de la peticion; si quieres fijarlas de
-forma explicita en Render, usa `PIPELINE_INTERNAL_BASE_URL`. No apuntes el cron
-ni la URL interna a un dominio custom hasta verificar que `/health` responde.
-
-Para boletines provinciales complementarios:
-
-```text
-COMPLEMENTARY_SCRAPE_PATHS=/scrape-botha-oficial,/scrape-nuevo-bop-oficial
-```
-
-Para FEGA dentro del mismo pipeline:
-
-```text
-PIPELINE_INCLUDE_FEGA=true
-FEGA_EJERCICIO=2024
-FEGA_ENVIAR_MATCHES=false
-```
-
-## Vigía de fuentes caídas (recomendado)
-
-Un segundo Cron Job diario que avisa por WhatsApp al admin si alguna fuente
-lleva 2+ días con el 100% de sus ejecuciones en error:
+Este segundo cron diario es independiente y solo avisa al administrador si una
+fuente acumula fallos:
 
 ```bash
 curl -fsS -H "x-cron-token: $CRON_TOKEN" "$BASE_URL/tareas/salud-fuentes"
 ```
 
-Parámetros opcionales: `?dias=7` (ventana revisada), `?min_dias=2` (racha
-mínima para avisar), `?enviar=false` (solo diagnóstico, sin WhatsApp).
-Requiere `ADMIN_ALERT_PHONE` (o `ADMIN_ALERT_PHONES`) configurado.
+Acepta `?dias=7`, `?min_dias=2` y `?enviar=false`. Requiere
+`ADMIN_ALERT_PHONE` o `ADMIN_ALERT_PHONES` para enviar el aviso.
 
-## Checklist final
+## Checklist
 
-- [ ] Esquema operativo aplicado en Supabase.
-- [ ] `CRON_TOKEN` configurado en la API y en el Cron Job.
-- [ ] `PUBLIC_BASE_URL` configurado en la API.
-- [ ] Si usas dominio custom, `https://tu-dominio/health` responde; si no, usa el dominio `.onrender.com`.
-- [ ] Cron Job en Render con `curl -fsS -H "x-cron-token: $CRON_TOKEN" "$BASE_URL/tareas/pipeline-tick"`.
-- [ ] Si activas FEGA con envios individuales, comprobar antes identidad legal en `users` y `official_list_matches`.
+- [ ] El esquema de Supabase está aplicado.
+- [ ] `CRON_TOKEN` coincide en la API y el Cron Job.
+- [ ] `BASE_URL/health` responde.
+- [ ] El cron ejecuta `node scripts/run_digest_workflow.js` una vez al día.
+- [ ] No existe otro cron llamando a `/tareas/pipeline-tick`.

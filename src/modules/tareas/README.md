@@ -8,8 +8,8 @@ Orquestador de trabajos programados. Coordina las fases sin duplicar la lógica 
 | --- | --- |
 | `tareas.routes.js` | Endpoints de cron, salud y operaciones |
 | `tareas.helpers.js` | Registro y utilidades de ejecución |
-| `pipelineJobs.js` | Claim, heartbeat, checkpoint, reintento y estado |
-| `pipelineRunner.js` | Máquina de fases del pipeline |
+| `pipelineJobs.js` | Recuperación retirada; el cron principal no usa este archivo |
+| `pipelineRunner.js` | Runner retirado, conservado para diagnóstico histórico |
 
 ## Endpoints principales
 
@@ -20,29 +20,26 @@ Orquestador de trabajos programados. Coordina las fases sin duplicar la lógica 
 | `/tareas/scraper` | Una fuente concreta |
 | `/tareas/complementarios-diario` | Provinciales y complementarias |
 | `/tareas/cotejar-listados-oficiales` | Coincidencias con listados |
-| `/tareas/pipeline-tick` | Runner reanudable recomendado |
-| `/tareas/pipeline-jobs` | Diagnóstico de jobs |
-| `/tareas/pipeline-diario` | Rescate monolítico de emergencia (`force_legacy=true`) |
+| `/tareas/pipeline-tick` | Endpoint retirado; no programar en producción |
+| `/tareas/pipeline-jobs` | Diagnóstico de jobs históricos |
+| `/tareas/pipeline-diario` | Endpoint monolítico legado |
 
-## Runner con checkpoints
+## Ejecución de producción
 
-Un cron frecuente llama a `pipeline-tick`. Cada tick:
+Render ejecuta una vez al día:
 
-1. hace preflight;
-2. reclama o reanuda el job del día;
-3. ejecuta fases mientras quede presupuesto;
-4. actualiza heartbeat y checkpoint;
-5. sale antes del timeout del proxy;
-6. el siguiente tick continúa.
+```bash
+node scripts/run_digest_workflow.js
+```
 
-Los límites `PIPELINE_TICK_*` impiden jobs huérfanos y permiten recuperar un claim realmente obsoleto.
+El script llama a los endpoints de cada fase en orden y no avanza al digest si
+clasificación, resumen o revisión quedan incompletos. No depende de
+`pipeline_jobs`, claims ni heartbeats.
 
 ## Sombra y producción
 
-`PIPELINE_TICK_SHADOW=false` es el modo normal de producción. En este modo el
-runner envía y el interlock jubila `pipeline-diario` para impedir duplicados.
-`PIPELINE_TICK_SHADOW=true` queda solo para diagnóstico sin envíos. El runbook
-completo está en `docs/pipeline_tick_rollout.md`.
+El antiguo modo con checkpoints queda documentado solo como incidente histórico
+en `docs/pipeline_tick_rollout.md`. No debe configurarse como cron.
 
 ## Reglas operativas
 

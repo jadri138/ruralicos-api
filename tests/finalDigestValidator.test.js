@@ -97,7 +97,7 @@ const alerta = {
 console.log('\n=== TESTS: final digest validator ===\n');
 
 test('declara version estable', () => {
-  assert.strictEqual(FINAL_DIGEST_VALIDATOR_VERSION, 'final_digest_validator_v2');
+  assert.strictEqual(FINAL_DIGEST_VALIDATOR_VERSION, 'final_digest_validator_v3');
 });
 
 test('extrae bloques numerados de un mensaje con cabeceras', () => {
@@ -261,7 +261,7 @@ test('bloquea afectacion directa sin match fuerte', () => {
   assert(result.flags.includes('direct_impact_without_strong_match'));
 });
 
-test('bloquea una seleccion apoyada solo en taxonomia sin evidencia documental', () => {
+test('permite una recomendacion territorial aunque falte evidencia taxonomica exacta', () => {
   const result = validarItemDigestFinal({
     alerta,
     factSheet: sheet({
@@ -284,11 +284,12 @@ test('bloquea una seleccion apoyada solo en taxonomia sin evidencia documental',
     ].join('\n'),
   });
 
-  assert.strictEqual(result.status, 'blocked');
-  assert(result.flags.includes('selection_match_without_taxonomy_evidence'));
+  assert.strictEqual(result.status, 'send');
+  assert(!result.flags.includes('selection_match_without_taxonomy_evidence'));
+  assert.strictEqual(result.diagnostics.territorial_fallback, true);
 });
 
-test('exige evidencia rural aunque exista evidencia del tipo de alerta', () => {
+test('permite descubrimiento de la zona cuando el tipo esta probado pero falta el sector', () => {
   const result = validarItemDigestFinal({
     alerta,
     factSheet: sheet({
@@ -304,8 +305,9 @@ test('exige evidencia rural aunque exista evidencia del tipo de alerta', () => {
     ].join('\n'),
   });
 
-  assert.strictEqual(result.status, 'blocked');
-  assert(result.flags.includes('selection_match_without_taxonomy_evidence'));
+  assert.strictEqual(result.status, 'send');
+  assert(!result.flags.includes('selection_match_without_taxonomy_evidence'));
+  assert.strictEqual(result.diagnostics.territorial_fallback, true);
 });
 
 test('una alerta PAC general no necesita enumerar cada cultivo del perfil', () => {
@@ -393,7 +395,7 @@ test('acepta una coincidencia demostrada entre varias opciones del mismo eje', (
   assert(!result.flags.includes('selection_match_without_taxonomy_evidence'));
 });
 
-test('sigue bloqueando si un eje completo carece de evidencia', () => {
+test('no exige que todos los tipos coincidan si el territorio esta verificado', () => {
   const result = validarItemDigestFinal({
     alerta,
     factSheet: sheet(),
@@ -413,11 +415,12 @@ test('sigue bloqueando si un eje completo carece de evidencia', () => {
     ].join('\n'),
   });
 
-  assert.strictEqual(result.status, 'blocked');
-  assert(result.flags.includes('selection_match_without_taxonomy_evidence'));
+  assert.strictEqual(result.status, 'send');
+  assert(!result.flags.includes('selection_match_without_taxonomy_evidence'));
+  assert.strictEqual(result.diagnostics.territorial_fallback, true);
 });
 
-test('no acepta un resumen generado como evidencia de matching', () => {
+test('un resumen generado no cuenta como taxonomia pero permite el respaldo territorial', () => {
   const result = validarItemDigestFinal({
     alerta,
     factSheet: sheet({
@@ -434,8 +437,37 @@ test('no acepta un resumen generado como evidencia de matching', () => {
     ].join('\n'),
   });
 
+  assert.strictEqual(result.status, 'send');
+  assert(!result.flags.includes('selection_match_without_taxonomy_evidence'));
+  assert.strictEqual(result.diagnostics.territorial_fallback, true);
+});
+
+test('no usa el rescate territorial para otra provincia', () => {
+  const result = validarItemDigestFinal({
+    alerta,
+    factSheet: sheet({
+      taxonomy_evidence: [
+        { tag: 'tipo:normativa_general', evidence: 'resolucion', source_field: 'content' },
+      ],
+    }),
+    decisionDigest: decision({
+      match_trace: {
+        sector_match: 'ganaderia',
+        subsector_match: 'vacuno',
+        type_match: 'sanidad_animal',
+        territory_match: 'zaragoza',
+      },
+    }),
+    texto: [
+      '*1. NORMAL - Aviso de otra provincia*',
+      'En sencillo: Publicacion general.',
+      'https://boletin.example/100',
+    ].join('\n'),
+  });
+
   assert.strictEqual(result.status, 'blocked');
   assert(result.flags.includes('selection_match_without_taxonomy_evidence'));
+  assert.strictEqual(result.diagnostics.territorial_fallback, false);
 });
 
 test('deja en revision decisiones review_only', () => {

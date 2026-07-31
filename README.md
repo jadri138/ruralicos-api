@@ -71,7 +71,7 @@ La referencia completa y comentada es [`.env.example`](.env.example). Los grupos
 | Sesiones y tareas | `JWT_SECRET`, `CRON_TOKEN`, `VERIFICATION_CODE_PEPPER` |
 | WhatsApp | `ULTRAMSG_INSTANCE_ID`, `ULTRAMSG_TOKEN`, `ULTRAMSG_WEBHOOK_TOKEN` |
 | Digest | `DIGEST_ONLY_MODE`, `DIGEST_VIA_OUTBOX`, `DIGEST_FINAL_VALIDATION_MODE`, límites de lote |
-| Pipeline | `PIPELINE_TICK_*`, `PIPELINE_HTTP_TIMEOUT_MS`, `PIPELINE_PREFLIGHT_TIMEOUT_MS` |
+| Pipeline | `BASE_URL`, `HTTP_TIMEOUT_MS`, `HTTP_RETRIES`, `MAX_LOOPS`, `PREPARAR_DIGEST_MAX_LOOPS` |
 | URLs | `PUBLIC_BASE_URL`, `PIPELINE_INTERNAL_BASE_URL`, `FRONTEND_ORIGINS` |
 | Observabilidad y retención | `SENTRY_DSN`, `RETENTION_ENABLED` |
 
@@ -79,9 +79,9 @@ No se debe subir `.env` a Git ni exponer la clave `SUPABASE_SERVICE_ROLE_KEY` en
 
 ## Flujo diario
 
-El orquestador de producción con checkpoints es `GET /tareas/pipeline-tick`.
-`GET /tareas/pipeline-diario` queda bloqueado para evitar duplicados y solo se
-reactiva como rescate puntual con `force_legacy=true`.
+El orquestador de producción es `node scripts/run_digest_workflow.js`. El cron
+ejecuta una sola vez todas las fases en orden mediante endpoints pequeños. No
+usa `pipeline_jobs`, claims, heartbeats ni recuperación por checkpoints.
 
 ```text
 scrapers

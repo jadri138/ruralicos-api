@@ -1,11 +1,9 @@
 #!/usr/bin/env node
 /**
- * Puente compatible para el cron historico de Render.
+ * Ejecuta el pipeline diario completo de Ruralicos en orden.
  *
- * Por defecto llama repetidamente a /tareas/pipeline-tick hasta que el job con
- * checkpoints termina. Así el comando antiguo sigue funcionando sin ejecutar
- * un segundo pipeline independiente. El flujo legacy queda disponible solo
- * para un rescate manual y explícito.
+ * Cada fase termina antes de iniciar la siguiente. Este comando no depende de
+ * pipeline_jobs, claims ni heartbeats: si el cron arranca, ejecuta el flujo.
  *
  * Uso:
  *   BASE_URL="https://tu-api.onrender.com" CRON_TOKEN="xxx" node scripts/run_digest_workflow.js
@@ -20,11 +18,7 @@
  *   STEP_DELAY_MS=800
  *   HTTP_RETRIES=3
  *   HTTP_RETRY_DELAY_MS=5000
- *   PIPELINE_DRIVER_MAX_TICKS=60
- *   PIPELINE_DRIVER_DELAY_MS=1000
- *   PIPELINE_DRIVER_BUSY_DELAY_MS=10000
- *   PIPELINE_DRIVER_BUDGET_MS=50000
- *   ALLOW_LEGACY_DIGEST_WORKFLOW=true  (fuerza el flujo antiguo; solo rescate)
+ *   HTTP_TIMEOUT_MS=900000
  */
 
 require('dotenv').config();
@@ -42,15 +36,10 @@ const PREPARAR_DIGEST_MAX_LOOPS = Number(process.env.PREPARAR_DIGEST_MAX_LOOPS |
 const STEP_DELAY_MS = Number(process.env.STEP_DELAY_MS || 800);
 const HTTP_RETRIES = Number(process.env.HTTP_RETRIES || 3);
 const HTTP_RETRY_DELAY_MS = Number(process.env.HTTP_RETRY_DELAY_MS || 5000);
-const HTTP_TIMEOUT_MS = Number(process.env.HTTP_TIMEOUT_MS || 65000);
-const PIPELINE_DRIVER_MAX_TICKS = Number(process.env.PIPELINE_DRIVER_MAX_TICKS || 60);
-const PIPELINE_DRIVER_DELAY_MS = Number(process.env.PIPELINE_DRIVER_DELAY_MS || 1000);
-const PIPELINE_DRIVER_BUSY_DELAY_MS = Number(process.env.PIPELINE_DRIVER_BUSY_DELAY_MS || 10000);
-const PIPELINE_DRIVER_BUDGET_MS = Number(process.env.PIPELINE_DRIVER_BUDGET_MS || 50000);
-const ALLOW_LEGACY_DIGEST_WORKFLOW = parseBool(
-  process.env.ALLOW_LEGACY_DIGEST_WORKFLOW,
-  false
-);
+// Algunas fases agrupan muchas fuentes o usuarios en una sola peticion. El
+// timeout debe cubrir la fase completa; cada integracion ya tiene sus propios
+// limites cortos para evitar que una fuente individual cuelgue el proceso.
+const HTTP_TIMEOUT_MS = Number(process.env.HTTP_TIMEOUT_MS || 15 * 60 * 1000);
 const BATCH_METRIC_KEYS = [
   'digests_generados',
   'rescates_generados',
@@ -156,6 +145,7 @@ async function hit(path, { method = 'GET', maxRetries = HTTP_RETRIES } = {}) {
 
 async function runBatchedStep(name, path, options = {}, maxLoops = MAX_LOOPS) {
   let loops = 0;
+  let drained = false;
   let total = 0;
   let totalProgress = 0;
   let lastBody = null;
@@ -180,7 +170,10 @@ async function runBatchedStep(name, path, options = {}, maxLoops = MAX_LOOPS) {
 
     console.log(`[${name}] vuelta ${loops}: procesadas=${procesadas}, actualizadas=${progress}`);
 
-    if (procesadas === 0) break;
+    if (procesadas === 0) {
+      drained = true;
+      break;
+    }
     if (progress === 0) {
       throw new Error(
         `[${name}] bloqueado: el endpoint devolvio ${procesadas} candidatas pero 0 actualizaciones. ` +
@@ -190,7 +183,7 @@ async function runBatchedStep(name, path, options = {}, maxLoops = MAX_LOOPS) {
     await sleep(STEP_DELAY_MS);
   }
 
-  if (loops === maxLoops) {
+  if (!drained) {
     throw new Error(
       `[${name}] alcanzo MAX_LOOPS=${maxLoops}. No se prepara digest incompleto. ` +
       `Total candidatas=${total}, actualizaciones=${totalProgress}. Ultima respuesta: ${JSON.stringify(lastBody)}`
@@ -215,66 +208,7 @@ async function runOptionalStep(name, path, options = {}) {
   }
 }
 
-async function mainPipelineDriver() {
-  console.log('Iniciando pipeline reanudable desde el comando cron compatible...', {
-    baseUrl: BASE_URL,
-    fecha: FECHA || 'hoy Madrid',
-    maxTicks: PIPELINE_DRIVER_MAX_TICKS,
-  });
-
-  const path = appendQuery('/tareas/pipeline-tick', {
-    fecha: FECHA,
-    budget_ms: PIPELINE_DRIVER_BUDGET_MS,
-    complementarios: RUN_SCRAPERS,
-    enviar_listados: RUN_OFFICIAL_LISTS,
-  });
-
-  for (let tickNumber = 1; tickNumber <= PIPELINE_DRIVER_MAX_TICKS; tickNumber++) {
-    const body = await hit(path);
-    const tick = body?.tick || 'respuesta_desconocida';
-    const jobStatus = body?.job?.status || null;
-    const currentStage = body?.job?.current_stage || null;
-    const logOcupado = tick !== 'already_running' || tickNumber === 1 ||
-      tickNumber === PIPELINE_DRIVER_MAX_TICKS || tickNumber % 6 === 0;
-    if (logOcupado) {
-      console.log(`[pipeline-driver] tick ${tickNumber}: ${tick}`, {
-        jobStatus,
-        currentStage,
-      });
-    }
-    if (tick === 'already_running' && tickNumber === 1) {
-      console.log(
-        `[pipeline-driver] Otro tick conserva el claim; se comprobara cada ${PIPELINE_DRIVER_BUSY_DELAY_MS}ms ` +
-        'hasta que termine o el heartbeat caduque.'
-      );
-    }
-
-    if (tick === 'completed' || (tick === 'noop_terminal' && jobStatus === 'completed')) {
-      console.log('Pipeline diario completado con checkpoints', {
-        ticks_driver: tickNumber,
-        job_id: body?.job?.id || null,
-      });
-      return;
-    }
-    if (['failed', 'aborted', 'preflight_failed'].includes(tick)) {
-      throw new Error(
-        `pipeline ${tick} en ${currentStage || 'fase desconocida'}: ${body?.error || 'revisa pipeline_jobs'}`
-      );
-    }
-    if (tick === 'noop_terminal') {
-      throw new Error(`pipeline ya estaba en estado terminal ${jobStatus || 'desconocido'}`);
-    }
-    await sleep(tick === 'already_running' ? PIPELINE_DRIVER_BUSY_DELAY_MS : PIPELINE_DRIVER_DELAY_MS);
-  }
-
-  throw new Error(
-    `pipeline no termino tras ${PIPELINE_DRIVER_MAX_TICKS} ticks; ` +
-    'el job queda guardado para recuperacion y no se ejecutara un flujo paralelo'
-  );
-}
-
-async function mainLegacy() {
-  console.warn('Ejecutando workflow LEGACY de rescate sin checkpoints.');
+async function main() {
   console.log('Iniciando workflow diario completo...', {
     baseUrl: BASE_URL,
     fecha: FECHA || 'hoy Madrid',
@@ -341,7 +275,7 @@ async function mainLegacy() {
   });
 }
 
-(ALLOW_LEGACY_DIGEST_WORKFLOW ? mainLegacy() : mainPipelineDriver()).catch((err) => {
+main().catch((err) => {
   console.error('Error en workflow:', err.message);
   process.exit(1);
 });

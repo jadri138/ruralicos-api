@@ -24,24 +24,22 @@ function test(name, fn) {
 
 console.log('\n=== TESTS: run digest workflow script ===\n');
 
-test('el comando historico usa el pipeline reanudable por defecto', () => {
+test('el comando del cron ejecuta el workflow completo sin depender de claims', () => {
   assert(
-    script.includes('mainPipelineDriver') &&
-    script.includes("appendQuery('/tareas/pipeline-tick'") &&
-    script.includes('ALLOW_LEGACY_DIGEST_WORKFLOW ? mainLegacy() : mainPipelineDriver()'),
-    'el cron historico debe conducir el job con checkpoints y reservar legacy para rescate'
+    script.includes('async function main()') &&
+    script.includes('main().catch') &&
+    !script.includes("appendQuery('/tareas/pipeline-tick'") &&
+    !script.includes('already_running'),
+    'el cron debe ejecutar las fases directamente y no quedarse esperando un claim'
   );
 });
 
-test('espera el tiempo suficiente cuando otro tick conserva el claim', () => {
+test('no conserva el driver reanudable que bloqueo el pipeline', () => {
   assert(
-    script.includes('PIPELINE_DRIVER_BUSY_DELAY_MS') &&
-    script.includes("tick === 'already_running' ? PIPELINE_DRIVER_BUSY_DELAY_MS"),
-    'already_running debe usar una espera larga para cubrir la caducidad del heartbeat sin hacer polling agresivo'
-  );
-  assert(
-    script.includes("tickNumber % 6 === 0"),
-    'el log ocupado debe agruparse para no imprimir decenas de lineas identicas'
+    !script.includes('mainPipelineDriver') &&
+    !script.includes('PIPELINE_DRIVER_MAX_TICKS') &&
+    !script.includes('ALLOW_LEGACY_DIGEST_WORKFLOW'),
+    'el script no debe poder volver al runner roto por una variable de entorno'
   );
 });
 

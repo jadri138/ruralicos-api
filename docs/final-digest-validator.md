@@ -35,8 +35,10 @@ Por item, el validador exige:
 - URL oficial verificada en la fact sheet;
 - bloque de mensaje con enlace;
 - decision de seleccion `include`;
-- evidencia documental para todos los ejes tematicos usados por el matcher;
+- evidencia documental para la coincidencia tematica, o territorio verificado
+  de la misma provincia/comunidad como recomendacion de descubrimiento;
 - ninguna evidencia taxonomica circular procedente de un resumen generado;
+- ningun conflicto taxonomico explicito (por ejemplo, porcino frente a vacuno);
 - plazos mencionados solo si `factSheet.plazo` esta verificado;
 - importes mencionados solo si `factSheet.importe` esta verificado;
 - territorios mencionados solo si `factSheet.territorio` los verifica;
