@@ -5,16 +5,16 @@
 // por arranque con crearContextoUsuarios(supabase) y lo consumen las sub-rutas.
 
 const crypto = require('crypto');
-const bcrypt = require('bcryptjs');
+
 const rateLimit = require('express-rate-limit');
-const { checkCronToken, hasCronToken } = require('../../middleware/cronToken');
-const { normalizePhone, isPhoneValid, LONGITUD_TELEFONO } = require('../../shared/phoneNormalizer');
-const { enviarWhatsAppVerificacion, enviarWhatsAppRegistro, enviarWhatsAppResetPassword } = require('../../platform/whatsapp');
+const {  hasCronToken } = require('../../middleware/cronToken');
+const { normalizePhone } = require('../../shared/phoneNormalizer');
+
 const { requireAuth, requireAdmin } = require('../../middleware/requireAdmin');
-const { getPlan, validarPreferencias, truncarPreferencias } = require('../../config/planes');
-const { extraerPreferenciasBody, prepararPreferenciasExtra } = require('../../shared/preferenciasRequest');
-const { normalizarPreferenciasUsuario } = require('../../shared/preferenceCanonical');
-const { actualizarPerfilUsuarioMIASafe } = require('../aprendizaje/miaProfile');
+
+
+
+
 const { notificarCambioPlan } = require('../../services/planChangeNotifier');
 
 const USER_OWNED_TABLES = [

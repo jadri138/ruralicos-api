@@ -4,71 +4,32 @@
 // Helpers compartidos en admin.helpers.js.
 
 const { requireAdmin } = require('../../middleware/requireAdmin');
-const { normalizePhone } = require('../../shared/phoneNormalizer');
+
 const { getFechaMadridISO, getRangoDiaMadridUTC } = require('../../shared/fechaMadrid');
-const { actualizarPerfilUsuarioMIA } = require('../aprendizaje/miaProfile');
-const { enviarDigestPro } = require('../../platform/whatsapp');
-const {
-  cargarOutboxPendiente,
-  procesarOutboxItemMIA,
-  generarOutboxHealthMIA,
-} = require('../mia/outbox');
-const {
-  analizarWebhookEventParaReplay,
-  parseJsonObject,
-} = require('../mia/replay');
-const { resolverPreguntaConBaseConocimientoMIA } = require('../mia/knowledgeBase');
-const { generarQualityReportMIA } = require('../mia/qualityReport');
-const { generarAnswerAuditMIA } = require('../mia/answerAudit');
-const { cargarPerfilOperativoMIA } = require('../mia/userProfile');
-const { ejecutarEvalsMIA } = require('../mia/evalHarness');
+
+
+
+
+
+
+
+
+
 const { generarReporteCalidadOperativaMIA } = require('../mia/alertQuality');
 const {
   ESTADOS_PENDIENTES_AUTOMATICOS,
 } = require('../alertas/alertPipelineStates');
-const {
-  ingestKnowledgeDocument,
-  normalizeBase64,
-} = require('../mia/knowledgeIngest');
-const {
-  cargarOrganizationContextMIA,
-  normalizarOrganizationId,
-  obtenerMiaBranding,
-} = require('../mia/organizationContext');
-const {
-  registrarAdminAuditLog,
-  getAdminActor,
-} = require('./auditLog');
-const { notificarCambioPlan } = require('../../services/planChangeNotifier');
-const {
-  construirDatasetRevisionMIA,
-  construirReviewRowMIA,
-} = require('../mia/alertReview');
+
+
+
+
+
 
 const {
-  PLANES_VALIDOS,
-  ORGANIZATION_STATUS_VALIDOS,
-  ORGANIZATION_MEMBER_ROLES,
-  USER_SELECT_ADMIN,
-  limpiarBusquedaUsuario,
-  escaparLike,
-  leerVentanaHoras,
-  payloadVentanaHoras,
-  normalizarAdminUserId,
-  getAdminUserIdFromRequest,
-  auditarAdmin,
-  limpiarCampoNombre,
-  construirNombreLegal,
-  resumenUsuarioSugerido,
-  getPublicBaseUrl,
-  crearSlugOrganizacion,
-  limpiarJsonPlano,
-  limpiarOrganizacionBody,
+
+
   hitCronPath,
   countQuery,
-  idsNumericosUnicos,
-  selectRowsByIds,
-  resolverUsuarioAdminDigest,
 } = require('./admin.helpers');
 
 module.exports = (app, supabase) => {

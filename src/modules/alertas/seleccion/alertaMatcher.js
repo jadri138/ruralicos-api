@@ -26,6 +26,13 @@ const {
 const {
   detectarTratamientoEspecialAlerta,
 } = require('../../../shared/alertScopeRules');
+const {
+  MARCADORES_NACIONALES,
+  MUNICIPIOS_PROVINCIA_HINTS,
+  PROVINCIAS_POR_COMUNIDAD,
+  PROVINCIAS_POR_FUENTE,
+  PROVINCIAS_TEXTO,
+} = require('../../../shared/geography');
 
 function norm(str) {
   return (str || '')
@@ -501,18 +508,7 @@ function tiposCompatibles(tiposUserActivos = [], tiposAlerta = [], alerta = {}) 
   });
 }
 
-function textoRelevanteAlerta(alerta = {}) {
-  return norm([
-    alerta.titulo,
-    alerta.resumen,
-    alerta.resumen_final,
-    alerta.contenido,
-    ...(Array.isArray(alerta.tipos_alerta) ? alerta.tipos_alerta : []),
-    ...(Array.isArray(alerta.sectores) ? alerta.sectores : []),
-    ...(Array.isArray(alerta.subsectores) ? alerta.subsectores : []),
-    ...taxonomyTagsAlerta(alerta),
-  ].filter(Boolean).join(' '));
-}
+
 
 function esConvocatoriaAyudaGeneral(alerta = {}) {
   const texto = textoDocumentalAlerta(alerta);
@@ -544,131 +540,7 @@ function usuarioAceptaAyudasGenerales(tiposUserActivos = []) {
   return tiposUserActivos.length === 0 || tiposUserActivos.includes('ayudas_subvenciones');
 }
 
-const PROVINCIAS_POR_FUENTE = {
-  BOE: ['nacional'],
-  FEGA: ['nacional'],
-  BOA: ['huesca', 'zaragoza', 'teruel'],
-  BOPZ: ['zaragoza'],
-  BOPH: ['huesca'],
-  BOPT: ['teruel'],
-  DOGC: ['barcelona', 'girona', 'lleida', 'tarragona'],
-  DOGV: ['alicante', 'castellon', 'castellon', 'valencia'],
-  DOG: ['a coruna', 'lugo', 'ourense', 'pontevedra'],
-  DOCM: ['albacete', 'ciudad real', 'cuenca', 'guadalajara', 'toledo'],
-  DOE: ['badajoz', 'caceres'],
-  BOJA: ['almeria', 'cadiz', 'cordoba', 'granada', 'huelva', 'jaen', 'malaga', 'sevilla'],
-  BOCYL: ['avila', 'burgos', 'leon', 'palencia', 'salamanca', 'segovia', 'soria', 'valladolid', 'zamora'],
-  BOCM: ['madrid'],
-  BON: ['navarra'],
-  BOPA: ['asturias'],
-  BOPV: ['alava', 'araba', 'bizkaia', 'vizcaya', 'gipuzkoa', 'guipuzcoa'],
-  BOTHA: ['alava', 'araba'],
-  BOG: ['gipuzkoa', 'guipuzcoa'],
-  BOR: ['la rioja'],
-  BORM: ['murcia'],
-  BOIB: ['illes balears', 'islas baleares', 'baleares'],
-  BOCAN: ['las palmas', 'santa cruz de tenerife'],
-  BOCANT: ['cantabria'],
-  BOME: ['melilla'],
-  BOCCE: ['ceuta'],
-};
-const MARCADORES_NACIONALES = new Set(['nacional', 'espana', 'españa', 'estatal', 'todas', 'todo el territorio nacional']);
-
-const COMUNIDADES_AUTONOMAS_PROVINCIAS = new Map([
-  [['andalucia'], ['almeria', 'cadiz', 'cordoba', 'granada', 'huelva', 'jaen', 'malaga', 'sevilla']],
-  [['aragon'], ['huesca', 'zaragoza', 'teruel']],
-  [['asturias', 'principado de asturias'], ['asturias']],
-  [['illes balears', 'islas baleares', 'baleares'], ['illes balears', 'islas baleares', 'baleares']],
-  [['canarias', 'islas canarias'], ['las palmas', 'santa cruz de tenerife']],
-  [['cantabria'], ['cantabria']],
-  [['castilla-la mancha', 'castilla la mancha'], ['albacete', 'ciudad real', 'cuenca', 'guadalajara', 'toledo']],
-  [['castilla y leon'], ['avila', 'burgos', 'leon', 'palencia', 'salamanca', 'segovia', 'soria', 'valladolid', 'zamora']],
-  [['catalunya', 'cataluna'], ['barcelona', 'girona', 'gerona', 'lleida', 'lerida', 'tarragona']],
-  [['comunitat valenciana', 'comunidad valenciana'], ['alicante', 'alacant', 'castellon', 'castello', 'valencia']],
-  [['extremadura'], ['badajoz', 'caceres']],
-  [['galicia'], ['a coruna', 'coruna', 'lugo', 'ourense', 'orense', 'pontevedra']],
-  [['comunidad de madrid'], ['madrid']],
-  [['region de murcia'], ['murcia']],
-  [['comunidad foral de navarra'], ['navarra']],
-  [['pais vasco', 'euskadi', 'euskal herria'], ['alava', 'araba', 'bizkaia', 'vizcaya', 'gipuzkoa', 'guipuzcoa']],
-  [['la rioja'], ['la rioja']],
-  [['ceuta'], ['ceuta']],
-  [['melilla'], ['melilla']],
-].flatMap(([aliases, provincias]) => aliases.map((alias) => [alias, provincias])));
-
-const PROVINCIAS_TEXTO = [
-  ['alava', ['alava', 'araba']],
-  ['araba', ['alava', 'araba']],
-  ['albacete'],
-  ['alicante', ['alicante', 'alacant']],
-  ['alacant', ['alicante', 'alacant']],
-  ['almeria'],
-  ['asturias'],
-  ['avila'],
-  ['badajoz'],
-  ['barcelona'],
-  ['burgos'],
-  ['caceres'],
-  ['cadiz'],
-  ['cantabria'],
-  ['castellon', ['castellon', 'castello']],
-  ['castello', ['castellon', 'castello']],
-  ['ciudad real'],
-  ['cordoba'],
-  ['a coruna', ['a coruna', 'coruna']],
-  ['coruna', ['a coruna', 'coruna']],
-  ['cuenca'],
-  ['girona', ['girona', 'gerona']],
-  ['gerona', ['girona', 'gerona']],
-  ['granada'],
-  ['guadalajara'],
-  ['gipuzkoa', ['gipuzkoa', 'guipuzcoa']],
-  ['guipuzcoa', ['gipuzkoa', 'guipuzcoa']],
-  ['huelva'],
-  ['huesca'],
-  ['illes balears', ['illes balears', 'islas baleares', 'baleares']],
-  ['islas baleares', ['illes balears', 'islas baleares', 'baleares']],
-  ['baleares', ['illes balears', 'islas baleares', 'baleares']],
-  ['jaen'],
-  ['la rioja'],
-  ['las palmas'],
-  ['leon'],
-  ['lleida', ['lleida', 'lerida']],
-  ['lerida', ['lleida', 'lerida']],
-  ['lugo'],
-  ['madrid'],
-  ['malaga'],
-  ['murcia'],
-  ['navarra'],
-  ['ourense', ['ourense', 'orense']],
-  ['orense', ['ourense', 'orense']],
-  ['palencia'],
-  ['pontevedra'],
-  ['salamanca'],
-  ['santa cruz de tenerife'],
-  ['segovia'],
-  ['sevilla'],
-  ['soria'],
-  ['tarragona'],
-  ['teruel'],
-  ['toledo'],
-  ['valencia'],
-  ['valladolid'],
-  ['bizkaia', ['bizkaia', 'vizcaya']],
-  ['vizcaya', ['bizkaia', 'vizcaya']],
-  ['zamora'],
-  ['zaragoza'],
-  ['ceuta'],
-  ['melilla'],
-].map(([term, aliases]) => ({ term, aliases: aliases || [term] }));
-
-const MUNICIPIOS_PROVINCIA_HINTS = [
-  { terms: ['useras', 'useres', 'les useres'], provincias: ['castellon', 'castello'] },
-  { terms: ['corullon'], provincias: ['leon'] },
-  { terms: ['castillejo de mesleon'], provincias: ['segovia'] },
-  { terms: ['valle de ollo'], provincias: ['navarra'] },
-  { terms: ['villarquemado'], provincias: ['teruel'] },
-];
+const COMUNIDADES_AUTONOMAS_PROVINCIAS = new Map(Object.entries(PROVINCIAS_POR_COMUNIDAD));
 
 function fuenteNormalizada(alerta = {}) {
   return normalizarFuenteBoletin(alerta.fuente || '');

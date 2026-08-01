@@ -5,8 +5,8 @@
 // La logica vive en feedback.service.js.
 const { checkCronToken } = require('../../middleware/cronToken');
 const { responderError } = require('../../shared/responderError');
-const crypto = require('crypto');
-const { getFechaMadridISO, getRangoDiaMadridUTC } = require('../../shared/fechaMadrid');
+
+const { getFechaMadridISO } = require('../../shared/fechaMadrid');
 const { normalizePhone } = require('../../shared/phoneNormalizer');
 const {
   aplicarFeedbackAlPerfil,
@@ -21,7 +21,7 @@ const { enviarDigestPro } = require('../../platform/whatsapp');
 const { extraerUltraMsg, esEventoMensajeUltraMsg } = require('../../shared/ultramsgParser');
 const { registrarInboundMIA, actualizarInboundMIA } = require('../mia/inbound');
 const { decidirMensajeMIA, esRespuestaOrigenCaptacionMIA } = require('../mia/decisionCore');
-const { cargarDigestItemsMIA } = require('../mia/digestItems');
+
 const { registrarMemoriaEstructuradaMIA } = require('../mia/structuredMemory');
 const {
   ejecutarAccionesMIA,
@@ -58,20 +58,14 @@ const {
 
 const {
   comprobarWebhookToken,
-  extraerFechaConversacionMIA,
   fechaMadridConversacionMIA,
   esConversacionMIADelDia,
   getExpiracionFinDiaMadridISO,
-  getClickBaseUrl,
-  construirUrlTracking,
-  generarTokenClick,
-  escaparRegExp,
   aplicarLinksTrackingDigest,
   abrirConversacionFeedbackPrueba,
   sumarTagPerfil,
   buscarConversacionActiva,
   cargarDigestYAlertas,
-  candidatosTelefonoUsuario,
   buscarUsuarioPorTelefonoEntrante,
 } = require('./feedback.service');
 

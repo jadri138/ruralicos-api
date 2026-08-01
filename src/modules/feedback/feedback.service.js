@@ -5,56 +5,27 @@
 // usuario por telefono entrante. Reutilizable por feedback.routes.js. Extraido
 // sin cambios de comportamiento.
 
-const { checkCronToken } = require('../../middleware/cronToken');
+
 const crypto = require('crypto');
 const { getFechaMadridISO, getRangoDiaMadridUTC } = require('../../shared/fechaMadrid');
 const { normalizePhone } = require('../../shared/phoneNormalizer');
-const {
-  aplicarFeedbackAlPerfil,
-  extraerTextoEntrante,
-  extraerTelefonoEntrante,
-  leerPerfilIntereses,
-  parsearVotosDigest,
-  parsearVotosNaturalesPorAlertas,
-  analizarFeedbackCompleto,
-} = require('../aprendizaje');
-const { enviarDigestPro } = require('../../platform/whatsapp');
-const { extraerUltraMsg, esEventoMensajeUltraMsg } = require('../../shared/ultramsgParser');
-const { registrarInboundMIA, actualizarInboundMIA } = require('../mia/inbound');
-const { decidirMensajeMIA, esRespuestaOrigenCaptacionMIA } = require('../mia/decisionCore');
+
+
+
+
+
 const { cargarDigestItemsMIA } = require('../mia/digestItems');
-const { registrarMemoriaEstructuradaMIA } = require('../mia/structuredMemory');
-const {
-  ejecutarAccionesMIA,
-  registrarCasoAgenteMIA,
-  abrirConversacionAgenteMIA,
-} = require('../mia/actionExecutor');
-const {
-  resolverPreguntaConBaseConocimientoMIA,
-  aplicarRespuestaConocimientoADecision,
-} = require('../mia/knowledgeBase');
-const {
-  registrarDecisionYAccionesMIA,
-  actualizarDecisionResultadoMIA,
-  actualizarAccionesPorTipoMIA,
-} = require('../mia/decisionStore');
-const {
-  encolarRespuestaMIA,
-  procesarOutboxItemMIA,
-} = require('../mia/outbox');
-const { guardarWebhookEventSeguro } = require('../mia/webhookEvent');
-const {
-  cargarPerfilOperativoMIA,
-  aplicarPerfilOperativoAUsuario,
-} = require('../mia/userProfile');
-const { evaluarPoliticaDecisionMIA } = require('../mia/policy');
+
+
+
+
+
+
+
+
 const {
   conOrganizationId,
-  extraerOrganizationId,
   filtrarAlertasPorOrganization,
-  cargarOrganizationContextMIA,
-  aplicarOrganizationContextAUsuario,
-  obtenerMiaBranding,
 } = require('../mia/organizationContext');
 
 function comprobarWebhookToken(req) {

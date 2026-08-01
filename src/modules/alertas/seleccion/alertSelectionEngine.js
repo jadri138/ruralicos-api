@@ -17,6 +17,7 @@ const {
   canonicalSubsector,
   canonicalTipoAlerta,
 } = require('../../../shared/preferenceCanonical');
+const { MARCADORES_NACIONALES } = require('../../../shared/geography');
 
 const DEFAULT_POLICY = {
   minIncludeScore: 64,
@@ -72,8 +73,6 @@ function lista(value, canonicalizer = norm) {
   if (!value) return [];
   return String(value).split(/[,;\n]/g).map(canonicalizer).filter(Boolean);
 }
-
-const MARCADORES_NACIONALES = new Set(['nacional', 'espana', 'españa', 'estatal', 'todas', 'todo el territorio nacional']);
 
 function intersecta(a = [], b = []) {
   return a.some((item) => b.includes(item));

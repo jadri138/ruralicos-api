@@ -73,7 +73,7 @@ async function getHtml(url) {
 async function obtenerBoletinesRecientes() {
   const html = await getHtml(LISTING_URL);
   const $ = cheerio.load(html);
-  const boletines = [];
+
   const porKey = new Map();
   const mesSeleccionado = Number($('select[name="p_mes"] option[selected]').attr('value'));
   const anySeleccionado = $('select[name="p_any"] option[selected]').attr('value') || String(new Date().getFullYear());

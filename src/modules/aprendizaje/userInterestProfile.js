@@ -85,24 +85,15 @@ function limitarScore(score = 0) {
   return Math.max(-5, Math.min(5, Number(score || 0)));
 }
 
-async function leerPerfilIntereses(supabase, userId) {
-  const { data, error } = await supabase
-    .from('user_interest_profile')
-    .select('tag, score, positivos, negativos')
-    .eq('user_id', userId)
-    .order('score', { ascending: false });
-
-  if (error) {
-    console.warn(`[interest_profile] No se pudo leer perfil user ${userId}:`, error.message);
-    return { pesos: {}, resumen: '' };
-  }
-
-  const pesos = Object.fromEntries((data || []).map((item) => [item.tag, Number(item.score || 0)]));
-  const positivos = (data || [])
+function construirPerfilIntereses(rows = []) {
+  const data = Array.isArray(rows) ? rows : [];
+  const pesos = Object.fromEntries(data.map((item) => [item.tag, Number(item.score || 0)]));
+  const positivos = data
     .filter((item) => Number(item.score) > 0)
+    .sort((a, b) => Number(b.score) - Number(a.score))
     .slice(0, 8)
     .map((item) => `${item.tag} (+${item.score})`);
-  const negativos = (data || [])
+  const negativos = data
     .filter((item) => Number(item.score) < 0)
     .sort((a, b) => Number(a.score) - Number(b.score))
     .slice(0, 8)
@@ -116,6 +107,62 @@ async function leerPerfilIntereses(supabase, userId) {
   return { pesos, resumen };
 }
 
+async function leerPerfilIntereses(supabase, userId) {
+  const { data, error } = await supabase
+    .from('user_interest_profile')
+    .select('tag, score, positivos, negativos')
+    .eq('user_id', userId)
+    .order('score', { ascending: false });
+
+  if (error) {
+    console.warn(`[interest_profile] No se pudo leer perfil user ${userId}:`, error.message);
+    return { pesos: {}, resumen: '' };
+  }
+
+  return construirPerfilIntereses(data);
+}
+
+async function actualizarTagsPerfil(supabase, { userId, ajustes = [] }) {
+  if (!userId || ajustes.length === 0) return { updated: 0 };
+
+  const tags = ajustes.map((item) => item.tag);
+  const { data, error: selectError } = await supabase
+    .from('user_interest_profile')
+    .select('tag, score, positivos, negativos')
+    .eq('user_id', userId)
+    .in('tag', tags);
+
+  if (selectError) {
+    console.warn(`[interest_profile] Error leyendo tags de user ${userId}:`, selectError.message);
+    return { updated: 0, error: selectError.message };
+  }
+
+  const actuales = new Map((data || []).map((item) => [item.tag, item]));
+  const updatedAt = new Date().toISOString();
+  const rows = ajustes.map(({ tag, delta }) => {
+    const actual = actuales.get(tag);
+    return {
+      user_id: userId,
+      tag,
+      score: limitarScore(Number(actual?.score || 0) + delta),
+      positivos: Number(actual?.positivos || 0) + (delta > 0 ? 1 : 0),
+      negativos: Number(actual?.negativos || 0) + (delta < 0 ? 1 : 0),
+      updated_at: updatedAt,
+    };
+  });
+
+  const { error: upsertError } = await supabase
+    .from('user_interest_profile')
+    .upsert(rows, { onConflict: 'user_id,tag' });
+
+  if (upsertError) {
+    console.warn(`[interest_profile] Error actualizando tags de user ${userId}:`, upsertError.message);
+    return { updated: 0, error: upsertError.message };
+  }
+
+  return { updated: rows.length };
+}
+
 async function aplicarFeedbackAlPerfil(supabase, { userId, alerta, delta, rawText = '' }) {
   const tags = tagsAlerta(alerta);
   if (!userId || tags.length === 0) return { updated: 0 };
@@ -123,81 +170,21 @@ async function aplicarFeedbackAlPerfil(supabase, { userId, alerta, delta, rawTex
   const ajuste = Number(delta || 0);
   if (!ajuste) return { updated: 0 };
 
-  let updated = 0;
-  let skipped = 0;
-  for (const tag of tags) {
-    const ajusteTag = calcularAjusteFeedbackTag(tag, ajuste, rawText);
-    if (!ajusteTag) {
-      skipped++;
-      continue;
-    }
-
-    const { data: actual, error: selectError } = await supabase
-      .from('user_interest_profile')
-      .select('score, positivos, negativos')
-      .eq('user_id', userId)
-      .eq('tag', tag)
-      .maybeSingle();
-
-    if (selectError) {
-      console.warn(`[interest_profile] Error leyendo tag ${tag}:`, selectError.message);
-      continue;
-    }
-
-    const next = {
-      user_id: userId,
-      tag,
-      score: limitarScore(Number(actual?.score || 0) + ajusteTag),
-      positivos: Number(actual?.positivos || 0) + (ajusteTag > 0 ? 1 : 0),
-      negativos: Number(actual?.negativos || 0) + (ajusteTag < 0 ? 1 : 0),
-      updated_at: new Date().toISOString(),
-    };
-
-    const { error: upsertError } = await supabase
-      .from('user_interest_profile')
-      .upsert(next, { onConflict: 'user_id,tag' });
-
-    if (upsertError) {
-      console.warn(`[interest_profile] Error actualizando tag ${tag}:`, upsertError.message);
-      continue;
-    }
-    updated++;
-  }
-
-  return { updated, skipped };
+  const ajustes = tags
+    .map((tag) => ({ tag, delta: calcularAjusteFeedbackTag(tag, ajuste, rawText) }))
+    .filter((item) => item.delta);
+  const result = await actualizarTagsPerfil(supabase, { userId, ajustes });
+  return { ...result, skipped: tags.length - ajustes.length };
 }
 
 async function aplicarClickAlPerfil(supabase, { userId, alerta }) {
   const tags = tagsAlerta(alerta);
   if (!userId || tags.length === 0) return { updated: 0 };
 
-  let updated = 0;
-  for (const tag of tags) {
-    const ajusteTag = calcularAjusteClickTag(tag);
-    if (!ajusteTag) continue;
-
-    const { data: actual, error: selectError } = await supabase
-      .from('user_interest_profile')
-      .select('score, positivos, negativos')
-      .eq('user_id', userId)
-      .eq('tag', tag)
-      .maybeSingle();
-    if (selectError) continue;
-
-    const { error } = await supabase
-      .from('user_interest_profile')
-      .upsert({
-        user_id: userId,
-        tag,
-        score: limitarScore(Number(actual?.score || 0) + ajusteTag),
-        positivos: Number(actual?.positivos || 0) + 1,
-        negativos: Number(actual?.negativos || 0),
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'user_id,tag' });
-    if (!error) updated++;
-  }
-
-  return { updated };
+  const ajustes = tags
+    .map((tag) => ({ tag, delta: calcularAjusteClickTag(tag) }))
+    .filter((item) => item.delta);
+  return actualizarTagsPerfil(supabase, { userId, ajustes });
 }
 
 function ordenarAlertasPorPerfil(alertas, perfil) {
@@ -212,6 +199,7 @@ module.exports = {
   calcularAjusteClickTag,
   esTagPositivoAtribuible,
   esRechazoGlobalFeedback,
+  construirPerfilIntereses,
   leerPerfilIntereses,
   limitarScore,
   ordenarAlertasPorPerfil,

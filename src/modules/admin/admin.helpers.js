@@ -4,45 +4,30 @@
 // administracion (auditoria, validacion de organizaciones, ventanas de tiempo,
 // resolucion de usuarios para digest, etc.). Extraido de admin.routes.js.
 
-const { requireAdmin } = require('../../middleware/requireAdmin');
+
 const { normalizePhone } = require('../../shared/phoneNormalizer');
-const { getFechaMadridISO, getRangoDiaMadridUTC } = require('../../shared/fechaMadrid');
+
 const { normalizarBaseUrl } = require('../../shared/internalBaseUrl');
-const { actualizarPerfilUsuarioMIA } = require('../aprendizaje/miaProfile');
-const { enviarDigestPro } = require('../../platform/whatsapp');
+
+
+
 const {
-  cargarOutboxPendiente,
-  procesarOutboxItemMIA,
-  generarOutboxHealthMIA,
-} = require('../mia/outbox');
-const {
-  analizarWebhookEventParaReplay,
+
   parseJsonObject,
 } = require('../mia/replay');
-const { resolverPreguntaConBaseConocimientoMIA } = require('../mia/knowledgeBase');
-const { generarQualityReportMIA } = require('../mia/qualityReport');
-const { generarAnswerAuditMIA } = require('../mia/answerAudit');
-const { cargarPerfilOperativoMIA } = require('../mia/userProfile');
-const { ejecutarEvalsMIA } = require('../mia/evalHarness');
-const { generarReporteCalidadOperativaMIA } = require('../mia/alertQuality');
-const {
-  ingestKnowledgeDocument,
-  normalizeBase64,
-} = require('../mia/knowledgeIngest');
-const {
-  cargarOrganizationContextMIA,
-  normalizarOrganizationId,
-  obtenerMiaBranding,
-} = require('../mia/organizationContext');
+
+
+
+
+
+
+
+
 const {
   registrarAdminAuditLog,
-  getAdminActor,
 } = require('./auditLog');
-const { notificarCambioPlan } = require('../../services/planChangeNotifier');
-const {
-  construirDatasetRevisionMIA,
-  construirReviewRowMIA,
-} = require('../mia/alertReview');
+
+
 
 const PLANES_VALIDOS = ['free', 'corral', 'agricultor', 'cooperativa'];
 const ORGANIZATION_STATUS_VALIDOS = ['active', 'paused', 'disabled'];

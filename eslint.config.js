@@ -1,9 +1,9 @@
 // eslint.config.js — configuración flat (ESLint 9)
 //
 // Objetivo: detectar ERRORES reales (sobre todo referencias no definidas), no
-// imponer estilo. El formato lo gestiona Prettier. Se desactiva no-unused-vars
-// porque varios módulos importan helpers de forma deliberada (p. ej. las
-// sub-rutas de admin y digest importan todo su set de helpers compartidos).
+// imponer estilo. El formato lo gestiona Prettier. Los parámetros no usados se
+// permiten porque Express y varios callbacks comparten firmas estables, pero
+// importaciones y variables muertas sí deben fallar.
 
 const js = require('@eslint/js');
 
@@ -47,7 +47,14 @@ module.exports = [
     },
     rules: {
       'no-undef': 'error',
-      'no-unused-vars': 'off',
+      'no-unused-vars': [
+        'error',
+        {
+          args: 'none',
+          caughtErrors: 'none',
+          varsIgnorePattern: '^_',
+        },
+      ],
       'no-empty': 'off',
       'no-constant-condition': ['error', { checkLoops: false }],
       'no-useless-escape': 'off',

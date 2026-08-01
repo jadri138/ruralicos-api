@@ -3,38 +3,27 @@
 // Operaciones admin/cron sobre usuarios (listado, plan, borrado, preferencias).
 // Contexto compartido en usuarios.context.js.
 
-const bcrypt = require('bcryptjs');
-const rateLimit = require('express-rate-limit');
-const { checkCronToken, hasCronToken } = require('../../middleware/cronToken');
-const { normalizePhone, isPhoneValid, LONGITUD_TELEFONO } = require('../../shared/phoneNormalizer');
-const { enviarWhatsAppVerificacion, enviarWhatsAppRegistro, enviarWhatsAppResetPassword } = require('../../platform/whatsapp');
-const { requireAuth, requireAdmin } = require('../../middleware/requireAdmin');
-const { getPlan, validarPreferencias, truncarPreferencias } = require('../../config/planes');
+
+
+const { checkCronToken } = require('../../middleware/cronToken');
+
+
+
+const { getPlan, validarPreferencias } = require('../../config/planes');
 const { extraerPreferenciasBody, prepararPreferenciasExtra } = require('../../shared/preferenciasRequest');
 const { normalizarPreferenciasUsuario } = require('../../shared/preferenceCanonical');
-const { actualizarPerfilUsuarioMIASafe } = require('../aprendizaje/miaProfile');
-const { notificarCambioPlan } = require('../../services/planChangeNotifier');
+
+
 
 module.exports = (app, supabase, ctx) => {
   const {
-    accountLimiter,
-    registerLimiter,
-    getPlanKey,
-    getMemoryCapabilities,
-    limpiarCampoNombre,
-    construirNombreLegal,
-    summarizeMemory,
-    resetMiaProfile,
-    deleteUserRows,
+
+
     deleteUserOwnedRows,
     deleteSupabaseAuthUserIfPossible,
-    selectUserRows,
     requireAdminOrCron,
     requireOwnerPhoneOrAdminOrCron,
     cambiarPlanUsuarioPorTelefono,
-    generarCodigoVerificacion,
-    nuevaCaducidadVerificacion,
-    codigoVerificacionCaducado,
   } = ctx;
 
   app.get('/', (req, res) => {

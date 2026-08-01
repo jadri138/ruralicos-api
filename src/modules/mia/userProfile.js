@@ -1,4 +1,7 @@
-const { tagsAlerta } = require('../aprendizaje/userInterestProfile');
+const {
+  construirPerfilIntereses,
+  tagsAlerta,
+} = require('../aprendizaje/userInterestProfile');
 const { construirPreferenciasDesdeTexto } = require('../aprendizaje/taxonomiaRuralicos');
 const {
   inferirTopic,
@@ -318,6 +321,7 @@ function construirPerfilOperativoMIA({
     uncertain_topics: uncertainTopics,
     facts,
     raw_tag_scores: rawTagScores,
+    interest_profile: construirPerfilIntereses(interestRows),
     prompt_block: promptBlock,
     summary: construirResumenPerfilOperativoMIA({ declared, interests, dislikes, uncertainTopics, facts }),
     stats: {

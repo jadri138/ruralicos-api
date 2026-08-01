@@ -4,15 +4,15 @@
 // (/alertas, /alertas/clasificar, /alertas/resumir, /alertas/revisar,
 // /alertas/estado-pipeline...). La logica vive en
 // alertas.service.js.
-const { checkCronToken, hasCronToken } = require('../../middleware/cronToken');
-const { llamarIA, parsearJSON } = require('../../platform/ia/llamarIA');
+const { checkCronToken } = require('../../middleware/cronToken');
+const { llamarIA } = require('../../platform/ia/llamarIA');
 const { enviarWhatsAppResumen } = require('../../platform/whatsapp');
 const { getFechaMadridISO } = require('../../shared/fechaMadrid');
 const {
   sanitizarTextoPostgres,
   sanitizarValorPostgres,
 } = require('../../shared/postgresText');
-const { requireAdmin } = require('../../middleware/requireAdmin');
+
 const {
   CANDIDATE_LEVEL,
   PRECLASSIFIER_MODE,
@@ -47,54 +47,18 @@ const {
   CLASIFICAR_BATCH_SIZE,
   RESUMIR_BATCH_SIZE,
   REVISAR_BATCH_SIZE,
-  CLASIFICAR_LOCAL_FALLBACK,
-  RESUMIR_LOCAL_FALLBACK,
   REVISAR_LOCAL_FALLBACK,
   REVISAR_IA_RESCUE,
-  CLASIFICACION_TEXT_FORMAT,
-  FICHA_IA_TEXT_FORMAT,
   requireAdminOrCron,
   validarFechaISO,
   leerLimiteAlertas,
-  normalizarTexto,
-  contieneAlguno,
-  textoAlertaNormalizado,
-  esProcesoAdministrativoPersonal,
-  esPescaOMaritimoNoAgrario,
-  esAdministracionGeneralNoAgraria,
   detectarExclusionDuraAlerta,
   clasificacionDescartada,
-  limpiarArrayStrings,
-  limpiarArrayEnum,
-  leerBooleano,
-  extraerResultadosClasificacion,
-  clasificarLocalmente,
-  normalizarResultadoClasificacion,
-  limpiarTextoMensaje,
-  lineaBoletinPocoUtil,
   limpiarContenidoBoletinParaIA,
-  extraerExtractoBoletin,
-  campoFichaGenerico,
   construirMensajeFallback,
   limpiarMensajeFinal,
-  FICHA_CAMPOS_REQUERIDOS,
-  FICHA_TIPOS,
-  FICHA_PRIORIDADES,
-  limpiarCampoFicha,
-  limitarPalabras,
-  primerArray,
-  normalizarTipoFicha,
-  normalizarPrioridadFicha,
-  normalizarClavesFicha,
-  construirResumenDigestFicha,
-  construirFichaIA,
-  parsearFichaIA,
   normalizarFichaIA,
-  extraerResultadosFichaIA,
-  normalizarResultadoFichaIA,
-  buildPromptFichasIA,
   generarFichasIAEnLote,
-  buildPromptClasificar,
   clasificarConReintento,
 } = require('./alertas.service');
 

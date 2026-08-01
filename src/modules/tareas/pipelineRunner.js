@@ -298,6 +298,14 @@ async function ejecutarPipelineTick(supabase, opcionesTick = {}) {
       job: { id: job.id, status: job.status, current_stage: job.current_stage, ticks: job.ticks },
     };
   }
+  console.log('[pipeline-tick] claim_adquirido', {
+    job_id: claimed.id,
+    tick_id: tickId,
+    fecha,
+    stage: claimed.current_stage || initialStageAtClaim,
+    ticks: claimed.ticks,
+    recovery: jobDiagnostic.recovery_reason || null,
+  });
 
   try {
     let opcionesJob = claimed.options_json || {};
@@ -651,7 +659,15 @@ async function ejecutarPipelineTick(supabase, opcionesTick = {}) {
     await terminarJob('completed', null);
     return respuesta('completed', { jobStatus: 'completed' });
   } finally {
+    console.log('[pipeline-tick] claim_liberando', {
+      job_id: claimed.id,
+      tick_id: tickId,
+    });
     await store.liberar({ jobId: claimed.id, tickId });
+    console.log('[pipeline-tick] claim_liberado', {
+      job_id: claimed.id,
+      tick_id: tickId,
+    });
   }
 }
 

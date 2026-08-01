@@ -22,9 +22,9 @@
 
 
 const crypto = require('crypto');
-const { checkCronToken }           = require('../../middleware/cronToken');
+
 const { llamarIA }                 = require('../../platform/ia/llamarIA');
-const { enviarDigestPro }          = require('../../platform/whatsapp');
+
 const { getPlan }                  = require('../../config/planes');
 const {
   alertaCoincideConUsuario,
@@ -41,7 +41,7 @@ const {
 const { getFechaMadridISO, getRangoDiaMadridUTC } = require('../../shared/fechaMadrid');
 const { leerPerfilIntereses, ordenarAlertasPorPerfil, clasificarPrioridadAlerta, pesoPrioridad } = require('../aprendizaje');
 const { similitudCoseno }          = require('../../platform/ia/embeddings');
-const { registrarDigestItemsMIA }  = require('../mia/digestItems');
+
 const { construirFactSheetAlerta } = require('../alertas/intelligence/factSheetBuilder');
 const {
   cargarFactSheetActual,
@@ -49,10 +49,7 @@ const {
 } = require('../alertas/intelligence/factSheetStore');
 const { ejecutarDobleCheckCritico } = require('../alertas/intelligence/criticalDoubleCheck');
 const { validarDigestFinal }       = require('./finalDigestValidator');
-const {
-  actualizarDigestAttemptPorDigest,
-  registrarDigestAttempt,
-} = require('../mia/digestAttempts');
+
 const {
   cargarPerfilOperativoMIA,
   aplicarPerfilOperativoAUsuario,
@@ -61,7 +58,6 @@ const {
 const { evaluarCalidadAlerta }     = require('../mia/alertQuality');
 const {
   conOrganizationId,
-  extraerOrganizationId,
   filtrarAlertasPorOrganization,
   cargarOrganizationContextMIA,
   aplicarOrganizationContextAUsuario,
@@ -2299,38 +2295,58 @@ async function prepararMensajeConLinksTracking(supabase, {
     return { mensaje, links: [], enabled: false };
   }
 
-  let mensajeFinal = mensaje;
-  const links = [];
-
+  const alertasVistas = new Set();
+  const candidatas = [];
   for (const alerta of alertas || []) {
     if (!alerta?.id || !alerta?.url) continue;
 
-    const token = generarTokenClick();
-    const { data, error } = await supabase
-      .from('alerta_click_links')
-      .upsert(conOrganizationId({
-        token,
-        user_id: userId,
-        digest_id: digestId,
-        alerta_id: alerta.id,
-        url_destino: alerta.url,
-      }, organizationId), { onConflict: 'user_id,digest_id,alerta_id' })
-      .select('token, alerta_id, url_destino')
-      .single();
+    const alertaId = String(alerta.id);
+    if (alertasVistas.has(alertaId)) continue;
 
-    if (error) {
-      console.warn('[digest:clicks] Tracking no disponible, manteniendo URLs oficiales:', error.message);
-      return { mensaje, links, enabled: false, error: error.message };
-    }
+    alertasVistas.add(alertaId);
+    candidatas.push({
+      alerta,
+      token: generarTokenClick(),
+    });
+  }
 
-    const tokenFinal = data?.token || token;
+  if (candidatas.length === 0) {
+    return { mensaje, links: [], enabled: true };
+  }
+
+  const rows = candidatas.map(({ alerta, token }) => conOrganizationId({
+    token,
+    user_id: userId,
+    digest_id: digestId,
+    alerta_id: alerta.id,
+    url_destino: alerta.url,
+  }, organizationId));
+  const { data, error } = await supabase
+    .from('alerta_click_links')
+    .upsert(rows, { onConflict: 'user_id,digest_id,alerta_id' })
+    .select('token, alerta_id, url_destino');
+
+  if (error) {
+    console.warn('[digest:clicks] Tracking no disponible, manteniendo URLs oficiales:', error.message);
+    return { mensaje, links: [], enabled: false, error: error.message };
+  }
+
+  let mensajeFinal = mensaje;
+  const links = [];
+  const guardadasPorAlerta = new Map(
+    (data || []).map((item) => [String(item.alerta_id), item])
+  );
+
+  for (const { alerta, token } of candidatas) {
+    const guardada = guardadasPorAlerta.get(String(alerta.id));
+    const tokenFinal = guardada?.token || token;
     const urlTracking = construirUrlTracking(tokenFinal);
     mensajeFinal = reemplazarUrlEnMensaje(mensajeFinal, alerta.url, urlTracking);
     links.push({
       alerta_id: alerta.id,
       token: tokenFinal,
       url_tracking: urlTracking,
-      url_destino: alerta.url,
+      url_destino: guardada?.url_destino || alerta.url,
     });
   }
 
@@ -2910,8 +2926,10 @@ async function construirPreviewDigestUsuario(supabase, {
     exclusionPreferencias: (item) => alertaExcluidaPorPreferenciasExtra(item, user.preferencias_extra),
   });
   const alertasUsuario = seleccionBase.alertas;
-  const aprendizaje = await obtenerAprendizajeUsuario(supabase, user.id);
   const perfilOperativoMIA = await cargarPerfilOperativoMIA(supabase, user.id, { user: userConOrganization });
+  const aprendizaje = perfilOperativoMIA.availability?.user_interest_profile
+    ? perfilOperativoMIA.interest_profile
+    : await obtenerAprendizajeUsuario(supabase, user.id);
   const userConPerfilMIA = aplicarPerfilOperativoAUsuario(userConOrganization, perfilOperativoMIA);
   const alertasConPerfilMIA = ordenarAlertasConPerfilOperativoMIA(alertasUsuario, perfilOperativoMIA);
   const seleccionMIA = await seleccionarAlertasConMIA(supabase, {

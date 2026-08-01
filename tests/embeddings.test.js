@@ -16,7 +16,6 @@
 const {
   generarEmbedding,
   generarEmbeddingsBatch,
-  generarEmbeddingMock,
   similitudCoseno,
   calcularCentroide,
   calcularCentroidePonderado,
@@ -212,6 +211,10 @@ seccionTest('TEST 1: Generar Embeddings (Mock Local)');
   assert(
     JSON.stringify(batch[1]) === JSON.stringify(individual2),
     'Batch[1] ≡ individual[1]'
+  );
+  assert(
+    JSON.stringify(batch[2]) === JSON.stringify(individual3),
+    'Batch[2] ≡ individual[2]'
   );
 
   // ─────────────────────────────────────────────

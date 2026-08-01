@@ -4,10 +4,10 @@
 // (prompts, formatos, fallbacks locales y heuristicas de exclusion). Logica
 // reutilizable por alertas.routes.js, sin Express. Extraido sin cambios.
 
-const { checkCronToken, hasCronToken } = require('../../middleware/cronToken');
+const {  hasCronToken } = require('../../middleware/cronToken');
 const { llamarIA, parsearJSON } = require('../../platform/ia/llamarIA');
-const { enviarWhatsAppResumen } = require('../../platform/whatsapp');
-const { getFechaMadridISO } = require('../../shared/fechaMadrid');
+
+
 const {
   sanitizarTextoPostgres,
   recortarUnicodeSeguro,

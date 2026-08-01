@@ -10,7 +10,7 @@ const {
 } = require('../../shared/preferenceCanonical');
 const { alertaCoincideConUsuario } = require('../../modules/alertas/seleccion/alertaMatcher');
 const {
-  parsePhoneList,
+
   getAdminAlertPhones,
   maskPhone,
   enviarMensajeUltraMsg,

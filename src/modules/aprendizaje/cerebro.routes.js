@@ -7,7 +7,7 @@ const {
   BATCH_DELAY_MS,
 } = require('../../platform/ia/embeddings');
 const {
-  generarContextoNarrativo,
+
   generarPreguntaExploracion,
 } = require('./cerebro');
 const { diagnosticarAlertaUsuario } = require('../alertas/seleccion/alertaMatcher');

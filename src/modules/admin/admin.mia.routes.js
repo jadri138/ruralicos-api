@@ -22,7 +22,7 @@ const { generarQualityReportMIA } = require('../mia/qualityReport');
 const { generarAnswerAuditMIA } = require('../mia/answerAudit');
 const { cargarPerfilOperativoMIA } = require('../mia/userProfile');
 const { ejecutarEvalsMIA } = require('../mia/evalHarness');
-const { generarReporteCalidadOperativaMIA } = require('../mia/alertQuality');
+
 const { generarSaludRecomendaciones } = require('../mia/recommendationHealth');
 const {
   ingestKnowledgeDocument,
@@ -34,19 +34,18 @@ const {
   obtenerMiaBranding,
 } = require('../mia/organizationContext');
 const {
-  registrarAdminAuditLog,
+
   getAdminActor,
 } = require('./auditLog');
-const { notificarCambioPlan } = require('../../services/planChangeNotifier');
+
 const {
   construirDatasetRevisionMIA,
   construirReviewRowMIA,
 } = require('../mia/alertReview');
 
 const {
-  PLANES_VALIDOS,
-  ORGANIZATION_STATUS_VALIDOS,
-  ORGANIZATION_MEMBER_ROLES,
+
+
   USER_SELECT_ADMIN,
   limpiarBusquedaUsuario,
   escaparLike,
@@ -55,13 +54,7 @@ const {
   normalizarAdminUserId,
   getAdminUserIdFromRequest,
   auditarAdmin,
-  limpiarCampoNombre,
-  construirNombreLegal,
   resumenUsuarioSugerido,
-  getPublicBaseUrl,
-  crearSlugOrganizacion,
-  limpiarJsonPlano,
-  limpiarOrganizacionBody,
   hitCronPath,
   countQuery,
   idsNumericosUnicos,

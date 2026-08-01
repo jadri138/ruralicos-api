@@ -12,20 +12,6 @@
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
-// ─────────────────────────────────────────────
-// fetch compatible con Node 18+ y versiones anteriores
-// ─────────────────────────────────────────────
-let _fetch;
-if (typeof globalThis.fetch === 'function') {
-  _fetch = globalThis.fetch.bind(globalThis);
-} else {
-  try {
-    _fetch = require('node-fetch');
-  } catch {
-    throw new Error('No hay fetch disponible. Actualiza a Node 18+ o instala node-fetch v2.');
-  }
-}
-
 function numeroEnv(name, fallback, min, max) {
   const value = Number(process.env[name]);
   if (!Number.isFinite(value)) return fallback;
@@ -93,7 +79,7 @@ async function llamarIA(prompt, instructions, model = 'gpt-4o-mini', options = {
     };
   }
 
-  const fetchImpl = options?.fetchImpl || _fetch;
+  const fetchImpl = options?.fetchImpl || globalThis.fetch;
   const timeoutMs = Number(options?.timeoutMs) || numeroEnv('IA_TIMEOUT_MS', 90000, 5000, 600000);
   const retries = Number.isFinite(Number(options?.retries))
     ? Math.max(0, Math.min(5, Number(options.retries)))

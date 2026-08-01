@@ -20,24 +20,24 @@
 // Si el usuario no tiene alertas relevantes hoy → silencio total (no se envía nada).
 
 
-const crypto = require('crypto');
+
 const { checkCronToken }           = require('../../middleware/cronToken');
-const { llamarIA }                 = require('../../platform/ia/llamarIA');
+
 const { enviarDigestPro, maskPhone } = require('../../platform/whatsapp');
 const { getPlan }                  = require('../../config/planes');
-const { alertaCoincideConUsuario, diagnosticarAlertaUsuario } = require('../alertas/seleccion/alertaMatcher');
+
 const { fusionarAlertasUnicas }     = require('../alertas/seleccion/alertCandidateMerge');
 const {
   decidirAlertaParaDigest,
   filtrarAlertasParaDigest,
   seleccionarAlertasParaDigest,
 } = require('../alertas/seleccion/alertSelectionGate');
-const { getFechaMadridISO, getRangoDiaMadridUTC } = require('../../shared/fechaMadrid');
+const { getFechaMadridISO } = require('../../shared/fechaMadrid');
 const {
   ESTADOS_PENDIENTES_AUTOMATICOS,
 } = require('../alertas/alertPipelineStates');
-const { leerPerfilIntereses, ordenarAlertasPorPerfil, clasificarPrioridadAlerta, pesoPrioridad } = require('../aprendizaje');
-const { similitudCoseno }          = require('../../platform/ia/embeddings');
+
+
 const { registrarDigestItemsMIA }  = require('../mia/digestItems');
 const {
   digestViaOutboxHabilitado,
@@ -58,76 +58,43 @@ const {
   aplicarPerfilOperativoAUsuario,
   ordenarAlertasConPerfilOperativoMIA,
 } = require('../mia/userProfile');
-const { evaluarCalidadAlerta }     = require('../mia/alertQuality');
+
 const {
   conOrganizationId,
   extraerOrganizationId,
   filtrarAlertasPorOrganization,
   cargarOrganizationContextMIA,
   aplicarOrganizationContextAUsuario,
-  obtenerMiaBranding,
 } = require('../mia/organizationContext');
 
 const {
-  numeroConfig,
+
   PREPARAR_DIGEST_BATCH_SIZE,
   DIGEST_LOCAL_FALLBACK,
   DIGEST_QUALITY_GATE,
   DIGEST_INCLUDE_REVIEW,
   DIGEST_INCLUDE_INDIVIDUAL_PROVINCIAL,
   DIGEST_REVIEW_MIN_QUALITY_SCORE,
-  DIGEST_MAX_ALERTAS_NORMAL,
-  DIGEST_MAX_ALERTAS_COOPERATIVA,
-  DIGEST_MAX_ALERTAS_USUARIO,
   DIGEST_RESCUE_ENABLED,
   DIGEST_RESCUE_AFTER_DAYS,
   DIGEST_RESCUE_LOOKBACK_DAYS,
   DIGEST_RESCUE_MAX_ALERTAS,
-  DIGEST_RESCUE_MESSAGE_MAX_CHARS,
   DIGEST_VECTOR_BACKFILL_MIN,
   DIGEST_FACT_SHEET_BACKFILL_RESERVE,
   DIGEST_FINAL_VALIDATION_MODE,
   DIGEST_FINAL_VALIDATION_ENFORCEMENT,
-  norm,
-  intersecta,
   ALERTA_DIGEST_SELECT,
-  ALERTA_DIGEST_SELECT_WITH_EMBEDDING,
   getMaxAlertasDigestUsuario,
   sumarDiasFechaISO,
-  diasEntreFechas,
   motivoUsuarioNoRecibeDigest,
-  alertaNoExcluidaPorPreferencias,
-  aplicarFiltroFechaAlertas,
   cargarAlertasListasDigest,
   cargarUsuariosPagoDigest,
   cargarUltimosDigestEnviados,
   filtrarAlertasNoEnviadas,
   necesitaRescateSemanal,
-  extraerExclusionesDesdeTexto,
-  aplicarExclusionesPreferenciasExtra,
   alertaExcluidaPorPreferenciasExtra,
-  extraerTextoObligatorioDesdePreferencias,
   aplicarTextoObligatorio,
   anadirInstruccionFeedback,
-  limpiarLineaDigest,
-  lineaBoletinPocoUtilDigest,
-  extraerExtractoOficialDigest,
-  parsearFichaDigest,
-  campoDigestUtil,
-  construirLecturaBoletinDigest,
-  quitarPrefijoBoletinDigest,
-  construirResumenOficialDigest,
-  construirTextoAlertaDigest,
-  construirTituloFacilDigest,
-  construirResumenPorPatronDigest,
-  construirResumenFacilDigest,
-  grupoDigestAlerta,
-  relevanciaDigestAlerta,
-  valoresPrefsTiposActivos,
-  interseccionTexto,
-  coincidenciasUsuarioDigest,
-  explicarCoincidenciasDigest,
-  construirContextoInternoDigest,
   prepararAlertasFinalesDigest,
   resumirValidacionFinalDigest,
   prepararValidacionFinalDigestShadow,
@@ -141,35 +108,13 @@ const {
   contarDecisionesTrasScoring,
   construirFunnelDigest,
   resolverMotivoNoEnvioDigest,
-  agruparAlertasDigest,
-  obtenerNombreCortoDigest,
-  construirSaludoDigest,
-  limpiarMensajeDigestIA,
-  mensajeDigestPareceGenerico,
   filtrarAlertasPorCalidadDigest,
   generarMensajeDigestFallback,
-  construirAccionRescate,
-  recortarTextoRescate,
-  construirResumenRescate,
-  construirMotivoRescate,
-  construirBloqueRescate,
   generarMensajeDigestRescate,
-  getClickBaseUrl,
-  generarTokenClick,
-  escaparRegExp,
-  reemplazarUrlEnMensaje,
-  construirUrlTracking,
   prepararMensajeConLinksTracking,
-  alertasParaUsuario,
   obtenerAprendizajeUsuario,
   ordenarPorAprendizaje,
   seleccionarAlertasRescate,
-  parseVector,
-  vectorToSql,
-  ordenarPorPerfilVectorial,
-  obtenerIdAlerta,
-  completarSeleccionConFallback,
-  completarCandidatoMIA,
   seleccionarAlertasConMIA,
   abrirConversacionFeedbackDigest,
   registrarExploracionDigest,
@@ -643,8 +588,10 @@ module.exports = function digestRoutes(app, supabase) {
           digestAttemptId,
           decisions: seleccionBase.decisiones,
         });
-        const aprendizaje = await obtenerAprendizajeUsuario(supabase, user.id);
         const perfilOperativoMIA = await cargarPerfilOperativoMIA(supabase, user.id, { user: userConOrganization });
+        const aprendizaje = perfilOperativoMIA.availability?.user_interest_profile
+          ? perfilOperativoMIA.interest_profile
+          : await obtenerAprendizajeUsuario(supabase, user.id);
         const userConPerfilMIA = aplicarPerfilOperativoAUsuario(userConOrganization, perfilOperativoMIA);
         const alertasConPerfilMIA = ordenarAlertasConPerfilOperativoMIA(alertasUsuario, perfilOperativoMIA);
         const seleccionMIA = await seleccionarAlertasConMIA(supabase, {

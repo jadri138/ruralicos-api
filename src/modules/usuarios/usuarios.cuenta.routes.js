@@ -3,14 +3,14 @@
 // Autoservicio del usuario autenticado (/me): datos, plan, memoria, export y baja.
 // Contexto compartido en usuarios.context.js.
 
-const bcrypt = require('bcryptjs');
-const rateLimit = require('express-rate-limit');
-const { checkCronToken, hasCronToken } = require('../../middleware/cronToken');
-const { normalizePhone, isPhoneValid, LONGITUD_TELEFONO } = require('../../shared/phoneNormalizer');
-const { enviarWhatsAppVerificacion, enviarWhatsAppRegistro, enviarWhatsAppResetPassword } = require('../../platform/whatsapp');
-const { requireAuth, requireAdmin } = require('../../middleware/requireAdmin');
-const { getPlan, validarPreferencias, truncarPreferencias } = require('../../config/planes');
-const { extraerPreferenciasBody, prepararPreferenciasExtra } = require('../../shared/preferenciasRequest');
+
+
+
+const { normalizePhone, isPhoneValid } = require('../../shared/phoneNormalizer');
+const { enviarWhatsAppVerificacion } = require('../../platform/whatsapp');
+const { requireAuth } = require('../../middleware/requireAdmin');
+const { getPlan, truncarPreferencias } = require('../../config/planes');
+
 const { normalizarPreferenciasUsuario } = require('../../shared/preferenceCanonical');
 const {
   storeVerificationCodeOrLegacy,
@@ -21,9 +21,8 @@ const { notificarCambioPlan } = require('../../services/planChangeNotifier');
 
 module.exports = (app, supabase, ctx) => {
   const {
-    accountLimiter,
-    registerLimiter,
-    getPlanKey,
+
+
     getMemoryCapabilities,
     limpiarCampoNombre,
     construirNombreLegal,
@@ -31,11 +30,7 @@ module.exports = (app, supabase, ctx) => {
     resetMiaProfile,
     deleteUserRows,
     deleteUserOwnedRows,
-    deleteSupabaseAuthUserIfPossible,
     selectUserRows,
-    requireAdminOrCron,
-    requireOwnerPhoneOrAdminOrCron,
-    cambiarPlanUsuarioPorTelefono,
     generarCodigoVerificacion,
     nuevaCaducidadVerificacion,
     codigoVerificacionCaducado,
@@ -106,7 +101,7 @@ module.exports = (app, supabase, ctx) => {
         console.error('Error leyendo usuario actual en PUT /me:', userActualError?.message);
         return res.status(404).json({ error: 'Usuario no encontrado' });
       }
-      
+
       if (email !== undefined) {
         const emailNormalizado = email === '' ? null : String(email).trim().toLowerCase();
 
@@ -161,7 +156,7 @@ module.exports = (app, supabase, ctx) => {
         updates.legal_name = legalName;
         updates.name = legalName;
       }
-      
+
       if (phone !== undefined) {
         const telefonoNormalizado = normalizePhone(phone);
         if (!isPhoneValid(telefonoNormalizado)) {

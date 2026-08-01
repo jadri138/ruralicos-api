@@ -75,6 +75,13 @@ assert(profile.interests.some((item) => item.topic === 'pac'), 'Incluye PAC como
 assert(profile.interests.some((item) => item.topic === 'cereal'), 'Convierte subsectores declarados en intereses operativos');
 assert(profile.dislikes.some((item) => item.topic === 'agua_riego'), 'Incluye agua/riego como senal negativa');
 assert(profile.prompt_block.includes('PERFIL OPERATIVO MIA'), 'Genera bloque compacto para prompts');
+assert(profile.interest_profile.pesos['tema:tractor'] === 8, 'Reutiliza los pesos originales sin otra consulta');
+assert(profile.interest_profile.resumen.includes('tema:tractor (+8)'), 'Reutiliza el resumen de aprendizaje');
+assert(
+  profile.interest_profile.resumen.indexOf('tema:tractor (+8)') <
+    profile.interest_profile.resumen.indexOf('sector:agricultura (+5)'),
+  'Ordena el resumen aprendido por intensidad, no por fecha de lectura',
+);
 
 const userEnriquecido = aplicarPerfilOperativoAUsuario(user, profile);
 assert(userEnriquecido.contexto_narrativo.includes('PERFIL OPERATIVO MIA'), 'Anade perfil operativo al contexto narrativo');
