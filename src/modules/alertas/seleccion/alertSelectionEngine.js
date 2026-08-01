@@ -12,6 +12,11 @@ const {
 const { evaluarCalidadAlerta } = require('../../mia/alertQuality');
 const { extraerFeaturesAlerta, textoAlerta: textoFeaturesAlerta } = require('../../aprendizaje/alertFeatures');
 const { clasificarPrioridadAlerta, pesoPrioridad } = require('../../aprendizaje/alertPriority');
+// Motor de decision por usuario.
+// NAVEGACION PARA IA: construirSignals -> aplicarBloqueosDuros -> calcularScore
+// -> clasificarDecision -> evaluarAlertaParaDigest -> seleccionarAlertasParaDigest.
+// Un score nunca debe anular un bloqueo de matcher, evidencia o preferencias.
+
 const {
   canonicalSector,
   canonicalSubsector,

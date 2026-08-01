@@ -1,3 +1,8 @@
+// Comparacion dura alerta ↔ usuario.
+// NAVEGACION PARA IA: resolverTaxonomiaSeguraAlerta y resolverTerritorioAlerta
+// preparan la alerta; diagnosticarAlertaUsuario explica el primer bloqueo;
+// alertaCoincideConUsuario solo devuelve el booleano de compatibilidad.
+
 const { fuentePermitida, normalizarFuenteBoletin } = require('../../../config/planes');
 const {
   construirPreferenciasDesdeTexto,

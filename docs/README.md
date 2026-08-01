@@ -6,6 +6,7 @@
 
 | Documento | Para quién | Contenido |
 | --- | --- | --- |
+| [`AI_CONTEXT.md`](AI_CONTEXT.md) | IA/desarrollo | Mapa mínimo: tarea, símbolos, tablas, pruebas y trampas |
 | [`EXPLICACION_SIMPLE.md`](EXPLICACION_SIMPLE.md) | No técnico | Qué hace el sistema con lenguaje sencillo |
 | [`ARQUITECTURA.md`](ARQUITECTURA.md) | Desarrollo | Capas, módulos y flujo general |
 | [`TESTING_LOCAL.md`](TESTING_LOCAL.md) | Desarrollo | Guía de pruebas locales |
@@ -32,7 +33,7 @@
 | --- | --- |
 | [`cron_digest_setup.md`](cron_digest_setup.md) | Programación del digest |
 | [`cron_complementarios_setup.md`](cron_complementarios_setup.md) | Fuentes complementarias |
-| [`pipeline_tick_rollout.md`](pipeline_tick_rollout.md) | Runner con checkpoints |
+| [`pipeline_tick_rollout.md`](pipeline_tick_rollout.md) | Incidente histórico del runner retirado |
 | [`p0-acceptance-runbook.md`](p0-acceptance-runbook.md) | Ejecución de aceptación P0 |
 | [`p0-acceptance-matrix.md`](p0-acceptance-matrix.md) | Garantías y casos |
 | [`p0-hardening-roadmap.md`](p0-hardening-roadmap.md) | Endurecimiento P0 |

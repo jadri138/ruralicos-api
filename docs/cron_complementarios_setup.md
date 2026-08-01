@@ -1,28 +1,27 @@
 # Fuentes complementarias
 
-Las fuentes complementarias ya no necesitan un cron diario separado. El pipeline
-principal las ejecuta antes de la IA y del digest:
+Las fuentes complementarias forman parte del único workflow diario:
 
 ```bash
-curl -fsS -H "x-cron-token: $CRON_TOKEN" "$BASE_URL/tareas/pipeline-tick"
+node scripts/run_digest_workflow.js
 ```
 
-Por defecto se incluyen los endpoints definidos en `COMPLEMENTARY_SCRAPE_PATHS`.
-Si no se define, usa:
+No programes un segundo cron ni llames a `/tareas/pipeline-tick`. El workflow
+ejecuta `/tareas/scrapers-diario`, que ya incorpora las fuentes principales y
+complementarias configuradas.
 
-```text
-/scrape-botha-oficial
-```
+## Configuración
 
-Para sumar boletines provinciales:
+`COMPLEMENTARY_SCRAPE_PATHS` permite ampliar los endpoints complementarios. Si
+no se define, se conserva el valor seguro configurado por la aplicación.
+
+Ejemplo:
 
 ```text
 COMPLEMENTARY_SCRAPE_PATHS=/scrape-botha-oficial,/scrape-nuevo-bop-oficial
 ```
 
-## FEGA
-
-FEGA se integra en el mismo pipeline cuando se activa:
+FEGA se integra en el mismo workflow mediante:
 
 ```text
 PIPELINE_INCLUDE_FEGA=true
@@ -30,29 +29,18 @@ FEGA_EJERCICIO=2024
 FEGA_ENVIAR_MATCHES=false
 ```
 
-Tambien puede lanzarse puntualmente:
+## Ejecución manual de diagnóstico
 
-```bash
-curl -fsS -H "x-cron-token: $CRON_TOKEN" "$BASE_URL/tareas/pipeline-tick?fega=true&ejercicio=2024"
-```
-
-El endpoint auxiliar queda disponible como herramienta manual:
+Estas rutas permiten comprobar una fase aislada. No son crons adicionales:
 
 ```bash
 curl -fsS -H "x-cron-token: $CRON_TOKEN" "$BASE_URL/tareas/complementarios-diario"
-curl -fsS -H "x-cron-token: $CRON_TOKEN" "$BASE_URL/tareas/complementarios-diario?fega=true&ejercicio=2024&enviar_fega=true"
-```
-
-Antes de activar envios individuales hay que comprobar que existen en Supabase
-las columnas de identidad legal en `users` y la tabla `official_list_matches`.
-Ya no se mantienen SQL sueltos en `docs`; usa la migracion operativa vigente.
-
-Tambien se puede lanzar solo el cotejo nominal sobre alertas ya guardadas:
-
-```bash
+curl -fsS -H "x-cron-token: $CRON_TOKEN" "$BASE_URL/tareas/complementarios-diario?fega=true&ejercicio=2024&enviar_fega=false"
 curl -fsS -H "x-cron-token: $CRON_TOKEN" "$BASE_URL/tareas/cotejar-listados-oficiales?fecha=2026-05-13&enviar=false"
 ```
 
-Este cotejo revisa las alertas del dia que parezcan listados nominativos con
-beneficiarios, solicitantes, adjudicatarios, titulares o concesiones, y guarda
-coincidencias contra el `legal_name` del usuario.
+Usa `enviar_fega=false` durante diagnóstico. Antes de cualquier envío nominal,
+comprueba las columnas de identidad legal en `users` y la tabla
+`official_list_matches` mediante las migraciones vigentes.
+
+Configuración del único cron: [`cron_digest_setup.md`](cron_digest_setup.md).

@@ -1,9 +1,10 @@
 // src/modules/tareas/pipelineRunner.js
 //
-// C1: runner de pipeline con checkpoints (sustituye al HTTP-larguisimo de
-// /tareas/pipeline-diario y a los crons sueltos por endpoint).
+// Runner reanudable LEGADO. Se conserva para diagnóstico y pruebas del incidente
+// de checkpoints; producción usa scripts/run_digest_workflow.js y no debe
+// programar /tareas/pipeline-tick.
 //
-// Modelo: UN cron dispara /tareas/pipeline-tick cada ~10 min. Cada tick
+// Modelo histórico: un cron disparaba /tareas/pipeline-tick cada ~10 min. Cada tick
 // reclama el pipeline_job del dia (claim + heartbeat), avanza fases dentro de
 // su presupuesto de tiempo (budgetMs, pensado para el timeout de proxy de
 // Render) y guarda checkpoint en pipeline_jobs.stages_json — incluso vuelta a
@@ -12,8 +13,8 @@
 // Sombra (shadow=true): ejecuta toda la maquinaria PERO no llama a las fases
 // que envian WhatsApp (outbound), no escribe scraper_runs (para no contaminar
 // el vigia de salud de fuentes) y registra sus pipeline_runs con el stage
-// prefijado 'shadow:'. Pensada para correr en paralelo a los crons reales y
-// validar la orquestacion antes del cutover.
+// prefijado 'shadow:'. Se conserva para diagnóstico; no es un mecanismo de
+// despliegue o cutover vigente.
 
 const { getFechaMadridISO } = require('../../shared/fechaMadrid');
 const { enviarWhatsAppAdmin } = require('../../platform/whatsapp');
@@ -607,7 +608,8 @@ async function ejecutarPipelineTick(supabase, opcionesTick = {}) {
             `Actualizadas en esta fase: ${state.total_progress}`,
             '',
             'No se ha preparado ni enviado el digest para evitar un envio incompleto.',
-            `Reanudar: /tareas/pipeline-tick?fecha=${fecha}&reset=true`,
+            'Runner legado: no lo reanudes desde el cron de produccion.',
+            'Cron vigente: node scripts/run_digest_workflow.js',
           ].join('\n'));
           state.aviso_admin = aviso;
           await terminarJob('aborted', stageDef.name, motivo);
@@ -642,7 +644,8 @@ async function ejecutarPipelineTick(supabase, opcionesTick = {}) {
             `Intentos: ${state.attempts}`,
             `Error: ${state.ultimo_error}`,
             '',
-            `Reanudar: /tareas/pipeline-tick?fecha=${fecha}&reset=true`,
+            'Runner legado: no lo reanudes desde el cron de produccion.',
+            'Cron vigente: node scripts/run_digest_workflow.js',
           ].join('\n'));
           state.aviso_admin = aviso;
           await terminarJob('failed', stageDef.name, state.ultimo_error);

@@ -504,11 +504,9 @@ module.exports = function tareasRoutes(app, supabase) {
     }
   });
 
-  // C1: runner de pipeline con checkpoints. UN cron dispara este tick cada
-  // ~10 min; cada tick reclama el job del dia, avanza fases dentro de su
-  // presupuesto (budget_ms) y el siguiente tick reanuda desde el checkpoint.
-  // shadow=false es produccion: envia y escribe scraper_runs. shadow=true queda
-  // como diagnostico explicito sin fases outbound ni efectos de envio.
+  // LEGADO: runner con checkpoints conservado para diagnóstico/compatibilidad.
+  // Producción usa scripts/run_digest_workflow.js. No programar esta ruta: en
+  // shadow=false puede ejecutar efectos reales y competir con el workflow diario.
   app.all('/tareas/pipeline-tick', async (req, res) => {
     if (!checkCronToken(req, res)) return;
 
@@ -575,14 +573,14 @@ module.exports = function tareasRoutes(app, supabase) {
   app.get('/tareas/pipeline-diario', async (req, res) => {
     if (!checkCronToken(req, res)) return;
 
-    // Interlock de cutover: con el tick en real este endpoint queda jubilado
-    // (evita envios duplicados si el cron viejo sigue configurado en Render).
+    // Interlock legado: evita que una configuracion antigua ejecute este
+    // monolito y duplique efectos del workflow de produccion.
     if (pipelineDiarioJubilado(process.env, req.query)) {
       return res.status(410).json({
         success: false,
         error:
-          'pipeline-diario jubilado: el pipeline corre en real via /tareas/pipeline-tick ' +
-          '(PIPELINE_TICK_SHADOW=false). Reactivacion puntual de emergencia: ?force_legacy=true.',
+          'pipeline-diario jubilado: produccion usa node scripts/run_digest_workflow.js. ' +
+          'No programes /tareas/pipeline-tick. Reactivacion manual excepcional: ?force_legacy=true.',
       });
     }
 

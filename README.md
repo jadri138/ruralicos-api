@@ -30,6 +30,7 @@ src/server.js
             └─ modules/admin + modules/tareas
 ```
 
+Para orientarse con poco contexto, una IA debe empezar por [`docs/AI_CONTEXT.md`](docs/AI_CONTEXT.md).
 La organización completa está en [`src/README.md`](src/README.md) y cada dominio está indexado en [`src/modules/README.md`](src/modules/README.md).
 
 ## Requisitos

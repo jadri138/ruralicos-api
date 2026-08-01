@@ -366,12 +366,16 @@ async function main() {
     assert.strictEqual(r.job.status, 'aborted');
     assert.strictEqual(r.job.current_stage, 'clasificar');
 
-    // Aviso al admin con la fase, el motivo y la URL de reset.
+    // Aviso al admin con la fase, el motivo y el workflow vigente.
     assert.strictEqual(ctx.avisos.length, 1, 'debe avisar al admin una vez');
     const aviso = ctx.avisos[0];
     assert(/pipeline detenido/i.test(aviso), 'el aviso menciona pipeline detenido');
     assert(aviso.includes('clasificar'), 'el aviso nombra la fase');
-    assert(aviso.includes(`reset=true`) && aviso.includes(FECHA), 'el aviso incluye la URL de reset con la fecha');
+    assert(
+      aviso.includes('node scripts/run_digest_workflow.js'),
+      'el aviso dirige al workflow vigente y no al runner legado'
+    );
+    assert(!aviso.includes('reset=true'), 'el aviso no recomienda reactivar pipeline-tick');
 
     // No se llega a enviar el digest.
     assert(!ejecutar.paths().includes('/alertas/enviar-digest'), 'no debe enviar digest tras abortar');

@@ -19,6 +19,17 @@
 //   free        → no recibe digest (usa alertasFree.js)
 //
 // Si el usuario no tiene alertas relevantes hoy → silencio total (no se envía nada).
+//
+// NAVEGACION PARA IA (este archivo es grande; buscar simbolos, no leer entero):
+//   datos/usuarios      cargarAlertasListasDigest, cargarUsuariosPagoDigest
+//   rescate             necesitaRescateSemanal, seleccionarAlertasRescate
+//   evidencia/autoridad preseleccionarAlertasConFactSheet,
+//                       filtrarAlertasPorValidacionFinalDigest
+//   texto               generarMensajeDigest, generarMensajeDigestRescate
+//   tracking            prepararMensajeConLinksTracking
+//   preview integrado   construirPreviewDigestUsuario
+// La audiencia dura se decide en alertaMatcher/alertSelectionEngine; este
+// servicio no debe crear atajos que salten sus bloqueos.
 
 
 const crypto = require('crypto');

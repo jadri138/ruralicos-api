@@ -8,8 +8,8 @@ Orquestador de trabajos programados. Coordina las fases sin duplicar la lógica 
 | --- | --- |
 | `tareas.routes.js` | Endpoints de cron, salud y operaciones |
 | `tareas.helpers.js` | Registro y utilidades de ejecución |
-| `pipelineJobs.js` | Recuperación retirada; el cron principal no usa este archivo |
-| `pipelineRunner.js` | Runner retirado, conservado para diagnóstico histórico |
+| `pipelineJobs.js` | Persistencia del runner legado; el cron principal no lo usa |
+| `pipelineRunner.js` | Runner legado aún invocable, conservado para diagnóstico y pruebas |
 
 ## Endpoints principales
 
@@ -20,7 +20,7 @@ Orquestador de trabajos programados. Coordina las fases sin duplicar la lógica 
 | `/tareas/scraper` | Una fuente concreta |
 | `/tareas/complementarios-diario` | Provinciales y complementarias |
 | `/tareas/cotejar-listados-oficiales` | Coincidencias con listados |
-| `/tareas/pipeline-tick` | Endpoint retirado; no programar en producción |
+| `/tareas/pipeline-tick` | Endpoint legado aún activo; no programar ni invocar en producción |
 | `/tareas/pipeline-jobs` | Diagnóstico de jobs históricos |
 | `/tareas/pipeline-diario` | Endpoint monolítico legado |
 
@@ -38,8 +38,9 @@ clasificación, resumen o revisión quedan incompletos. No depende de
 
 ## Sombra y producción
 
-El antiguo modo con checkpoints queda documentado solo como incidente histórico
-en `docs/pipeline_tick_rollout.md`. No debe configurarse como cron.
+El antiguo modo con checkpoints queda documentado como incidente histórico en
+`docs/pipeline_tick_rollout.md`. La ruta sigue existiendo por compatibilidad,
+pero no debe configurarse como cron ni usarse para relanzar el flujo diario.
 
 ## Reglas operativas
 

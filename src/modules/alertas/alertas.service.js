@@ -3,6 +3,12 @@
 // Motor del pipeline de alertas: clasificacion, resumen y revision con IA
 // (prompts, formatos, fallbacks locales y heuristicas de exclusion). Logica
 // reutilizable por alertas.routes.js, sin Express. Extraido sin cambios.
+//
+// NAVEGACION PARA IA (buscar simbolos):
+//   exclusion local     detectarExclusionDuraAlerta, clasificarLocalmente
+//   texto/fallback      limpiarContenidoBoletinParaIA, construirMensajeFallback
+//   fichas verificables construirFichaIA, generarFichasIAEnLote
+//   clasificacion IA    buildPromptClasificar, clasificarConReintento
 
 const {  hasCronToken } = require('../../middleware/cronToken');
 const { llamarIA, parsearJSON } = require('../../platform/ia/llamarIA');

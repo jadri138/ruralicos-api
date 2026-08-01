@@ -18,6 +18,10 @@
 //   free        → no recibe digest (usa alertasFree.js)
 //
 // Si el usuario no tiene alertas relevantes hoy → silencio total (no se envía nada).
+//
+// NAVEGACION PARA IA: no leer el archivo entero. Sus entradas son
+// diagnosticarDigestHandler, previewDigestHandler, prepararDigestHandler y
+// enviarDigestHandler. La logica reutilizable vive en digest.service.js.
 
 
 
@@ -1693,7 +1697,9 @@ module.exports = function digestRoutes(app, supabase) {
 
   // ──────────────────────────────────────────────────────────────────
   // /alertas/enviar-digest
-  // Cron recomendado: 08:00h
+  // Lo invoca scripts/run_digest_workflow.js. No programar este endpoint como
+  // un segundo cron independiente: dos invocaciones solapadas pueden observar
+  // el mismo conjunto de digests pendientes en el modo sin outbox.
   // Variable de entorno: DIGEST_DELAY_MS (default: 3000ms)
   // ──────────────────────────────────────────────────────────────────
   const enviarDigestHandler = async (req, res) => {
@@ -1705,8 +1711,8 @@ module.exports = function digestRoutes(app, supabase) {
 
       // Via cola (DIGEST_VIA_OUTBOX=true): encola los pendientes en mia_outbox
       // y el drenador de /tareas/mia-outbox los envia con reintentos/backoff.
-      // El envio sincrono de abajo queda como comportamiento por defecto hasta
-      // el cutover (misma filosofia de rollout que pipeline-tick).
+      // El envio sincrono de abajo sigue siendo el comportamiento por defecto.
+      // DIGEST_VIA_OUTBOX controla exclusivamente este cambio de transporte.
       if (digestViaOutboxHabilitado()) {
         const encolado = await encolarDigestsPendientes(supabase, { fecha: hoy });
         return res.json({

@@ -14,6 +14,7 @@
     "format:check": "prettier --check .",
     "rutas:inventario": "node scripts/inventario_rutas.js",
     "openapi:generar": "node scripts/generar_openapi.js",
+    "context:check": "node tests/aiContext.test.js",
     "workflow:digest": "node scripts/run_digest_workflow.js",
     "backfill:intelligence": "node scripts/backfill_alert_intelligence.js",
     "repair:legacy-discards": "node scripts/repair_legacy_alert_discards.js",

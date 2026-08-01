@@ -27,6 +27,7 @@ La suite local no debe llamar a OpenAI, enviar WhatsApp ni modificar una base re
 | Partner | `tenantClient`, `partnerTenantIsolation` |
 | Pipeline | runner, sombra, stale jobs y workflow |
 | Infraestructura | DNS, base URL, IA, embeddings y errores |
+| Contexto para IA | `aiContext`: cron canónico, rutas, tablas y documentación vigente |
 
 ## Fixtures
 
