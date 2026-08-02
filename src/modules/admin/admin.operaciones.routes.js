@@ -126,22 +126,6 @@ app.post('/admin/tareas/scrapers-diario', requireAdmin, async (req, res) => {
       return res.status(err.status || 500).json(err.body || { error: err.message });
     }
   });
-  // Compatibilidad del panel antiguo. Este endpoint llama al monolito legado;
-  // no representa el workflow que Render ejecuta en produccion.
-  app.post('/admin/tareas/pipeline-diario', requireAdmin, async (req, res) => {
-    try {
-      const fecha = /^\d{4}-\d{2}-\d{2}$/.test(req.body?.fecha || '')
-        ? `?fecha=${encodeURIComponent(req.body.fecha)}`
-        : '';
-      const result = await hitCronPath(`/tareas/pipeline-diario${fecha}`);
-      return res.json(result);
-    } catch (err) {
-      console.error('Error lanzando pipeline desde admin:', err);
-      return res.status(err.status || 500).json(err.body || { error: err.message });
-    }
-  });
-
-
   app.get('/admin/scraper-runs', requireAdmin, async (req, res) => {
     try {
       const fecha = /^\d{4}-\d{2}-\d{2}$/.test(req.query.fecha || '')

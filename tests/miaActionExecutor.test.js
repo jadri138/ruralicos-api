@@ -138,10 +138,36 @@ const memoryRows = construirMemoriaLegacyRows({
   decision: decisionFeedback,
 });
 
-assert(memoryRows.length === 2, 'Construye memoria legacy de feedback y memoria explicita');
+assert(memoryRows.length === 1, 'Construye memoria atómica para el feedback de alerta');
 assert(memoryRows.some((row) => row.tipo === 'feedback_positivo'), 'Incluye memoria de feedback positivo');
-assert(memoryRows.some((row) => row.tipo === 'interes_detectado'), 'Incluye memoria declarativa');
-assert(memoryRows.every((row) => row.organization_id === 12), 'Propaga organization_id a memorias legacy');
+assert(memoryRows.every((row) => row.memory_key), 'Incluye clave idempotente en cada memoria');
+assert(memoryRows.every((row) => row.organization_id === 12), 'Propaga organization_id a memorias atómicas');
+
+const nuancedRows = construirMemoriaLegacyRows({
+  user,
+  digest,
+  alertasOrdenadas,
+  texto: 'Esta no porque ya la pedí, pero mándame ayudas parecidas',
+  decision: {
+    version: 'mia_decision_v2',
+    confidence: 0.95,
+    feedback_actions: [{ item_numero: 1, valor: -1 }],
+    memory_actions: [{ tipo: 'desinteres_detectado', contenido: 'No le interesan las ayudas' }],
+  },
+});
+assert(nuancedRows.length === 2, 'Separa una convocatoria ya pedida del interés en similares');
+assert(
+  nuancedRows.some((row) => row.scope_type === 'alert' && row.polarity === 'negative'),
+  'No repite la convocatoria concreta'
+);
+assert(
+  nuancedRows.some((row) => row.scope_type === 'topic' && row.polarity === 'positive'),
+  'Conserva el interés positivo por ayudas parecidas'
+);
+assert(
+  !nuancedRows.some((row) => row.scope_type === 'topic' && row.polarity === 'negative'),
+  'No convierte el matiz en desinterés general por ayudas'
+);
 
 const decisionPreferencias = {
   intent: 'actualizar_preferencias',
@@ -231,9 +257,28 @@ ejecutarAccionesMIA(supabase, {
   aplicarFeedbackAlPerfil: async () => {},
 }).then(async (resultado) => {
   assert(resultado.feedbacks_guardados === 1, 'Ejecuta un feedback validado');
-  assert(resultado.memorias_guardadas === 2, 'Ejecuta memorias asociadas');
+  assert(resultado.memorias_guardadas === 1, 'Ejecuta la memoria de feedback asociada');
   assert(supabase.calls.some((call) => call.table === 'alerta_feedback' && call.op === 'upsert'), 'Hace upsert en alerta_feedback');
   assert(supabase.calls.some((call) => call.table === 'user_memory' && call.op === 'insert'), 'Inserta user_memory');
+
+  let actualizacionesLegacyMatizadas = 0;
+  const supabaseMatizado = crearSupabaseMock();
+  const resultadoMatizado = await ejecutarAccionesMIA(supabaseMatizado, {
+    user,
+    digest,
+    alertasOrdenadas,
+    texto: 'Esta no porque ya la pedí, pero mándame ayudas parecidas',
+    decision: {
+      version: 'mia_decision_v2',
+      confidence: 0.95,
+      feedback_actions: [{ item_numero: 1, valor: -1 }],
+      memory_actions: [{ tipo: 'desinteres_detectado', contenido: 'No le interesan las ayudas' }],
+    },
+    aplicarFeedbackAlPerfil: async () => { actualizacionesLegacyMatizadas += 1; },
+  });
+  assert(resultadoMatizado.feedbacks_guardados === 1, 'Conserva el feedback de la alerta ya solicitada');
+  assert(resultadoMatizado.memorias_guardadas === 2, 'Guarda por separado alerta concreta e interés en similares');
+  assert(actualizacionesLegacyMatizadas === 0, 'No contamina el perfil agregado con un rechazo temático falso');
 
   const casoRegistrado = await registrarCasoAgenteMIA(supabase, {
     user,

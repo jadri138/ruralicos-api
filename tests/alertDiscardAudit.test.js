@@ -50,7 +50,6 @@ delete require.cache[require.resolve('../src/modules/alertas/alertas.routes')];
 const alertasRoutes = require('../src/modules/alertas/alertas.routes');
 const adminAlertasRoutes = require('../src/modules/admin/admin.alertas.routes');
 const alertasFreeRoutes = require('../src/modules/alertas/alertasFree.routes');
-const revisarAlertasRoutes = require('../src/modules/alertas/revisarAlertas.routes');
 
 function crearSupabaseFalso(rows = [], {
   rawDocuments = [],
@@ -764,13 +763,12 @@ test('el descarte manual del admin tambien utiliza el contrato comun', async () 
   assert.strictEqual(patch.decision_audit.classification.es_relevante, true);
 });
 
-test('FREE y revisor legacy seleccionan por estado listo y no por NO IMPORTA', async () => {
+test('FREE selecciona por estado listo y no por NO IMPORTA', async () => {
   const rows = [{
     id: 13,
     estado_ia: 'descartado',
     resumen: 'NO IMPORTA',
     resumenfree: 'Resumen historico',
-    revision_final: false,
   }];
 
   const freeSupabase = crearSupabaseFalso(rows, { respectFilters: true });
@@ -786,16 +784,6 @@ test('FREE y revisor legacy seleccionan por estado listo y no por NO IMPORTA', a
     && query.value === 'listo'
   ));
 
-  const legacySupabase = crearSupabaseFalso(rows, { respectFilters: true });
-  const legacyRoutes = registrarRutas(revisarAlertasRoutes, legacySupabase);
-  const legacyResponse = await invocar(legacyRoutes['POST /alertas/revisar-final']);
-  assert.strictEqual(legacyResponse.body.revisadas, 0);
-  assert(legacySupabase.queries.some((query) =>
-    query.table === 'alertas'
-    && query.operation === 'eq'
-    && query.column === 'estado_ia'
-    && query.value === 'listo'
-  ));
 });
 
 (async () => {

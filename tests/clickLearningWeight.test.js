@@ -20,7 +20,8 @@ const source = fs.readFileSync(
   'utf8'
 );
 assert(source.includes('aplicarClickAlPerfil'));
-assert(source.includes('peso_inicial: CLICK_INTEREST_WEIGHT'));
+assert(source.includes('strength: CLICK_INTEREST_WEIGHT'));
+assert(source.includes("source: 'click'"));
 assert.strictEqual(calcularAjusteClickTag('provincia:teruel'), 0);
 assert.strictEqual(calcularAjusteClickTag('sector:agricultura'), 0);
 assert.strictEqual(calcularAjusteClickTag('fuente:boe'), 0);

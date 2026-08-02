@@ -21,6 +21,7 @@ function tagsAlerta(alerta = {}) {
     tipos_alerta: Array.isArray(alerta.tipos_alerta) ? alerta.tipos_alerta : [],
     fuente: alerta.fuente || null,
     decision_digest: decision,
+    personal_decision: alerta.personal_decision || decision?.canonical || null,
     selection: decision ? {
       action: decision.action || (decision.incluir ? 'include' : 'exclude'),
       incluir: Boolean(decision.incluir),

@@ -1,12 +1,10 @@
-// Tests del digest via outbox (DIGEST_VIA_OUTBOX): encolado idempotente en
-// mia_outbox y reflejo del resultado del drenador en digests/digest_attempts.
+// Tests del digest via outbox: encolado idempotente y autoridad final previa.
+// Las transiciones posteriores viven y se prueban en whatsappDelivery.test.js.
 
 const assert = require('assert');
 const {
-  digestViaOutboxHabilitado,
   digestIdDeOutboxItem,
   encolarDigestsPendientes,
-  procesarResultadoDigestOutbox,
 } = require('../src/modules/digest/digestOutbox');
 
 let passed = 0;
@@ -31,6 +29,7 @@ function test(name, fn) {
 function fakeSupabase({ digests = [], users = [], digestItems = null, insertError = null } = {}) {
   const inserts = [];
   const updates = [];
+  const queries = [];
   const safeDigestItems = digestItems || digests.map((digest, index) => ({
     digest_id: digest.id,
     alerta_id: 1000 + index,
@@ -48,10 +47,16 @@ function fakeSupabase({ digests = [], users = [], digestItems = null, insertErro
   function builder(table) {
     const chain = {
       _table: table,
-      select() { return chain; },
+      select(columns) {
+        queries.push({ table, op: 'select', columns });
+        return chain;
+      },
       eq() { return chain; },
       in() { return chain; },
-      or() { return chain; },
+      or(expression) {
+        queries.push({ table, op: 'or', expression });
+        return chain;
+      },
       order() { return chain; },
       limit() { return chain; },
       insert(row) {
@@ -80,7 +85,7 @@ function fakeSupabase({ digests = [], users = [], digestItems = null, insertErro
     return chain;
   }
 
-  return { inserts, updates, from: (table) => builder(table) };
+  return { inserts, updates, queries, from: (table) => builder(table) };
 }
 
 const DIGESTS = [
@@ -97,13 +102,6 @@ const USERS = [
 async function main() {
   console.log('\n=== TESTS: digestOutbox (envio del digest via cola) ===\n');
 
-  await test('flag DIGEST_VIA_OUTBOX: apagado por defecto, se activa con true', () => {
-    assert.strictEqual(digestViaOutboxHabilitado({}), false);
-    assert.strictEqual(digestViaOutboxHabilitado({ DIGEST_VIA_OUTBOX: 'false' }), false);
-    assert.strictEqual(digestViaOutboxHabilitado({ DIGEST_VIA_OUTBOX: 'true' }), true);
-    assert.strictEqual(digestViaOutboxHabilitado({ DIGEST_VIA_OUTBOX: 'TRUE' }), true);
-  });
-
   await test('encolar: crea un item por digest con telefono y sella metadata digest_id', async () => {
     const supabase = fakeSupabase({ digests: DIGESTS, users: USERS });
     const r = await encolarDigestsPendientes(supabase, { fecha: '2026-07-08' });
@@ -117,9 +115,33 @@ async function main() {
     assert.strictEqual(outbox.length, 2);
     assert.strictEqual(outbox[0].row.to_phone, '34600000001');
     assert.strictEqual(outbox[0].row.status, 'queued');
+    assert.strictEqual(outbox[0].row.delivery_status, 'QUEUED');
+    assert(outbox[0].row.idempotency_key.startsWith('digest:10:'), 'clave idempotente estable por digest y version');
+    assert(outbox[0].row.message_version, 'versiona el cuerpo enviado');
     assert.strictEqual(outbox[0].row.metadata_json.source, 'digest_diario');
     assert.strictEqual(outbox[0].row.metadata_json.digest_id, 10);
     assert.strictEqual(outbox[1].row.organization_id, 3, 'conserva la organizacion del digest');
+  });
+
+  await test('encolar reutiliza la idempotencia aprobada y excluye estados aceptados o posteriores', async () => {
+    const supabase = fakeSupabase({
+      digests: [{
+        ...DIGESTS[0],
+        delivery_status: 'APPROVED',
+        idempotency_key: 'digest-approved-key',
+        message_version: 'digest-approved-version',
+      }],
+      users: USERS,
+    });
+    await encolarDigestsPendientes(supabase, { fecha: '2026-07-08' });
+
+    const outbox = supabase.inserts.find((item) => item.table === 'mia_outbox')?.row;
+    assert.strictEqual(outbox.idempotency_key, 'digest-approved-key');
+    assert.strictEqual(outbox.message_version, 'digest-approved-version');
+    const selectDigest = supabase.queries.find((item) => item.table === 'digests' && item.op === 'select');
+    assert.match(selectDigest.columns, /idempotency_key, message_version, delivery_status/);
+    const deliveryFilter = supabase.queries.find((item) => item.table === 'digests' && item.op === 'or');
+    assert.strictEqual(deliveryFilter.expression, 'delivery_status.is.null,delivery_status.in.(DRAFT,APPROVED)');
   });
 
   await test('encolar es idempotente: el unique 23505 cuenta como ya_encolado', async () => {
@@ -186,52 +208,6 @@ async function main() {
     assert.strictEqual(digestIdDeOutboxItem({ metadata_json: { intent: 'reply' } }), null);
     assert.strictEqual(digestIdDeOutboxItem({}), null);
     assert.strictEqual(digestIdDeOutboxItem(null), null);
-  });
-
-  await test('resultado sent: marca digests.enviado y attempt sent', async () => {
-    const supabase = fakeSupabase({});
-    const item = { id: 1, metadata_json: { digest_id: 10 } };
-    const r = await procesarResultadoDigestOutbox(supabase, item, { status: 'sent' });
-
-    assert.deepStrictEqual({ digest: r.digest, marcado: r.marcado }, { digest: true, marcado: 'sent' });
-    const updDigest = supabase.updates.find((u) => u.table === 'digests');
-    assert.strictEqual(updDigest.patch.enviado, true);
-    assert(updDigest.patch.enviado_at, 'sella enviado_at');
-    const updAttempt = supabase.updates.find((u) => u.table === 'digest_attempts');
-    assert.strictEqual(updAttempt.patch.status, 'sent');
-  });
-
-  await test('fallo con reintentos pendientes: anota error pero NO cierra el attempt', async () => {
-    const supabase = fakeSupabase({});
-    const item = { id: 1, metadata_json: { digest_id: 10 } };
-    const r = await procesarResultadoDigestOutbox(supabase, item, {
-      status: 'failed', retryable: true, error: 'timeout ultramsg',
-    });
-
-    assert.strictEqual(r.marcado, 'failed_retryable');
-    const updDigest = supabase.updates.find((u) => u.table === 'digests');
-    assert.strictEqual(updDigest.patch.error_msg, 'timeout ultramsg');
-    assert.strictEqual(updDigest.patch.enviado, undefined, 'no toca enviado');
-    const updAttempt = supabase.updates.find((u) => u.table === 'digest_attempts');
-    assert.strictEqual(updAttempt, undefined, 'el attempt sigue abierto mientras haya reintentos');
-  });
-
-  await test('fallo definitivo (sin reintentos): cierra el attempt como failed', async () => {
-    const supabase = fakeSupabase({});
-    const item = { id: 1, metadata_json: { digest_id: 10 } };
-    const r = await procesarResultadoDigestOutbox(supabase, item, {
-      status: 'failed', retryable: false, error: 'numero bloqueado',
-    });
-    assert.strictEqual(r.marcado, 'failed_final');
-    const updAttempt = supabase.updates.find((u) => u.table === 'digest_attempts');
-    assert.strictEqual(updAttempt.patch.status, 'failed');
-  });
-
-  await test('item ajeno al digest: no toca nada', async () => {
-    const supabase = fakeSupabase({});
-    const r = await procesarResultadoDigestOutbox(supabase, { id: 1, metadata_json: { intent: 'reply' } }, { status: 'sent' });
-    assert.strictEqual(r.digest, false);
-    assert.strictEqual(supabase.updates.length, 0);
   });
 
   console.log(`\nResultados digestOutbox: ${passed} aprobados, ${failed} fallidos`);

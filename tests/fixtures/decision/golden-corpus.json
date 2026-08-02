@@ -1,0 +1,599 @@
+{
+  "version": "alert_decision_golden_v2",
+  "description": "Corpus sintético versionado con forma de instantáneas históricas. No contiene teléfonos, correos ni nombres.",
+  "cost_assumptions_eur": {
+    "judge_call": 0.002,
+    "message_attempt": 0.01
+  },
+  "profiles": [
+    {
+      "id": "profile-specialized",
+      "kind": "specialized",
+      "user": {
+        "subscription": "premium",
+        "preferences": {
+          "provincias": ["Teruel"],
+          "municipios": ["Alcañiz"],
+          "comunidades": ["Aragón"],
+          "sectores": ["agricultura"],
+          "subsectores": ["regadío"],
+          "cultivos": ["cereal"],
+          "frecuencia": "daily",
+          "quiet_hours": { "start": 22, "end": 8 }
+        }
+      },
+      "memories": [],
+      "exposures": []
+    },
+    {
+      "id": "profile-open",
+      "kind": "open",
+      "user": {
+        "subscription": "premium",
+        "preferences": {
+          "provincias": ["Teruel"],
+          "municipios": ["Alcañiz"],
+          "sectores": [],
+          "subsectores": [],
+          "frecuencia": "daily",
+          "quiet_hours": { "start": 22, "end": 8 }
+        }
+      },
+      "memories": [],
+      "exposures": []
+    },
+    {
+      "id": "profile-new",
+      "kind": "new",
+      "user": {
+        "subscription": "premium",
+        "preferences": {
+          "provincias": [],
+          "municipios": [],
+          "sectores": [],
+          "frecuencia": "daily",
+          "quiet_hours": { "start": 22, "end": 8 }
+        }
+      },
+      "memories": [],
+      "exposures": []
+    },
+    {
+      "id": "profile-contradictory",
+      "kind": "contradictory",
+      "user": {
+        "subscription": "premium",
+        "preferences": {
+          "provincias": ["Teruel"],
+          "sectores": ["agricultura"],
+          "excluir_temas": ["maquinaria"],
+          "frecuencia": "daily",
+          "quiet_hours": { "start": 22, "end": 8 }
+        }
+      },
+      "memories": [],
+      "exposures": []
+    }
+  ],
+  "profile_snapshots": [
+    {
+      "date": "2026-07-03",
+      "profile_id": "profile-specialized",
+      "memories": [],
+      "exposures": []
+    },
+    {
+      "date": "2026-07-03",
+      "profile_id": "profile-open",
+      "memories": [],
+      "exposures": []
+    },
+    {
+      "date": "2026-07-20",
+      "profile_id": "profile-contradictory",
+      "memories": [
+        {
+          "id": "memory-click-machinery",
+          "content": "maquinaria",
+          "key": "maquinaria",
+          "scope": "topic",
+          "polarity": "positive",
+          "source": "click",
+          "strength": 0.7,
+          "recorded_at": "2026-07-20T10:00:00.000Z"
+        }
+      ],
+      "exposures": []
+    },
+    {
+      "date": "2026-07-24",
+      "profile_id": "profile-new",
+      "memories": [],
+      "exposures": []
+    }
+  ],
+  "cases": [
+    {
+      "id": "relevant-teruel-aid",
+      "date": "2026-07-03",
+      "profile_id": "profile-specialized",
+      "metamorphic_anchor": true,
+      "categories": ["clearly_relevant", "profile_specialized", "positive_end_to_end"],
+      "generators": ["exact", "semantic"],
+      "generator_scores": { "exact": 1, "semantic": 0.91 },
+      "alert": {
+        "id": 9101,
+        "title": "Ayudas para modernizar regadíos en Teruel",
+        "source": "BOA",
+        "type": "ayuda",
+        "topic": "modernización de regadío",
+        "summary": "Convocatoria para modernizar instalaciones de regadío en explotaciones agrarias de Teruel.",
+        "territory": { "level": "provincial", "provinces": ["Teruel"] },
+        "sectors": ["agricultura"],
+        "subsectors": ["regadío"],
+        "beneficiaries": "Titulares de explotaciones agrarias de regadío.",
+        "action": "Presentar la solicitud en la sede electrónica.",
+        "action_code": "solicitar",
+        "deadline": "2026-08-15",
+        "amount": "Hasta 12.000 euros.",
+        "requirements": ["Explotación inscrita en el registro agrario."],
+        "official_url": "https://example.invalid/boa/9101"
+      },
+      "current": { "decision": "ADD_TO_DIGEST", "message": "Ayuda de regadío disponible." },
+      "judge": { "decision": "ADD_TO_DIGEST", "reason_codes": ["APPROVED_DIGEST"] },
+      "expected": { "proposed_decision": "ADD_TO_DIGEST", "reason_code": "APPROVED_DIGEST" },
+      "observed": {
+        "delivery_steps": ["QUEUED", "PROVIDER_ACCEPTED", "SENT_TO_WHATSAPP", "DELIVERED", "READ"],
+        "clicked": true,
+        "clicked_at": "2026-07-05T09:30:00.000Z",
+        "feedback": {
+          "polarity": "positive",
+          "scope": "alert",
+          "recorded_at": "2026-07-04T11:00:00.000Z"
+        }
+      }
+    },
+    {
+      "id": "irrelevant-urban-marketing",
+      "date": "2026-07-03",
+      "profile_id": "profile-open",
+      "categories": ["clearly_irrelevant", "historical_false_positive", "profile_open"],
+      "generators": ["semantic"],
+      "alert": {
+        "id": 9102,
+        "title": "Curso de marketing para comercios urbanos",
+        "source": "BOPT",
+        "type": "curso",
+        "topic": "marketing urbano",
+        "summary": "Formación dirigida a comercios minoristas situados en áreas urbanas.",
+        "territory": { "level": "provincial", "provinces": ["Teruel"] },
+        "sectors": ["comercio urbano"],
+        "beneficiaries": "Comercios minoristas urbanos.",
+        "action": "Inscribirse en el formulario oficial.",
+        "action_code": "inscribirse",
+        "deadline": "2026-07-30",
+        "official_url": "https://example.invalid/bopt/9102"
+      },
+      "current": { "decision": "ADD_TO_DIGEST" },
+      "judge": {
+        "decision": "DROP",
+        "reason_codes": ["LOW_UTILITY"],
+        "applicability": 0.18,
+        "usefulness": 0.12,
+        "actionability": 0.4
+      },
+      "expected": { "proposed_decision": "DROP", "reason_code": "LOW_UTILITY" },
+      "observed": {
+        "feedback": {
+          "polarity": "negative",
+          "scope": "alert",
+          "recorded_at": "2026-07-04T12:00:00.000Z"
+        }
+      }
+    },
+    {
+      "id": "other-province-hard-block",
+      "date": "2026-07-03",
+      "profile_id": "profile-specialized",
+      "categories": ["other_province", "historical_false_positive", "profile_specialized", "blocked_end_to_end"],
+      "generators": ["exact", "memory"],
+      "alert": {
+        "id": 9103,
+        "title": "Ayuda agraria exclusiva para Huesca",
+        "source": "BOPH",
+        "type": "ayuda",
+        "topic": "mejora de explotaciones",
+        "summary": "Convocatoria limitada a explotaciones ubicadas en la provincia de Huesca.",
+        "territory": { "level": "provincial", "provinces": ["Huesca"] },
+        "sectors": ["agricultura"],
+        "beneficiaries": "Titulares de explotaciones agrarias de Huesca.",
+        "action": "Presentar solicitud.",
+        "action_code": "solicitar",
+        "deadline": "2026-08-20",
+        "official_url": "https://example.invalid/boph/9103"
+      },
+      "current": { "decision": "ADD_TO_DIGEST" },
+      "judge": { "decision": "ADD_TO_DIGEST", "reason_codes": ["APPROVED_DIGEST"] },
+      "expected": { "proposed_decision": "BLOCKED", "reason_code": "TERRITORY_MISMATCH" },
+      "observed": {}
+    },
+    {
+      "id": "autonomous-aragon-applicable",
+      "date": "2026-07-03",
+      "profile_id": "profile-open",
+      "categories": ["autonomous_scope", "historical_false_negative", "profile_open"],
+      "generators": ["coverage"],
+      "alert": {
+        "id": 9104,
+        "title": "Programa autonómico de asesoramiento rural",
+        "source": "BOA",
+        "type": "ayuda",
+        "topic": "asesoramiento rural",
+        "summary": "Programa disponible para explotaciones de toda Aragón.",
+        "territory": { "level": "regional", "regions": ["Aragón"] },
+        "sectors": ["agricultura"],
+        "beneficiaries": "Explotaciones agrarias situadas en Aragón.",
+        "action": "Solicitar plaza de asesoramiento.",
+        "action_code": "solicitar",
+        "deadline": "2026-09-01",
+        "official_url": "https://example.invalid/boa/9104"
+      },
+      "current": { "decision": "DROP" },
+      "judge": { "decision": "ADD_TO_DIGEST", "reason_codes": ["APPROVED_DIGEST"] },
+      "expected": { "proposed_decision": "ADD_TO_DIGEST", "reason_code": "APPROVED_DIGEST" },
+      "observed": { "clicked": true, "clicked_at": "2026-07-06T08:00:00.000Z" }
+    },
+    {
+      "id": "national-pac-opportunity",
+      "date": "2026-07-10",
+      "profile_id": "profile-specialized",
+      "categories": ["national_scope", "historical_false_negative", "profile_specialized"],
+      "generators": ["coverage", "semantic"],
+      "alert": {
+        "id": 9105,
+        "title": "Convocatoria nacional de apoyo PAC",
+        "source": "BOE",
+        "type": "ayuda",
+        "topic": "PAC",
+        "summary": "Apoyo nacional para titulares de explotaciones agrarias.",
+        "territory": { "level": "national" },
+        "sectors": ["agricultura"],
+        "beneficiaries": "Titulares de explotaciones agrarias en España.",
+        "action": "Presentar la solicitud telemática.",
+        "action_code": "solicitar",
+        "deadline": "2026-09-10",
+        "official_url": "https://example.invalid/boe/9105"
+      },
+      "current": { "decision": "DROP" },
+      "judge": { "decision": "ADD_TO_DIGEST", "reason_codes": ["APPROVED_DIGEST"] },
+      "expected": { "proposed_decision": "ADD_TO_DIGEST", "reason_code": "APPROVED_DIGEST" },
+      "observed": {
+        "feedback": {
+          "polarity": "positive",
+          "scope": "topic",
+          "recorded_at": "2026-07-12T14:00:00.000Z"
+        }
+      }
+    },
+    {
+      "id": "individual-municipality-match",
+      "date": "2026-07-10",
+      "profile_id": "profile-specialized",
+      "categories": ["individual_case", "profile_specialized"],
+      "generators": ["exact"],
+      "alert": {
+        "id": 9106,
+        "title": "Trámite individual para explotación de Alcañiz",
+        "source": "BOPT",
+        "type": "trámite",
+        "topic": "subsanación individual",
+        "summary": "Anuncio individual referido a una explotación ubicada en Alcañiz.",
+        "territory": {
+          "level": "municipal",
+          "provinces": ["Teruel"],
+          "municipalities": ["Alcañiz"],
+          "individual_case": true
+        },
+        "sectors": ["agricultura"],
+        "beneficiaries": "Titular del expediente indicado en el anuncio.",
+        "action": "Aportar la documentación solicitada.",
+        "action_code": "subsanar",
+        "deadline": "2026-07-25",
+        "official_url": "https://example.invalid/bopt/9106"
+      },
+      "current": { "decision": "ADD_TO_DIGEST" },
+      "judge": { "decision": "ADD_TO_DIGEST", "reason_codes": ["APPROVED_DIGEST"] },
+      "expected": { "proposed_decision": "ADD_TO_DIGEST", "reason_code": "APPROVED_DIGEST" },
+      "observed": {}
+    },
+    {
+      "id": "individual-municipality-mismatch",
+      "date": "2026-07-10",
+      "profile_id": "profile-specialized",
+      "categories": ["individual_case", "other_province", "historical_false_positive", "profile_specialized"],
+      "generators": ["semantic"],
+      "alert": {
+        "id": 9107,
+        "title": "Trámite individual para explotación de Calamocha",
+        "source": "BOPT",
+        "type": "trámite",
+        "topic": "subsanación individual",
+        "summary": "Anuncio individual referido a una explotación ubicada en Calamocha.",
+        "territory": {
+          "level": "municipal",
+          "provinces": ["Teruel"],
+          "municipalities": ["Calamocha"],
+          "individual_case": true
+        },
+        "sectors": ["agricultura"],
+        "beneficiaries": "Titular del expediente indicado en el anuncio.",
+        "action": "Aportar documentación.",
+        "action_code": "subsanar",
+        "deadline": "2026-07-25",
+        "official_url": "https://example.invalid/bopt/9107"
+      },
+      "current": { "decision": "ADD_TO_DIGEST" },
+      "judge": { "decision": "ADD_TO_DIGEST", "reason_codes": ["APPROVED_DIGEST"] },
+      "expected": { "proposed_decision": "BLOCKED", "reason_code": "INDIVIDUAL_TERRITORY_MISSING" },
+      "observed": {}
+    },
+    {
+      "id": "aid-without-deadline",
+      "date": "2026-07-10",
+      "profile_id": "profile-open",
+      "categories": ["aid_without_deadline", "clearly_relevant", "profile_open"],
+      "generators": ["exact"],
+      "alert": {
+        "id": 9108,
+        "title": "Ayuda informativa sin plazo publicado",
+        "source": "BOPT",
+        "type": "ayuda",
+        "topic": "asesoramiento agrario",
+        "summary": "Línea de apoyo cuyo documento no fija todavía una fecha límite.",
+        "territory": { "level": "provincial", "provinces": ["Teruel"] },
+        "sectors": ["agricultura"],
+        "beneficiaries": "Titulares de explotaciones agrarias de Teruel.",
+        "action": "Consultar las condiciones oficiales.",
+        "action_code": "consultar",
+        "deadline": null,
+        "official_url": "https://example.invalid/bopt/9108"
+      },
+      "current": { "decision": "ADD_TO_DIGEST" },
+      "judge": { "decision": "ADD_TO_DIGEST", "reason_codes": ["APPROVED_DIGEST"], "urgency": 0.1 },
+      "expected": { "proposed_decision": "ADD_TO_DIGEST", "reason_code": "APPROVED_DIGEST" },
+      "observed": {}
+    },
+    {
+      "id": "urgent-obligation",
+      "date": "2026-07-17",
+      "profile_id": "profile-specialized",
+      "categories": ["obligation", "clearly_relevant", "profile_specialized"],
+      "generators": ["exact"],
+      "alert": {
+        "id": 9109,
+        "title": "Obligación urgente de actualizar el registro agrario",
+        "source": "BOA",
+        "type": "obligación",
+        "topic": "registro agrario",
+        "summary": "Las explotaciones afectadas deben actualizar sus datos antes del cierre del plazo.",
+        "territory": { "level": "provincial", "provinces": ["Teruel"] },
+        "sectors": ["agricultura"],
+        "beneficiaries": "Titulares de explotaciones agrarias registradas.",
+        "action": "Actualizar los datos en la sede electrónica.",
+        "action_code": "actualizar",
+        "deadline": "2026-07-19",
+        "official_url": "https://example.invalid/boa/9109"
+      },
+      "current": { "decision": "ADD_TO_DIGEST" },
+      "judge": {
+        "decision": "SEND_NOW",
+        "reason_codes": ["URGENCY_VERIFIED"],
+        "applicability": 0.96,
+        "usefulness": 0.95,
+        "actionability": 0.96,
+        "urgency": 0.98,
+        "confidence": 0.96
+      },
+      "expected": { "proposed_decision": "SEND_NOW", "reason_code": "APPROVED_URGENT" },
+      "observed": {
+        "delivery_steps": ["QUEUED", "PROVIDER_ACCEPTED", "SENT_TO_WHATSAPP", "DELIVERED"]
+      }
+    },
+    {
+      "id": "agricultural-course",
+      "date": "2026-07-17",
+      "profile_id": "profile-specialized",
+      "categories": ["course", "profile_specialized"],
+      "generators": ["semantic", "exploration"],
+      "alert": {
+        "id": 9110,
+        "title": "Curso de eficiencia de riego para agricultores",
+        "source": "BOPT",
+        "type": "curso",
+        "topic": "eficiencia de riego",
+        "summary": "Formación práctica sobre ahorro de agua en explotaciones de regadío.",
+        "territory": { "level": "provincial", "provinces": ["Teruel"] },
+        "sectors": ["agricultura"],
+        "subsectors": ["regadío"],
+        "beneficiaries": "Agricultores con explotaciones de regadío.",
+        "action": "Inscribirse en el curso.",
+        "action_code": "inscribirse",
+        "deadline": "2026-08-05",
+        "official_url": "https://example.invalid/bopt/9110"
+      },
+      "current": { "decision": "ADD_TO_DIGEST" },
+      "judge": { "decision": "ADD_TO_DIGEST", "reason_codes": ["APPROVED_DIGEST"] },
+      "expected": { "proposed_decision": "ADD_TO_DIGEST", "reason_code": "APPROVED_DIGEST" },
+      "observed": { "clicked": true, "clicked_at": "2026-07-19T10:00:00.000Z" }
+    },
+    {
+      "id": "incomplete-without-official-url",
+      "date": "2026-07-17",
+      "profile_id": "profile-open",
+      "categories": ["incomplete_document", "doubtful", "profile_open", "held_end_to_end"],
+      "generators": ["exact"],
+      "alert": {
+        "id": 9111,
+        "title": "Convocatoria incompleta pendiente de enlace oficial",
+        "source": "BOPT",
+        "type": "ayuda",
+        "topic": "inversión rural",
+        "summary": "El texto almacenado describe una ayuda pero no conserva el enlace oficial.",
+        "territory": { "level": "provincial", "provinces": ["Teruel"] },
+        "sectors": ["agricultura"],
+        "beneficiaries": "Empresas rurales de Teruel.",
+        "action": "Presentar solicitud.",
+        "action_code": "solicitar",
+        "deadline": "2026-08-25",
+        "official_url": null,
+        "status": "insufficient_evidence",
+        "incomplete_text": true
+      },
+      "current": { "decision": "DROP" },
+      "judge": { "decision": "ADD_TO_DIGEST", "reason_codes": ["APPROVED_DIGEST"] },
+      "expected": { "proposed_decision": "HOLD_FOR_EVIDENCE", "reason_code": "OFFICIAL_URL_MISSING" },
+      "observed": {}
+    },
+    {
+      "id": "doubtful-personal-utility",
+      "date": "2026-07-17",
+      "profile_id": "profile-open",
+      "categories": ["doubtful", "profile_open"],
+      "generators": ["semantic"],
+      "alert": {
+        "id": 9112,
+        "title": "Jornada general sobre innovación rural",
+        "source": "BOPT",
+        "type": "curso",
+        "topic": "innovación rural",
+        "summary": "Jornada abierta cuyo beneficio práctico para este perfil no está claro.",
+        "territory": { "level": "provincial", "provinces": ["Teruel"] },
+        "sectors": ["desarrollo rural"],
+        "beneficiaries": "Población interesada en innovación rural.",
+        "action": "Inscribirse en la jornada.",
+        "action_code": "inscribirse",
+        "deadline": "2026-08-02",
+        "official_url": "https://example.invalid/bopt/9112"
+      },
+      "current": { "decision": "ADD_TO_DIGEST" },
+      "judge": {
+        "decision": "HOLD_FOR_EVIDENCE",
+        "reason_codes": ["LLM_ABSTAINED"],
+        "applicability": 0.55,
+        "usefulness": 0.48,
+        "confidence": 0.55,
+        "missing_information": ["utilidad concreta para el perfil"]
+      },
+      "expected": { "proposed_decision": "HOLD_FOR_EVIDENCE", "reason_code": "LLM_ABSTAINED" },
+      "observed": {}
+    },
+    {
+      "id": "new-profile-without-territory",
+      "date": "2026-07-24",
+      "profile_id": "profile-new",
+      "categories": ["profile_new", "national_scope", "doubtful", "blocked_end_to_end"],
+      "generators": ["coverage"],
+      "alert": {
+        "id": 9113,
+        "title": "Información nacional para explotaciones agrarias",
+        "source": "BOE",
+        "type": "ayuda",
+        "topic": "digitalización agraria",
+        "summary": "Programa nacional de digitalización para explotaciones agrarias.",
+        "territory": { "level": "national" },
+        "sectors": ["agricultura"],
+        "beneficiaries": "Titulares de explotaciones agrarias en España.",
+        "action": "Consultar requisitos y solicitar.",
+        "action_code": "solicitar",
+        "deadline": "2026-09-15",
+        "official_url": "https://example.invalid/boe/9113"
+      },
+      "current": { "decision": "DROP" },
+      "judge": { "decision": "ADD_TO_DIGEST", "reason_codes": ["APPROVED_DIGEST"] },
+      "expected": { "proposed_decision": "BLOCKED", "reason_code": "PROFILE_TERRITORY_MISSING" },
+      "observed": {}
+    },
+    {
+      "id": "contradictory-profile-exclusion",
+      "date": "2026-07-24",
+      "profile_id": "profile-contradictory",
+      "categories": ["profile_contradictory", "clearly_irrelevant"],
+      "generators": ["exact", "memory"],
+      "alert": {
+        "id": 9114,
+        "title": "Ayuda para compra de maquinaria agraria",
+        "source": "BOA",
+        "type": "ayuda",
+        "topic": "maquinaria",
+        "summary": "Subvención para adquirir maquinaria agraria en Teruel.",
+        "territory": { "level": "provincial", "provinces": ["Teruel"] },
+        "sectors": ["agricultura"],
+        "beneficiaries": "Titulares de explotaciones agrarias.",
+        "action": "Presentar solicitud.",
+        "action_code": "solicitar",
+        "deadline": "2026-09-20",
+        "official_url": "https://example.invalid/boa/9114"
+      },
+      "current": { "decision": "ADD_TO_DIGEST" },
+      "judge": { "decision": "ADD_TO_DIGEST", "reason_codes": ["APPROVED_DIGEST"] },
+      "expected": { "proposed_decision": "BLOCKED", "reason_code": "EXPLICIT_EXCLUSION" },
+      "observed": {}
+    },
+    {
+      "id": "contradictory-official-evidence",
+      "date": "2026-07-24",
+      "profile_id": "profile-open",
+      "categories": ["doubtful", "incomplete_document", "profile_open"],
+      "generators": ["semantic"],
+      "alert": {
+        "id": 9115,
+        "title": "Convocatoria con ámbitos contradictorios",
+        "source": "BOPT",
+        "type": "ayuda",
+        "topic": "diversificación rural",
+        "summary": "Dos apartados oficiales conservados indican ámbitos incompatibles.",
+        "territory": { "level": "provincial", "provinces": ["Teruel"] },
+        "sectors": ["agricultura"],
+        "beneficiaries": "Empresas rurales.",
+        "action": "Presentar solicitud.",
+        "action_code": "solicitar",
+        "deadline": "2026-08-30",
+        "official_url": "https://example.invalid/bopt/9115",
+        "contradiction": true
+      },
+      "current": { "decision": "ADD_TO_DIGEST" },
+      "judge": { "decision": "ADD_TO_DIGEST", "reason_codes": ["APPROVED_DIGEST"] },
+      "expected": { "proposed_decision": "BLOCKED", "reason_code": "CONTRADICTORY_EVIDENCE" },
+      "observed": {}
+    },
+    {
+      "id": "transport-failure-does-not-learn",
+      "date": "2026-07-24",
+      "profile_id": "profile-specialized",
+      "categories": ["clearly_relevant", "profile_specialized", "transport_failure"],
+      "generators": ["exact"],
+      "alert": {
+        "id": 9116,
+        "title": "Ayuda para ahorro de agua en explotaciones",
+        "source": "BOA",
+        "type": "ayuda",
+        "topic": "ahorro de agua",
+        "summary": "Ayuda para inversiones de ahorro de agua en explotaciones agrarias de Teruel.",
+        "territory": { "level": "provincial", "provinces": ["Teruel"] },
+        "sectors": ["agricultura"],
+        "subsectors": ["regadío"],
+        "beneficiaries": "Titulares de explotaciones agrarias de regadío.",
+        "action": "Presentar solicitud.",
+        "action_code": "solicitar",
+        "deadline": "2026-09-05",
+        "official_url": "https://example.invalid/boa/9116"
+      },
+      "current": { "decision": "ADD_TO_DIGEST" },
+      "judge": { "decision": "ADD_TO_DIGEST", "reason_codes": ["APPROVED_DIGEST"] },
+      "expected": { "proposed_decision": "ADD_TO_DIGEST", "reason_code": "APPROVED_DIGEST" },
+      "observed": {
+        "delivery_steps": ["QUEUED", "PROVIDER_ACCEPTED", "FAILED"]
+      }
+    }
+  ]
+}

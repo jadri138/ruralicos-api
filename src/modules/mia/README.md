@@ -27,7 +27,7 @@ Si una parte falla, se conserva el caso y la trazabilidad; no se ejecuta silenci
 | --- | --- |
 | Entrada | `webhookEvent.js`, `inbound.js`, `feedbackClassifier.js` |
 | Decisión | `decisionCore.js`, `policy.js`, `decisionStore.js`, `expertRelevance.js` |
-| Contexto | `userProfile.js`, `organizationContext.js`, `structuredMemory.js` |
+| Contexto | `userProfile.js`, `organizationContext.js`, `structuredMemory.js`, `../aprendizaje/atomicMemory.js` |
 | Conocimiento | `knowledgeBase.js`, `knowledgeIngest.js`, `groundedAnswer.js` |
 | Alertas/digest | `alertQuality.js`, `alertReview.js`, `digestItems.js`, `digestAttempts.js`, `digestCandidateDecisions.js` |
 | Ejecución | `actionExecutor.js`, `outbox.js`, `replyGuard.js` |
@@ -70,6 +70,35 @@ Se separan:
 
 Una inferencia no debe sobrescribir una preferencia explícita. El usuario puede consultar y borrar memoria desde `/me/memory`.
 
+`user_memory` es la escritura canónica. Cada señal tiene clave idempotente,
+ámbito (`alert`, `topic`, `subsector`, `territory`, `frequency`, `channel` o
+`activity`), polaridad, origen, fuerza, confianza y vigencia. El adaptador
+`structuredMemory.js` mantiene el nombre histórico de la API, pero ya no escribe
+en `mia_structured_memory`; esa tabla queda solo para compatibilidad de lectura y
+borrado de privacidad.
+
+Una respuesta explícita pesa más que un clic y un fallo de transporte no genera
+memoria. Los negativos conservan su ámbito para no convertir «esta ya la pedí»
+en «no quiero más ayudas de este tipo».
+
+## Controlador de comunicaciones
+
+Digest, resumen FREE, exploración y respuestas automáticas no transaccionales se
+encolan en `mia_outbox`. Un elemento conserva idempotencia, versión de mensaje y
+estado de entrega. La aceptación HTTP de UltraMsg no se considera entrega y un
+elemento aceptado no se reenvía a ciegas: espera ACK o conciliación.
+
+El digest no añade una petición de valoración a todo el mundo. Al final del
+workflow diario, `/cerebro/exploracion-diaria` selecciona solo dudas relevantes
+del perfil y solo después de un digest entregado o leído. Respeta la pausa del
+usuario, 30 días de espera por defecto y un máximo global de 20 preguntas al
+día; después encola la pregunta en la misma `mia_outbox`, sin lanzar otra fase
+de embeddings o actualización de perfiles ni enviar directamente.
+
+Un ACK tardío puede activar la pregunta sobre el último digest entregado dentro
+de la ventana configurada. El postproceso usa un lease recuperable: un reinicio
+no deja la respuesta bloqueada ni duplica la memoria.
+
 ## Conocimiento y respuestas
 
 `knowledgeBase` combina documentos autorizados, alertas y contexto. `groundedAnswer` exige respaldo; `replyGuard` elimina riesgos antes de enviar. Si no hay evidencia suficiente, la respuesta debe reconocerlo y remitir al documento oficial.
@@ -83,6 +112,16 @@ El sistema reduce la carga humana mediante:
 - replay de eventos;
 - casos solo para excepciones;
 - salud de outbox y recomendaciones;
+- embudo diario desde parejas valoradas por el juez hasta aprobación, cola y
+  entrega, junto al reparto por `delivery_status`;
+- avisos de caída o pico de volumen contra la mediana del histórico propio; se
+  exige una muestra mínima para no alertar por ruido de los primeros días;
+- tasa de `HOLD_FOR_EVIDENCE`, estados `PENDING`, `PROCESSING`, `FAILED`,
+  `RESOLVED`, `EXHAUSTED` y `EXPIRED`, y resolución efectiva sin contar como
+  resuelto un caso que solo pasó a otro reintento;
+- uso del juez: llamadas lógicas, intentos al proveedor, reintentos, caché,
+  fallbacks, tokens y coste por moneda cuando el equipo configura tarifas
+  explícitas;
 - snapshots históricos;
 - umbrales y bloqueos conservadores.
 

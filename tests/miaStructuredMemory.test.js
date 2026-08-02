@@ -47,12 +47,12 @@ const rows = construirMemoriasEstructuradas({
 assert(rows.length === 2, 'Construye memoria estructurada desde memory_actions');
 assert(rows[0].user_id === 141, 'Conserva user_id');
 assert(rows[0].organization_id === 12, 'Propaga organization_id a memoria estructurada');
-assert(rows[0].source === 'whatsapp', 'Marca source whatsapp por defecto');
-assert(rows.some((row) => row.topic === 'pac'), 'Incluye topic pac');
-assert(rows.some((row) => row.topic === 'ayudas_maquinaria'), 'Incluye topic ayudas maquinaria');
+assert(rows[0].source === 'response', 'Normaliza WhatsApp como respuesta explícita');
+assert(rows.some((row) => row.scope_value === 'pac'), 'Incluye topic pac');
+assert(rows.some((row) => row.scope_value === 'ayudas_maquinaria'), 'Incluye topic ayudas maquinaria');
 assert(rows.every((row) => row.polarity === 'positive'), 'Marca polaridad positiva');
-assert(rows.every((row) => row.evidence.includes('PAC')), 'Conserva evidencia original');
-assert(rows.every((row) => row.detail_hash), 'Genera hash de deduplicacion');
+assert(rows.every((row) => row.memory_key), 'Genera clave canónica de deduplicación');
+assert(rows.every((row) => row.metadata_json.contract_version), 'Versiona el contrato de memoria');
 
 console.log(`\nResultados: ${passed} aprobados, ${failed} fallidos`);
 process.exit(failed > 0 ? 1 : 0);

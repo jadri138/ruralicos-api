@@ -2,8 +2,8 @@
 /**
  * Ejecuta el pipeline diario completo de Ruralicos en orden.
  *
- * Cada fase termina antes de iniciar la siguiente. Este comando no depende de
- * pipeline_jobs, claims ni heartbeats: si el cron arranca, ejecuta el flujo.
+ * Cada fase termina antes de iniciar la siguiente. Si el cron arranca, ejecuta
+ * el flujo completo directamente.
  *
  * Uso:
  *   BASE_URL="https://tu-api.onrender.com" CRON_TOKEN="xxx" node scripts/run_digest_workflow.js
@@ -13,8 +13,11 @@
  *   RUN_SCRAPERS=true
  *   RUN_OFFICIAL_LISTS=true
  *   RUN_REPAIR=true
+ *   RUN_DAILY_EXPLORATION=true
  *   MAX_LOOPS=40
  *   PREPARAR_DIGEST_MAX_LOOPS=200
+ *   HOLD_RECOVERY_MAX_LOOPS=20
+ *   OUTBOX_MAX_LOOPS=50
  *   STEP_DELAY_MS=800
  *   HTTP_RETRIES=3
  *   HTTP_RETRY_DELAY_MS=5000
@@ -31,8 +34,11 @@ const FECHA = /^\d{4}-\d{2}-\d{2}$/.test(process.env.FECHA || '')
 const RUN_SCRAPERS = parseBool(process.env.RUN_SCRAPERS, true);
 const RUN_OFFICIAL_LISTS = parseBool(process.env.RUN_OFFICIAL_LISTS, true);
 const RUN_REPAIR = parseBool(process.env.RUN_REPAIR, true);
+const RUN_DAILY_EXPLORATION = parseBool(process.env.RUN_DAILY_EXPLORATION, true);
 const MAX_LOOPS = Number(process.env.MAX_LOOPS || 40);
 const PREPARAR_DIGEST_MAX_LOOPS = Number(process.env.PREPARAR_DIGEST_MAX_LOOPS || 200);
+const HOLD_RECOVERY_MAX_LOOPS = Number(process.env.HOLD_RECOVERY_MAX_LOOPS || 20);
+const OUTBOX_MAX_LOOPS = Number(process.env.OUTBOX_MAX_LOOPS || 50);
 const STEP_DELAY_MS = Number(process.env.STEP_DELAY_MS || 800);
 const HTTP_RETRIES = Number(process.env.HTTP_RETRIES || 3);
 const HTTP_RETRY_DELAY_MS = Number(process.env.HTTP_RETRY_DELAY_MS || 5000);
@@ -208,6 +214,97 @@ async function runOptionalStep(name, path, options = {}) {
   }
 }
 
+async function runHoldEvidenceRecoveryStep({
+  limit = 25,
+  concurrency = 2,
+  maxLoops = HOLD_RECOVERY_MAX_LOOPS,
+} = {}) {
+  const safeLimit = Math.max(1, Math.min(50, Math.trunc(Number(limit) || 25)));
+  const safeConcurrency = Math.max(1, Math.min(4, Math.trunc(Number(concurrency) || 2)));
+  const safeMaxLoops = Math.max(1, Math.trunc(Number(maxLoops) || 20));
+  const totals = {
+    processed: 0,
+    recovered: 0,
+    pending: 0,
+    failed: 0,
+    exhausted: 0,
+    skipped: 0,
+    stale_requeued: 0,
+  };
+  let lastBody = null;
+
+  for (let loops = 1; loops <= safeMaxLoops; loops++) {
+    const body = await hit(
+      `/tareas/hold-evidence-recovery?limit=${safeLimit}&concurrency=${safeConcurrency}`,
+      { method: 'POST' }
+    );
+    lastBody = body;
+    for (const key of Object.keys(totals)) {
+      const value = Number(body?.[key]);
+      if (Number.isFinite(value)) totals[key] += value;
+    }
+
+    const processed = Math.max(0, Number(body?.processed || 0));
+    const hasMore = typeof body?.has_more === 'boolean'
+      ? body.has_more
+      : processed >= safeLimit;
+    console.log(`[hold-evidence-recovery] vuelta ${loops}: processed=${processed}, has_more=${hasMore}`);
+
+    if (processed < safeLimit || !hasMore) {
+      return { ...totals, loops, drained: true, has_more: false, lastBody };
+    }
+    await sleep(STEP_DELAY_MS);
+  }
+
+  console.warn(
+    `[hold-evidence-recovery] quedan filas vencidas tras ${safeMaxLoops} vueltas; ` +
+    'se retomaran de forma idempotente en el siguiente workflow diario.'
+  );
+  return {
+    ...totals,
+    loops: safeMaxLoops,
+    drained: false,
+    has_more: true,
+    lastBody,
+  };
+}
+
+// El mismo workflow que crea el digest vacia la unica cola de comunicaciones.
+// No se reintenta la peticion HTTP: si el proveedor acepto un mensaje pero la
+// respuesta se corto, la conciliacion por provider_message_id debe resolverlo
+// sin arriesgar un segundo WhatsApp.
+async function runOutboxStep({ limit = 100, maxLoops = OUTBOX_MAX_LOOPS } = {}) {
+  let loops = 0;
+  let procesados = 0;
+  let aceptados = 0;
+  let fallidos = 0;
+  let lastBody = null;
+
+  while (loops < maxLoops) {
+    loops++;
+    const body = await hit(`/tareas/mia-outbox?limit=${limit}`, {
+      method: 'POST',
+      maxRetries: 0,
+    });
+    lastBody = body;
+    const procesadosVuelta = Number(body?.procesados || 0);
+    procesados += procesadosVuelta;
+    aceptados += Number(body?.aceptados ?? body?.enviados ?? 0);
+    fallidos += Number(body?.fallidos || 0);
+    console.log(`[mia-outbox] vuelta ${loops}: procesados=${procesadosVuelta}, aceptados=${Number(body?.aceptados ?? body?.enviados ?? 0)}, fallidos=${Number(body?.fallidos || 0)}`);
+
+    if (procesadosVuelta === 0) {
+      return { loops, procesados, aceptados, fallidos, drained: true, lastBody };
+    }
+    await sleep(STEP_DELAY_MS);
+  }
+
+  throw new Error(
+    `[mia-outbox] alcanzo OUTBOX_MAX_LOOPS=${maxLoops}. ` +
+    `La cola no quedo vacia. Ultima respuesta: ${JSON.stringify(lastBody)}`
+  );
+}
+
 async function main() {
   console.log('Iniciando workflow diario completo...', {
     baseUrl: BASE_URL,
@@ -215,6 +312,7 @@ async function main() {
     runScrapers: RUN_SCRAPERS,
     runOfficialLists: RUN_OFFICIAL_LISTS,
     runRepair: RUN_REPAIR,
+    runDailyExploration: RUN_DAILY_EXPLORATION,
   });
 
   const scrapers = RUN_SCRAPERS
@@ -227,17 +325,20 @@ async function main() {
     ? await runSingleStep('reparar-pendientes-ia', conFecha('/alertas/reparar-pendientes-ia'), { method: 'POST' })
     : { skipped: true };
 
-  const clasificar = await runBatchedStep('clasificar', '/alertas/clasificar');
-  const resumir = await runBatchedStep('resumir', '/alertas/resumir');
-  const revisar = await runBatchedStep('revisar', '/alertas/revisar');
+  const clasificar = await runBatchedStep('clasificar', '/alertas/clasificar', { method: 'POST' });
+  const resumir = await runBatchedStep('resumir', '/alertas/resumir', { method: 'POST' });
+  const revisar = await runBatchedStep('revisar', '/alertas/revisar', { method: 'POST' });
 
-  const deduplicar = await runSingleStep('deduplicar', conFecha('/alertas/deduplicar'));
-  const miaEmbeddings = await runOptionalStep('mia-embeddings', '/cerebro/embeddings/inicializar?limit=100&maxLoops=10');
-  const miaCicloPreDigest = await runOptionalStep('mia-ciclo-pre-digest', '/cerebro/ciclo-diario?explorar=false&limit=100&maxLoops=1');
+  const deduplicar = await runSingleStep('deduplicar', conFecha('/alertas/deduplicar'), { method: 'POST' });
+  const miaEmbeddings = await runOptionalStep('mia-embeddings', '/cerebro/embeddings/inicializar?limit=100&maxLoops=10', { method: 'POST' });
+  const miaCicloPreDigest = await runOptionalStep('mia-ciclo-pre-digest', '/cerebro/ciclo-diario?explorar=false&limit=100&maxLoops=1', { method: 'POST' });
+  // Relee solo evidencia que ya existe en alertas/raw_documents. Es una fase
+  // acotada del mismo workflow; no descarga documentos ni crea otro cron.
+  const holdEvidenceRecovery = await runHoldEvidenceRecoveryStep();
   const prepararDigest = await runBatchedStep(
     'preparar-digest',
     conFecha('/alertas/preparar-digest'),
-    {},
+    { method: 'POST' },
     PREPARAR_DIGEST_MAX_LOOPS
   );
   const digestsPreparados = Number(prepararDigest.metrics.digests_generados || 0);
@@ -248,11 +349,27 @@ async function main() {
       ...prepararDigest.metrics,
     });
   }
-  const enviarDigest = await runSingleStep('enviar-digest', conFecha('/alertas/enviar-digest'));
-  const miaCicloPostDigest = await runOptionalStep('mia-ciclo-post-digest', '/cerebro/ciclo-diario?explorar=true&dryRunExploracion=false&limit=100&maxLoops=1');
-
-  const generarFree = await runSingleStep('generar-resumen-free', conFecha('/alertas/generar-resumen-free'));
-  const enviarFree = await runSingleStep('enviar-resumen-free', conFecha('/alertas/enviar-resumen-free'));
+  const enviarDigest = await runSingleStep('enviar-digest', conFecha('/alertas/enviar-digest'), { method: 'POST' });
+  // FREE también se limita a preparar y encolar. Digest, FREE y las preguntas
+  // selectivas comparten esta cola y este transporte.
+  const generarFree = await runSingleStep('generar-resumen-free', conFecha('/alertas/generar-resumen-free'), { method: 'POST' });
+  const enviarFree = await runSingleStep('enviar-resumen-free', conFecha('/alertas/enviar-resumen-free'), { method: 'POST' });
+  const entregarOutbox = await runOutboxStep();
+  const reconciliacionWhatsapp = await runOptionalStep(
+    'whatsapp-reconcile',
+    '/tareas/whatsapp-reconcile?limit=100',
+    { method: 'POST' }
+  );
+  const exploracionDiaria = RUN_DAILY_EXPLORATION
+    ? await runOptionalStep(
+      'mia-exploracion-diaria',
+      '/cerebro/exploracion-diaria?limit=100',
+      { method: 'POST', maxRetries: 0 }
+    )
+    : { skipped: true, reason: 'exploracion_diaria_desactivada' };
+  const entregarPreguntasExploracion = Number(exploracionDiaria?.encoladas || 0) > 0
+    ? await runOutboxStep()
+    : { skipped: true, reason: 'sin_preguntas_selectivas' };
 
   console.log('Workflow completado', {
     scrapers: scrapers?.success ?? scrapers?.skipped ?? null,
@@ -264,12 +381,23 @@ async function main() {
     deduplicar: deduplicar?.deduplicadas ?? null,
     miaEmbeddings: miaEmbeddings?.ok ?? null,
     miaCicloPreDigest: miaCicloPreDigest?.ok ?? null,
+    holdEvidenceRecovery: {
+      procesadas: holdEvidenceRecovery?.processed ?? 0,
+      recuperadas: holdEvidenceRecovery?.recovered ?? 0,
+      agotadas: holdEvidenceRecovery?.exhausted ?? 0,
+    },
     prepararDigest: {
       usuarios_evaluados: prepararDigest?.totalProgress ?? null,
       ...prepararDigest.metrics,
     },
-    enviarDigest: enviarDigest?.enviados ?? null,
-    miaCicloPostDigest: miaCicloPostDigest?.ok ?? null,
+    encolarDigest: {
+      encolados: enviarDigest?.encolados ?? 0,
+      ya_encolados: enviarDigest?.ya_encolados ?? 0,
+    },
+    entregarOutbox,
+    reconciliacionWhatsapp: reconciliacionWhatsapp?.success ?? reconciliacionWhatsapp?.ok ?? null,
+    exploracionDiaria,
+    entregarPreguntasExploracion,
     generarFree: generarFree?.procesadas ?? null,
     enviarFree: enviarFree?.success ?? enviarFree?.ok ?? null,
   });

@@ -19,6 +19,8 @@ const { notificarCambioPlan } = require('../../services/planChangeNotifier');
 
 const USER_OWNED_TABLES = [
   'mia_actions',
+  'whatsapp_delivery_events',
+  'whatsapp_logs',
   'mia_outbox',
   'mia_agent_cases',
   'mia_structured_memory',

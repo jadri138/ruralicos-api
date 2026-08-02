@@ -7,10 +7,7 @@ const metrics = calcularMetricasCalidadPlan({
   digestItems: fixture.digest_items,
   candidateDecisions: fixture.candidate_decisions,
   reviews: fixture.reviews,
-  pipelineJobs: fixture.pipeline_jobs,
   scraperRuns: fixture.scraper_runs,
-  now: new Date(fixture.now),
-  staleMs: fixture.stale_ms,
 });
 
 for (const [name, expected] of Object.entries(fixture.expected)) {
@@ -28,4 +25,4 @@ for (const objective of [
   assert.strictEqual(typeof metrics.objectives[objective], 'boolean', `objetivo ${objective}`);
 }
 
-console.log('OK: las 13 metricas del plan detectan el corpus operativo de aceptacion');
+console.log(`OK: las ${Object.keys(fixture.expected).length} metricas detectan el corpus operativo de aceptacion`);

@@ -424,9 +424,13 @@ function alertaNoExcluidaPorPreferencias(alerta, user) {
   return !alertaExcluidaPorPreferenciasExtra(alerta, user.preferencias_extra);
 }
 
-function aplicarFiltroFechaAlertas(query, { fecha, desde, hasta } = {}) {
-  if (fecha) return query.eq('fecha', fecha);
+function aplicarFiltroFechaAlertas(query, { fecha, desde, hasta, ids } = {}) {
   let next = query;
+  const safeIds = [...new Set((Array.isArray(ids) ? ids : [])
+    .map(Number)
+    .filter((id) => Number.isSafeInteger(id) && id > 0))].slice(0, 100);
+  if (safeIds.length > 0) next = next.in('id', safeIds);
+  if (fecha) return next.eq('fecha', fecha);
   if (desde) next = next.gte('fecha', desde);
   if (hasta) next = next.lte('fecha', hasta);
   return next;
@@ -435,16 +439,16 @@ function aplicarFiltroFechaAlertas(query, { fecha, desde, hasta } = {}) {
 async function cargarAlertasListasDigest(supabase, options = {}) {
   let query = supabase
     .from('alertas')
-    .select(ALERTA_DIGEST_SELECT_WITH_EMBEDDING)
-    .eq('estado_ia', 'listo');
+    .select(ALERTA_DIGEST_SELECT_WITH_EMBEDDING);
+  if (options.requireReady !== false) query = query.eq('estado_ia', 'listo');
   query = aplicarFiltroFechaAlertas(query, options);
   let { data, error } = await query;
 
   if (error && /embedding/i.test(error.message || '')) {
     let fallback = supabase
       .from('alertas')
-      .select(ALERTA_DIGEST_SELECT)
-      .eq('estado_ia', 'listo');
+      .select(ALERTA_DIGEST_SELECT);
+    if (options.requireReady !== false) fallback = fallback.eq('estado_ia', 'listo');
     fallback = aplicarFiltroFechaAlertas(fallback, options);
     const result = await fallback;
     data = result.data;
@@ -458,13 +462,15 @@ async function cargarUsuariosPagoDigest(supabase) {
   let { data, error } = await supabase
     .from('users')
     .select('id, name, first_name, phone, phone_verified, subscription, preferences, preferencias_extra, organization_id, perfil_embedding, perfil_actualizado_at, contexto_narrativo')
-    .in('subscription', ['corral', 'agricultor', 'cooperativa']);
+    .in('subscription', ['corral', 'agricultor', 'cooperativa'])
+    .or('phone_verified.is.null,phone_verified.eq.true');
 
   if (error && /perfil_embedding|perfil_actualizado_at|contexto_narrativo/i.test(error.message || '')) {
     const fallback = await supabase
       .from('users')
       .select('id, name, first_name, phone, phone_verified, subscription, preferences, preferencias_extra, organization_id')
-      .in('subscription', ['corral', 'agricultor', 'cooperativa']);
+      .in('subscription', ['corral', 'agricultor', 'cooperativa'])
+      .or('phone_verified.is.null,phone_verified.eq.true');
     data = fallback.data;
     error = fallback.error;
   }
@@ -484,13 +490,29 @@ async function cargarUsuariosPagoDigest(supabase) {
 async function cargarUltimosDigestEnviados(supabase, userIds = [], desdeFecha) {
   if (!Array.isArray(userIds) || userIds.length === 0) return new Map();
 
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from('digests')
-    .select('id, user_id, fecha, enviado_at, created_at, alerta_ids')
+    .select('id, user_id, fecha, enviado_at, delivered_at, read_at, delivery_status, created_at, alerta_ids')
     .in('user_id', userIds)
-    .eq('enviado', true)
+    // `enviado=true` conserva el conocimiento histórico anterior al ACK. No
+    // equivale a DELIVERED para métricas, pero evita reenviar esas alertas.
+    .or('delivery_status.in.(DELIVERED,READ),enviado.eq.true')
     .gte('fecha', desdeFecha)
     .order('fecha', { ascending: false });
+
+  // Compatibilidad durante un despliegue coordinado en el que el código pueda
+  // arrancar unos minutos antes que la migración aditiva.
+  if (error && /delivery_status|delivered_at|read_at/i.test(error.message || '')) {
+    const legacy = await supabase
+      .from('digests')
+      .select('id, user_id, fecha, enviado_at, created_at, alerta_ids')
+      .in('user_id', userIds)
+      .eq('enviado', true)
+      .gte('fecha', desdeFecha)
+      .order('fecha', { ascending: false });
+    data = legacy.data;
+    error = legacy.error;
+  }
 
   if (error) {
     console.warn('[digest:rescue] No se pudieron cargar ultimos digests enviados:', error.message);
@@ -635,30 +657,6 @@ function aplicarTextoObligatorio(mensaje, preferenciasExtra) {
   }
 
   return `${mensaje.trim()}\n\n${linea}`;
-}
-
-function anadirInstruccionFeedback(mensaje, alertas) {
-  if ((process.env.DIGEST_FEEDBACK_ENABLED || 'true').toLowerCase() === 'false') {
-    return mensaje;
-  }
-
-  const total = Array.isArray(alertas) ? alertas.length : 0;
-  if (total === 0) return mensaje;
-
-  const linea = total >= 2
-    ? '_Si alguna te interesa, responde con su número (*1*, *2*...) o con *ninguna*._'
-    : '_Si te interesa, responde con *1*. Si no, responde *ninguna*._';
-
-  const limpio = mensaje
-    .replace(/_?¿?Cuales te han interesado\? Responde: 1, 2, ambas o ninguna\._?/gi, '')
-    .replace(/_?¿?Te ha interesado\? Responde: 1 o ninguna\._?/gi, '')
-    .replace(/_?¿?Cu[aá]les te interesan\? Responde con los n[uú]meros:[\s\S]*?ninguna\._?/gi, '')
-    .replace(/_?¿?Te interesa\? Responde con \*1\* o \*ninguna\*\._?/gi, '')
-    .replace(/_?Si alguna te interesa,\s*responde con su n[uú]mero[\s\S]*?\*ninguna\*\._?/gi, '')
-    .replace(/_?Si te interesa,\s*responde con \*1\*\.\s*Si no,\s*responde \*ninguna\*\._?/gi, '')
-    .trim();
-
-  return `${limpio}\n\n${linea}`;
 }
 
 function limpiarLineaDigest(texto, max = 240) {
@@ -1171,6 +1169,10 @@ function construirContextoInternoDigest(alerta = {}, user = {}, options = {}) {
       plazo_detectado: campoDigestUtil(ficha.plazo) ? ficha.plazo : null,
       rescate_desde: modoRescate?.desde || null,
     },
+    // El redactor solo recibe la proyeccion segura de la ficha validada. Antes
+    // esta propiedad se consultaba en el prompt, pero nunca se incorporaba al
+    // contexto y el modelo acababa dependiendo de campos crudos de la alerta.
+    fact_sheet: resumenFactSheetDigest(alerta.fact_sheet),
   };
 }
 
@@ -1459,6 +1461,7 @@ async function preseleccionarAlertasConFactSheet({
 } = {}) {
   const objetivo = Math.max(0, Number(maxItems) || 0);
   const seleccionadas = [];
+  const candidates = [];
   const decisions = [];
   const warnings = [];
 
@@ -1512,6 +1515,14 @@ async function preseleccionarAlertasConFactSheet({
         flags: factSheet?.flags || [],
         reasons: factSheet?.reasons || [],
       });
+      candidates.push({
+        ...alerta,
+        fact_sheet: factSheet,
+        fact_sheet_status: status,
+        truth_score: factSheet?.truth_score ?? null,
+        risk_score: factSheet?.risk_score ?? null,
+        evidence_coverage: factSheet?.evidence_coverage ?? null,
+      });
       if (ready) {
         seleccionadas.push({
           ...alerta,
@@ -1534,11 +1545,19 @@ async function preseleccionarAlertasConFactSheet({
         warning: 'fact_sheet_preselection_error',
         error: error.message,
       });
+      candidates.push({
+        ...alerta,
+        fact_sheet: null,
+        fact_sheet_status: 'error',
+      });
     }
   }
 
   return {
     alertas: seleccionadas,
+    // La autoridad canónica también recibe las fichas incompletas. Así puede
+    // auditarlas como HOLD y activar su recuperación, sin que entren al mensaje.
+    candidates,
     decisions,
     warnings,
     diagnostics: {
@@ -1652,8 +1671,18 @@ async function prepararValidacionFinalDigestShadow({
     user,
   });
 
-  const doubleChecks = await Promise.all(alertasConFactSheet.map((alerta, index) =>
-    doubleCheckFn({
+  const doubleChecks = await Promise.all(alertasConFactSheet.map((alerta, index) => {
+    // El juez canónico ya hizo segunda opinión cuando era necesaria. Repetir
+    // otra llamada LLM aquí duplicaría coste y podría producir dos autoridades.
+    if (alerta.personal_decision) {
+      return Promise.resolve({
+        status: 'skipped',
+        required: false,
+        ok: true,
+        reason: 'canonical_personal_judge_already_applied',
+      });
+    }
+    return doubleCheckFn({
       alerta,
       factSheet: factSheetMap[alerta.id] || alerta.fact_sheet || {},
       mensaje,
@@ -1664,8 +1693,8 @@ async function prepararValidacionFinalDigestShadow({
       ok: false,
       reason: 'double_check_error',
       error: error.message,
-    }))
-  ));
+    }));
+  }));
 
   const validationConDobleCheck = {
     ...validation,
@@ -2878,7 +2907,7 @@ REGLAS:
 - Evita expresiones coloquiales o paternalistas. Usa verbos neutros como "aparece", "encaja", "revisar" o "comprobar".
 - No hagas chistes, deseos de buen dia, despedidas creativas, cumplidos ni comentarios sobre la vida diaria del usuario.
 - No digas "memoria", "MIA", "perfil vectorial" ni nada tecnico al usuario.
-- No preguntes por feedback dentro del mensaje. El sistema anadira una linea fija de feedback despues.
+- No preguntes por feedback dentro del mensaje. Las preguntas de aprendizaje se gestionan por separado y solo cuando pueden aclarar una duda relevante.
 - Asteriscos (*) para negrita, guiones bajos (_) para cursiva, exactamente como en el formato.
 - El enlace va al final de cada bloque de alerta, en su propia linea.
 - No anadas secciones fuera de las cabeceras de grupo y el formato indicado, salvo que las PREFERENCIAS PERSONALES DEL USUARIO lo indiquen explicitamente.
@@ -3061,10 +3090,7 @@ async function construirPreviewDigestUsuario(supabase, {
       generador = 'local_sin_ia';
     }
 
-    mensaje = anadirInstruccionFeedback(
-      aplicarTextoObligatorio(mensajeRaw, user.preferencias_extra),
-      alertasFinales
-    ).trim();
+    mensaje = aplicarTextoObligatorio(mensajeRaw, user.preferencias_extra).trim();
 
     const shadow = await prepararValidacionFinalDigestShadow({
       supabase,
@@ -3113,10 +3139,7 @@ async function construirPreviewDigestUsuario(supabase, {
             organizationContext: organization,
           });
         generador = `${generador}_enforced_local`;
-        mensaje = anadirInstruccionFeedback(
-          aplicarTextoObligatorio(mensajeRaw, user.preferencias_extra),
-          alertasFinales
-        ).trim();
+        mensaje = aplicarTextoObligatorio(mensajeRaw, user.preferencias_extra).trim();
 
         const enforcedShadow = await prepararValidacionFinalDigestShadow({
           supabase,
@@ -3165,10 +3188,7 @@ async function construirPreviewDigestUsuario(supabase, {
               organizationContext: organization,
             });
           generador = `${generador}_cleanup_accepted_only`;
-          mensaje = anadirInstruccionFeedback(
-            aplicarTextoObligatorio(mensajeRaw, user.preferencias_extra),
-            alertasFinales
-          ).trim();
+          mensaje = aplicarTextoObligatorio(mensajeRaw, user.preferencias_extra).trim();
 
           const cleanupShadow = await prepararValidacionFinalDigestShadow({
             supabase,
@@ -3306,7 +3326,6 @@ module.exports = {
   alertaExcluidaPorPreferenciasExtra,
   extraerTextoObligatorioDesdePreferencias,
   aplicarTextoObligatorio,
-  anadirInstruccionFeedback,
   limpiarLineaDigest,
   lineaBoletinPocoUtilDigest,
   extraerExtractoOficialDigest,

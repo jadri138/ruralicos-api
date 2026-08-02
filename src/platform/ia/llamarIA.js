@@ -18,6 +18,60 @@ function numeroEnv(name, fallback, min, max) {
   return Math.max(min, Math.min(max, Math.floor(value)));
 }
 
+function pricingForModel(pricing, model) {
+  if (!pricing || typeof pricing !== 'object' || Array.isArray(pricing)) return null;
+  const models = pricing.models && typeof pricing.models === 'object' ? pricing.models : pricing;
+  const selected = models[model] || (
+    Object.prototype.hasOwnProperty.call(pricing, 'input_per_million') ? pricing : null
+  );
+  return selected && typeof selected === 'object' && !Array.isArray(selected) ? selected : null;
+}
+
+function deriveUsageCost({ model, usage, pricing } = {}) {
+  const rates = pricingForModel(pricing, model);
+  if (!rates || !usage || typeof usage !== 'object') return null;
+  const currency = String(rates.currency || '').trim().toUpperCase();
+  const inputRate = Number(rates.input_per_million);
+  const cachedRate = Number(rates.cached_input_per_million);
+  const outputRate = Number(rates.output_per_million);
+  const inputTokens = Number(usage.input_tokens);
+  const outputTokens = Number(usage.output_tokens);
+  const cachedInputTokens = Math.max(0, Math.min(
+    Number.isFinite(inputTokens) ? inputTokens : 0,
+    Number(usage.cached_input_tokens) || 0
+  ));
+  if (!currency
+    || !Number.isFinite(inputTokens)
+    || !Number.isFinite(outputTokens)
+    || !Number.isFinite(inputRate)
+    || !Number.isFinite(outputRate)
+    || inputRate < 0
+    || outputRate < 0
+    || (cachedInputTokens > 0 && (!Number.isFinite(cachedRate) || cachedRate < 0))) {
+    return null;
+  }
+  const uncachedInputTokens = Math.max(0, inputTokens - cachedInputTokens);
+  const amount = (
+    (uncachedInputTokens * inputRate)
+    + (cachedInputTokens * (cachedInputTokens > 0 ? cachedRate : 0))
+    + (outputTokens * outputRate)
+  ) / 1_000_000;
+  return {
+    amount: Number(amount.toFixed(8)),
+    currency,
+    estimated: true,
+    basis: {
+      model,
+      input_tokens: inputTokens,
+      cached_input_tokens: cachedInputTokens,
+      output_tokens: outputTokens,
+      input_per_million: inputRate,
+      cached_input_per_million: cachedInputTokens > 0 ? cachedRate : null,
+      output_per_million: outputRate,
+    },
+  };
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -89,6 +143,14 @@ async function llamarIA(prompt, instructions, model = 'gpt-4o-mini', options = {
   let attempt = 0;
   let lastError = null;
   let lastResponseMeta = null;
+  const accumulatedUsage = {
+    input_tokens: 0,
+    output_tokens: 0,
+    total_tokens: 0,
+    reasoning_tokens: 0,
+    cached_input_tokens: 0,
+  };
+  let hasUsage = false;
 
   while (attempt <= retries) {
     attempt += 1;
@@ -125,6 +187,19 @@ async function llamarIA(prompt, instructions, model = 'gpt-4o-mini', options = {
     }
 
     const aiJson = await aiRes.json();
+    const responseUsage = {
+      input_tokens: aiJson?.usage?.input_tokens ?? null,
+      output_tokens: aiJson?.usage?.output_tokens ?? null,
+      total_tokens: aiJson?.usage?.total_tokens ?? null,
+      reasoning_tokens: aiJson?.usage?.output_tokens_details?.reasoning_tokens ?? null,
+      cached_input_tokens: aiJson?.usage?.input_tokens_details?.cached_tokens ?? null,
+    };
+    for (const [key, value] of Object.entries(responseUsage)) {
+      if (value !== null && Number.isFinite(Number(value))) {
+        accumulatedUsage[key] += Number(value);
+        hasUsage = true;
+      }
+    }
     lastResponseMeta = {
       httpStatus: aiRes.status,
       responseId: aiJson?.id ?? null,
@@ -179,15 +254,31 @@ async function llamarIA(prompt, instructions, model = 'gpt-4o-mini', options = {
       http_status: aiRes.status,
       attempts: attempt,
       duration_ms: Date.now() - startedAt,
-      input_tokens: aiJson?.usage?.input_tokens ?? null,
-      output_tokens: aiJson?.usage?.output_tokens ?? null,
-      total_tokens: aiJson?.usage?.total_tokens ?? null,
-      reasoning_tokens: aiJson?.usage?.output_tokens_details?.reasoning_tokens ?? null,
+      input_tokens: hasUsage ? accumulatedUsage.input_tokens : null,
+      output_tokens: hasUsage ? accumulatedUsage.output_tokens : null,
+      total_tokens: hasUsage ? accumulatedUsage.total_tokens : null,
+      reasoning_tokens: hasUsage ? accumulatedUsage.reasoning_tokens : null,
       response_id: aiJson?.id ?? null,
       response_status: aiJson?.status ?? null,
       incomplete_reason: aiJson?.incomplete_details?.reason ?? null,
       error_msg: null,
     });
+
+    if (options?.returnMetadata === true) {
+      const usage = hasUsage ? { ...accumulatedUsage } : null;
+      return {
+        text: contenido,
+        metadata: {
+          model,
+          response_id: aiJson?.id ?? null,
+          response_status: aiJson?.status ?? null,
+          attempts: attempt,
+          duration_ms: Date.now() - startedAt,
+          usage,
+          cost: deriveUsageCost({ model, usage, pricing: options?.pricing }),
+        },
+      };
+    }
 
     return contenido;
   }
@@ -199,15 +290,31 @@ async function llamarIA(prompt, instructions, model = 'gpt-4o-mini', options = {
     http_status: lastResponseMeta?.httpStatus ?? lastError?.status ?? null,
     attempts: attempt,
     duration_ms: Date.now() - startedAt,
-    input_tokens: lastResponseMeta?.inputTokens ?? null,
-    output_tokens: lastResponseMeta?.outputTokens ?? null,
-    total_tokens: lastResponseMeta?.totalTokens ?? null,
-    reasoning_tokens: lastResponseMeta?.reasoningTokens ?? null,
+    input_tokens: hasUsage ? accumulatedUsage.input_tokens : null,
+    output_tokens: hasUsage ? accumulatedUsage.output_tokens : null,
+    total_tokens: hasUsage ? accumulatedUsage.total_tokens : null,
+    reasoning_tokens: hasUsage ? accumulatedUsage.reasoning_tokens : null,
     response_id: lastResponseMeta?.responseId ?? null,
     response_status: lastResponseMeta?.responseStatus ?? null,
     incomplete_reason: lastResponseMeta?.incompleteReason ?? null,
     error_msg: String(lastError?.message || 'error desconocido').slice(0, 800),
   });
+
+  if (lastError && options?.returnMetadata === true) {
+    lastError.metadata = {
+      model,
+      response_id: lastResponseMeta?.responseId ?? null,
+      response_status: lastResponseMeta?.responseStatus ?? null,
+      attempts: attempt,
+      duration_ms: Date.now() - startedAt,
+      usage: hasUsage ? { ...accumulatedUsage } : null,
+      cost: deriveUsageCost({
+        model,
+        usage: hasUsage ? accumulatedUsage : null,
+        pricing: options?.pricing,
+      }),
+    };
+  }
 
   throw lastError || new Error('Error desconocido llamando a OpenAI');
 }
@@ -292,5 +399,10 @@ function extraerPrimerJSON(texto) {
 module.exports = {
   llamarIA,
   parsearJSON,
-  __testing: { esReintentableIA, extraerTextoRespuesta, extraerPrimerJSON },
+  __testing: {
+    esReintentableIA,
+    extraerTextoRespuesta,
+    extraerPrimerJSON,
+    deriveUsageCost,
+  },
 };

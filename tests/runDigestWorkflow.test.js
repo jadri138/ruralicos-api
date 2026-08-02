@@ -24,35 +24,44 @@ function test(name, fn) {
 
 console.log('\n=== TESTS: run digest workflow script ===\n');
 
-test('el comando del cron ejecuta el workflow completo sin depender de claims', () => {
+test('el comando del cron ejecuta el workflow completo directamente', () => {
   assert(
     script.includes('async function main()') &&
     script.includes('main().catch') &&
-    !script.includes("appendQuery('/tareas/pipeline-tick'") &&
     !script.includes('already_running'),
-    'el cron debe ejecutar las fases directamente y no quedarse esperando un claim'
-  );
-});
-
-test('no conserva el driver reanudable que bloqueo el pipeline', () => {
-  assert(
-    !script.includes('mainPipelineDriver') &&
-    !script.includes('PIPELINE_DRIVER_MAX_TICKS') &&
-    !script.includes('ALLOW_LEGACY_DIGEST_WORKFLOW'),
-    'el script no debe poder volver al runner roto por una variable de entorno'
+    'el cron debe ejecutar las fases directamente'
   );
 });
 
 test('el workflow diario ejecuta ingesta antes de IA y digest', () => {
   const scrapersIndex = script.indexOf("'/tareas/scrapers-diario'");
   const clasificarIndex = script.indexOf("'/alertas/clasificar'");
+  const recoveryIndex = script.indexOf('const holdEvidenceRecovery = await runHoldEvidenceRecoveryStep()');
   const prepararIndex = script.indexOf("'/alertas/preparar-digest'");
   const enviarIndex = script.indexOf("'/alertas/enviar-digest'");
+  const outboxIndex = script.indexOf('const entregarOutbox = await runOutboxStep()', enviarIndex);
 
   assert(scrapersIndex > 0, 'debe ejecutar scrapers-diario');
   assert(clasificarIndex > scrapersIndex, 'clasificar debe ir despues de scrapers');
-  assert(prepararIndex > clasificarIndex, 'preparar digest debe ir despues de IA');
+  assert(recoveryIndex > clasificarIndex, 'la recuperacion de HOLD debe ir despues de procesar alertas');
+  assert(prepararIndex > recoveryIndex, 'preparar digest debe reevaluar despues de recuperar evidencia');
   assert(enviarIndex > prepararIndex, 'enviar digest debe ir despues de preparar');
+  assert(outboxIndex > enviarIndex, 'la cola debe drenarse despues de encolar el digest');
+});
+
+test('recupera HOLD de forma acotada dentro del unico workflow', () => {
+  const helperIndex = script.indexOf('async function runHoldEvidenceRecoveryStep');
+  const routeIndex = script.indexOf('`/tareas/hold-evidence-recovery?limit=${safeLimit}&concurrency=${safeConcurrency}`');
+  const recoveryIndex = script.indexOf('const holdEvidenceRecovery = await runHoldEvidenceRecoveryStep()');
+  const prepararIndex = script.indexOf("'/alertas/preparar-digest'");
+  const helper = script.slice(helperIndex, recoveryIndex);
+  assert(recoveryIndex > 0 && recoveryIndex < prepararIndex, 'la fase debe ejecutarse justo antes de preparar');
+  assert(helperIndex > 0 && routeIndex > helperIndex, 'debe existir un drenaje dedicado para HOLD');
+  assert(helper.includes("method: 'POST'"), 'la fase protegida que persiste estado debe usar POST');
+  assert(helper.includes('processed < safeLimit || !hasMore'), 'debe parar al recibir un lote corto');
+  assert(helper.includes('loops <= safeMaxLoops'), 'debe limitar el nÃºmero de vueltas');
+  assert(helper.includes('body?.has_more'), 'debe respetar la seÃ±al has_more del endpoint');
+  assert(!script.slice(recoveryIndex, prepararIndex).includes('runOptionalStep'), 'un fallo sistemico de recuperacion debe ser visible');
 });
 
 test('repara pendientes IA usando POST antes de clasificar', () => {
@@ -63,6 +72,23 @@ test('repara pendientes IA usando POST antes de clasificar', () => {
   assert(repairIndex > 0, 'debe llamar a reparar-pendientes-ia');
   assert(methodPostIndex > repairIndex, 'reparar-pendientes-ia debe usar POST');
   assert(repairIndex < clasificarIndex, 'reparar debe ir antes de clasificar');
+});
+
+test('usa POST en todas las fases que modifican datos o envían mensajes', () => {
+  for (const name of [
+    'clasificar',
+    'resumir',
+    'revisar',
+    'deduplicar',
+    'preparar-digest',
+    'enviar-digest',
+    'generar-resumen-free',
+    'enviar-resumen-free',
+  ]) {
+    const routeIndex = script.indexOf(`'/alertas/${name}'`);
+    const call = routeIndex >= 0 ? script.slice(routeIndex, routeIndex + 250) : '';
+    assert(call.includes("method: 'POST'"), `${name} debe usar POST`);
+  }
 });
 
 test('permite fijar fecha para pasos diarios', () => {
@@ -104,10 +130,35 @@ test('reconoce el campo success del envio free', () => {
   );
 });
 
-test('activa preguntas automaticas despues del digest real', () => {
+test('no crea un segundo emisor MIA y drena la unica cola', () => {
   assert(
-    script.includes('/cerebro/ciclo-diario?explorar=true&dryRunExploracion=false'),
-    'el ciclo posterior debe preguntar y aprender sin quedarse en simulacion'
+    script.includes('/tareas/mia-outbox?limit=') &&
+      !script.includes('/cerebro/ciclo-diario?explorar=true&dryRunExploracion=false'),
+    'las comunicaciones automaticas deben salir por una sola cola'
+  );
+  assert(
+    script.includes('maxRetries: 0'),
+    'el workflow no debe repetir a ciegas una peticion que puede haber enviado mensajes'
+  );
+  assert(
+    script.includes("'/tareas/whatsapp-reconcile?limit=100'") &&
+      script.indexOf("'/tareas/whatsapp-reconcile?limit=100'") >
+        script.indexOf('const entregarOutbox = await runOutboxStep()'),
+    'la conciliacion debe formar parte del mismo workflow y ejecutarse tras la cola'
+  );
+  const reconcileIndex = script.indexOf("'/tareas/whatsapp-reconcile?limit=100'");
+  const explorationIndex = script.indexOf("'/cerebro/exploracion-diaria?limit=100'");
+  const explorationCall = script.slice(explorationIndex, explorationIndex + 180);
+  const selectiveDrainIndex = script.indexOf('const entregarPreguntasExploracion', explorationIndex);
+  assert(explorationIndex > reconcileIndex, 'la exploracion selectiva debe ejecutarse tras conciliar el digest');
+  assert(
+    explorationCall.includes("method: 'POST'") && explorationCall.includes('maxRetries: 0'),
+    'la fase selectiva debe encolar por POST sin reintentos HTTP a ciegas'
+  );
+  assert(
+    selectiveDrainIndex > explorationIndex &&
+      script.includes('Number(exploracionDiaria?.encoladas || 0) > 0'),
+    'solo debe volver a drenar la misma cola cuando haya preguntas nuevas'
   );
 });
 

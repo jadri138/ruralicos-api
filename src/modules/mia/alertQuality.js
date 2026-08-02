@@ -1,5 +1,4 @@
 const { getRangoDiaMadridUTC } = require('../../shared/fechaMadrid');
-const { diagnosticarPipelineJob } = require('../tareas/pipelineJobs');
 
 const CRITICAL_ALERT_FLAGS = new Set([
   'duplicada',
@@ -1193,11 +1192,8 @@ function calcularMetricasCalidadPlan({
   digestItems = [],
   candidateDecisions = [],
   reviews = [],
-  pipelineJobs = [],
   scraperRuns = [],
   cutoff = null,
-  now = new Date(),
-  staleMs = 5 * 60 * 1000,
 } = {}) {
   const cutoffDate = cutoff ? new Date(cutoff) : null;
   const discarded = alertas.filter((alerta) => alerta.estado_ia === 'descartado');
@@ -1271,9 +1267,6 @@ function calcularMetricasCalidadPlan({
   const discardReasonSemanticMismatch = discarded.filter(
     motivoDescarteSemanticamenteIncompatible
   ).length;
-  const stalePipelineJobs = pipelineJobs.filter((job) =>
-    diagnosticarPipelineJob(job, { now, staleMs }).stale
-  ).length;
   const scraperSourceTotalFailure = contarFuentesConFalloTotal(scraperRuns);
 
   return {
@@ -1288,7 +1281,6 @@ function calcularMetricasCalidadPlan({
     final_validation_missing_but_allowed: finalValidationMissingButAllowed,
     false_positive_confirmed: falsePositiveConfirmed,
     false_negative_confirmed: falseNegativeConfirmed,
-    stale_pipeline_jobs: stalePipelineJobs,
     scraper_source_total_failure: scraperSourceTotalFailure,
     objectives: {
       discard_reason_coverage: discardReasonCoverage === 100,
@@ -1308,7 +1300,6 @@ function construirReporteCalidadOperativa({
   alertas = [],
   scraperRuns = [],
   pipelineRuns = [],
-  pipelineJobs = [],
   expectedSources = [],
   availability = {},
   digestItems = [],
@@ -1367,10 +1358,8 @@ function construirReporteCalidadOperativa({
       digestItems,
       candidateDecisions,
       reviews,
-      pipelineJobs,
       scraperRuns,
       cutoff: decisionDigestCutoff,
-      now: new Date(generatedAt),
     }),
     recommendations,
   };
@@ -1430,7 +1419,6 @@ async function generarReporteCalidadOperativaMIA(supabase, {
     alertas,
     scraperRuns,
     pipelineRuns,
-    pipelineJobs,
     factSheets,
     candidateDecisions,
     digestItems,
@@ -1453,12 +1441,6 @@ async function generarReporteCalidadOperativaMIA(supabase, {
       'pipeline_runs',
       'id, stage, endpoint, fecha_objetivo, started_at, finished_at, duration_ms, status, loops, procesadas, errores, error_msg',
       { since, until, fecha, fechaColumn: 'fecha_objetivo', timeColumn: 'started_at', orderColumn: 'started_at', limit: safeLimit }
-    ),
-    selectSeguro(
-      supabase,
-      'pipeline_jobs',
-      'id, kind, fecha, shadow, status, current_stage, claimed_by, heartbeat_at, started_at, finished_at, updated_at, ticks',
-      { since, until, fecha, timeColumn: 'updated_at', orderColumn: 'updated_at', limit: safeLimit }
     ),
     selectSeguro(
       supabase,
@@ -1508,7 +1490,6 @@ async function generarReporteCalidadOperativaMIA(supabase, {
     alertas: alertasConFactSheet,
     scraperRuns: scraperRuns.data,
     pipelineRuns: pipelineRuns.data,
-    pipelineJobs: pipelineJobs.data,
     digestItems: digestItemsConEstado,
     candidateDecisions: candidateDecisions.data,
     reviews: reviews.data,
@@ -1518,7 +1499,6 @@ async function generarReporteCalidadOperativaMIA(supabase, {
       alertas: alertas.available,
       scraper_runs: scraperRuns.available,
       pipeline_runs: pipelineRuns.available,
-      pipeline_jobs: pipelineJobs.available,
       alert_fact_sheets: factSheets.available,
       digest_candidate_decisions: candidateDecisions.available,
       digest_items: digestItems.available,

@@ -7,8 +7,6 @@ const mensajes = require('./mensajes');
 const { getAdminAlertPhones, maskPhone, parsePhoneList } = require('./client');
 
 module.exports = {
-  enviarWhatsAppResumen: mensajes.enviarWhatsAppResumen,
-  enviarWhatsAppFree: mensajes.enviarWhatsAppFree,
   enviarWhatsAppTodos: mensajes.enviarWhatsAppTodos,
   enviarWhatsAppRegistro: mensajes.enviarWhatsAppRegistro,
   enviarWhatsAppVerificacion: mensajes.enviarWhatsAppVerificacion,

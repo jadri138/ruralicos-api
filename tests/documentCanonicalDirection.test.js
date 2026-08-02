@@ -58,7 +58,7 @@ async function runScenario(derivedName, rowsOrder, derivedId) {
         }
       },
     };
-    app.handlers['GET /alertas/deduplicar'](req, res);
+    app.handlers['POST /alertas/deduplicar'](req, res);
   });
 }
 

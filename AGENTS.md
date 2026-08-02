@@ -9,8 +9,7 @@
 ## Verdad operativa
 
 - Orquestador de producción: `node scripts/run_digest_workflow.js`, una vez al día.
-- `/tareas/pipeline-tick`, `pipelineRunner.js`, `pipelineJobs.js` y `pipeline_jobs` son legado de diagnóstico. No programarlos.
-- `/tareas/pipeline-diario` también es legado.
+- No existe un segundo orquestador HTTP: los endpoints de `tareas` ejecutan fases concretas.
 - Investigar producción no autoriza escrituras, reparaciones ni reenvíos.
 
 ## Lectura eficiente

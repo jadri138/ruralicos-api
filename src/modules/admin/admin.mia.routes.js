@@ -1360,14 +1360,20 @@ module.exports = (app, supabase) => {
       const pendientes = await cargarOutboxPendiente(supabase, limit);
 
       if (!pendientes.available) {
-        return res.json({ ok: true, available: false, reason: pendientes.reason, enviados: 0, items: [] });
+        return res.json({ ok: true, available: false, reason: pendientes.reason, aceptados: 0, entregados: 0, items: [] });
       }
       if (!pendientes.ok) return res.status(500).json({ ok: false, error: pendientes.error });
 
       const resultados = [];
       for (const item of pendientes.items) {
         if (dryRun) {
-          resultados.push({ id: item.id, dry_run: true, to_phone: item.to_phone, body: item.body });
+          resultados.push({
+            id: item.id,
+            dry_run: true,
+            status: item.status,
+            delivery_status: item.delivery_status,
+            attempts: item.attempts || 0,
+          });
           continue;
         }
 
@@ -1380,7 +1386,8 @@ module.exports = (app, supabase) => {
         available: true,
         dry_run: dryRun,
         procesados: resultados.length,
-        enviados: resultados.filter((item) => item.status === 'sent').length,
+        aceptados: resultados.filter((item) => item.status === 'provider_accepted').length,
+        entregados: resultados.filter((item) => ['DELIVERED', 'READ'].includes(item.delivery_status)).length,
         fallidos: resultados.filter((item) => item.ok === false).length,
         omitidos: resultados.filter((item) => item.skipped).length,
         resultados,

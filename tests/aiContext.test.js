@@ -17,7 +17,6 @@ const currentDocs = [
   'docs/AI_CONTEXT.md',
   'docs/ARQUITECTURA.md',
   'docs/cron_digest_setup.md',
-  'docs/cron_complementarios_setup.md',
   'src/modules/tareas/README.md',
 ];
 
@@ -27,6 +26,34 @@ for (const relativePath of currentDocs) {
     content.includes(workflowCommand),
     `${relativePath} debe nombrar el único workflow de producción`
   );
+}
+
+for (const removedPath of [
+  'src/modules/tareas/pipelineRunner.js',
+  'src/modules/tareas/pipelineJobs.js',
+  'scripts/repair_stale_pipeline_jobs.js',
+]) {
+  assert.ok(!fs.existsSync(path.join(root, removedPath)), `No debe volver el componente retirado: ${removedPath}`);
+}
+
+const tareasRoutes = read('src/modules/tareas/tareas.routes.js');
+assert.ok(!tareasRoutes.includes("app.all('/tareas/pipeline-tick'"), 'no debe volver la ruta del runner retirado');
+assert.ok(!tareasRoutes.includes("app.get('/tareas/pipeline-diario'"), 'no debe volver el monolito duplicado');
+
+const removedRouteSources = [
+  read('src/modules/alertas/alertas.routes.js'),
+  read('src/modules/feedback/feedback.routes.js'),
+  read('src/modules/embeddings/embeddings.routes.js'),
+  read('src/modules/usuarios/userAuth.routes.js'),
+].join('\n');
+for (const removedRoute of [
+  '/alertas/enviar-whatsapp',
+  '/feedback/enviar-digest-prueba',
+  '/feedback/simular-respuesta',
+  '/embeddings/test',
+  '/first-login',
+]) {
+  assert.ok(!removedRouteSources.includes(removedRoute), `No debe volver el endpoint retirado: ${removedRoute}`);
 }
 
 for (const relativePath of currentDocs) {
@@ -63,21 +90,23 @@ for (const requiredPath of [
 }
 
 const workflow = read('scripts/run_digest_workflow.js');
-const orderedEndpoints = [
-  '/tareas/scrapers-diario',
-  '/alertas/clasificar',
-  '/alertas/resumir',
-  '/alertas/revisar',
-  '/alertas/deduplicar',
-  '/alertas/preparar-digest',
-  '/alertas/enviar-digest',
-  '/alertas/generar-resumen-free',
-  '/alertas/enviar-resumen-free',
+const orderedWorkflowTokens = [
+  ['/tareas/scrapers-diario', '/tareas/scrapers-diario'],
+  ['/alertas/clasificar', '/alertas/clasificar'],
+  ['/alertas/resumir', '/alertas/resumir'],
+  ['/alertas/revisar', '/alertas/revisar'],
+  ['/alertas/deduplicar', '/alertas/deduplicar'],
+  ['/tareas/hold-evidence-recovery', 'const holdEvidenceRecovery = await runHoldEvidenceRecoveryStep()'],
+  ['/alertas/preparar-digest', '/alertas/preparar-digest'],
+  ['/alertas/enviar-digest', '/alertas/enviar-digest'],
+  ['/alertas/generar-resumen-free', '/alertas/generar-resumen-free'],
+  ['/alertas/enviar-resumen-free', '/alertas/enviar-resumen-free'],
 ];
 
+const mainIndex = workflow.indexOf('async function main()');
 let previousIndex = -1;
-for (const endpoint of orderedEndpoints) {
-  const currentIndex = workflow.indexOf(endpoint);
+for (const [endpoint, token] of orderedWorkflowTokens) {
+  const currentIndex = workflow.indexOf(token, mainIndex);
   assert.ok(currentIndex > previousIndex, `Orden del workflow inesperado en ${endpoint}`);
   previousIndex = currentIndex;
 }

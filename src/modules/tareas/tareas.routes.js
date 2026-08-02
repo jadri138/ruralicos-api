@@ -12,42 +12,45 @@ const {
   cargarOutboxPendiente,
   procesarOutboxItemMIA,
   generarOutboxHealthMIA,
-  marcarOutboxFailed,
-  getMaxAttempts,
 } = require('../mia/outbox');
-const {
-  digestIdDeOutboxItem,
-  filtrarDigestsPorAutoridadFinal,
-  procesarResultadoDigestOutbox,
-} = require('../digest/digestOutbox');
+const { digestIdDeOutboxItem } = require('../digest/digestOutbox');
+const { processDueEvidenceRecovery } = require('../digest/decisionEvidenceRecovery');
+const { conciliarEntregasUltraMsg } = require('../delivery/deliveryService');
 
 const {
   FEGA_SCRAPE_PATH,
   getScrapePaths,
   getComplementaryScrapePaths,
   boolValue,
-  pipelineDiarioJubilado,
   getAllowedScraperPaths,
-  getPipelineScrapePaths,
-  appendQuery,
   buildCronFetchOptions,
   buildScrapeUrl,
   buildComplementaryScrapeUrl,
   obtenerFuenteScraper,
   numeroBody,
   readResponseBody,
-  isRetryableStatus,
-  isRetryableError,
   guardarScraperRun,
-  guardarPipelineRun,
 } = require('./tareas.helpers');
-const { ejecutarPipelineTick, consultarPipelineJobs } = require('./pipelineRunner');
 
 function getBaseUrl(req) {
   return getInternalBaseUrl(req);
 }
 
 module.exports = function tareasRoutes(app, supabase) {
+  app.post('/tareas/hold-evidence-recovery', async (req, res) => {
+    if (!checkCronToken(req, res)) return;
+
+    try {
+      const limit = Math.max(1, Math.min(50, Number(req.query.limit || req.body?.limit || 25)));
+      const concurrency = Math.max(1, Math.min(4, Number(req.query.concurrency || req.body?.concurrency || 2)));
+      const result = await processDueEvidenceRecovery({ supabase, limit, concurrency });
+      return res.status(200).json({ success: true, ...result });
+    } catch (err) {
+      console.error('Error en /tareas/hold-evidence-recovery', err.message);
+      return res.status(500).json({ success: false, error: 'No se pudo recuperar la evidencia pendiente' });
+    }
+  });
+
   app.all('/tareas/mia-outbox', async (req, res) => {
     if (!checkCronToken(req, res)) return;
 
@@ -62,7 +65,8 @@ module.exports = function tareasRoutes(app, supabase) {
           available: false,
           reason: pendientes.reason || 'mia_outbox_no_disponible',
           procesados: 0,
-          enviados: 0,
+          aceptados: 0,
+          entregados: 0,
           fallidos: 0,
           resultados: [],
         });
@@ -80,39 +84,17 @@ module.exports = function tareasRoutes(app, supabase) {
             id: item.id,
             dry_run: true,
             status: item.status,
+            delivery_status: item.delivery_status,
             attempts: item.attempts || 0,
-            to_phone: item.to_phone,
-            body_preview: String(item.body || '').slice(0, 240),
           });
           continue;
         }
 
         const digestId = digestIdDeOutboxItem(item);
-        let result;
-        if (digestId) {
-          const finalAuthority = await filtrarDigestsPorAutoridadFinal(supabase, [{ id: digestId }]);
-          const blocked = finalAuthority.bloqueados[0] || null;
-          if (blocked) {
-            await marcarOutboxFailed(supabase, item.id, blocked.reason, getMaxAttempts());
-            result = {
-              id: item.id,
-              ok: false,
-              status: 'failed',
-              retryable: false,
-              error: blocked.reason,
-              final_send_gate_blocked: true,
-            };
-          }
-        }
-        if (!result) result = await procesarOutboxItemMIA(supabase, item, enviarDigestPro);
+        const result = await procesarOutboxItemMIA(supabase, item, enviarDigestPro);
 
-        // Items del digest diario (DIGEST_VIA_OUTBOX): reflejar el resultado en
-        // digests/digest_attempts y espaciar los envios (delay anti-ban).
-        if (digestId) {
-          await procesarResultadoDigestOutbox(supabase, item, result);
-          if (result.status === 'sent' && digestDelayMs > 0) {
-            await new Promise((resolve) => setTimeout(resolve, digestDelayMs));
-          }
+        if (digestId && result.status === 'provider_accepted' && digestDelayMs > 0) {
+          await new Promise((resolve) => setTimeout(resolve, digestDelayMs));
         }
 
         resultados.push(result);
@@ -121,12 +103,13 @@ module.exports = function tareasRoutes(app, supabase) {
       const fallidos = resultados.filter((item) => item.ok === false);
       const health = await generarOutboxHealthMIA(supabase, { hours: 72, limit: 1000 });
 
-      return res.status(fallidos.length ? 207 : 200).json({
+      return res.status(200).json({
         success: fallidos.length === 0,
         dry_run: dryRun,
         available: true,
         procesados: resultados.length,
-        enviados: resultados.filter((item) => item.status === 'sent').length,
+        aceptados: resultados.filter((item) => item.status === 'provider_accepted').length,
+        entregados: resultados.filter((item) => ['DELIVERED', 'READ'].includes(item.delivery_status)).length,
         fallidos: fallidos.length,
         omitidos: resultados.filter((item) => item.skipped).length,
         resultados,
@@ -140,6 +123,21 @@ module.exports = function tareasRoutes(app, supabase) {
     } catch (err) {
       console.error('Error en /tareas/mia-outbox', err);
       return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  app.post('/tareas/whatsapp-reconcile', async (req, res) => {
+    if (!checkCronToken(req, res)) return;
+
+    try {
+      const limit = Math.max(1, Math.min(100, Number(req.query.limit || req.body?.limit || 50)));
+      const dryRun = String(req.query.dry_run ?? req.body?.dry_run ?? 'false').toLowerCase() === 'true';
+      const result = await conciliarEntregasUltraMsg(supabase, { limit, dryRun });
+      const status = result.ok === false && result.available !== false ? 207 : result.available === false ? 503 : 200;
+      return res.status(status).json(result);
+    } catch (err) {
+      console.error('Error en /tareas/whatsapp-reconcile', err.message);
+      return res.status(500).json({ ok: false, error: 'No se pudo conciliar la entrega de WhatsApp' });
     }
   });
 
@@ -501,448 +499,6 @@ module.exports = function tareasRoutes(app, supabase) {
     } catch (err) {
       console.error('Error en /tareas/cotejar-listados-oficiales', err);
       return res.status(500).json({ error: err.message });
-    }
-  });
-
-  // LEGADO: runner con checkpoints conservado para diagnóstico/compatibilidad.
-  // Producción usa scripts/run_digest_workflow.js. No programar esta ruta: en
-  // shadow=false puede ejecutar efectos reales y competir con el workflow diario.
-  app.all('/tareas/pipeline-tick', async (req, res) => {
-    if (!checkCronToken(req, res)) return;
-
-    try {
-      const fecha = /^\d{4}-\d{2}-\d{2}$/.test(req.query.fecha || '')
-        ? req.query.fecha
-        : getFechaMadridISO();
-      const shadow = boolValue(req.query.shadow, boolValue(process.env.PIPELINE_TICK_SHADOW, false));
-
-      const resultado = await ejecutarPipelineTick(supabase, {
-        fecha,
-        shadow,
-        reset: boolValue(req.query.reset, false),
-        force: boolValue(req.query.force, false),
-        budgetMs: Math.max(5000, Math.min(10 * 60 * 1000, Number(req.query.budget_ms || process.env.PIPELINE_TICK_BUDGET_MS || 50000))),
-        baseUrl: getBaseUrl(req),
-        token: process.env.CRON_TOKEN,
-        jobOptions: {
-          complementarios: boolValue(req.query.complementarios, boolValue(process.env.PIPELINE_INCLUDE_COMPLEMENTARY, true)),
-          fega: boolValue(
-            req.query.fega,
-            boolValue(process.env.PIPELINE_INCLUDE_FEGA, boolValue(process.env.COMPLEMENTARY_INCLUDE_FEGA, true))
-          ),
-          enviar_fega: boolValue(req.query.enviar_fega, boolValue(process.env.FEGA_ENVIAR_MATCHES, false)),
-          ejercicio_fega: req.query.ejercicio || process.env.FEGA_EJERCICIO || null,
-          enviar_listados: boolValue(req.query.enviar_listados, boolValue(process.env.OFFICIAL_LIST_SEND_MATCHES, false)),
-          limit_listados: Number(req.query.limit_listados || process.env.OFFICIAL_LIST_MATCH_LIMIT || 500),
-        },
-      });
-
-      const httpStatus =
-        resultado.tick === 'preflight_failed' ? 503 :
-        resultado.tick === 'aborted' ? 409 :
-        resultado.tick === 'failed' ? 500 : 200;
-      return res.status(httpStatus).json(resultado);
-    } catch (err) {
-      console.error('Error en /tareas/pipeline-tick', err);
-      return res.status(500).json({ success: false, error: err.message });
-    }
-  });
-
-  // Estado de los jobs del runner (para inspeccion manual/panel).
-  app.get('/tareas/pipeline-jobs', async (req, res) => {
-    if (!checkCronToken(req, res)) return;
-
-    try {
-        const pipelineJobs = await consultarPipelineJobs(supabase, {
-        fecha: /^\d{4}-\d{2}-\d{2}$/.test(req.query.fecha || '') ? req.query.fecha : null,
-        kind: req.query.kind ? String(req.query.kind).trim() : null,
-        limit: Math.max(1, Math.min(100, Number(req.query.limit || 20))),
-      });
-        return res.json({
-          ok: true,
-          total: pipelineJobs.jobs.length,
-          jobs: pipelineJobs.jobs,
-          metrics: pipelineJobs.metrics,
-        });
-    } catch (err) {
-      console.error('Error en /tareas/pipeline-jobs', err);
-      return res.status(500).json({ ok: false, error: err.message });
-    }
-  });
-
-  app.get('/tareas/pipeline-diario', async (req, res) => {
-    if (!checkCronToken(req, res)) return;
-
-    // Interlock legado: evita que una configuracion antigua ejecute este
-    // monolito y duplique efectos del workflow de produccion.
-    if (pipelineDiarioJubilado(process.env, req.query)) {
-      return res.status(410).json({
-        success: false,
-        error:
-          'pipeline-diario jubilado: produccion usa node scripts/run_digest_workflow.js. ' +
-          'No programes /tareas/pipeline-tick. Reactivacion manual excepcional: ?force_legacy=true.',
-      });
-    }
-
-    try {
-      const baseUrl = getBaseUrl(req);
-      const token = process.env.CRON_TOKEN;
-      const maxLoops = Number(process.env.PIPELINE_MAX_LOOPS || 40);
-      const stepDelayMs = Number(process.env.PIPELINE_STEP_DELAY_MS || 800);
-      const httpRetries = Number(process.env.PIPELINE_HTTP_RETRIES || 3);
-      const httpRetryDelayMs = Number(process.env.PIPELINE_HTTP_RETRY_DELAY_MS || 5000);
-      const incluirComplementarios = boolValue(req.query.complementarios, boolValue(process.env.PIPELINE_INCLUDE_COMPLEMENTARY, true));
-      const incluirFega = boolValue(
-        req.query.fega,
-        boolValue(process.env.PIPELINE_INCLUDE_FEGA, boolValue(process.env.COMPLEMENTARY_INCLUDE_FEGA, true))
-      );
-      const enviarFega = boolValue(req.query.enviar_fega, boolValue(process.env.FEGA_ENVIAR_MATCHES, false));
-      const ejercicioFega = req.query.ejercicio || process.env.FEGA_EJERCICIO || null;
-      const enviarListados = boolValue(req.query.enviar_listados, boolValue(process.env.OFFICIAL_LIST_SEND_MATCHES, false));
-      const limitListados = Number(req.query.limit_listados || process.env.OFFICIAL_LIST_MATCH_LIMIT || 500);
-      const scrapePaths = getPipelineScrapePaths({ incluirComplementarios, incluirFega });
-      const fecha = /^\d{4}-\d{2}-\d{2}$/.test(req.query.fecha || '')
-        ? req.query.fecha
-        : getFechaMadridISO();
-
-      const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-      function buildPipelineUrl(path) {
-        if (scrapePaths.includes(path)) {
-          return buildComplementaryScrapeUrl(baseUrl, path, fecha, {
-            ejercicio: ejercicioFega,
-            enviarFega,
-          });
-        }
-        return appendQuery(baseUrl, path, { fecha });
-      }
-
-      async function hit(path, method = 'GET') {
-        const url = buildPipelineUrl(path);
-
-        for (let attempt = 1; attempt <= httpRetries + 1; attempt++) {
-          try {
-            const response = await fetch(url, buildCronFetchOptions(token, method));
-            const body = await readResponseBody(response);
-
-            if (!response.ok) {
-              const err = new Error(`${path} devolvio ${response.status}: ${JSON.stringify(body)}`);
-              err.status = response.status;
-              err.body = body;
-              err.retryable = isRetryableStatus(response.status) &&
-                body?.retryable !== false &&
-                !/429|quota|exceeded your current quota/i.test(JSON.stringify(body || {}));
-              throw err;
-            }
-
-            return { path, status: response.status, body };
-          } catch (err) {
-            const canRetry = attempt <= httpRetries && isRetryableError(err);
-            if (!canRetry) throw err;
-
-            const delay = httpRetryDelayMs * attempt;
-            console.warn(`[pipeline] ${path} fallo transitorio (${err.message}). Reintento ${attempt}/${httpRetries} en ${delay}ms`);
-            await sleep(delay);
-          }
-        }
-      }
-
-      async function runSimpleStage(stage, path, method = 'GET') {
-        const startedAt = new Date();
-        try {
-          const result = await hit(path, method);
-          const finishedAt = new Date();
-          await guardarPipelineRun(supabase, {
-            stage,
-            endpoint: path,
-            fecha_objetivo: fecha,
-            started_at: startedAt.toISOString(),
-            finished_at: finishedAt.toISOString(),
-            duration_ms: finishedAt.getTime() - startedAt.getTime(),
-            status: 'ok',
-            procesadas: numeroBody(result.body, ['procesadas', 'reparadas', 'deduplicadas', 'digests_generados', 'enviados']),
-            errores: Array.isArray(result.body?.errores) ? result.body.errores.length : numeroBody(result.body, ['errores']),
-            response_json: result.body,
-          });
-          return result;
-        } catch (err) {
-          const finishedAt = new Date();
-          await guardarPipelineRun(supabase, {
-            stage,
-            endpoint: path,
-            fecha_objetivo: fecha,
-            started_at: startedAt.toISOString(),
-            finished_at: finishedAt.toISOString(),
-            duration_ms: finishedAt.getTime() - startedAt.getTime(),
-            status: 'error',
-            error_msg: err.message,
-          });
-          throw err;
-        }
-      }
-
-      async function runOptionalStage(stage, path, method = 'GET') {
-        try {
-          return await runSimpleStage(stage, path, method);
-        } catch (err) {
-          console.warn(`[pipeline] Fase opcional ${stage} omitida:`, err.message);
-          return {
-            path,
-            body: {
-              success: true,
-              optional: true,
-              skipped: true,
-              mensaje: `Fase opcional omitida: ${err.message}`,
-            },
-          };
-        }
-      }
-
-      async function runScraperStage(path) {
-        const startedAt = new Date();
-        const fuente = obtenerFuenteScraper(path);
-
-        const omision = await omitirScraperSiCapturado(supabase, {
-          path,
-          fuente,
-          fecha,
-          force: boolValue(req.query.force, false),
-          guardarRun: guardarScraperRun,
-        });
-        if (omision) return { path, fuente, ok: true, body: omision.body, quality: omision.quality };
-
-        try {
-          const result = await hit(path);
-          const finishedAt = new Date();
-          const quality = evaluarRespuestaScraper({
-            responseOk: true,
-            httpStatus: result.status,
-            body: result.body,
-            fuente,
-            endpoint: path,
-          });
-
-          await guardarScraperRun(supabase, {
-            fuente,
-            endpoint: path,
-            fecha_objetivo: fecha,
-            started_at: startedAt.toISOString(),
-            finished_at: finishedAt.toISOString(),
-            duration_ms: finishedAt.getTime() - startedAt.getTime(),
-            status: quality.severity,
-            http_status: result.status,
-            nuevas: numeroBody(result.body, ['nuevas']),
-            duplicadas: numeroBody(result.body, ['duplicadas']),
-            errores: numeroBody(result.body, ['errores']),
-            relevantes: numeroBody(result.body, ['relevantes', 'documentos_insertables', 'totales', 'coincidencias']) || null,
-            mensaje: result.body?.mensaje || null,
-            error_msg: null,
-            response_json: { ...(result.body && typeof result.body === 'object' ? result.body : { raw: result.body }), quality },
-          });
-
-          return { path, fuente, ok: quality.severity !== 'error', body: result.body, quality };
-        } catch (err) {
-          const finishedAt = new Date();
-
-          await guardarScraperRun(supabase, {
-            fuente,
-            endpoint: path,
-            fecha_objetivo: fecha,
-            started_at: startedAt.toISOString(),
-            finished_at: finishedAt.toISOString(),
-            duration_ms: finishedAt.getTime() - startedAt.getTime(),
-            status: 'error',
-            http_status: err.status || null,
-            nuevas: 0,
-            duplicadas: 0,
-            errores: 1,
-            relevantes: null,
-            mensaje: null,
-            error_msg: err.message,
-            response_json: err.body || null,
-          });
-
-          throw err;
-        }
-      }
-
-      async function runBatchedStep(name, path) {
-        const startedAt = new Date();
-        let loops = 0;
-        let total = 0;
-        let totalProgress = 0;
-        let colaVacia = false;
-        let bloqueado = false;
-        const vueltas = [];
-
-        try {
-          while (loops < maxLoops) {
-            loops++;
-            const result = await hit(path);
-            const procesadas = Number(result.body?.procesadas ?? 0);
-            const progress = Number(
-              result.body?.actualizadas ??
-              result.body?.aprobadas ??
-              ((Number(result.body?.clasificadas ?? result.body?.clasificados ?? 0) + Number(result.body?.descartadas ?? 0)) || 0)
-            );
-            total += procesadas;
-            totalProgress += progress;
-            vueltas.push(result.body);
-
-            console.log(`[pipeline] ${name} vuelta ${loops}: procesadas=${procesadas}, actualizadas=${progress}`);
-
-            if (procesadas === 0) {
-              colaVacia = true;
-              break;
-            }
-            if (progress === 0) {
-              bloqueado = true;
-              break;
-            }
-            await sleep(stepDelayMs);
-          }
-
-          const result = {
-            loops,
-            total,
-            totalProgress,
-            colaVacia,
-            bloqueado,
-            maxLoopsAlcanzado: !colaVacia && loops >= maxLoops,
-            ultimaRespuesta: vueltas[vueltas.length - 1] || null,
-          };
-          const finishedAt = new Date();
-          await guardarPipelineRun(supabase, {
-            stage: name,
-            endpoint: path,
-            fecha_objetivo: fecha,
-            started_at: startedAt.toISOString(),
-            finished_at: finishedAt.toISOString(),
-            duration_ms: finishedAt.getTime() - startedAt.getTime(),
-            status: result.maxLoopsAlcanzado || result.bloqueado ? 'warning' : 'ok',
-            loops,
-            procesadas: total,
-            response_json: result,
-          });
-          return result;
-        } catch (err) {
-          const finishedAt = new Date();
-          await guardarPipelineRun(supabase, {
-            stage: name,
-            endpoint: path,
-            fecha_objetivo: fecha,
-            started_at: startedAt.toISOString(),
-            finished_at: finishedAt.toISOString(),
-            duration_ms: finishedAt.getTime() - startedAt.getTime(),
-            status: 'error',
-            loops,
-            procesadas: total,
-            error_msg: err.message,
-            response_json: { vueltas },
-          });
-          throw err;
-        }
-      }
-
-      async function abortIfLimited(stageName, result) {
-        if (!result.maxLoopsAlcanzado && !result.bloqueado) return false;
-
-        const estadoActual = await runSimpleStage('estado_pipeline_abort', '/alertas/estado-pipeline');
-        const motivo = result.bloqueado
-          ? 'lote bloqueado sin actualizaciones'
-          : `limite de ${maxLoops} vueltas`;
-        const avisoAdmin = await enviarWhatsAppAdmin(
-          [
-            '*Ruralicos: pipeline diario detenido*',
-            '',
-            `Fase: ${stageName}`,
-            `Motivo: ${motivo}`,
-            `Procesadas en esta fase: ${result.total}`,
-            `Actualizadas en esta fase: ${result.totalProgress}`,
-            '',
-            'No se ha preparado ni enviado el digest para evitar un envio incompleto.',
-          ].join('\n')
-        );
-
-        res.status(409).json({
-          success: false,
-          mensaje: `Pipeline detenido en ${stageName}: ${motivo}. No se prepara ni se envia el digest para evitar un envio incompleto.`,
-          stageName,
-          result,
-          avisoAdmin,
-          estadoActual: estadoActual.body,
-        });
-        return true;
-      }
-
-      const scrapers = [];
-      for (const path of scrapePaths) {
-        scrapers.push(await runScraperStage(path));
-      }
-
-      const cotejoPath = `/tareas/cotejar-listados-oficiales?enviar=${enviarListados ? 'true' : 'false'}&limit=${encodeURIComponent(limitListados)}`;
-      const cotejoListados = await runOptionalStage(
-        'cotejar_listados_oficiales',
-        cotejoPath
-      );
-      const repararPendientes = await runSimpleStage('reparar_pendientes_ia', '/alertas/reparar-pendientes-ia', 'POST');
-      const clasificar = await runBatchedStep('clasificar', '/alertas/clasificar');
-      if (await abortIfLimited('clasificar', clasificar)) return;
-      const resumir = await runBatchedStep('resumir', '/alertas/resumir');
-      if (await abortIfLimited('resumir', resumir)) return;
-      const revisar = await runBatchedStep('revisar', '/alertas/revisar');
-      if (await abortIfLimited('revisar', revisar)) return;
-      const deduplicar = await runSimpleStage('deduplicar', '/alertas/deduplicar');
-      const miaEmbeddings = await runOptionalStage(
-        'mia_embeddings_inicializar',
-        '/cerebro/embeddings/inicializar?limit=100&maxLoops=10'
-      );
-      const miaCicloPreDigest = await runOptionalStage(
-        'mia_ciclo_pre_digest',
-        '/cerebro/ciclo-diario?explorar=false&limit=100&maxLoops=1'
-      );
-      const prepararDigest = await runBatchedStep('preparar_digest', '/alertas/preparar-digest');
-      if (await abortIfLimited('preparar_digest', prepararDigest)) return;
-      const enviarDigest = await runSimpleStage('enviar_digest', '/alertas/enviar-digest');
-      const miaCicloPostDigest = await runOptionalStage(
-        'mia_ciclo_post_digest',
-        '/cerebro/ciclo-diario?explorar=true&dryRunExploracion=false&limit=100&maxLoops=1'
-      );
-      const miaOutbox = await runOptionalStage(
-        'mia_outbox',
-        '/tareas/mia-outbox?limit=50'
-      );
-      const generarResumenFree = await runSimpleStage('generar_resumen_free', '/alertas/generar-resumen-free');
-      const enviarResumenFree = await runSimpleStage('enviar_resumen_free', '/alertas/enviar-resumen-free');
-      const estadoFinal = await runSimpleStage('estado_pipeline_final', '/alertas/estado-pipeline');
-
-      res.json({
-        success: true,
-        mensaje: 'Pipeline diario ejecutado con fases IA por lotes hasta vaciar cola',
-        fuentes: {
-          complementarios: incluirComplementarios,
-          fega: incluirFega ? { incluido: true, enviar: enviarFega, ejercicio: ejercicioFega } : { incluido: false },
-        },
-        scrapers,
-        cotejoListados: cotejoListados.body,
-        repararPendientes: repararPendientes.body,
-        clasificar,
-        resumir,
-        revisar,
-        deduplicar: deduplicar.body,
-        miaEmbeddings: miaEmbeddings.body,
-        miaCicloPreDigest: miaCicloPreDigest.body,
-        prepararDigest,
-        enviarDigest: enviarDigest.body,
-        miaCicloPostDigest: miaCicloPostDigest.body,
-        miaOutbox: miaOutbox.body,
-        generarResumenFree: generarResumenFree.body,
-        enviarResumenFree: enviarResumenFree.body,
-        estadoFinal: estadoFinal.body,
-      });
-    } catch (err) {
-      console.error('Error en /tareas/pipeline-diario', err);
-      res.status(500).json({ error: err.message });
     }
   });
 };

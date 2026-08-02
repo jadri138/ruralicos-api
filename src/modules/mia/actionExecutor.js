@@ -1,5 +1,11 @@
 const { conOrganizationId } = require('./organizationContext');
 const { clasificarFeedbackDigest } = require('./feedbackClassifier');
+const {
+  construirMemoriaAtomica,
+  construirMemoriasYaSolicitadaPeroSimilares,
+  esYaSolicitadaPeroSimilares,
+  guardarMemoriasAtomicas,
+} = require('../aprendizaje/atomicMemory');
 const HANDOFF_RISK_FLAGS = new Set([
   'low_confidence',
   'feedback_digest_without_executable_actions',
@@ -90,46 +96,72 @@ function construirMemoriaLegacyRows({
   const memoryRows = [];
   const orgId = organizationId || user?.organization_id || digest?.organization_id || null;
   const shouldStoreExplicitMemory = decision.policy?.should_store_memory !== false;
+  const requestedButSimilar = esYaSolicitadaPeroSimilares(texto);
 
   for (const feedback of decision.feedback_actions || []) {
-    if (Number(feedback.valor) === 0) continue;
     const alerta = alertasPorItem.get(Number(feedback.item_numero));
     if (!alerta?.id) continue;
 
-    memoryRows.push(conOrganizationId({
-      user_id: user.id,
+    if (requestedButSimilar) {
+      memoryRows.push(...construirMemoriasYaSolicitadaPeroSimilares({
+        userId: user.id,
+        alerta,
+        digestId: digest?.id || null,
+        organizationId: orgId,
+        decisionVersion: decision.version || null,
+        confidence: decision.confidence ?? 1,
+      }));
+      continue;
+    }
+
+    if (Number(feedback.valor) === 0) continue;
+
+    memoryRows.push(construirMemoriaAtomica({
+      userId: user.id,
       tipo: Number(feedback.valor) > 0 ? 'feedback_positivo' : 'feedback_negativo',
       contenido: alerta.titulo || feedback.razon || `Feedback item ${feedback.item_numero}`,
-      alerta_id: alerta.id,
-      digest_id: digest?.id || null,
-      peso_inicial: 1.0,
-    }, orgId));
+      alertaId: alerta.id,
+      digestId: digest?.id || null,
+      organizationId: orgId,
+      scopeType: 'alert',
+      scopeValue: String(alerta.id),
+      polarity: Number(feedback.valor) > 0 ? 'positive' : 'negative',
+      source: 'response',
+      strength: 1,
+      confidence: decision.confidence ?? 0.9,
+      decisionVersion: decision.version || null,
+      metadata: {
+        item_numero: Number(feedback.item_numero),
+        feedback_reason: feedback.razon || null,
+      },
+    }));
   }
 
-  if (shouldStoreExplicitMemory) {
-    for (const memoria of decision.memory_actions || []) {
-      memoryRows.push(conOrganizationId({
-        user_id: user.id,
-        tipo: memoria.tipo,
-        contenido: memoria.contenido,
-        alerta_id: null,
-        digest_id: digest?.id || null,
-        peso_inicial: memoria.peso_inicial || 0.5,
-      }, orgId));
-    }
-  }
-
-  if (shouldStoreExplicitMemory && memoryRows.length === 0 && decision.intent === 'pregunta_usuario') {
+  // Las memory_actions declarativas se guardan mediante structuredMemory.js,
+  // que ahora es un adaptador hacia la misma tabla canónica. Así evitamos dos
+  // escrituras de la misma señal y conservamos inbound_id/versión.
+  if (
+    shouldStoreExplicitMemory
+    && memoryRows.length === 0
+    && (decision.memory_actions || []).length === 0
+    && decision.intent === 'pregunta_usuario'
+  ) {
     const contenido = String(texto || '').trim().slice(0, 1200);
     if (contenido) {
-      memoryRows.push(conOrganizationId({
-        user_id: user.id,
+      memoryRows.push(construirMemoriaAtomica({
+        userId: user.id,
         tipo: 'pregunta_usuario',
         contenido,
-        alerta_id: null,
-        digest_id: digest?.id || null,
-        peso_inicial: 0.7,
-      }, orgId));
+        digestId: digest?.id || null,
+        organizationId: orgId,
+        scopeType: 'topic',
+        scopeValue: 'pregunta_usuario',
+        polarity: 'neutral',
+        source: 'response',
+        strength: 0.7,
+        confidence: decision.confidence ?? 0.7,
+        decisionVersion: decision.version || null,
+      }));
     }
   }
 
@@ -148,6 +180,7 @@ async function ejecutarAccionesMIA(supabase, {
   const orgId = organizationId || user?.organization_id || digest?.organization_id || null;
   const feedbackRows = construirFeedbackRows({ user, digest, alertasOrdenadas, texto, decision, organizationId: orgId });
   const memoryRows = construirMemoriaLegacyRows({ user, digest, alertasOrdenadas, texto, decision, organizationId: orgId });
+  const requestedButSimilar = esYaSolicitadaPeroSimilares(texto);
 
   if (feedbackRows.length > 0) {
     const { error } = await supabase
@@ -155,7 +188,10 @@ async function ejecutarAccionesMIA(supabase, {
       .upsert(feedbackRows, { onConflict: 'user_id,digest_id,alerta_id' });
     if (error) throw error;
 
-    if (typeof aplicarFeedbackAlPerfil === 'function') {
+    // El perfil agregado legacy no sabe distinguir "esta ya la pedí" de
+    // "no quiero ayudas parecidas". En ese caso la memoria atómica conserva
+    // los dos ámbitos y es la única fuente de aprendizaje segura.
+    if (!requestedButSimilar && typeof aplicarFeedbackAlPerfil === 'function') {
       for (const row of feedbackRows) {
         if (row.valor === 0) continue;
         const alerta = (alertasOrdenadas || []).find((a) => Number(a.id) === Number(row.alerta_id));
@@ -172,10 +208,7 @@ async function ejecutarAccionesMIA(supabase, {
   }
 
   if (memoryRows.length > 0) {
-    const { error } = await supabase
-      .from('user_memory')
-      .insert(memoryRows);
-    if (error) throw error;
+    await guardarMemoriasAtomicas(supabase, memoryRows);
   }
 
   return {

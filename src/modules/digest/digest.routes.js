@@ -1,7 +1,7 @@
 // src/modules/digest/digest.routes.js
 //
-// Capa HTTP del digest: registra los 7 endpoints (/alertas/preparar-digest,
-// enviar-digest, preview-digest, diagnosticar-digest) sobre Express. La logica
+// Capa HTTP del digest: registra las rutas /alertas/preparar-digest,
+// enviar-digest, preview-digest y diagnosticar-digest sobre Express. La logica
 // vive en digest.service.js.
 //
 // Sistema de digest personalizado por usuario — 1 mensaje WhatsApp al día.
@@ -27,7 +27,6 @@
 
 const { checkCronToken }           = require('../../middleware/cronToken');
 
-const { enviarDigestPro, maskPhone } = require('../../platform/whatsapp');
 const { getPlan }                  = require('../../config/planes');
 
 const { fusionarAlertasUnicas }     = require('../alertas/seleccion/alertCandidateMerge');
@@ -37,24 +36,35 @@ const {
   seleccionarAlertasParaDigest,
 } = require('../alertas/seleccion/alertSelectionGate');
 const { getFechaMadridISO } = require('../../shared/fechaMadrid');
-const {
-  ESTADOS_PENDIENTES_AUTOMATICOS,
-} = require('../alertas/alertPipelineStates');
-
-
 const { registrarDigestItemsMIA }  = require('../mia/digestItems');
 const {
-  digestViaOutboxHabilitado,
   encolarDigestsPendientes,
-  filtrarDigestsPorAutoridadFinal,
 } = require('./digestOutbox');
 const {
-  actualizarDigestAttemptPorDigest,
+  crearPresupuestoJuezDiario,
+  decidirAlertasDigest,
+} = require('./decisionIntegration');
+const { renderDecisionDigestMessage } = require('./decisionMessage');
+const { recoverDecisionHolds } = require('./decisionEvidenceRecovery');
+const {
+  holdRetryPolicy,
+  reclamarHoldsDecisionUsuario,
+  adjuntarRetryAAlerta,
+  finalizarHoldsDecision,
+  cerrarHoldsSinAlerta,
+} = require('./decisionHoldRetry');
+const {
+  DELIVERY_STATUS,
+  crearIdempotencyKey,
+  crearMessageVersion,
+} = require('../delivery/deliveryState');
+const {
   esDigestAttemptTerminalActual,
   registrarDigestAttempt,
 } = require('../mia/digestAttempts');
 const {
   registrarDigestCandidateDecisions,
+  registrarDigestCandidateDecisionsCanonicas,
   vincularDigestCandidateDecisions,
 } = require('../mia/digestCandidateDecisions');
 const {
@@ -74,7 +84,6 @@ const {
 const {
 
   PREPARAR_DIGEST_BATCH_SIZE,
-  DIGEST_LOCAL_FALLBACK,
   DIGEST_QUALITY_GATE,
   DIGEST_INCLUDE_REVIEW,
   DIGEST_INCLUDE_INDIVIDUAL_PROVINCIAL,
@@ -97,8 +106,6 @@ const {
   filtrarAlertasNoEnviadas,
   necesitaRescateSemanal,
   alertaExcluidaPorPreferenciasExtra,
-  aplicarTextoObligatorio,
-  anadirInstruccionFeedback,
   prepararAlertasFinalesDigest,
   resumirValidacionFinalDigest,
   prepararValidacionFinalDigestShadow,
@@ -113,8 +120,6 @@ const {
   construirFunnelDigest,
   resolverMotivoNoEnvioDigest,
   filtrarAlertasPorCalidadDigest,
-  generarMensajeDigestFallback,
-  generarMensajeDigestRescate,
   prepararMensajeConLinksTracking,
   obtenerAprendizajeUsuario,
   ordenarPorAprendizaje,
@@ -122,7 +127,6 @@ const {
   seleccionarAlertasConMIA,
   abrirConversacionFeedbackDigest,
   registrarExploracionDigest,
-  generarMensajeDigest,
   construirPreviewDigestUsuario,
 } = require('./digest.service');
 
@@ -363,25 +367,6 @@ module.exports = function digestRoutes(app, supabase) {
       const limiteRaw = Number(req.query.limit || req.body?.limit || process.env.PREPARAR_DIGEST_BATCH_SIZE || PREPARAR_DIGEST_BATCH_SIZE);
       const limiteDigests = Math.max(1, Math.min(50, Number.isFinite(limiteRaw) ? limiteRaw : PREPARAR_DIGEST_BATCH_SIZE));
 
-      if (!force) {
-        const { count: pendientesIA, error: errPendientes } = await supabase
-          .from('alertas')
-          .select('id', { count: 'exact', head: true })
-          .eq('fecha', hoy)
-          .in('estado_ia', ESTADOS_PENDIENTES_AUTOMATICOS);
-
-        if (errPendientes) return res.status(500).json({ error: errPendientes.message });
-
-        if ((pendientesIA || 0) > 0) {
-          return res.status(409).json({
-            success: false,
-            fecha: hoy,
-            pendientes_ia: pendientesIA,
-            mensaje: 'Quedan alertas pendientes de IA. No se prepara el digest para evitar un envio incompleto. Revisa /alertas/estado-pipeline o usa force=true si quieres saltarte esta proteccion.',
-          });
-        }
-      }
-
       // 1) Alertas del día listas para enviar
       const { data: alertasDia, error: errAlertas } = await cargarAlertasListasDigest(supabase, { fecha: hoy });
 
@@ -422,10 +407,12 @@ module.exports = function digestRoutes(app, supabase) {
       }
 
       // 3) Usuarios que ya tienen digest hoy (idempotencia)
-      const { data: digestsExistentes } = await supabase
+      const { data: digestsExistentes, error: errDigestsExistentes } = await supabase
         .from('digests')
-        .select('id, user_id, enviado')
+        .select('id, user_id, enviado, delivery_status, idempotency_key, message_version')
         .eq('fecha', hoy);
+
+      if (errDigestsExistentes) return res.status(500).json({ error: errDigestsExistentes.message });
 
       const digestsPorUsuario = new Map((digestsExistentes || []).map((d) => [d.user_id, d]));
       const estadosAttemptTerminales = [
@@ -458,10 +445,19 @@ module.exports = function digestRoutes(app, supabase) {
 
       const usuariosPendientes = usuarios.filter((user) => {
         const digestExistente = digestsPorUsuario.get(user.id);
-        if (force) return !digestExistente?.enviado;
+        if (force) {
+          const estado = String(digestExistente?.delivery_status || '').toUpperCase();
+          const regenerable = !estado || [
+            DELIVERY_STATUS.DRAFT,
+            DELIVERY_STATUS.APPROVED,
+            DELIVERY_STATUS.FAILED,
+          ].includes(estado);
+          return !digestExistente?.enviado && regenerable;
+        }
         return !digestExistente && !usuariosAttemptTerminal.has(user.id);
       });
       const usuariosBatch = usuariosPendientes.slice(0, limiteDigests);
+      const judgeBudget = await crearPresupuestoJuezDiario({ supabase });
       const userIds = usuarios.map((user) => user.id).filter(Boolean);
       const desdeRescate = sumarDiasFechaISO(hoy, -(DIGEST_RESCUE_LOOKBACK_DAYS - 1));
       const ultimosEnviadosPorUsuario = await cargarUltimosDigestEnviados(
@@ -476,7 +472,6 @@ module.exports = function digestRoutes(app, supabase) {
       let saltados   = 0;
       let rescatados = 0;
       let sinTelefono = 0;
-      let fallbackLocal = 0;
       const errores  = [];
       let usuariosEvaluados = 0;
 
@@ -531,6 +526,49 @@ module.exports = function digestRoutes(app, supabase) {
         const organizationContext = await cargarOrganizationContextMIA(supabase, user);
         const organizationId = organizationContext.organization_id || null;
         const userConOrganization = aplicarOrganizationContextAUsuario(user, organizationContext);
+        const retryPolicy = holdRetryPolicy();
+        let holdsReclamados = [];
+        let alertasHoldRetry = [];
+        try {
+          const retryClaim = await reclamarHoldsDecisionUsuario(supabase, {
+            userId: user.id,
+            policy: retryPolicy,
+          });
+          holdsReclamados = retryClaim.claimed;
+          if (holdsReclamados.length > 0) {
+            const { data: alertasRetry, error: retryAlertError } = await cargarAlertasListasDigest(supabase, {
+              ids: holdsReclamados.map((hold) => hold.alerta_id),
+              requireReady: false,
+            });
+            if (retryAlertError) throw retryAlertError;
+            const visibles = filtrarAlertasPorOrganization(alertasRetry || [], organizationId);
+            holdsReclamados = await cerrarHoldsSinAlerta(supabase, {
+              claimed: holdsReclamados,
+              loadedAlertIds: visibles.map((alerta) => alerta.id),
+            });
+            const holdByAlert = new Map(holdsReclamados.map((hold) => [String(hold.alerta_id), hold]));
+            alertasHoldRetry = visibles
+              .filter((alerta) => holdByAlert.has(String(alerta.id)))
+              .map((alerta) => adjuntarRetryAAlerta(alerta, holdByAlert.get(String(alerta.id)), {
+                policy: retryPolicy,
+              }));
+          }
+        } catch (holdRetryError) {
+          if (holdsReclamados.length > 0) {
+            try {
+              await finalizarHoldsDecision(supabase, {
+                claimed: holdsReclamados,
+                decisions: [],
+                policy: retryPolicy,
+              });
+            } catch (releaseError) {
+              errores.push({ userId: user.id, warning: 'hold_retry_release_failed', error: releaseError.message });
+            }
+          }
+          holdsReclamados = [];
+          alertasHoldRetry = [];
+          errores.push({ userId: user.id, warning: 'hold_retry_load_failed', error: holdRetryError.message });
+        }
         const attemptStart = await registrarDigestAttempt(supabase, {
           userId: user.id,
           organizationId,
@@ -541,7 +579,11 @@ module.exports = function digestRoutes(app, supabase) {
             totalAlertasDia,
             trasQualityGate: alertas.length,
           }),
-          metadata: { plan: plan.nombre, audit_version: 'digest_candidate_audit_v1' },
+          metadata: {
+            plan: plan.nombre,
+            audit_version: 'digest_candidate_audit_v1',
+            hold_retries_claimed: alertasHoldRetry.length,
+          },
         });
         let digestAttemptId = attemptStart.id || null;
         let attemptKind = 'daily';
@@ -613,10 +655,12 @@ module.exports = function digestRoutes(app, supabase) {
           ? ordenarAlertasConPerfilOperativoMIA(candidatasFinales, perfilOperativoMIA, { excludeHard: false })
           : ordenarPorAprendizaje(candidatasFinales, aprendizaje);
         const maxAlertasUsuario = getMaxAlertasDigestUsuario(userConPerfilMIA);
-        const maxCandidatasConBackfill = Math.min(
-          alertasOrdenadas.length,
-          maxAlertasUsuario + DIGEST_FACT_SHEET_BACKFILL_RESERVE
+        const topKCandidatas = Math.max(
+          maxAlertasUsuario,
+          Math.min(20, Number(process.env.ALERT_DECISION_TOP_K) || 10)
         );
+        const maxCandidateUnion = Math.min(20, topKCandidatas + 5);
+        const maxCandidatasConBackfill = Math.min(alertasOrdenadas.length, topKCandidatas);
         const seleccionFinal = seleccionarAlertasParaDigest(alertasOrdenadas, userConPerfilMIA, {
           qualityGate: DIGEST_QUALITY_GATE,
           allowReview: DIGEST_INCLUDE_REVIEW,
@@ -638,7 +682,15 @@ module.exports = function digestRoutes(app, supabase) {
           decisions: seleccionFinal.decisiones,
           metadata: { origen: usandoMIA ? seleccionMIA.origen : 'perfil_tags_prioridad' },
         });
-        let alertasFinales = seleccionFinal.alertas;
+        // La selección antigua aporta una señal barata, pero ya no es la
+        // autoridad. La unión acotada permite que semántica/memoria compitan en
+        // el top K canónico sin rescatar ningún bloqueo duro previo.
+        let alertasFinales = fusionarAlertasUnicas(
+          alertasHoldRetry,
+          seleccionFinal.alertas,
+          alertasOrdenadas
+        ).slice(0, maxCandidateUnion);
+        let canonicalDecisionResult = null;
         let modoRescate = null;
         const funnelActual = (finales = 0) => construirFunnelDigest({
           totalAlertasDia,
@@ -815,21 +867,14 @@ module.exports = function digestRoutes(app, supabase) {
         const maxAlertasTrasFactSheet = modoRescate
           ? Math.min(DIGEST_RESCUE_MAX_ALERTAS, maxAlertasUsuario)
           : maxAlertasUsuario;
-        const candidatasFactSheet = [...alertasFinales];
         const preseleccionFactSheet = await preseleccionarAlertasConFactSheet({
           supabase,
           alertas: alertasFinales,
-          maxItems: maxAlertasTrasFactSheet,
+          maxItems: maxCandidateUnion,
           organizationId,
         });
-        alertasFinales = preseleccionFactSheet.alertas;
-        let reservasFactSheet = candidatasFactSheet.filter((alerta) =>
-          preseleccionFactSheet.decisions.some((decision) =>
-            String(decision.id) === String(alerta.id) &&
-            decision.motivo === 'fact_sheet_backfill_not_needed'
-          )
-        );
-        await registrarDigestCandidateDecisions(supabase, {
+        alertasFinales = preseleccionFactSheet.candidates || preseleccionFactSheet.alertas;
+        await registrarDigestCandidateDecisionsCanonicas(supabase, {
           userId: user.id,
           organizationId,
           fecha: hoy,
@@ -844,6 +889,14 @@ module.exports = function digestRoutes(app, supabase) {
         }
 
         if (alertasFinales.length === 0) {
+          if (holdsReclamados.length > 0) {
+            await finalizarHoldsDecision(supabase, {
+              claimed: holdsReclamados,
+              decisions: [],
+              policy: retryPolicy,
+            });
+            holdsReclamados = [];
+          }
           await registrarDigestAttempt(supabase, {
             userId: user.id,
             fecha: hoy,
@@ -865,11 +918,144 @@ module.exports = function digestRoutes(app, supabase) {
         const origenDigest = modoRescate
           ? `rescate_semanal_${modoRescate.tipo}`
           : (usandoMIA ? seleccionMIA.origen : 'perfil_tags_prioridad');
-        alertasFinales = prepararAlertasFinalesDigest(alertasFinales, userConPerfilMIA, {
-          origenDigest,
-          modoRescate,
+        let recoveryDiagnostics = [];
+
+        try {
+          const decisionBase = {
+            supabase,
+            user: userConPerfilMIA,
+            perfilOperativo: perfilOperativoMIA,
+            exploracion: seleccionMIA?.exploracion || null,
+            fecha: hoy,
+            budget: judgeBudget,
+            policy: {
+              topK: topKCandidatas,
+              maxItems: maxAlertasTrasFactSheet,
+            },
+          };
+          const initialDecisionResult = await decidirAlertasDigest({
+            ...decisionBase,
+            alertas: alertasFinales,
+          });
+          const recovery = await recoverDecisionHolds({
+            supabase,
+            result: initialDecisionResult,
+            alertas: alertasFinales,
+          });
+          recoveryDiagnostics = recovery.diagnostics;
+          canonicalDecisionResult = initialDecisionResult;
+          if (recovery.reevaluate) {
+            await registrarDigestCandidateDecisions(supabase, {
+              userId: user.id,
+              organizationId,
+              fecha: hoy,
+              kind: attemptKind,
+              stage: 'personal_relevance_before_recovery',
+              digestAttemptId,
+              decisions: initialDecisionResult.audit_decisions,
+              metadata: { recovery: recovery.diagnostics },
+            });
+            canonicalDecisionResult = await decidirAlertasDigest({
+              ...decisionBase,
+              alertas: recovery.alertas,
+            });
+          }
+          for (const diagnostic of recovery.diagnostics) {
+            if (diagnostic.status === 'FAILED') {
+              errores.push({
+                userId: user.id,
+                alertaId: diagnostic.alert_id,
+                warning: 'hold_recovery_failed',
+                error: diagnostic.error || null,
+              });
+            }
+          }
+        } catch (decisionError) {
+          if (holdsReclamados.length > 0) {
+            try {
+              await finalizarHoldsDecision(supabase, {
+                claimed: holdsReclamados,
+                decisions: [],
+                policy: retryPolicy,
+              });
+            } catch (releaseError) {
+              errores.push({ userId: user.id, warning: 'hold_retry_release_failed', error: releaseError.message });
+            }
+          }
+          await registrarDigestAttempt(supabase, {
+            userId: user.id,
+            organizationId,
+            fecha: hoy,
+            kind: attemptKind,
+            status: 'failed',
+            ...funnelActual(0),
+            judgeEvaluatedCount: 0,
+            approvedCount: 0,
+            motivoNoEnvio: 'canonical_decision_error',
+            errorMsg: decisionError.message,
+            metadata: { plan: plan.nombre, origen: origenDigest },
+          });
+          errores.push({ userId: user.id, error: decisionError.message, stage: 'canonical_decision' });
+          continue;
+        }
+
+        await registrarDigestCandidateDecisionsCanonicas(supabase, {
+          userId: user.id,
+          organizationId,
           fecha: hoy,
+          kind: attemptKind,
+          stage: 'personal_relevance_judge',
+          digestAttemptId,
+          decisions: canonicalDecisionResult.audit_decisions,
+          metadata: {
+            contract_version: canonicalDecisionResult.contract_version,
+            policy_version: canonicalDecisionResult.policy_version,
+            funnel: canonicalDecisionResult.ranking?.funnel || null,
+            portfolio: canonicalDecisionResult.portfolio?.counts || null,
+            recovery: recoveryDiagnostics,
+          },
         });
+        if (holdsReclamados.length > 0) {
+          await finalizarHoldsDecision(supabase, {
+            claimed: holdsReclamados,
+            decisions: canonicalDecisionResult.audit_decisions,
+            policy: retryPolicy,
+          });
+          holdsReclamados = [];
+        }
+
+        alertasFinales = prepararAlertasFinalesDigest(
+          canonicalDecisionResult.alertas,
+          userConPerfilMIA,
+          {
+            origenDigest,
+            modoRescate,
+            fecha: hoy,
+          }
+        );
+
+        if (alertasFinales.length === 0) {
+          await registrarDigestAttempt(supabase, {
+            userId: user.id,
+            organizationId,
+            fecha: hoy,
+            kind: attemptKind,
+            status: 'no_send',
+            ...funnelActual(0),
+            judgeEvaluatedCount: canonicalDecisionResult.evaluated?.length || 0,
+            approvedCount: 0,
+            motivoNoEnvio: 'canonical_authority_silence',
+            metadata: {
+              plan: plan.nombre,
+              origen: origenDigest,
+              ranking_funnel: canonicalDecisionResult.ranking?.funnel || null,
+              portfolio: canonicalDecisionResult.portfolio?.counts || null,
+            },
+          });
+          sinAlertas++;
+          console.log(`[digest] User ${user.id} -> autoridad final decide silencio`);
+          continue;
+        }
 
         // Gate de envio automatico: review_only / blocked / exclude no se autoenvian aunque
         // hayan entrado como relleno (incoherencia review_only). Defensa en profundidad,
@@ -885,7 +1071,7 @@ module.exports = function digestRoutes(app, supabase) {
         const retenidasPorId = new Map(
           alertasRetenidasReview.map((item) => [String(item.alerta_id), item])
         );
-        await registrarDigestCandidateDecisions(supabase, {
+        await registrarDigestCandidateDecisionsCanonicas(supabase, {
           userId: user.id,
           organizationId,
           fecha: hoy,
@@ -906,84 +1092,6 @@ module.exports = function digestRoutes(app, supabase) {
               null,
           })),
         });
-
-        const obtenerBackfillValidacionFinal = async (limit = 0) => {
-          const objetivo = Math.max(0, Number(limit) || 0);
-          if (objetivo === 0 || reservasFactSheet.length === 0) return [];
-
-          const candidatasReserva = reservasFactSheet;
-          const preseleccionReserva = await preseleccionarAlertasConFactSheet({
-            supabase,
-            alertas: candidatasReserva,
-            maxItems: objetivo,
-            organizationId,
-          });
-          const evaluadasIds = new Set(
-            preseleccionReserva.decisions
-              .filter((decision) => decision.motivo !== 'fact_sheet_backfill_not_needed')
-              .map((decision) => String(decision.id))
-          );
-          reservasFactSheet = candidatasReserva.filter((alerta) =>
-            !evaluadasIds.has(String(alerta.id))
-          );
-          await registrarDigestCandidateDecisions(supabase, {
-            userId: user.id,
-            organizationId,
-            fecha: hoy,
-            kind: attemptKind,
-            stage: 'final_validation_backfill',
-            digestAttemptId,
-            decisions: preseleccionReserva.decisions,
-            metadata: {
-              ...preseleccionReserva.diagnostics,
-              reason: 'replace_final_validation_rejection',
-            },
-          });
-          for (const warning of preseleccionReserva.warnings) {
-            errores.push({ userId: user.id, ...warning });
-          }
-
-          const preparadas = prepararAlertasFinalesDigest(
-            preseleccionReserva.alertas,
-            userConPerfilMIA,
-            { origenDigest, modoRescate, fecha: hoy }
-          );
-          const { enviables, retenidas } = filtrarAlertasEnviablesAutomaticamente(preparadas);
-          if (retenidas.length > 0) {
-            errores.push({
-              userId: user.id,
-              warning: 'final_validation_backfill_retained',
-              total: retenidas.length,
-            });
-          }
-          await registrarDigestCandidateDecisions(supabase, {
-            userId: user.id,
-            organizationId,
-            fecha: hoy,
-            kind: attemptKind,
-            stage: 'auto_send_gate',
-            digestAttemptId,
-            decisions: preparadas.map((alerta) => ({
-              id: alerta.id,
-              action: enviables.some((item) => String(item.id) === String(alerta.id))
-                ? 'include'
-                : 'blocked',
-              motivo: enviables.some((item) => String(item.id) === String(alerta.id))
-                ? 'final_validation_backfill_gate_passed'
-                : 'final_validation_backfill_retained',
-              selection_decision: alerta.decision_digest || null,
-              match_trace: alerta.decision_digest?.match_trace ||
-                alerta.decision_digest?.diagnostico?.match_trace ||
-                null,
-            })),
-            metadata: { final_validation_backfill: true },
-          });
-          return enviables;
-        };
-
-        if (alertasFinales.length === 0) {
-          alertasFinales = await obtenerBackfillValidacionFinal(maxAlertasTrasFactSheet);
-        }
 
         if (alertasFinales.length === 0) {
           await registrarDigestAttempt(supabase, {
@@ -1008,38 +1116,19 @@ module.exports = function digestRoutes(app, supabase) {
         console.log(`[digest] User ${user.id} (${plan.nombre}) → ${alertasFinales.length}/${alertasUsuario.length} alertas → generando...`);
 
         try {
-          let mensajeRaw;
-          try {
-            if (modoRescate) {
-              mensajeRaw = generarMensajeDigestRescate({
-                user: userConPerfilMIA,
-                alertas: alertasFinales,
-                fecha: hoy,
-                desde: modoRescate.desde,
-                tipo: modoRescate.tipo,
-                organizationContext,
-              });
-            } else {
-              mensajeRaw = await generarMensajeDigest({
-                user: userConPerfilMIA,
-                alertas: alertasFinales,
-                fecha:   hoy,
-                plan,
-                aprendizaje,
-                organizationContext,
-              });
-            }
-          } catch (errGenerar) {
-            if (!DIGEST_LOCAL_FALLBACK) throw errGenerar;
-            console.warn(`[digest] Fallback local user ${user.id}:`, errGenerar.message);
-            mensajeRaw = generarMensajeDigestFallback({
-              user: userConPerfilMIA,
-              alertas: alertasFinales,
-              fecha: hoy,
-              organizationContext,
+          const renderedDecisionMessage = renderDecisionDigestMessage({
+            user: userConPerfilMIA,
+            alertas: alertasFinales,
+            fecha: hoy,
+          });
+          let mensajeRaw = renderedDecisionMessage.message;
+          alertasFinales = renderedDecisionMessage.alertas;
+          if (renderedDecisionMessage.omitted > 0) {
+            errores.push({
+              userId: user.id,
+              warning: 'canonical_message_length_omitted',
+              total: renderedDecisionMessage.omitted,
             });
-            fallbackLocal++;
-            errores.push({ userId: user.id, warning: 'digest_local_fallback', error: errGenerar.message });
           }
 
           if (!mensajeRaw || mensajeRaw.trim() === 'SIN_ALERTAS') {
@@ -1049,7 +1138,7 @@ module.exports = function digestRoutes(app, supabase) {
               kind: attemptKind,
               status: 'no_send',
               ...funnelActual(alertasFinales.length),
-              motivoNoEnvio: 'ia_sin_alertas',
+              motivoNoEnvio: 'canonical_message_projection_empty',
               metadata: { plan: plan.nombre },
             });
             sinAlertas++;
@@ -1057,10 +1146,7 @@ module.exports = function digestRoutes(app, supabase) {
             continue;
           }
 
-          let mensaje = anadirInstruccionFeedback(
-            aplicarTextoObligatorio(mensajeRaw, user.preferencias_extra),
-            alertasFinales
-          );
+          let mensaje = mensajeRaw.trim();
 
           let finalValidationShadow = null;
           try {
@@ -1073,7 +1159,7 @@ module.exports = function digestRoutes(app, supabase) {
             });
             alertasFinales = shadow.alertas;
             finalValidationShadow = shadow.validation;
-            await registrarDigestCandidateDecisions(supabase, {
+            await registrarDigestCandidateDecisionsCanonicas(supabase, {
               userId: user.id,
               organizationId,
               fecha: hoy,
@@ -1108,6 +1194,10 @@ module.exports = function digestRoutes(app, supabase) {
               });
             }
           } catch (errShadow) {
+            if (errShadow?.code === 'CANONICAL_DECISION_AUDIT_FAILED'
+              || errShadow?.code === 'CANONICAL_DECISION_AUDIT_STAGE_INVALID') {
+              throw errShadow;
+            }
             console.warn(`[digest:shadow] No se pudo validar digest final user ${user.id}:`, errShadow.message);
             errores.push({ userId: user.id, warning: 'final_validation_shadow_error', error: errShadow.message });
             finalValidationShadow = construirValidacionFinalFallida(
@@ -1115,7 +1205,7 @@ module.exports = function digestRoutes(app, supabase) {
               errShadow?.code === 'ETIMEDOUT' ? 'final_validation_timeout' : 'final_validation_error',
               errShadow
             );
-            await registrarDigestCandidateDecisions(supabase, {
+            await registrarDigestCandidateDecisionsCanonicas(supabase, {
               userId: user.id,
               organizationId,
               fecha: hoy,
@@ -1155,7 +1245,7 @@ module.exports = function digestRoutes(app, supabase) {
                 context: modoRescate ? 'rescue' : 'automatic_daily',
               }
             );
-            await registrarDigestCandidateDecisions(supabase, {
+            await registrarDigestCandidateDecisionsCanonicas(supabase, {
               userId: user.id,
               organizationId,
               fecha: hoy,
@@ -1184,24 +1274,6 @@ module.exports = function digestRoutes(app, supabase) {
               };
             }
 
-            const huecosBackfill = Math.max(
-              0,
-              maxAlertasTrasFactSheet - finalValidationEnforcement.aceptadas.length
-            );
-            if (finalValidationEnforcement.rechazadas.length > 0 && huecosBackfill > 0) {
-              const backfillFinal = await obtenerBackfillValidacionFinal(huecosBackfill);
-              if (backfillFinal.length > 0) {
-                finalValidationEnforcement = {
-                  ...finalValidationEnforcement,
-                  aceptadas: fusionarAlertasUnicas(
-                    finalValidationEnforcement.aceptadas,
-                    backfillFinal
-                  ).slice(0, maxAlertasTrasFactSheet),
-                  final_validation_backfill: backfillFinal.length,
-                };
-              }
-            }
-
             if (finalValidationEnforcement.aceptadas.length === 0) {
               await registrarDigestAttempt(supabase, {
                 userId: user.id,
@@ -1225,25 +1297,14 @@ module.exports = function digestRoutes(app, supabase) {
 
             alertasFinales = finalValidationEnforcement.aceptadas;
             if (finalValidationEnforcement.rechazadas.length > 0) {
-              mensajeRaw = modoRescate
-                ? generarMensajeDigestRescate({
-                  user: userConPerfilMIA,
-                  alertas: alertasFinales,
-                  fecha: hoy,
-                  desde: modoRescate.desde,
-                  tipo: modoRescate.tipo,
-                  organizationContext,
-                })
-                : generarMensajeDigestFallback({
-                  user: userConPerfilMIA,
-                  alertas: alertasFinales,
-                  fecha: hoy,
-                  organizationContext,
-                });
-              mensaje = anadirInstruccionFeedback(
-                aplicarTextoObligatorio(mensajeRaw, user.preferencias_extra),
-                alertasFinales
-              );
+              const regenerated = renderDecisionDigestMessage({
+                user: userConPerfilMIA,
+                alertas: alertasFinales,
+                fecha: hoy,
+              });
+              mensajeRaw = regenerated.message;
+              alertasFinales = regenerated.alertas;
+              mensaje = mensajeRaw.trim();
 
               const shadow = await prepararValidacionFinalDigestShadow({
                 supabase,
@@ -1254,7 +1315,7 @@ module.exports = function digestRoutes(app, supabase) {
               });
               alertasFinales = shadow.alertas;
               finalValidationShadow = shadow.validation;
-              await registrarDigestCandidateDecisions(supabase, {
+              await registrarDigestCandidateDecisionsCanonicas(supabase, {
                 userId: user.id,
                 organizationId,
                 fecha: hoy,
@@ -1285,7 +1346,7 @@ module.exports = function digestRoutes(app, supabase) {
                   context: modoRescate ? 'rescue' : 'automatic_daily',
                 }
               );
-              await registrarDigestCandidateDecisions(supabase, {
+              await registrarDigestCandidateDecisionsCanonicas(supabase, {
                 userId: user.id,
                 organizationId,
                 fecha: hoy,
@@ -1326,25 +1387,14 @@ module.exports = function digestRoutes(app, supabase) {
                 // pierde lo que si paso: se vuelve a renderizar solo el
                 // subconjunto aceptado y se valida una ultima vez.
                 alertasFinales = finalValidationEnforcement.aceptadas;
-                mensajeRaw = modoRescate
-                  ? generarMensajeDigestRescate({
-                    user: userConPerfilMIA,
-                    alertas: alertasFinales,
-                    fecha: hoy,
-                    desde: modoRescate.desde,
-                    tipo: modoRescate.tipo,
-                    organizationContext,
-                  })
-                  : generarMensajeDigestFallback({
-                    user: userConPerfilMIA,
-                    alertas: alertasFinales,
-                    fecha: hoy,
-                    organizationContext,
-                  });
-                mensaje = anadirInstruccionFeedback(
-                  aplicarTextoObligatorio(mensajeRaw, user.preferencias_extra),
-                  alertasFinales
-                );
+                const cleaned = renderDecisionDigestMessage({
+                  user: userConPerfilMIA,
+                  alertas: alertasFinales,
+                  fecha: hoy,
+                });
+                mensajeRaw = cleaned.message;
+                alertasFinales = cleaned.alertas;
+                mensaje = mensajeRaw.trim();
                 const cleanupShadow = await prepararValidacionFinalDigestShadow({
                   supabase,
                   mensaje: mensaje.trim(),
@@ -1354,7 +1404,7 @@ module.exports = function digestRoutes(app, supabase) {
                 });
                 alertasFinales = cleanupShadow.alertas;
                 finalValidationShadow = cleanupShadow.validation;
-                await registrarDigestCandidateDecisions(supabase, {
+                await registrarDigestCandidateDecisionsCanonicas(supabase, {
                   userId: user.id,
                   organizationId,
                   fecha: hoy,
@@ -1377,7 +1427,7 @@ module.exports = function digestRoutes(app, supabase) {
                     context: modoRescate ? 'rescue' : 'automatic_daily',
                   }
                 );
-                await registrarDigestCandidateDecisions(supabase, {
+                await registrarDigestCandidateDecisionsCanonicas(supabase, {
                   userId: user.id,
                   organizationId,
                   fecha: hoy,
@@ -1423,6 +1473,12 @@ module.exports = function digestRoutes(app, supabase) {
           }
 
           const alertaIdsDigest = alertasFinales.map((a) => a.id);
+          const messageVersion = crearMessageVersion(mensaje.trim(), 'decision_message_v1');
+          const digestIdempotencyKey = crearIdempotencyKey({
+            source: 'digest_daily',
+            sourceId: `${user.id}:${hoy}`,
+            messageVersion,
+          });
           let digestInsertado = null;
           let writeError = null;
           const regenerandoDigestExistente = Boolean(digestExistente && force && !digestExistente.enviado);
@@ -1434,9 +1490,19 @@ module.exports = function digestRoutes(app, supabase) {
                 mensaje: mensaje.trim(),
                 alerta_ids: alertaIdsDigest,
                 enviado: false,
+                delivery_status: DELIVERY_STATUS.APPROVED,
+                message_version: messageVersion,
+                idempotency_key: digestIdempotencyKey,
+                provider_message_id: null,
+                accepted_at: null,
+                sent_to_whatsapp_at: null,
+                delivered_at: null,
+                read_at: null,
+                failed_at: null,
               }, organizationId))
               .eq('id', digestExistente.id)
               .eq('enviado', false)
+              .or('delivery_status.is.null,delivery_status.in.(DRAFT,APPROVED,FAILED)')
               .select('id')
               .single();
             digestInsertado = updateResult.data;
@@ -1450,6 +1516,9 @@ module.exports = function digestRoutes(app, supabase) {
                 mensaje:    mensaje.trim(),
                 alerta_ids: alertaIdsDigest,
                 enviado:    false,
+                delivery_status: DELIVERY_STATUS.APPROVED,
+                message_version: messageVersion,
+                idempotency_key: digestIdempotencyKey,
               }, organizationId))
               .select('id')
               .single();
@@ -1503,6 +1572,9 @@ module.exports = function digestRoutes(app, supabase) {
               fecha: hoy,
               kind: attemptKind,
               status: modoRescate ? 'rescued' : 'generated',
+              deliveryStatus: DELIVERY_STATUS.APPROVED,
+              judgeEvaluatedCount: canonicalDecisionResult?.evaluated?.length || 0,
+              approvedCount: alertasFinales.length,
               digestId: digestInsertado.id,
               ...construirFunnelDigest({
                 totalAlertasDia,
@@ -1583,9 +1655,21 @@ module.exports = function digestRoutes(app, supabase) {
 
             if (tracking.enabled && tracking.mensaje !== mensaje.trim()) {
               mensaje = tracking.mensaje;
+              const trackedMessageVersion = crearMessageVersion(
+                mensaje.trim(),
+                'decision_message_v1'
+              );
               const { error: updateMensajeError } = await supabase
                 .from('digests')
-                .update({ mensaje: mensaje.trim() })
+                .update({
+                  mensaje: mensaje.trim(),
+                  message_version: trackedMessageVersion,
+                  idempotency_key: crearIdempotencyKey({
+                    source: 'digest_daily',
+                    sourceId: `${user.id}:${hoy}`,
+                    messageVersion: trackedMessageVersion,
+                  }),
+                })
                 .eq('id', digestInsertado.id);
 
               if (updateMensajeError) {
@@ -1680,7 +1764,7 @@ module.exports = function digestRoutes(app, supabase) {
         usuarios_sin_alertas: sinAlertas,
         usuarios_sin_telefono: sinTelefono,
         saltados,
-        fallback_local:       fallbackLocal,
+        fallback_local:       0,
         rescate: {
           enabled: DIGEST_RESCUE_ENABLED,
           after_days: DIGEST_RESCUE_AFTER_DAYS,
@@ -1698,159 +1782,26 @@ module.exports = function digestRoutes(app, supabase) {
   // ──────────────────────────────────────────────────────────────────
   // /alertas/enviar-digest
   // Lo invoca scripts/run_digest_workflow.js. No programar este endpoint como
-  // un segundo cron independiente: dos invocaciones solapadas pueden observar
-  // el mismo conjunto de digests pendientes en el modo sin outbox.
-  // Variable de entorno: DIGEST_DELAY_MS (default: 3000ms)
+  // un segundo cron independiente. Este endpoint solo encola; el mismo
+  // workflow vacía mia_outbox a continuación.
   // ──────────────────────────────────────────────────────────────────
   const enviarDigestHandler = async (req, res) => {
     try {
       const hoy = /^\d{4}-\d{2}-\d{2}$/.test(req.query.fecha || '')
         ? req.query.fecha
         : getFechaMadridISO();
-      const DELAY_MS = parseInt(process.env.DIGEST_DELAY_MS || '3000', 10);
-
-      // Via cola (DIGEST_VIA_OUTBOX=true): encola los pendientes en mia_outbox
-      // y el drenador de /tareas/mia-outbox los envia con reintentos/backoff.
-      // El envio sincrono de abajo sigue siendo el comportamiento por defecto.
-      // DIGEST_VIA_OUTBOX controla exclusivamente este cambio de transporte.
-      if (digestViaOutboxHabilitado()) {
-        const encolado = await encolarDigestsPendientes(supabase, { fecha: hoy });
-        return res.json({
-          success: encolado.errores.length === 0,
-          via: 'outbox',
-          fecha: hoy,
-          total: encolado.total,
-          // El pipeline lee `enviados` para el progreso de la fase: encolar
-          // cuenta como procesado (el envio real lo reporta mia_outbox).
-          enviados: encolado.encolados,
-          ya_encolados: encolado.ya_encolados,
-          sin_telefono: encolado.sin_telefono,
-          bloqueados_validacion_final: encolado.bloqueados_validacion_final,
-          errores: encolado.errores,
-        });
-      }
-
-      // 1) Digests pendientes de hoy
-      const { data: digests, error } = await supabase
-        .from('digests')
-        .select('id, user_id, fecha, mensaje')
-        .eq('fecha', hoy)
-        .eq('enviado', false)
-        .order('created_at', { ascending: true });
-
-      if (error) return res.status(500).json({ error: error.message });
-
-      if (!digests || digests.length === 0) {
-        return res.json({
-          success: true,
-          enviados: 0,
-          mensaje:  'No hay digests pendientes hoy',
-          fecha:    hoy,
-        });
-      }
-
-      // 2) Teléfonos en una sola query
-      const finalAuthority = await filtrarDigestsPorAutoridadFinal(supabase, digests);
-      for (const blocked of finalAuthority.bloqueados) {
-        await actualizarDigestAttemptPorDigest(supabase, blocked.digest.id, {
-          status: 'no_send',
-          motivoNoEnvio: blocked.reason,
-          errorMsg: null,
-        });
-      }
-      const digestsEnviables = finalAuthority.enviables;
-      if (digestsEnviables.length === 0) {
-        return res.json({
-          success: true,
-          enviados: 0,
-          bloqueados_validacion_final: finalAuthority.bloqueados.length,
-          mensaje: 'Todos los digests pendientes quedaron bloqueados por la validacion final',
-          fecha: hoy,
-        });
-      }
-
-      const userIds = digestsEnviables.map((d) => d.user_id);
-
-      const { data: usuarios, error: errUsers } = await supabase
-        .from('users')
-        .select('id, phone')
-        .in('id', userIds)
-        .or('phone_verified.is.null,phone_verified.eq.true');
-
-      if (errUsers) return res.status(500).json({ error: errUsers.message });
-
-      const telefonoPorUserId = Object.fromEntries(
-        (usuarios || []).map((u) => [u.id, (u.phone || '').trim()])
-      );
-
-      let enviados  = 0;
-      const errores = [];
-
-      // 3) Enviar uno a uno con delay anti-ban
-      for (let i = 0; i < digestsEnviables.length; i++) {
-        const digest   = digestsEnviables[i];
-        const telefono = telefonoPorUserId[digest.user_id];
-
-        if (!telefono) {
-          console.warn(`[digest] User ${digest.user_id} sin teléfono → saltando`);
-          await actualizarDigestAttemptPorDigest(supabase, digest.id, {
-            status: 'failed',
-            motivoNoEnvio: 'usuario_sin_telefono_envio',
-            errorMsg: 'Usuario sin telefono verificable en envio',
-          });
-          continue;
-        }
-
-        try {
-          await enviarDigestPro(telefono, digest.mensaje);
-
-          await supabase
-            .from('digests')
-            .update({
-              enviado:    true,
-              enviado_at: new Date().toISOString(),
-              error_msg:  null,
-            })
-            .eq('id', digest.id);
-
-          await actualizarDigestAttemptPorDigest(supabase, digest.id, {
-            status: 'sent',
-            motivoNoEnvio: null,
-            errorMsg: null,
-          });
-
-          enviados++;
-          console.log(`[digest] ✓ Enviado a ${maskPhone(telefono)} [${i + 1}/${digestsEnviables.length}]`);
-
-          // Delay entre mensajes (no tras el último)
-          if (i < digestsEnviables.length - 1) {
-            await new Promise((r) => setTimeout(r, DELAY_MS));
-          }
-
-        } catch (errEnvio) {
-          console.error(`[digest] ✗ Error enviando a ${maskPhone(telefono)}:`, errEnvio.message);
-          errores.push({ digestId: digest.id, userId: digest.user_id, error: errEnvio.message });
-
-          await supabase
-            .from('digests')
-            .update({ error_msg: errEnvio.message })
-            .eq('id', digest.id);
-
-          await actualizarDigestAttemptPorDigest(supabase, digest.id, {
-            status: 'failed',
-            motivoNoEnvio: 'fallo_envio_whatsapp',
-            errorMsg: errEnvio.message,
-          });
-        }
-      }
-
+      const encolado = await encolarDigestsPendientes(supabase, { fecha: hoy });
       return res.json({
-        success: true,
-        fecha:   hoy,
-        total:   digests.length,
-        enviados,
-        bloqueados_validacion_final: finalAuthority.bloqueados.length,
-        errores,
+        success: encolado.errores.length === 0,
+        via: 'outbox',
+        fecha: hoy,
+        total: encolado.total,
+        encolados: encolado.encolados,
+        enviados: 0,
+        ya_encolados: encolado.ya_encolados,
+        sin_telefono: encolado.sin_telefono,
+        bloqueados_validacion_final: encolado.bloqueados_validacion_final,
+        errores: encolado.errores,
       });
 
     } catch (err) {
@@ -1859,12 +1810,8 @@ module.exports = function digestRoutes(app, supabase) {
     }
   };
 
-  // Registrar rutas (GET y POST para compatibilidad con crons)
+  // Los procesos que escriben o envían usan POST; los diagnósticos usan GET.
   app.post('/alertas/preparar-digest', (req, res) => {
-    if (!checkCronToken(req, res)) return;
-    prepararDigestHandler(req, res);
-  });
-  app.get('/alertas/preparar-digest', (req, res) => {
     if (!checkCronToken(req, res)) return;
     prepararDigestHandler(req, res);
   });
@@ -1878,16 +1825,13 @@ module.exports = function digestRoutes(app, supabase) {
     if (!checkCronToken(req, res)) return;
     previewDigestHandler(req, res);
   });
+  // POST permite enviar phone/user_id en el cuerpo y evita exponerlos en la URL.
   app.post('/alertas/preview-digest', (req, res) => {
     if (!checkCronToken(req, res)) return;
     previewDigestHandler(req, res);
   });
 
   app.post('/alertas/enviar-digest', (req, res) => {
-    if (!checkCronToken(req, res)) return;
-    enviarDigestHandler(req, res);
-  });
-  app.get('/alertas/enviar-digest', (req, res) => {
     if (!checkCronToken(req, res)) return;
     enviarDigestHandler(req, res);
   });

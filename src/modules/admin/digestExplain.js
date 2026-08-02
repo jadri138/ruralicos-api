@@ -1,3 +1,5 @@
+const { resumirEmbudoDigest } = require('../mia/recommendationHealth');
+
 function normalizarId(value) {
   const id = Number(value);
   return Number.isSafeInteger(id) && id > 0 ? id : null;
@@ -120,6 +122,8 @@ function construirWhySentDigest({
       factSheet: factSheetsByAlerta.get(Number(row.alerta_id)) || null,
     }));
 
+  const digestAttempts = (attempts || []).filter((row) => Number(row.digest_id) === Number(digest.id));
+
   return {
     digest: {
       id: digest.id,
@@ -127,12 +131,23 @@ function construirWhySentDigest({
       fecha: digest.fecha,
       enviado: Boolean(digest.enviado),
       enviado_at: digest.enviado_at || null,
+      delivery_status: digest.delivery_status || null,
       created_at: digest.created_at || null,
       alerta_ids: digest.alerta_ids || [],
       organization_id: digest.organization_id || null,
     },
+    delivery: {
+      status: digest.delivery_status || null,
+      provider_message_id: digest.provider_message_id || null,
+      accepted_at: digest.accepted_at || null,
+      sent_to_whatsapp_at: digest.sent_to_whatsapp_at || null,
+      delivered_at: digest.delivered_at || null,
+      read_at: digest.read_at || null,
+      failed_at: digest.failed_at || null,
+    },
     message_excerpt: String(digest.mensaje || '').slice(0, 1200),
-    attempts: (attempts || []).filter((row) => Number(row.digest_id) === Number(digest.id)),
+    funnel: resumirEmbudoDigest(digestAttempts),
+    attempts: digestAttempts,
     items,
   };
 }
@@ -147,6 +162,7 @@ function construirWhyNotSentAttempt(row = {}, user = null) {
       kind: row.kind,
       status: row.status,
       digest_id: row.digest_id || null,
+      delivery_status: row.delivery_status || null,
       motivo_no_envio: row.motivo_no_envio || null,
       error_msg: row.error_msg || null,
       created_at: row.created_at || null,
@@ -166,6 +182,10 @@ function construirWhyNotSentAttempt(row = {}, user = null) {
       tras_filtro_usuario: row.tras_filtro_usuario || 0,
       tras_scoring: row.tras_scoring || 0,
       alertas_finales: row.alertas_finales || 0,
+      judge_evaluated: row.judge_evaluated_count || 0,
+      approved: row.approved_count || 0,
+      queued: row.queued_count || 0,
+      delivered: row.delivered_count || 0,
     },
     final_validation: metadata.final_validation || null,
     final_validation_enforcement: metadata.final_validation_enforcement || null,

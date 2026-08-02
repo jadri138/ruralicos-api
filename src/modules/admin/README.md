@@ -39,6 +39,8 @@ Una ruta admin puede coordinar una operación, pero debe reutilizar el servicio 
 - falló la preparación;
 - bloqueó la validación final;
 - quedó en cola;
+- fue aceptado, entregado, leído o falló, mostrando `delivery_status` y las
+  marcas de tiempo disponibles;
 - falló la entrega.
 
 No usar “no enviado” como una única categoría.

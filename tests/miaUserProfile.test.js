@@ -1,10 +1,13 @@
 const {
   construirPerfilOperativoMIA,
+  cargarPerfilOperativoMIA,
   aplicarPerfilOperativoAUsuario,
+  mergeAtomicMemories,
   ordenarAlertasConPerfilOperativoMIA,
   puntuarAlertaConPerfilOperativoMIA,
   extraerExclusiones,
 } = require('../src/modules/mia/userProfile');
+const { buildDecisionProfile } = require('../src/modules/alertas/decision');
 
 let passed = 0;
 let failed = 0;
@@ -215,5 +218,118 @@ const declaredConflict = construirPerfilOperativoMIA({
 assert(!declaredConflict.dislikes.some((item) => item.topic === 'cereal'), 'Una senal aprendida no convierte una preferencia declarada en exclusion');
 assert(declaredConflict.uncertain_topics.some((item) => item.topic === 'cereal'), 'Marca para confirmar el conflicto con una preferencia declarada');
 
-console.log(`\nResultados: ${passed} aprobados, ${failed} fallidos`);
-process.exit(failed > 0 ? 1 : 0);
+function crearSupabaseMemorias(seed = {}) {
+  return {
+    from(table) {
+      const filters = [];
+      let sort = null;
+      const query = {
+        select() { return query; },
+        eq(column, value) {
+          filters.push((row) => row[column] === value);
+          return query;
+        },
+        in(column, values) {
+          filters.push((row) => values.includes(row[column]));
+          return query;
+        },
+        order(column, options = {}) {
+          sort = { column, ascending: options.ascending !== false };
+          return query;
+        },
+        limit(value) {
+          let rows = (seed[table] || []).filter((row) => filters.every((filter) => filter(row)));
+          if (sort) {
+            const direction = sort.ascending ? 1 : -1;
+            rows = [...rows].sort((left, right) => (
+              String(left[sort.column] || '').localeCompare(String(right[sort.column] || '')) * direction
+            ));
+          }
+          return Promise.resolve({ data: rows.slice(0, Number(value)), error: null });
+        },
+      };
+      return query;
+    },
+  };
+}
+
+async function comprobarCargaDurable() {
+  const explicita = {
+    id: 1,
+    user_id: 301,
+    memory_key: 'explicit-old-exclusion',
+    tipo: 'desinteres_detectado',
+    contenido: 'No quiero cursos',
+    scope_type: 'topic',
+    scope_value: 'formacion',
+    polarity: 'negative',
+    source: 'response',
+    strength: 1,
+    confidence: 1,
+    status: 'active',
+    created_at: '2026-07-01T08:00:00.000Z',
+    last_seen_at: '2026-07-01T08:00:00.000Z',
+  };
+  const debiles = Array.from({ length: 121 }, (_, index) => ({
+    id: index + 10,
+    user_id: 301,
+    memory_key: `click-${index + 1}`,
+    tipo: 'feedback_positivo',
+    contenido: `Clic débil ${index + 1}`,
+    scope_type: 'alert',
+    scope_value: String(index + 1000),
+    polarity: 'positive',
+    source: 'click',
+    strength: 0.2,
+    confidence: 0.5,
+    status: 'active',
+    created_at: `2026-08-01T10:${String(index % 60).padStart(2, '0')}:00.000Z`,
+    last_seen_at: `2026-08-01T10:${String(index % 60).padStart(2, '0')}:00.000Z`,
+  }));
+  const loaded = await cargarPerfilOperativoMIA(
+    crearSupabaseMemorias({
+      user_interest_profile: [],
+      user_memory: [explicita, ...debiles],
+      mia_structured_memory: [],
+    }),
+    301,
+    {
+      user: {
+        id: 301,
+        subscription: 'agricultor',
+        preferences: { provincias: ['Huesca'], sectores: ['agricultura'] },
+      },
+      limit: 120,
+    }
+  );
+
+  assert(
+    loaded.atomic_memories.some((memory) => memory.memory_key === explicita.memory_key),
+    'Conserva una exclusión explícita aunque quede detrás de más de 120 señales débiles'
+  );
+  assert(
+    mergeAtomicMemories([explicita], [explicita]).length === 1,
+    'Deduplica una memoria presente en las lecturas reciente y explícita'
+  );
+
+  const decisionProfile = buildDecisionProfile({
+    user: { id: 301, preferences: { provincias: ['Huesca'], sectores: ['agricultura'] } },
+    memories: loaded.atomic_memories,
+    now: '2026-08-02T10:00:00.000Z',
+    pseudonymSalt: 'test-durable-memory',
+  });
+  assert(
+    decisionProfile.memories.negative.some((memory) => memory.key === 'formacion'),
+    'La exclusión explícita durable llega al perfil canónico de decisión'
+  );
+}
+
+comprobarCargaDurable()
+  .then(() => {
+    console.log(`\nResultados: ${passed} aprobados, ${failed} fallidos`);
+    process.exit(failed > 0 ? 1 : 0);
+  })
+  .catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });

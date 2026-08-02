@@ -10,6 +10,7 @@ const {
   construirPreguntaExploracion,
   detectarZonaIncertidumbre,
   estadoExploracionDesdeMemorias,
+  estimarGananciaInformacion,
 } = require('../src/modules/mia/exploration');
 const { decidirMensajeMIA } = require('../src/modules/mia/decisionCore');
 const { construirMemoriasEstructuradas } = require('../src/modules/mia/structuredMemory');
@@ -26,6 +27,21 @@ async function main() {
   });
   assert.strictEqual(zona.topic, 'agua_riego');
   assert(construirPreguntaExploracion(zona).includes('propias palabras'));
+  assert(zona.information_gain > 0.5);
+
+  const mayorGanancia = detectarZonaIncertidumbre({
+    perfil: {
+      uncertain_topics: [
+        { topic: 'formacion', conflict_ratio: 0.1, confidence: 0.9 },
+        { topic: 'ayudas_maquinaria', conflict_ratio: 0.9, confidence: 0.3 },
+      ],
+    },
+  });
+  assert.strictEqual(mayorGanancia.topic, 'ayudas_maquinaria');
+  assert(
+    estimarGananciaInformacion({ conflict_ratio: 0.9, confidence: 0.3 }) >
+      estimarGananciaInformacion({ conflict_ratio: 0.1, confidence: 0.9 })
+  );
 
   const conversacion = {
     tipo: 'pregunta_exploracion',
@@ -67,7 +83,7 @@ async function main() {
     decision: negativa,
     textoOriginal: 'no',
   });
-  assert.strictEqual(rows[0].topic, 'agua_riego');
+  assert.strictEqual(rows[0].scope_value, 'agua_riego');
   assert.strictEqual(rows[0].polarity, 'negative');
 
   const control = await decidirMensajeMIA({
@@ -83,7 +99,9 @@ async function main() {
     'utf8'
   );
   assert(routesSource.includes('const elegible = force || tieneConflictos'));
-  assert(routesSource.includes("reason: 'sin_digest_enviado_hoy'"));
+  assert(routesSource.includes("reason: 'sin_digest_entregado_reciente'"));
+  assert(routesSource.includes(".in('delivery_status', ['DELIVERED', 'READ'])"));
+  assert(routesSource.includes("app.post('/cerebro/exploracion-diaria'"));
 
   console.log('OK: MIA entiende matices, respeta pausas y solo pregunta cuando aporta valor');
 }

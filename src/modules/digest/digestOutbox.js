@@ -6,25 +6,23 @@
 // los pendientes y el drenador de /tareas/mia-outbox los envia con reintentos,
 // backoff y recuperacion de atascados que ya existen para MIA.
 //
-// Activacion: DIGEST_VIA_OUTBOX=true (default false: comportamiento actual de
-// envio sincrono intacto hasta decidir el cutover).
-//
-// Dedupe: ademas del chequeo en codigo, la migracion 20260708_add_digest
-// _outbox_dedupe crea un unique parcial sobre (channel, to_phone,
-// metadata_json->>'digest_id'), asi que reencolar el mismo digest es no-op
-// aunque dos crons se solapen.
+// Dedupe: la migracion del contrato limita el unique legacy por digest a las
+// filas source=digest_diario y añade una clave idempotente universal. Así una
+// pregunta selectiva puede referenciar el mismo digest sin colisionar, mientras
+// reencolar el propio digest sigue siendo no-op aunque dos crons se solapen.
 
 const { actualizarDigestAttemptPorDigest } = require('../mia/digestAttempts');
+const {
+  DELIVERY_STATUS,
+  crearMessageVersion,
+  crearIdempotencyKey,
+} = require('../delivery/deliveryState');
 
 const UNIQUE_VIOLATION = '23505';
 const FINAL_SEND_GATE_VERSION = 'final_send_gate_v1';
 
-function digestViaOutboxHabilitado(env = process.env) {
-  return String(env.DIGEST_VIA_OUTBOX || 'false').toLowerCase() === 'true';
-}
-
 function digestIdDeOutboxItem(item) {
-  const raw = item?.metadata_json?.digest_id;
+  const raw = item?.digest_id ?? item?.metadata_json?.digest_id;
   const id = Number(raw);
   return Number.isSafeInteger(id) && id > 0 ? id : null;
 }
@@ -99,9 +97,10 @@ async function filtrarDigestsPorAutoridadFinal(supabase, digests = []) {
 async function encolarDigestsPendientes(supabase, { fecha, ahora = () => new Date() } = {}) {
   const { data: digests, error } = await supabase
     .from('digests')
-    .select('id, user_id, fecha, mensaje, organization_id')
+    .select('id, user_id, fecha, mensaje, organization_id, idempotency_key, message_version, delivery_status')
     .eq('fecha', fecha)
     .eq('enviado', false)
+    .or('delivery_status.is.null,delivery_status.in.(DRAFT,APPROVED)')
     .order('created_at', { ascending: true });
   if (error) throw error;
 
@@ -157,12 +156,24 @@ async function encolarDigestsPendientes(supabase, { fecha, ahora = () => new Dat
       continue;
     }
 
+    const messageVersion = digest.message_version
+      || crearMessageVersion(digest.mensaje, 'digest_message_v1');
+    const idempotencyKey = digest.idempotency_key
+      || crearIdempotencyKey({
+        source: 'digest',
+        sourceId: digest.id,
+        messageVersion,
+      });
     const { error: insError } = await supabase.from('mia_outbox').insert({
+      digest_id: digest.id,
       user_id: digest.user_id,
       channel: 'whatsapp',
       to_phone: telefono,
       body: digest.mensaje,
       status: 'queued',
+      delivery_status: DELIVERY_STATUS.QUEUED,
+      message_version: messageVersion,
+      idempotency_key: idempotencyKey,
       attempts: 0,
       next_attempt_at: ahora().toISOString(),
       organization_id: digest.organization_id || null,
@@ -170,8 +181,21 @@ async function encolarDigestsPendientes(supabase, { fecha, ahora = () => new Dat
         source: 'digest_diario',
         digest_id: digest.id,
         fecha: digest.fecha,
+        message_version: messageVersion,
       },
     });
+
+    if (!insError || insError.code === UNIQUE_VIOLATION) {
+      await supabase.from('digests').update({
+        idempotency_key: idempotencyKey,
+        message_version: messageVersion,
+        delivery_status: DELIVERY_STATUS.QUEUED,
+      }).eq('id', digest.id);
+      await actualizarDigestAttemptPorDigest(supabase, digest.id, {
+        deliveryStatus: DELIVERY_STATUS.QUEUED,
+        queuedCount: 1,
+      });
+    }
 
     if (!insError) {
       encolados++;
@@ -192,52 +216,9 @@ async function encolarDigestsPendientes(supabase, { fecha, ahora = () => new Dat
   };
 }
 
-// Hook post-proceso del drenador de mia_outbox: si el item era un digest,
-// refleja el resultado en digests (enviado/error_msg) y en digest_attempts.
-// No-op para items que no vienen del digest.
-async function procesarResultadoDigestOutbox(supabase, item, resultado) {
-  const digestId = digestIdDeOutboxItem(item);
-  if (!digestId || !resultado) return { digest: false };
-
-  if (resultado.status === 'sent') {
-    await supabase
-      .from('digests')
-      .update({ enviado: true, enviado_at: new Date().toISOString(), error_msg: null })
-      .eq('id', digestId);
-    await actualizarDigestAttemptPorDigest(supabase, digestId, {
-      status: 'sent',
-      motivoNoEnvio: null,
-      errorMsg: null,
-    });
-    return { digest: true, digestId, marcado: 'sent' };
-  }
-
-  if (resultado.status === 'failed') {
-    await supabase
-      .from('digests')
-      .update({ error_msg: String(resultado.error || 'fallo_envio_whatsapp').slice(0, 500) })
-      .eq('id', digestId);
-    // Solo se marca el attempt como failed cuando la cola agota reintentos;
-    // mientras queden, el estado del dia sigue siendo "pendiente de envio".
-    if (resultado.retryable === false) {
-      await actualizarDigestAttemptPorDigest(supabase, digestId, {
-        status: 'failed',
-        motivoNoEnvio: 'fallo_envio_whatsapp',
-        errorMsg: String(resultado.error || '').slice(0, 500),
-      });
-      return { digest: true, digestId, marcado: 'failed_final' };
-    }
-    return { digest: true, digestId, marcado: 'failed_retryable' };
-  }
-
-  return { digest: true, digestId, marcado: null };
-}
-
 module.exports = {
-  digestViaOutboxHabilitado,
   digestIdDeOutboxItem,
   evaluarDigestItemsParaEnvio,
   filtrarDigestsPorAutoridadFinal,
   encolarDigestsPendientes,
-  procesarResultadoDigestOutbox,
 };

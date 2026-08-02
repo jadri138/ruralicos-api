@@ -1,8 +1,7 @@
 // src/modules/tareas/tareas.helpers.js
 //
-// Helpers compartidos entre las rutas de tareas (crons HTTP) y el runner de
-// pipeline con checkpoints (pipelineRunner.js). Sin estado propio: todo recibe
-// supabase/config por parametro.
+// Helpers de las rutas HTTP de tareas y del workflow diario. Sin estado propio:
+// todo recibe supabase/config por parametro.
 
 const SCRAPE_PATHS_DEFAULT = [
   '/scrape-boe-oficial',
@@ -88,15 +87,6 @@ function uniquePaths(paths) {
   return Array.from(new Set(paths.filter(Boolean)));
 }
 
-// Interlock heredado del antiguo cutover: mantiene jubilado el monolito cuando
-// PIPELINE_TICK_SHADOW no esta activo, para que una configuracion antigua no
-// duplique los efectos del workflow actual. force_legacy=true permite una
-// ejecucion manual excepcional; no convierte esta ruta en el cron recomendado.
-function pipelineDiarioJubilado(env = process.env, query = {}) {
-  const tickEnReal = !boolValue(env.PIPELINE_TICK_SHADOW, false);
-  return tickEnReal && !boolValue(query.force_legacy, false);
-}
-
 function getAllowedScraperPaths() {
   return uniquePaths([
     ...SCRAPE_PATHS_DEFAULT,
@@ -105,19 +95,6 @@ function getAllowedScraperPaths() {
     ...getComplementaryScrapePaths(),
     FEGA_SCRAPE_PATH,
   ]);
-}
-
-function getPipelineScrapePaths(options = {}) {
-  const {
-    incluirComplementarios = true,
-    incluirFega = false,
-  } = options;
-
-  const paths = [...getScrapePaths()];
-  if (incluirComplementarios) paths.push(...getComplementaryScrapePaths());
-  if (incluirFega) paths.push(FEGA_SCRAPE_PATH);
-
-  return uniquePaths(paths);
 }
 
 function appendQuery(baseUrl, path, params) {
@@ -185,26 +162,10 @@ async function readResponseBody(response) {
   }
 }
 
-function isRetryableStatus(status) {
-  return [408, 429, 500, 502, 503, 504].includes(Number(status));
-}
-
-function isRetryableError(err) {
-  if (err?.retryable === false) return false;
-  return err?.retryable === true || /fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN/i.test(String(err?.message || ''));
-}
-
 async function guardarScraperRun(supabase, run) {
   const { error } = await supabase.from('scraper_runs').insert([run]);
   if (error) {
     console.warn('[scraper_runs] No se pudo guardar ejecucion:', error.message);
-  }
-}
-
-async function guardarPipelineRun(supabase, run) {
-  const { error } = await supabase.from('pipeline_runs').insert([run]);
-  if (error) {
-    console.warn('[pipeline_runs] No se pudo guardar ejecucion:', error.message);
   }
 }
 
@@ -217,9 +178,7 @@ module.exports = {
   getComplementaryScrapePaths,
   boolValue,
   uniquePaths,
-  pipelineDiarioJubilado,
   getAllowedScraperPaths,
-  getPipelineScrapePaths,
   appendQuery,
   buildCronFetchOptions,
   buildScrapeUrl,
@@ -227,8 +186,5 @@ module.exports = {
   obtenerFuenteScraper,
   numeroBody,
   readResponseBody,
-  isRetryableStatus,
-  isRetryableError,
   guardarScraperRun,
-  guardarPipelineRun,
 };

@@ -1,7 +1,7 @@
 // Versiona la decision completa del digest, no solo el esquema de la fila.
 // Al cambiar filtros/validadores, subir esta version permite reevaluar una vez
 // los no-envios antiguos sin tocar digests ya generados o enviados.
-const DIGEST_DECISION_VERSION = 'digest_decision_v7';
+const DIGEST_DECISION_VERSION = 'digest_decision_v8_alert_authority';
 
 const ESTADOS_TERMINALES_INMUTABLES = new Set([
   'generated',
@@ -66,8 +66,13 @@ function construirDigestAttemptRow(input = {}) {
   incluirEntero('tras_filtro_usuario', 'tras_filtro_usuario', 'trasFiltroUsuario');
   incluirEntero('tras_scoring', 'tras_scoring', 'trasScoring');
   incluirEntero('alertas_finales', 'alertas_finales', 'alertasFinales');
+  incluirEntero('judge_evaluated_count', 'judge_evaluated_count', 'judgeEvaluatedCount');
+  incluirEntero('approved_count', 'approved_count', 'approvedCount');
+  incluirEntero('queued_count', 'queued_count', 'queuedCount');
+  incluirEntero('delivered_count', 'delivered_count', 'deliveredCount');
   incluirTexto('motivo_no_envio', 240, 'motivo_no_envio', 'motivoNoEnvio');
   incluirTexto('error_msg', 800, 'error_msg', 'errorMsg');
+  incluirTexto('delivery_status', 40, 'delivery_status', 'deliveryStatus');
   const metadata = normalizarJson(input.metadata_json || input.metadata);
   row.metadata_json = {
     ...metadata,
@@ -165,6 +170,22 @@ async function actualizarDigestAttemptPorDigest(supabase, digestId, patch = {}) 
   }
   if (patch.error_msg !== undefined || patch.errorMsg !== undefined) {
     row.error_msg = normalizarTexto(patch.error_msg ?? patch.errorMsg, 800);
+  }
+  if (patch.delivery_status !== undefined || patch.deliveryStatus !== undefined) {
+    row.delivery_status = normalizarTexto(
+      patch.delivery_status ?? patch.deliveryStatus,
+      40
+    );
+  }
+  for (const [column, camel] of [
+    ['judge_evaluated_count', 'judgeEvaluatedCount'],
+    ['approved_count', 'approvedCount'],
+    ['queued_count', 'queuedCount'],
+    ['delivered_count', 'deliveredCount'],
+  ]) {
+    if (patch[column] !== undefined || patch[camel] !== undefined) {
+      row[column] = normalizarEntero(patch[column] ?? patch[camel]);
+    }
   }
   if (patch.metadata_json !== undefined || patch.metadata !== undefined) {
     row.metadata_json = normalizarJson(patch.metadata_json || patch.metadata);

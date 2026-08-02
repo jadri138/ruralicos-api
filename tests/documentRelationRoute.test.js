@@ -74,7 +74,7 @@ new Promise((resolve, reject) => {
     },
   };
 
-  app.handlers['GET /alertas/deduplicar'](req, res);
+  app.handlers['POST /alertas/deduplicar'](req, res);
 }).catch((error) => {
   console.error(error.stack || error.message);
   process.exit(1);

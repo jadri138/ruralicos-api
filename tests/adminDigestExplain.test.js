@@ -48,6 +48,10 @@ test('construye explicacion why-sent con seleccion, fact sheet y validacion fina
       fecha: '2026-06-20',
       mensaje: 'Mensaje largo',
       enviado: true,
+      delivery_status: 'DELIVERED',
+      provider_message_id: 'provider-77',
+      accepted_at: '2026-06-20T10:01:00Z',
+      delivered_at: '2026-06-20T10:02:00Z',
       alerta_ids: [501],
     },
     digestItems: [{
@@ -89,10 +93,28 @@ test('construye explicacion why-sent con seleccion, fact sheet y validacion fina
       evidence_coverage: 0.92,
       generated_at: '2026-06-20T10:00:00Z',
     }],
-    attempts: [{ id: 3, digest_id: 77, status: 'generated' }],
+    attempts: [{
+      id: 3,
+      digest_id: 77,
+      status: 'generated',
+      judge_evaluated_count: 4,
+      approved_count: 1,
+      queued_count: 1,
+      delivered_count: 1,
+      delivery_status: 'DELIVERED',
+    }],
   });
 
   assert.strictEqual(result.digest.id, 77);
+  assert.strictEqual(result.digest.delivery_status, 'DELIVERED');
+  assert.strictEqual(result.delivery.provider_message_id, 'provider-77');
+  assert.strictEqual(result.delivery.delivered_at, '2026-06-20T10:02:00Z');
+  assert.deepStrictEqual(result.funnel, {
+    judge_evaluated: 4,
+    approved: 1,
+    queued: 1,
+    delivered: 1,
+  });
   assert.strictEqual(result.items.length, 1);
   assert.strictEqual(result.items[0].selection.action, 'include');
   assert.strictEqual(result.items[0].fact_sheet.status, 'ready_for_digest');
@@ -108,6 +130,7 @@ test('construye why-not-sent desde digest_attempts', () => {
       fecha: '2026-06-20',
       kind: 'daily',
       status: 'no_send',
+      delivery_status: 'FAILED',
       motivo_no_envio: 'final_validation_blocked',
       metadata_json: {
         final_validation: { status: 'blocked', items_blocked: 1 },
@@ -118,6 +141,10 @@ test('construye why-not-sent desde digest_attempts', () => {
       tras_filtro_usuario: 2,
       tras_scoring: 1,
       alertas_finales: 0,
+      judge_evaluated_count: 2,
+      approved_count: 0,
+      queued_count: 0,
+      delivered_count: 0,
     }],
     users: [{
       id: 141,
@@ -130,6 +157,8 @@ test('construye why-not-sent desde digest_attempts', () => {
 
   assert.strictEqual(result.length, 1);
   assert.strictEqual(result[0].attempt.motivo_no_envio, 'final_validation_blocked');
+  assert.strictEqual(result[0].attempt.delivery_status, 'FAILED');
+  assert.strictEqual(result[0].counters.judge_evaluated, 2);
   assert.strictEqual(result[0].user.name, 'Cooperativa Norte');
   assert.strictEqual(result[0].final_validation.status, 'blocked');
   assert.strictEqual(result[0].final_validation_enforcement.rejected, 1);
@@ -139,6 +168,8 @@ test('registra endpoints admin protegidos', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'src/modules/admin/admin.panel.routes.js'), 'utf8');
   assert(source.includes("app.get('/admin/digest/why-sent', requireAdmin"), 'Existe endpoint why-sent protegido');
   assert(source.includes("app.get('/admin/digest/why-not-sent', requireAdmin"), 'Existe endpoint why-not-sent protegido');
+  assert(source.includes('judge_evaluated_count, approved_count, queued_count, delivered_count, delivery_status'));
+  assert(source.includes('delivery_status, provider_message_id, accepted_at'));
 });
 
 console.log(`\nResultados adminDigestExplain: ${passed} aprobados, ${failed} fallidos`);

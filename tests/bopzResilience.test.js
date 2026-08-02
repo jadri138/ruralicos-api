@@ -10,7 +10,6 @@ const {
 } = require('../src/modules/boletines/scrapers/provinciales/aragon/scraper');
 const { __testing: routeTesting } = require('../src/modules/boletines/rutas/provinciales/aragon/bopAragon');
 const { evaluarRespuestaScraper } = require('../src/modules/boletines/scraperRunQuality');
-const { crearEjecutorHttp } = require('../src/modules/tareas/pipelineRunner');
 
 const originalGet = axios.get;
 const originalFetch = global.fetch;
@@ -150,25 +149,6 @@ async function expectRejectCode(promise, code) {
   assert.strictEqual(__testing.clasificarErrorBopz(timeoutError()).state, 'timeout');
   assert.strictEqual(__testing.clasificarErrorBopz(new Error('ECONNREFUSED')).state, 'portal_down');
 
-  let outerCalls = 0;
-  global.fetch = async () => {
-    outerCalls += 1;
-    return {
-      ok: false,
-      status: 504,
-      text: async () => JSON.stringify(timeoutResponse.body),
-    };
-  };
-  const ejecutar = crearEjecutorHttp({
-    baseUrl: 'https://ruralicos.test',
-    token: 'test-token',
-    fecha: scenarios.fecha,
-    httpRetries: 3,
-    httpRetryDelayMs: 1,
-    sleep: async () => {},
-  });
-  await assert.rejects(() => ejecutar('/scrape-bopz-oficial'), /504/);
-  assert.strictEqual(outerCalls, 1, 'el pipeline no repite todo el scraper tras agotar retries internos');
   console.log('OK: BOPZ simulado cubre timeout, retry, fallback, parseo, sin publicacion y limites');
 })().catch((error) => {
   console.error(error.stack || error.message);

@@ -17,6 +17,10 @@ const {
   verifyStoredCodeOrLegacy,
 } = require('./verificationCodes');
 const { actualizarPerfilUsuarioMIASafe } = require('../aprendizaje/miaProfile');
+const {
+  borrarMemoriaAtomica,
+  corregirMemoriaAtomica,
+} = require('../aprendizaje/atomicMemory');
 const { notificarCambioPlan } = require('../../services/planChangeNotifier');
 
 module.exports = (app, supabase, ctx) => {
@@ -442,6 +446,7 @@ module.exports = (app, supabase, ctx) => {
       const [
         digests,
         memories,
+        legacyStructuredMemories,
         feedback,
         interestProfile,
         clicks,
@@ -449,10 +454,11 @@ module.exports = (app, supabase, ctx) => {
         explorations,
         officialMatches,
       ] = await Promise.all([
-        selectUserRows('digests', 'id, fecha, mensaje, alerta_ids, enviado, enviado_at, created_at', userId, { order: 'created_at', limit: 300 }),
-        selectUserRows('user_memory', 'id, tipo, contenido, alerta_id, digest_id, peso_inicial, incorporado_a_embedding, created_at', userId, { order: 'created_at', limit: 1000 }),
+        selectUserRows('digests', 'id, fecha, mensaje, alerta_ids, enviado, enviado_at, idempotency_key, message_version, delivery_status, provider_message_id, accepted_at, sent_to_whatsapp_at, delivered_at, read_at, failed_at, created_at', userId, { order: 'created_at', limit: 300 }),
+        selectUserRows('user_memory', 'id, tipo, contenido, alerta_id, digest_id, peso_inicial, incorporado_a_embedding, memory_key, scope_type, scope_value, polarity, source, strength, confidence, status, expires_at, correction_of, metadata_json, duplicate_count, last_seen_at, updated_at, decision_version, inbound_id, created_at', userId, { order: 'created_at', limit: 1000 }),
+        selectUserRows('mia_structured_memory', 'id, digest_id, inbound_id, source, memory_type, topic, detail, polarity, confidence, decision_version, duplicate_count, last_seen_at, created_at', userId, { order: 'last_seen_at', limit: 1000 }),
         selectUserRows('alerta_feedback', 'id, digest_id, alerta_id, item_numero, valor, raw_text, created_at, updated_at', userId, { order: 'created_at', limit: 1000 }),
-        selectUserRows('user_interest_profile', 'id, tag, score, positivos, negativos, updated_at', userId, { order: 'updated_at', limit: 1000 }),
+        selectUserRows('user_interest_profile', 'tag, score, positivos, negativos, updated_at', userId, { order: 'updated_at', limit: 1000 }),
         selectUserRows('alerta_clicks', 'id, digest_id, alerta_id, url_destino, created_at', userId, { order: 'created_at', limit: 1000 }),
         selectUserRows('user_conversations', 'id, tipo, estado, digest_id, abierta_at, cerrada_at, expira_at', userId, { order: 'abierta_at', limit: 300 }),
         selectUserRows('exploration_log', 'id, digest_id, alerta_id, tipo_exploracion, motivo, resultado, procesado, created_at', userId, { order: 'created_at', limit: 300 }),
@@ -464,6 +470,7 @@ module.exports = (app, supabase, ctx) => {
         user,
         digests,
         memory: memories,
+        legacy_memory_read_only: legacyStructuredMemories,
         feedback,
         interest_profile: interestProfile,
         clicks,
@@ -498,15 +505,34 @@ module.exports = (app, supabase, ctx) => {
 
       const capabilities = getMemoryCapabilities(user.subscription);
 
-      const { data: memories, error: memoriesError } = await supabase
-        .from('user_memory')
-        .select('id, tipo, contenido, alerta_id, digest_id, peso_inicial, incorporado_a_embedding, created_at')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false })
-        .limit(capabilities.detail_access ? 200 : 50);
+      const [canonicalResult, legacyResult] = await Promise.all([
+        supabase
+          .from('user_memory')
+          .select('id, tipo, contenido, alerta_id, digest_id, peso_inicial, incorporado_a_embedding, memory_key, scope_type, scope_value, polarity, source, strength, confidence, status, expires_at, correction_of, metadata_json, duplicate_count, last_seen_at, updated_at, decision_version, created_at')
+          .eq('user_id', userId)
+          .neq('status', 'deleted')
+          .order('last_seen_at', { ascending: false })
+          .limit(capabilities.detail_access ? 200 : 50),
+        supabase
+          .from('mia_structured_memory')
+          .select('id, memory_type, topic, detail, polarity, confidence, duplicate_count, last_seen_at, created_at')
+          .eq('user_id', userId)
+          .order('last_seen_at', { ascending: false })
+          .limit(capabilities.detail_access ? 100 : 20),
+      ]);
+
+      const memories = canonicalResult.data;
+      const memoriesError = canonicalResult.error;
+      const legacyMemories = legacyResult.data;
+      const legacyMemoriesError = legacyResult.error;
 
       if (memoriesError) {
         console.error('Error en GET /me/memory:', memoriesError.message);
+        return res.status(500).json({ error: 'Error consultando memoria' });
+      }
+
+      if (legacyMemoriesError) {
+        console.error('Error leyendo memoria legacy:', legacyMemoriesError.message);
         return res.status(500).json({ error: 'Error consultando memoria' });
       }
 
@@ -526,6 +552,7 @@ module.exports = (app, supabase, ctx) => {
           by_type: summarizeMemory(memoryList),
           pending_profile: memoryList.filter((memory) => memory.incorporado_a_embedding === false).length,
           latest: capabilities.detail_access ? memoryList.slice(0, 50) : [],
+          legacy_read_only: capabilities.detail_access ? legacyMemories || [] : [],
         },
       });
     } catch (err) {
@@ -561,20 +588,8 @@ module.exports = (app, supabase, ctx) => {
         return res.status(403).json({ error: 'Tu plan no permite gestionar memoria avanzada' });
       }
 
-      const { data, error } = await supabase
-        .from('user_memory')
-        .delete()
-        .eq('id', memoryId)
-        .eq('user_id', userId)
-        .select('id')
-        .maybeSingle();
-
-      if (error) {
-        console.error('Error borrando memoria:', error.message);
-        return res.status(500).json({ error: 'No se pudo borrar la memoria' });
-      }
-
-      if (!data) return res.status(404).json({ error: 'Memoria no encontrada' });
+      const deletion = await borrarMemoriaAtomica(supabase, { userId, memoryId });
+      if (!deletion.found) return res.status(404).json({ error: 'Memoria no encontrada' });
 
       await resetMiaProfile(userId);
       actualizarPerfilUsuarioMIASafe(supabase, userId).catch((err) => {
@@ -585,6 +600,82 @@ module.exports = (app, supabase, ctx) => {
     } catch (err) {
       console.error('Error en DELETE /me/memory/:id:', err);
       return res.status(500).json({ error: 'Error interno' });
+    }
+  });
+
+
+  // --------------------------------------------------
+  // CORREGIR UNA MEMORIA
+  // PATCH /me/memory/:id -> crea una corrección reversible y auditable
+  // --------------------------------------------------
+  app.patch('/me/memory/:id', requireAuth, async (req, res) => {
+    try {
+      const userId = req.user.sub;
+      const memoryId = Number(req.params.id);
+      if (!Number.isInteger(memoryId) || memoryId <= 0) {
+        return res.status(400).json({ error: 'Memoria no valida' });
+      }
+
+      const { data: user, error: userError } = await supabase
+        .from('users')
+        .select('id, subscription')
+        .eq('id', userId)
+        .single();
+      if (userError || !user) return res.status(404).json({ error: 'Usuario no encontrado' });
+
+      const capabilities = getMemoryCapabilities(user.subscription);
+      if (!capabilities.manage_access) {
+        return res.status(403).json({ error: 'Tu plan no permite gestionar memoria avanzada' });
+      }
+
+      const allowedScopes = new Set([
+        'alert',
+        'topic',
+        'subsector',
+        'territory',
+        'frequency',
+        'channel',
+        'activity',
+      ]);
+      const allowedPolarities = new Set(['positive', 'negative', 'neutral']);
+      const replacement = {
+        contenido: req.body?.contenido,
+        scopeType: req.body?.scope_type,
+        scopeValue: req.body?.scope_value,
+        polarity: req.body?.polarity,
+        expiresAt: req.body?.expires_at,
+      };
+
+      if (Object.values(replacement).every((value) => value === undefined)) {
+        return res.status(400).json({ error: 'Indica qué dato de memoria quieres corregir' });
+      }
+
+      if (replacement.scopeType && !allowedScopes.has(replacement.scopeType)) {
+        return res.status(400).json({ error: 'Ámbito de memoria no válido' });
+      }
+      if (replacement.polarity && !allowedPolarities.has(replacement.polarity)) {
+        return res.status(400).json({ error: 'Polaridad de memoria no válida' });
+      }
+      if (replacement.contenido !== undefined && !String(replacement.contenido).trim()) {
+        return res.status(400).json({ error: 'El contenido no puede estar vacío' });
+      }
+
+      const correction = await corregirMemoriaAtomica(supabase, {
+        userId,
+        memoryId,
+        replacement,
+      });
+      if (!correction.found) return res.status(404).json({ error: 'Memoria no encontrada' });
+
+      await resetMiaProfile(userId);
+      actualizarPerfilUsuarioMIASafe(supabase, userId).catch((error) => {
+        console.warn('[memoria] Recalculo no bloqueante fallido:', error.message);
+      });
+
+      return res.json({ ok: true, memory: correction.corrected });
+    } catch (err) {
+      console.error('Error en PATCH /me/memory/:id:', err);
+      return res.status(500).json({ error: 'No se pudo corregir la memoria' });
     }
   });
 
@@ -611,6 +702,7 @@ module.exports = (app, supabase, ctx) => {
       }
 
       await deleteUserRows('user_memory', userId);
+      await deleteUserRows('mia_structured_memory', userId);
       await deleteUserRows('user_interest_profile', userId);
       await deleteUserRows('alerta_feedback', userId);
       await deleteUserRows('exploration_log', userId);

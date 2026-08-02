@@ -40,7 +40,7 @@ function tagDe(ruta) {
   if (ruta.startsWith('/scrape-')) return 'scrapers (cron)';
   if (ruta.startsWith('/alertas')) return 'alertas';
   if (ruta.startsWith('/cerebro') || ruta.startsWith('/embeddings')) return 'aprendizaje/ia';
-  if (ruta.startsWith('/me') || ['/register', '/login-phone', '/first-login', '/set-password'].includes(ruta)
+  if (ruta.startsWith('/me') || ['/register', '/login-phone', '/set-password'].includes(ruta)
     || ruta.startsWith('/verify-phone') || ruta.startsWith('/password-reset') || ruta.startsWith('/users')) return 'usuarios';
   if (ruta.startsWith('/feedback') || ruta.startsWith('/webhooks')) return 'feedback';
   if (ruta.startsWith('/digest')) return 'digest';
@@ -129,7 +129,7 @@ const documento = {
   },
   servers: [
     { url: 'https://ruralicos-api.onrender.com/v1', description: 'Produccion (prefijo v1 recomendado)' },
-    { url: 'https://ruralicos-api.onrender.com', description: 'Produccion (rutas legacy sin prefijo)' },
+    { url: 'https://ruralicos-api.onrender.com', description: 'Produccion' },
   ],
   components: {
     securitySchemes: {

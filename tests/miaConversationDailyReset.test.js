@@ -9,6 +9,7 @@ const {
   esConversacionMIADelDia,
   fechaMadridConversacionMIA,
   getExpiracionFinDiaMadridISO,
+  extraerItemsReferenciadosInequivocamente,
 } = __testing;
 
 let passed = 0;
@@ -37,6 +38,12 @@ function crearSupabaseMock(tablas = {}) {
         const values = new Set(filter.values);
         rows = rows.filter((row) => values.has(row[filter.column]));
       }
+      if (filter.op === 'gte') {
+        rows = rows.filter((row) => String(row[filter.column] || '') >= String(filter.value));
+      }
+      if (filter.op === 'lte') {
+        rows = rows.filter((row) => String(row[filter.column] || '') <= String(filter.value));
+      }
     }
     return rows;
   }
@@ -60,6 +67,16 @@ function crearSupabaseMock(tablas = {}) {
         },
         gt(column, value) {
           calls.push({ table, op: 'gt', column, value });
+          return this;
+        },
+        gte(column, value) {
+          this.filters.push({ op: 'gte', column, value });
+          calls.push({ table, op: 'gte', column, value });
+          return this;
+        },
+        lte(column, value) {
+          this.filters.push({ op: 'lte', column, value });
+          calls.push({ table, op: 'lte', column, value });
           return this;
         },
         or() {
@@ -117,6 +134,16 @@ assert(
   'Caduca al final del dia Madrid en horario de verano'
 );
 
+assert(
+  JSON.stringify(extraerItemsReferenciadosInequivocamente('La segunda no me interesa', 3)) === '[2]',
+  'Reconoce una referencia ordinal valorada'
+);
+
+assert(
+  extraerItemsReferenciadosInequivocamente('El 2 de agosto abre el plazo', 3).length === 0,
+  'No confunde una fecha con el numero de una alerta'
+);
+
 (async () => {
   const supabaseConversaciones = crearSupabaseMock({
     user_conversations: [
@@ -169,6 +196,8 @@ assert(
         fecha: '2026-06-04',
         alerta_ids: [100],
         enviado: true,
+        delivery_status: 'DELIVERED',
+        delivered_at: '2026-06-04T08:00:00.000Z',
         organization_id: null,
       },
       {
@@ -177,6 +206,8 @@ assert(
         fecha: '2026-06-05',
         alerta_ids: [101],
         enviado: true,
+        delivery_status: 'DELIVERED',
+        delivered_at: '2026-06-05T08:00:00.000Z',
         organization_id: null,
       },
     ],
@@ -199,11 +230,136 @@ assert(
   });
 
   const digestHoy = await cargarDigestYAlertas(supabaseDigest, 141, null, null, { fechaHoy: '2026-06-05' });
-  assert(digestHoy.digest?.id === 21, 'Carga solo el digest enviado del dia actual');
+  assert(digestHoy.digest?.id === 21, 'Carga solo el digest entregado del dia actual');
   assert(digestHoy.alertasOrdenadas.length === 1 && digestHoy.alertasOrdenadas[0].id === 101, 'Ordena alertas del digest actual');
   assert(
     supabaseDigest.calls.some((call) => call.table === 'digests' && call.op === 'eq' && call.column === 'fecha' && call.value === '2026-06-05'),
     'Filtra digests por fecha de hoy'
+  );
+
+  const supabaseNoEntregado = crearSupabaseMock({
+    digests: [{
+      id: 22,
+      user_id: 141,
+      fecha: '2026-06-05',
+      alerta_ids: [102],
+      delivery_status: 'FAILED',
+      organization_id: null,
+    }],
+    digest_items: [{ digest_id: 22, item_numero: 1, alerta_id: 102 }],
+    alertas: [{ id: 102, titulo: 'No entregada', organization_id: null }],
+  });
+  const desdeConversacionFallida = await cargarDigestYAlertas(
+    supabaseNoEntregado,
+    141,
+    { digest_id: 22, contexto_json: { digest_id: 22 } },
+    null,
+    { fechaHoy: '2026-06-05' }
+  );
+  assert(
+    desdeConversacionFallida.digest === null && desdeConversacionFallida.alertasOrdenadas.length === 0,
+    'No aprende feedback de un digest que fallo antes de entregarse'
+  );
+
+  const supabaseTardio = crearSupabaseMock({
+    digests: [{
+      id: 30,
+      user_id: 141,
+      fecha: '2026-06-04',
+      alerta_ids: [201, 202],
+      delivery_status: 'DELIVERED',
+      delivered_at: '2026-06-04T08:00:00.000Z',
+      created_at: '2026-06-04T07:50:00.000Z',
+      organization_id: null,
+    }],
+    digest_items: [
+      { digest_id: 30, item_numero: 1, alerta_id: 201 },
+      { digest_id: 30, item_numero: 2, alerta_id: 202 },
+    ],
+    alertas: [
+      { id: 201, titulo: 'Ayuda de regadio', organization_id: null },
+      { id: 202, titulo: 'Curso de fitosanitarios', organization_id: null },
+    ],
+  });
+  const tardioInequivoco = await cargarDigestYAlertas(
+    supabaseTardio,
+    141,
+    null,
+    null,
+    {
+      fechaHoy: '2026-06-05',
+      now: '2026-06-05T09:00:00.000Z',
+      mensajeUsuario: 'La 2 no me interesa',
+    }
+  );
+  assert(
+    tardioInequivoco.digest?.id === 30 && tardioInequivoco.lateAssociation?.item_numbers?.[0] === 2,
+    'Asocia una respuesta tardia inequivoca al ultimo digest entregado'
+  );
+  assert(
+    tardioInequivoco.alertasOrdenadas.map((alerta) => alerta.id).join(',') === '201,202',
+    'Conserva el orden completo del digest tardio para interpretar el numero'
+  );
+
+  const tardioAmbiguo = await cargarDigestYAlertas(
+    supabaseTardio,
+    141,
+    null,
+    null,
+    {
+      fechaHoy: '2026-06-05',
+      now: '2026-06-05T09:00:00.000Z',
+      mensajeUsuario: 'No me interesa',
+    }
+  );
+  assert(
+    tardioAmbiguo.digest === null && tardioAmbiguo.lateAssociation === null,
+    'No atribuye una respuesta tardia ambigua'
+  );
+
+  const conConversacionNueva = await cargarDigestYAlertas(
+    supabaseTardio,
+    141,
+    { id: 99, tipo: 'pregunta_exploracion', contexto_json: { fecha: '2026-06-05' } },
+    null,
+    {
+      fechaHoy: '2026-06-05',
+      now: '2026-06-05T09:00:00.000Z',
+      mensajeUsuario: 'La 2 no me interesa',
+    }
+  );
+  assert(
+    conConversacionNueva.digest === null,
+    'No mezcla un digest anterior con una conversacion nueva'
+  );
+
+  const fueraDeVentana = await cargarDigestYAlertas(
+    crearSupabaseMock({
+      digests: [{
+        id: 31,
+        user_id: 141,
+        fecha: '2026-06-01',
+        alerta_ids: [203],
+        delivery_status: 'READ',
+        delivered_at: '2026-06-01T08:00:00.000Z',
+        read_at: '2026-06-01T10:00:00.000Z',
+        created_at: '2026-06-01T07:50:00.000Z',
+      }],
+      digest_items: [{ digest_id: 31, item_numero: 1, alerta_id: 203 }],
+      alertas: [{ id: 203, titulo: 'Aviso antiguo', organization_id: null }],
+    }),
+    141,
+    null,
+    null,
+    {
+      fechaHoy: '2026-06-05',
+      now: '2026-06-05T09:00:00.000Z',
+      mensajeUsuario: '+1',
+    }
+  );
+  assert(
+    fueraDeVentana.digest === null,
+    'No asocia respuestas a un digest fuera de la ventana corta'
   );
 
   console.log(`\nResultados miaConversationDailyReset: ${passed} aprobados, ${failed} fallidos`);

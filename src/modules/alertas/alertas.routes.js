@@ -6,7 +6,6 @@
 // alertas.service.js.
 const { checkCronToken } = require('../../middleware/cronToken');
 const { llamarIA } = require('../../platform/ia/llamarIA');
-const { enviarWhatsAppResumen } = require('../../platform/whatsapp');
 const { getFechaMadridISO } = require('../../shared/fechaMadrid');
 const {
   sanitizarTextoPostgres,
@@ -43,7 +42,6 @@ const {
 } = require('./alertPipelineStates');
 
 const {
-  DIGEST_ONLY_MODE,
   CLASIFICAR_BATCH_SIZE,
   RESUMIR_BATCH_SIZE,
   REVISAR_BATCH_SIZE,
@@ -301,10 +299,6 @@ module.exports = function alertasRoutes(app, supabase) {
     if (!checkCronToken(req, res)) return;
     clasificarHandler(req, res);
   });
-  app.get('/alertas/clasificar', (req, res) => {
-    if (!checkCronToken(req, res)) return;
-    clasificarHandler(req, res);
-  });
 
   // ══════════════════════════════════════════════════════════════
   // PASO 2 — /alertas/resumir
@@ -442,10 +436,6 @@ module.exports = function alertasRoutes(app, supabase) {
   };
 
   app.post('/alertas/resumir', (req, res) => {
-    if (!checkCronToken(req, res)) return;
-    resumirHandler(req, res);
-  });
-  app.get('/alertas/resumir', (req, res) => {
     if (!checkCronToken(req, res)) return;
     resumirHandler(req, res);
   });
@@ -663,79 +653,8 @@ Responde UNICAMENTE con la ficha final. Sin JSON, sin explicaciones, sin nada ma
     if (!checkCronToken(req, res)) return;
     revisarHandler(req, res);
   });
-  app.get('/alertas/revisar', (req, res) => {
-    if (!checkCronToken(req, res)) return;
-    revisarHandler(req, res);
-  });
 
   // ══════════════════════════════════════════════════════════════
-  // LEGACY — /alertas/enviar-whatsapp
-  // Envio individual por alerta. El flujo actual usa digest por usuario.
-  // Cron recomendado: 1 vez al día a la hora que quieras (ej: 08:00)
-  // ══════════════════════════════════════════════════════════════
-  const enviarWhatsAppHandler = async (req, res) => {
-    try {
-      const hoy = getFechaMadridISO();
-
-      // Modo recomendado: evitar envíos por alerta individual y usar digest por usuario.
-      if (DIGEST_ONLY_MODE) {
-        return res.status(410).json({
-          success: false,
-          modo: 'digest_only',
-          fecha: hoy,
-          mensaje: 'Ruta desactivada para evitar spam por alerta individual. Usa /alertas/preparar-digest y /alertas/enviar-digest.',
-        });
-      }
-
-      const { data: alertas, error } = await supabase
-        .from('alertas')
-        .select('*')
-        .eq('fecha', hoy)
-        .eq('estado_ia', 'listo')
-        .or('whatsapp_enviado.is.null,whatsapp_enviado.eq.false');
-
-      if (error) return res.status(500).json({ error: error.message });
-      if (!alertas || alertas.length === 0) {
-        return res.json({ success: true, enviadas: 0, mensaje: 'No hay alertas listas para enviar hoy', fecha: hoy });
-      }
-
-      let enviadas = 0;
-      const errores = [];
-
-      for (const alerta of alertas) {
-        try {
-          // Usamos resumen_final si existe, si no caemos a resumen por compatibilidad
-          const alertaParaEnviar = {
-            ...alerta,
-            resumen: alerta.resumen_final || alerta.resumen,
-          };
-
-          await enviarWhatsAppResumen(alertaParaEnviar, supabase);
-          await supabase.from('alertas').update({ whatsapp_enviado: true }).eq('id', alerta.id);
-          enviadas++;
-        } catch (err) {
-          console.error('Error enviando WhatsApp para alerta', alerta.id, err);
-          errores.push({ id: alerta.id, error: err.message });
-        }
-      }
-
-      res.json({ success: true, fecha: hoy, total: alertas.length, enviadas, errores });
-
-    } catch (err) {
-      console.error('Error en /alertas/enviar-whatsapp', err);
-      res.status(500).json({ error: err.message });
-    }
-  };
-
-  app.get('/alertas/enviar-whatsapp', (req, res) => {
-    if (!checkCronToken(req, res)) return;
-    enviarWhatsAppHandler(req, res);
-  });
-  app.post('/alertas/enviar-whatsapp', (req, res) => {
-    if (!checkCronToken(req, res)) return;
-    enviarWhatsAppHandler(req, res);
-  });
-
   app.get('/alertas/estado-pipeline', async (req, res) => {
     if (!checkCronToken(req, res)) return;
 
@@ -859,10 +778,4 @@ Responde UNICAMENTE con la ficha final. Sin JSON, sin explicaciones, sin nada ma
     }
   });
 
-  app.get('/alertas/reparar-pendientes-ia', (req, res) => {
-    if (!checkCronToken(req, res)) return;
-    return res.status(405).json({
-      error: 'Usa POST para reparar. GET queda para diagnostico con /alertas/estado-pipeline.',
-    });
-  });
 };

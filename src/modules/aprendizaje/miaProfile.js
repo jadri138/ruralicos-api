@@ -4,6 +4,7 @@ const {
   calcularCentroidePonderado,
 } = require('../../platform/ia/embeddings');
 const { generarContextoNarrativo } = require('./cerebro');
+const { aplicarDecayMemoria } = require('./atomicMemory');
 
 function vectorToSql(vector) {
   if (!Array.isArray(vector)) throw new Error('Vector invalido');
@@ -31,19 +32,6 @@ function vectorValido(vector) {
   return Array.isArray(vector) && vector.length === 1536 && vector.every((n) => Number.isFinite(Number(n)));
 }
 
-function aplicarDecayTemporal(fechaCreacion, pesoInicial = 1) {
-  const fecha = new Date(fechaCreacion);
-  if (Number.isNaN(fecha.getTime())) return Number(pesoInicial) || 1;
-
-  const diasDesde = (Date.now() - fecha.getTime()) / (1000 * 60 * 60 * 24);
-  let factor = 1.0;
-  if (diasDesde > 180) factor = 0.1;
-  else if (diasDesde > 90) factor = 0.3;
-  else if (diasDesde > 30) factor = 0.6;
-
-  return (Number(pesoInicial) || 1) * factor;
-}
-
 function textoPerfilInicial(user = {}) {
   const prefs = user.preferences || {};
   const tiposActivos = Object.entries(prefs.tipos_alerta || {})
@@ -65,9 +53,19 @@ function textoPerfilInicial(user = {}) {
 
 function textoMemorias(memorias = [], memoriasEstructuradas = []) {
   const legacy = memorias
-    .filter((m) => !['feedback_positivo', 'feedback_negativo'].includes(m.tipo))
+    .map((memory) => aplicarDecayMemoria(memory))
+    .filter((m) => m.effective_strength > 0.05)
+    .filter((m) => (
+      m.scope_type
+        ? m.scope_type !== 'alert'
+        : !['feedback_positivo', 'feedback_negativo'].includes(m.tipo)
+    ))
     .slice(0, 120)
-    .map((m) => `[${m.tipo}] ${m.contenido}`);
+    .map((m) => {
+      const scope = m.scope_type && m.scope_value ? `/${m.scope_type}:${m.scope_value}` : '';
+      const polarity = m.polarity ? `/${m.polarity}` : '';
+      return `[${m.tipo}${scope}${polarity}] ${m.contenido}`;
+    });
 
   const estructuradas = memoriasEstructuradas
     .slice(0, 180)
@@ -157,9 +155,10 @@ async function actualizarPerfilUsuarioMIA(supabase, userId, options = {}) {
 
   const { data: memorias, error: errMemorias } = await supabase
     .from('user_memory')
-    .select('id, tipo, contenido, alerta_id, digest_id, peso_inicial, incorporado_a_embedding, created_at')
+    .select('id, tipo, contenido, alerta_id, digest_id, peso_inicial, incorporado_a_embedding, scope_type, scope_value, polarity, source, strength, confidence, status, expires_at, metadata_json, last_seen_at, updated_at, created_at')
     .eq('user_id', user.id)
-    .order('created_at', { ascending: false })
+    .eq('status', 'active')
+    .order('last_seen_at', { ascending: false })
     .limit(1500);
 
   if (errMemorias) throw errMemorias;
@@ -175,9 +174,14 @@ async function actualizarPerfilUsuarioMIA(supabase, userId, options = {}) {
   if (errMemoriasEstructuradas) throw errMemoriasEstructuradas;
   const memoriasEstructuradas = memoriasEstructuradasData || [];
 
-  const memoriasConAlerta = memoriasLista.filter((m) =>
-    m.alerta_id && ['feedback_positivo', 'feedback_negativo'].includes(m.tipo)
-  );
+  const memoriasConAlerta = memoriasLista.filter((memory) => {
+    if (!memory.alerta_id || !['feedback_positivo', 'feedback_negativo'].includes(memory.tipo)) {
+      return false;
+    }
+    // Una exclusión de una convocatoria concreta no debe convertirse en
+    // desinterés semántico por todas las ayudas parecidas.
+    return !(memory.scope_type === 'alert' && memory.polarity === 'negative');
+  });
 
   let perfilFeedback = null;
   let feedbacksPositivosUsados = 0;
@@ -208,7 +212,8 @@ async function actualizarPerfilUsuarioMIA(supabase, userId, options = {}) {
       const embedding = embeddingPorAlerta.get(Number(memoria.alerta_id));
       if (!embedding) continue;
 
-      const peso = aplicarDecayTemporal(memoria.created_at, memoria.peso_inicial);
+      const peso = aplicarDecayMemoria(memoria).effective_strength;
+      if (peso <= 0.01) continue;
       if (memoria.tipo === 'feedback_positivo') {
         positivos.push(embedding);
         pesosPositivos.push(peso);
@@ -287,22 +292,6 @@ async function actualizarPerfilUsuarioMIA(supabase, userId, options = {}) {
 
     if (errMarcado) {
       console.warn(`[mia:perfil] No se pudieron marcar memorias incorporadas user ${user.id}:`, errMarcado.message);
-    }
-  }
-
-  const memoriaEstructuradaIdsPendientes = memoriasEstructuradas
-    .filter((m) => !m.incorporated_at)
-    .map((m) => Number(m.id))
-    .filter(Boolean);
-
-  if (memoriaEstructuradaIdsPendientes.length > 0) {
-    const { error: errMarcadoEstructurado } = await supabase
-      .from('mia_structured_memory')
-      .update({ incorporated_at: new Date().toISOString() })
-      .in('id', memoriaEstructuradaIdsPendientes);
-
-    if (errMarcadoEstructurado) {
-      console.warn(`[mia:perfil] No se pudieron marcar memorias estructuradas incorporadas user ${user.id}:`, errMarcadoEstructurado.message);
     }
   }
 

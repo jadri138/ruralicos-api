@@ -16,20 +16,20 @@ Una única tarea diaria ejecuta `node scripts/run_digest_workflow.js`:
   → /alertas/deduplicar
   → /cerebro/embeddings/inicializar             [opcional]
   → /cerebro/ciclo-diario?explorar=false        [opcional]
+  → /tareas/hold-evidence-recovery              [acotado]
   → /alertas/preparar-digest                    [lotes por usuario]
   → /alertas/enviar-digest
-  → /cerebro/ciclo-diario?explorar=true         [opcional]
   → /alertas/generar-resumen-free
   → /alertas/enviar-resumen-free
+  → /tareas/mia-outbox                          [cola común]
+  → /tareas/whatsapp-reconcile                  [opcional]
+  → /cerebro/exploracion-diaria                 [opcional y selectiva]
+  → /tareas/mia-outbox                          [solo si encoló preguntas]
 ```
 
 Si clasificación, resumen, revisión o preparación no progresan, el script falla antes del envío. MIA y listados son complementarios y pueden producir `warning` sin tumbar el digest.
 
-No confundir con:
-
-- `/tareas/pipeline-tick`: runner legado con `pipeline_jobs`, claims y heartbeats;
-- `/tareas/pipeline-diario`: endpoint monolítico legado;
-- endpoints individuales: herramientas manuales, no crons adicionales.
+Los endpoints individuales son fases o herramientas manuales, no crons adicionales.
 
 ## 2. Tarea → código → prueba
 
@@ -58,7 +58,7 @@ No confundir con:
 | Archivo | Cómo entrar |
 | --- | --- |
 | `digest.service.js` | Busca carga de datos, `seleccionarAlertasRescate`, validación, mensaje o tracking según la tarea |
-| `digest.routes.js` | Solo hay tres entradas principales: `diagnosticarDigestHandler`, `prepararDigestHandler`, `enviarDigestHandler` |
+| `digest.routes.js` | Entra por `diagnosticarDigestHandler`, `previewDigestHandler`, `prepararDigestHandler` o `enviarDigestHandler` |
 | `alertas.service.js` | Separa exclusión local, normalización, ficha IA y clasificación por sus funciones |
 | `alertQuality.js` | Busca el código exacto de calidad/bloqueo observado |
 | `admin.mia.routes.js` | Busca primero la URL del panel o el nombre de tabla |
@@ -75,7 +75,7 @@ No refactorices un archivo grande únicamente por tamaño durante un bugfix. Ext
 | Resultado | `digests`, `digest_items` |
 | Entrega | `whatsapp_logs`, `mia_outbox` |
 | Reacción | `alerta_click_links`, `alerta_clicks`, `alerta_feedback` |
-| Operación | `scraper_runs`, `pipeline_runs`; `pipeline_jobs` solo legado |
+| Operación | `scraper_runs`, `pipeline_runs` |
 
 Orden recomendado para investigar «qué se envió hoy»:
 
@@ -84,8 +84,7 @@ Orden recomendado para investigar «qué se envió hoy»:
 3. `digest_attempts` + `digest_candidate_decisions`;
 4. `alertas` + `alert_fact_sheets`;
 5. clics, feedback, conversaciones y memoria;
-6. `scraper_runs` + `pipeline_runs`;
-7. `pipeline_jobs` únicamente para detectar que el runner legado sigue activo.
+6. `scraper_runs` + `pipeline_runs`.
 
 ## 5. Trampas conocidas
 

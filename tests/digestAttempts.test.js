@@ -61,6 +61,11 @@ test('normaliza fila de auditoria de digest', () => {
     trasFiltroUsuario: 3,
     trasScoring: 2,
     alertasFinales: 1,
+    judgeEvaluatedCount: 3,
+    approvedCount: 1,
+    queuedCount: 1,
+    deliveredCount: 0,
+    deliveryStatus: 'QUEUED',
     motivoNoEnvio: 'sin_alertas_hoy_rescate_semanal_generado',
     metadata: { tipo: 'suave' },
     digestId: 77,
@@ -72,6 +77,9 @@ test('normaliza fila de auditoria de digest', () => {
   assert.strictEqual(row.status, 'generated');
   assert.strictEqual(row.total_alertas_dia, 2);
   assert.strictEqual(row.digest_id, 77);
+  assert.strictEqual(row.judge_evaluated_count, 3);
+  assert.strictEqual(row.approved_count, 1);
+  assert.strictEqual(row.delivery_status, 'QUEUED');
   assert.deepStrictEqual(row.metadata_json, {
     tipo: 'suave',
     decision_version: DIGEST_DECISION_VERSION,
@@ -248,7 +256,9 @@ test('digest implementa rescate semanal y auditoria de no-envios', () => {
   const source =
     fs.readFileSync(path.join(dir, 'digest.routes.js'), 'utf8') +
     '\n' +
-    fs.readFileSync(path.join(dir, 'digest.service.js'), 'utf8');
+    fs.readFileSync(path.join(dir, 'digest.service.js'), 'utf8') +
+    '\n' +
+    fs.readFileSync(path.join(dir, 'digestOutbox.js'), 'utf8');
 
   assert(source.includes("const PREPARAR_DIGEST_BATCH_SIZE = numeroConfig('PREPARAR_DIGEST_BATCH_SIZE', 1"), 'El batch debe caber dentro del timeout de Render');
   assert(source.includes(".in('status', estadosAttemptTerminales)"), 'Debe omitir usuarios ya resueltos en lotes anteriores');
@@ -263,7 +273,9 @@ test('digest implementa rescate semanal y auditoria de no-envios', () => {
   assert(source.includes('contexto_mia_digest'), 'El digest debe guardar explicacion interna por alerta');
   assert(source.includes('final_validation_no_send'), 'El digest debe auditar no-envios por validacion final');
   assert(source.includes('final_validation_enforcement'), 'El digest debe guardar resumen de enforcement final');
-  assert(source.includes("stage: 'final_validation_backfill'"), 'La validacion final debe reponer huecos con reservas');
+  assert(!source.includes("stage: 'final_validation_backfill'"), 'La autoridad final no debe rellenar huecos tras un rechazo');
+  assert(source.includes("stage: 'personal_relevance_judge'"), 'Debe auditar la decision personal canonica');
+  assert(source.includes('renderDecisionDigestMessage'), 'El mensaje debe salir de hechos aprobados por la autoridad');
   assert(source.includes('alertasReintentablesPorTextoAusente'), 'Un item sin bloque de texto debe reintentarse sin recuperar descartes reales');
   assert(source.includes('cleanup_accepted_only'), 'Un rechazo parcial debe conservar y volver a validar los items aceptados');
   assert(source.includes("'final_validation_send'"), 'Un envio validado debe registrar una causa positiva y no un falso missing');

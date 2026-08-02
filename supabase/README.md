@@ -19,9 +19,30 @@ Definición versionada de la base de datos Postgres utilizada por la API. La fue
 | Digest/feedback | `digests`, `digest_items`, `digest_attempts`, `digest_candidate_decisions`, `alerta_clicks`, `alerta_feedback` |
 | MIA | `mia_inbound_messages`, `mia_decisions`, `mia_actions`, `mia_outbox`, `mia_structured_memory`, `mia_agent_cases`, conocimiento y revisiones |
 | Partner | `organizations`, miembros, personal, clientes, zonas y eventos |
-| Operación | `pipeline_runs`, `pipeline_jobs`, `scraper_runs`, `ia_runs`, auditoría y logs |
+| Operación | `pipeline_runs`, `scraper_runs`, `ia_runs`, auditoría y logs |
+| Presupuesto IA | `alert_decision_llm_daily_budget` |
 
 La lista exacta evoluciona con las migraciones.
+
+## Contratos de decisión y entrega
+
+[`20260801211224_alert_decision_delivery_contracts.sql`](migrations/20260801211224_alert_decision_delivery_contracts.sql)
+es una migración aditiva y forward-only para:
+
+- versionar decisiones usuario-alerta y el embudo del digest;
+- añadir idempotencia, estados de entrega, marcas de tiempo e ID del proveedor;
+- crear `whatsapp_delivery_events` con RLS y acceso solo del backend;
+- convertir `user_memory` en memoria atómica canónica;
+- programar recuperación acotada de fichas usando material ya almacenado;
+- reservar de forma atómica las llamadas diarias del juez, con RLS y acceso
+  exclusivo de `service_role`;
+- conservar decisiones, intentos y ACK 180 días para replay y auditoría, y
+  minimizar el outbox terminal a 30 días.
+
+La migración está versionada en el repositorio, pero este trabajo no la ha
+aplicado al proyecto remoto. La API nueva y la migración deben desplegarse en la
+misma ventana. Ver el procedimiento completo en
+[`docs/SISTEMA_DECISION_ALERTAS_LLM_IMPLEMENTADO.md`](../docs/SISTEMA_DECISION_ALERTAS_LLM_IMPLEMENTADO.md#migración-de-supabase).
 
 ## Flujo local recomendado
 
@@ -36,11 +57,22 @@ Para remoto, revisar primero proyecto y diff:
 
 ```powershell
 supabase link --project-ref <project-ref>
-supabase migration list
+supabase migration list --linked
+# Comparar el historial remoto con todos los archivos de migrations/.
+# Solo después de resolver cualquier diferencia:
 supabase db push
 ```
 
-`db push` es una modificación externa: confirmar siempre que el proyecto vinculado es el correcto.
+Si las columnas local y remota de `migration list --linked` no coinciden, hay
+que detenerse. No ejecutar `db push`, `migration repair` ni marcar versiones
+como aplicadas hasta entender y reconciliar el historial con una copia de
+seguridad y una ventana coordinada. `db push` es una modificación externa:
+confirmar siempre que el proyecto vinculado es el correcto.
+
+Para volver atrás durante una incidencia, detener el cron y restaurar primero
+la versión anterior de la API. Dejar las columnas aditivas evita perder trazas.
+Una retirada posterior del esquema requiere otra migración revisada; no hacer
+un `DROP` manual como rollback urgente.
 
 ## Crear una migración
 

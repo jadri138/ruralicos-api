@@ -32,8 +32,19 @@ function etiquetaTema(topic = '') {
   return TOPIC_LABELS[topic] || String(topic || 'este tema').replace(/_/g, ' ');
 }
 
+function estimarGananciaInformacion(topic = {}) {
+  const confidenceRaw = Number(topic.confidence ?? 0.5);
+  const conflictRatioRaw = Number(topic.conflict_ratio ?? (topic.declared_conflict ? 1 : 0.5));
+  const confidence = Math.max(0, Math.min(1, Number.isFinite(confidenceRaw) ? confidenceRaw : 0.5));
+  const conflictRatio = Math.max(0, Math.min(1, Number.isFinite(conflictRatioRaw) ? conflictRatioRaw : 0.5));
+  const declaredBoost = topic.declared_conflict ? 0.2 : 0.1;
+  return Number((conflictRatio * 0.55 + (1 - confidence) * 0.25 + declaredBoost).toFixed(4));
+}
+
 function detectarZonaIncertidumbre({ user = {}, memorias = [], perfil = null } = {}) {
-  const conflicto = perfil?.uncertain_topics?.[0];
+  const conflicto = [...(perfil?.uncertain_topics || [])]
+    .filter((item) => item?.topic)
+    .sort((a, b) => estimarGananciaInformacion(b) - estimarGananciaInformacion(a))[0];
   if (conflicto?.topic) {
     return {
       kind: 'conflicting_topic',
@@ -43,6 +54,7 @@ function detectarZonaIncertidumbre({ user = {}, memorias = [], perfil = null } =
         ? 'declared_preference_conflict'
         : 'learned_signals_conflict',
       confidence: Number(conflicto.confidence || 0),
+      information_gain: estimarGananciaInformacion(conflicto),
     };
   }
 
@@ -69,6 +81,7 @@ function detectarZonaIncertidumbre({ user = {}, memorias = [], perfil = null } =
       label: etiquetaTema(topic),
       reason: 'declared_topic_without_recent_signal',
       confidence: 0.5,
+      information_gain: 0.5,
     };
   }
 
@@ -78,6 +91,7 @@ function detectarZonaIncertidumbre({ user = {}, memorias = [], perfil = null } =
     label: null,
     reason: 'profile_with_low_recent_signal',
     confidence: 0.25,
+    information_gain: 0.25,
   };
 }
 
@@ -161,5 +175,6 @@ module.exports = {
   detectarZonaIncertidumbre,
   esConversacionExploracion,
   estadoExploracionDesdeMemorias,
+  estimarGananciaInformacion,
   etiquetaTema,
 };

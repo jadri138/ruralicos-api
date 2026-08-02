@@ -12,6 +12,7 @@ Herramientas de desarrollo, diagnóstico, backfill, reparación y aceptación. S
 | `npm run openapi:generar` | Regenera `docs/openapi.json` |
 | `compare_fichas.js` | Compara resultados de fichas |
 | `measure_factsheet_evidence.js` | Mide cobertura de evidencia |
+| `npm run replay:alert-decisions` | Reproduce el corpus local por días; no usa red, Supabase ni WhatsApp |
 
 `run_tests.js` admite filtro:
 
@@ -29,11 +30,15 @@ node scripts\run_tests.js digest
 | `npm run repair:legacy-discards` | Repara descartes antiguos sin estructura suficiente |
 | `npm run repair:stale-pipeline-jobs` | Diagnostica/repara jobs huérfanos |
 | `npm run knowledge:ingest` | Ingiere documentos autorizados en la base de conocimiento |
+| `npm run replay:export-snapshots -- --from <fecha> --to <fecha> --output <archivo>` | Solo lee Supabase y crea un corpus local sanitizado; nunca sobrescribe |
+| `npm run replay:grade -- --enable --input <informe>` | Grader OpenAI auxiliar, apagado por defecto; no cambia la aceptación |
 | `auditoria_seleccion_digest.js` | Analiza decisiones de selección |
 | `recover_bopa_evidence.js` | Recupera evidencia BOPA |
 | `seed_partner_demo.js` | Crea datos de demostración partner |
 
-Estos scripts pueden leer o escribir Supabase. Antes de ejecutarlos:
+Salvo `replay:export-snapshots`, que está limitado a `select`, estos scripts
+pueden leer o escribir Supabase. `replay:grade` llama a OpenAI pero desactiva la
+auditoría de base de datos. Antes de ejecutarlos:
 
 1. verificar `SUPABASE_URL`;
 2. leer `--help` o la cabecera del script;

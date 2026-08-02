@@ -20,7 +20,6 @@ const preferencesRoutes = require('./modules/usuarios/preferences.routes');
 // ── Alertas ──
 const alertasRoutes = require('./modules/alertas/alertas.routes');
 const alertasFreeRoutes = require('./modules/alertas/alertasFree.routes');
-const revisarAlertasRoutes = require('./modules/alertas/revisarAlertas.routes');
 const deduplicarRoutes = require('./modules/alertas/deduplicar.routes');
 
 // ── Digest ──
@@ -88,7 +87,6 @@ module.exports = function registrarRutas(app, supabase) {
   preferencesRoutes(app, supabase);
   taxonomyRoutes(app);
   userAuthRoutes(app, supabase);
-  revisarAlertasRoutes(app, supabase);
   bocylRoutes(app, supabase);
   bojaRoutes(app, supabase);
   doeRoutes(app, supabase);

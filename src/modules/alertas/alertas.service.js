@@ -29,7 +29,6 @@ const {
   normalizarCodigoDescarte,
   normalizarConfianzaDescarte,
 } = require('./clasificacion/discardDecision');
-const DIGEST_ONLY_MODE = (process.env.DIGEST_ONLY_MODE || 'true').toLowerCase() !== 'false';
 const CLASIFICAR_BATCH_SIZE = Number(process.env.CLASIFICAR_BATCH_SIZE || 8);
 const RESUMIR_BATCH_SIZE = Number(process.env.RESUMIR_BATCH_SIZE || 5);
 const REVISAR_BATCH_SIZE = Number(process.env.REVISAR_BATCH_SIZE || 5);
@@ -1420,7 +1419,6 @@ async function clasificarConReintento(alertas) {
 // ══════════════════════════════════════════════════════════════════════
 
 module.exports = {
-  DIGEST_ONLY_MODE,
   CLASIFICAR_BATCH_SIZE,
   RESUMIR_BATCH_SIZE,
   REVISAR_BATCH_SIZE,

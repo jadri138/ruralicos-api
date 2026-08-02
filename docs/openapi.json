@@ -12,7 +12,7 @@
     },
     {
       "url": "https://ruralicos-api.onrender.com",
-      "description": "Produccion (rutas legacy sin prefijo)"
+      "description": "Produccion"
     }
   ],
   "components": {
@@ -82,6 +82,58 @@
     },
     "/admin/alertas/{id}": {
       "patch": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/admin/alertas/{id}/preview-audience": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "post": {
         "tags": [
           "admin"
         ],
@@ -777,6 +829,23 @@
         }
       }
     },
+    "/admin/mia/recommendation-health": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "bearerAdmin": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/admin/mia/replay-candidates": {
       "get": {
         "tags": [
@@ -1326,23 +1395,6 @@
         }
       }
     },
-    "/admin/tareas/pipeline-diario": {
-      "post": {
-        "tags": [
-          "admin"
-        ],
-        "security": [
-          {
-            "bearerAdmin": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      }
-    },
     "/admin/tareas/scraper": {
       "post": {
         "tags": [
@@ -1557,21 +1609,6 @@
       }
     },
     "/alertas/clasificar": {
-      "get": {
-        "tags": [
-          "alertas"
-        ],
-        "security": [
-          {
-            "cronToken": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      },
       "post": {
         "tags": [
           "alertas"
@@ -1589,21 +1626,6 @@
       }
     },
     "/alertas/deduplicar": {
-      "get": {
-        "tags": [
-          "alertas"
-        ],
-        "security": [
-          {
-            "cronToken": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      },
       "post": {
         "tags": [
           "alertas"
@@ -1638,21 +1660,6 @@
       }
     },
     "/alertas/enviar-digest": {
-      "get": {
-        "tags": [
-          "alertas"
-        ],
-        "security": [
-          {
-            "cronToken": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      },
       "post": {
         "tags": [
           "alertas"
@@ -1670,53 +1677,6 @@
       }
     },
     "/alertas/enviar-resumen-free": {
-      "get": {
-        "tags": [
-          "alertas"
-        ],
-        "security": [
-          {
-            "cronToken": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      },
-      "post": {
-        "tags": [
-          "alertas"
-        ],
-        "security": [
-          {
-            "cronToken": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      }
-    },
-    "/alertas/enviar-whatsapp": {
-      "get": {
-        "tags": [
-          "alertas"
-        ],
-        "security": [
-          {
-            "cronToken": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      },
       "post": {
         "tags": [
           "alertas"
@@ -1751,21 +1711,6 @@
       }
     },
     "/alertas/generar-resumen-free": {
-      "get": {
-        "tags": [
-          "alertas"
-        ],
-        "security": [
-          {
-            "cronToken": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      },
       "post": {
         "tags": [
           "alertas"
@@ -1783,21 +1728,6 @@
       }
     },
     "/alertas/preparar-digest": {
-      "get": {
-        "tags": [
-          "alertas"
-        ],
-        "security": [
-          {
-            "cronToken": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      },
       "post": {
         "tags": [
           "alertas"
@@ -1847,21 +1777,6 @@
       }
     },
     "/alertas/reparar-pendientes-ia": {
-      "get": {
-        "tags": [
-          "alertas"
-        ],
-        "security": [
-          {
-            "cronToken": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      },
       "post": {
         "tags": [
           "alertas"
@@ -1879,21 +1794,6 @@
       }
     },
     "/alertas/resumir": {
-      "get": {
-        "tags": [
-          "alertas"
-        ],
-        "security": [
-          {
-            "cronToken": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      },
       "post": {
         "tags": [
           "alertas"
@@ -1911,53 +1811,6 @@
       }
     },
     "/alertas/revisar": {
-      "get": {
-        "tags": [
-          "alertas"
-        ],
-        "security": [
-          {
-            "cronToken": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      },
-      "post": {
-        "tags": [
-          "alertas"
-        ],
-        "security": [
-          {
-            "cronToken": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      }
-    },
-    "/alertas/revisar-final": {
-      "get": {
-        "tags": [
-          "alertas"
-        ],
-        "security": [
-          {
-            "cronToken": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      },
       "post": {
         "tags": [
           "alertas"
@@ -1975,21 +1828,6 @@
       }
     },
     "/cerebro/ciclo-diario": {
-      "get": {
-        "tags": [
-          "aprendizaje/ia"
-        ],
-        "security": [
-          {
-            "cronToken": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      },
       "post": {
         "tags": [
           "aprendizaje/ia"
@@ -2034,7 +1872,7 @@
       }
     },
     "/cerebro/embeddings/inicializar": {
-      "get": {
+      "post": {
         "tags": [
           "aprendizaje/ia"
         ],
@@ -2048,7 +1886,9 @@
             "description": "OK"
           }
         }
-      },
+      }
+    },
+    "/cerebro/exploracion-diaria": {
       "post": {
         "tags": [
           "aprendizaje/ia"
@@ -2066,31 +1906,6 @@
       }
     },
     "/cerebro/explorar/{userId}": {
-      "get": {
-        "tags": [
-          "aprendizaje/ia"
-        ],
-        "security": [
-          {
-            "cronToken": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "userId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      },
       "post": {
         "tags": [
           "aprendizaje/ia"
@@ -2118,31 +1933,6 @@
       }
     },
     "/cerebro/perfil/actualizar/{userId}": {
-      "get": {
-        "tags": [
-          "aprendizaje/ia"
-        ],
-        "security": [
-          {
-            "cronToken": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "userId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      },
       "post": {
         "tags": [
           "aprendizaje/ia"
@@ -2170,7 +1960,7 @@
       }
     },
     "/cerebro/perfil/backfill": {
-      "get": {
+      "post": {
         "tags": [
           "aprendizaje/ia"
         ],
@@ -2184,7 +1974,9 @@
             "description": "OK"
           }
         }
-      },
+      }
+    },
+    "/cerebro/salud-recomendaciones": {
       "post": {
         "tags": [
           "aprendizaje/ia"
@@ -2219,31 +2011,6 @@
       }
     },
     "/embeddings/actualizar-perfil/{userId}": {
-      "get": {
-        "tags": [
-          "aprendizaje/ia"
-        ],
-        "security": [
-          {
-            "cronToken": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "userId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      },
       "post": {
         "tags": [
           "aprendizaje/ia"
@@ -2271,21 +2038,6 @@
       }
     },
     "/embeddings/ciclo-completo": {
-      "get": {
-        "tags": [
-          "aprendizaje/ia"
-        ],
-        "security": [
-          {
-            "cronToken": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      },
       "post": {
         "tags": [
           "aprendizaje/ia"
@@ -2303,38 +2055,6 @@
       }
     },
     "/embeddings/generar-alertas": {
-      "get": {
-        "tags": [
-          "aprendizaje/ia"
-        ],
-        "security": [
-          {
-            "cronToken": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      },
-      "post": {
-        "tags": [
-          "aprendizaje/ia"
-        ],
-        "security": [
-          {
-            "cronToken": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      }
-    },
-    "/embeddings/test": {
       "post": {
         "tags": [
           "aprendizaje/ia"
@@ -2353,38 +2073,6 @@
     },
     "/feedback/diagnostico": {
       "get": {
-        "tags": [
-          "feedback"
-        ],
-        "security": [
-          {
-            "cronToken": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      }
-    },
-    "/feedback/enviar-digest-prueba": {
-      "get": {
-        "tags": [
-          "feedback"
-        ],
-        "security": [
-          {
-            "cronToken": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      },
-      "post": {
         "tags": [
           "feedback"
         ],
@@ -2427,36 +2115,6 @@
             "cronToken": []
           }
         ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      }
-    },
-    "/feedback/simular-respuesta": {
-      "get": {
-        "tags": [
-          "feedback"
-        ],
-        "security": [
-          {
-            "cronToken": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      }
-    },
-    "/first-login": {
-      "post": {
-        "tags": [
-          "usuarios"
-        ],
-        "security": [],
         "responses": {
           "200": {
             "description": "OK"
@@ -2646,6 +2304,31 @@
     },
     "/me/memory/{id}": {
       "delete": {
+        "tags": [
+          "usuarios"
+        ],
+        "security": [
+          {
+            "bearerUser": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "patch": {
         "tags": [
           "usuarios"
         ],
@@ -4060,58 +3743,24 @@
         }
       }
     },
+    "/tareas/hold-evidence-recovery": {
+      "post": {
+        "tags": [
+          "tareas (cron)"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/tareas/mia-outbox": {
-      "all": {
-        "tags": [
-          "tareas (cron)"
-        ],
-        "security": [
-          {
-            "cronToken": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      }
-    },
-    "/tareas/pipeline-diario": {
-      "get": {
-        "tags": [
-          "tareas (cron)"
-        ],
-        "security": [
-          {
-            "cronToken": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      }
-    },
-    "/tareas/pipeline-jobs": {
-      "get": {
-        "tags": [
-          "tareas (cron)"
-        ],
-        "security": [
-          {
-            "cronToken": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      }
-    },
-    "/tareas/pipeline-tick": {
       "all": {
         "tags": [
           "tareas (cron)"
@@ -4181,6 +3830,23 @@
     },
     "/tareas/scrapers-diario": {
       "get": {
+        "tags": [
+          "tareas (cron)"
+        ],
+        "security": [
+          {
+            "cronToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/tareas/whatsapp-reconcile": {
+      "post": {
         "tags": [
           "tareas (cron)"
         ],

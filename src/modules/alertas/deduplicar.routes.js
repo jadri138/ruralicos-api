@@ -207,6 +207,5 @@ module.exports = function deduplicarRoutes(app, supabase) {
     }
   };
 
-  app.get('/alertas/deduplicar',  (req, res) => { if (!checkCronToken(req, res)) return; handler(req, res); });
   app.post('/alertas/deduplicar', (req, res) => { if (!checkCronToken(req, res)) return; handler(req, res); });
 };

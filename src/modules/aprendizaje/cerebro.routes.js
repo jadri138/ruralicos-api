@@ -1,5 +1,5 @@
 const { checkCronToken } = require('../../middleware/cronToken');
-const { getFechaMadridISO } = require('../../shared/fechaMadrid');
+const { getFechaMadridISO, getRangoDiaMadridUTC } = require('../../shared/fechaMadrid');
 const {
   inicializarOpenAI,
   generarEmbeddingsBatch,
@@ -11,7 +11,7 @@ const {
   generarPreguntaExploracion,
 } = require('./cerebro');
 const { diagnosticarAlertaUsuario } = require('../alertas/seleccion/alertaMatcher');
-const { enviarDigestPro } = require('../../platform/whatsapp');
+const { encolarComunicacionWhatsApp } = require('../mia/outbox');
 const {
   actualizarPerfilUsuarioMIA,
   parseVector,
@@ -20,6 +20,7 @@ const {
 } = require('./miaProfile');
 const { cargarPerfilOperativoMIA } = require('../mia/userProfile');
 const {
+  EXPLORATION_CONTROL_PREFIX,
   construirPreguntaExploracion,
   detectarZonaIncertidumbre: detectarZonaIncertidumbreInteligente,
   estadoExploracionDesdeMemorias,
@@ -36,10 +37,86 @@ const EXPLORACION_COOLDOWN_DIAS = Math.max(
   7,
   Math.min(90, Number(process.env.MIA_EXPLORACION_COOLDOWN_DIAS || 30))
 );
+const EXPLORACION_DIGEST_WINDOW_DIAS = clampNumber(
+  process.env.MIA_EXPLORACION_DIGEST_WINDOW_DIAS,
+  7,
+  1,
+  30
+);
 function clampNumber(value, fallback, min, max) {
   const n = Number(value);
   if (!Number.isFinite(n)) return fallback;
   return Math.max(min, Math.min(max, Math.trunc(n)));
+}
+
+async function ejecutarExploracionDiariaAcotada({
+  supabase,
+  contarPreguntasFn,
+  explorarUsuarioFn,
+  dryRun = false,
+  limit = DEFAULT_SELECT_LIMIT,
+  maxDaily = MAX_PREGUNTAS_EXPLORACION_DIA,
+} = {}) {
+  if (!supabase || typeof supabase.from !== 'function') {
+    throw new Error('Supabase no disponible para la exploracion diaria');
+  }
+  if (typeof contarPreguntasFn !== 'function' || typeof explorarUsuarioFn !== 'function') {
+    throw new Error('Faltan dependencias de la exploracion diaria');
+  }
+
+  const limiteDiario = clampNumber(maxDaily, MAX_PREGUNTAS_EXPLORACION_DIA, 1, 100);
+  const limiteCandidatos = clampNumber(limit, DEFAULT_SELECT_LIMIT, 1, 100);
+  const preguntasIniciales = Math.max(0, Number(await contarPreguntasFn()) || 0);
+  const disponibles = Math.max(0, limiteDiario - preguntasIniciales);
+  const resultados = [];
+  let candidatosConsiderados = 0;
+
+  const resumen = () => ({
+    ok: resultados.every((item) => item.ok !== false),
+    dry_run: Boolean(dryRun),
+    limite_diario: limiteDiario,
+    preguntas_iniciales: preguntasIniciales,
+    disponibles,
+    candidatos_considerados: candidatosConsiderados,
+    evaluados: resultados.length,
+    seleccionados: resultados.filter((item) => item.ok && !item.skipped).length,
+    encoladas: resultados.filter((item) => item.encolada === true).length,
+    errores: resultados.filter((item) => item.ok === false).length,
+    resultados,
+  });
+
+  if (disponibles === 0) return resumen();
+
+  const scanLimit = Math.min(
+    limiteCandidatos,
+    Math.max(disponibles * 5, disponibles)
+  );
+  const { data: candidatos, error } = await supabase
+    .from('users')
+    .select('id, ultima_interaccion_at')
+    .in('subscription', ['corral', 'agricultor', 'cooperativa'])
+    .not('phone', 'is', null)
+    .neq('phone', '')
+    .or('phone_verified.is.null,phone_verified.eq.true')
+    .order('ultima_interaccion_at', { ascending: true, nullsFirst: true })
+    .limit(scanLimit);
+
+  if (error) throw error;
+  candidatosConsiderados = (candidatos || []).length;
+
+  for (const user of candidatos || []) {
+    if (resultados.filter((item) => item.ok && !item.skipped).length >= disponibles) break;
+    try {
+      resultados.push(await explorarUsuarioFn(user.id, {
+        dryRun: Boolean(dryRun),
+        force: false,
+      }));
+    } catch (err) {
+      resultados.push({ ok: false, user_id: user.id, error: err.message });
+    }
+  }
+
+  return resumen();
 }
 
 function textoRepresentativoAlerta(alerta = {}) {
@@ -63,8 +140,68 @@ function restarDias(fecha, dias) {
   return new Date(fecha.getTime() - dias * 24 * 60 * 60 * 1000);
 }
 
-function inicioDiaISO(fecha = new Date()) {
-  return new Date(Date.UTC(fecha.getUTCFullYear(), fecha.getUTCMonth(), fecha.getUTCDate())).toISOString();
+function restarDiasFechaISO(fechaISO, dias) {
+  const [year, month, day] = String(fechaISO || '').split('-').map(Number);
+  if (![year, month, day].every(Number.isFinite)) return fechaISO;
+  return new Date(Date.UTC(year, month - 1, day - dias, 12, 0, 0))
+    .toISOString()
+    .slice(0, 10);
+}
+
+async function cargarUltimoDigestEntregadoParaExploracion(supabase, userId, {
+  now = new Date(),
+  windowDays = EXPLORACION_DIGEST_WINDOW_DIAS,
+} = {}) {
+  const fechaActual = getFechaMadridISO(now);
+  const dias = clampNumber(windowDays, EXPLORACION_DIGEST_WINDOW_DIAS, 1, 30);
+  const fechaDesde = restarDiasFechaISO(fechaActual, dias - 1);
+  const { data, error } = await supabase
+    .from('digests')
+    .select('id, fecha, delivery_status, delivered_at, read_at, created_at')
+    .eq('user_id', userId)
+    .in('delivery_status', ['DELIVERED', 'READ'])
+    .gte('fecha', fechaDesde)
+    .lte('fecha', fechaActual)
+    .order('fecha', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data || null;
+}
+
+async function digestYaExplorado(supabase, userId, digestId) {
+  if (!digestId) return false;
+  const { data, error } = await supabase
+    .from('mia_outbox')
+    .select('id')
+    .eq('user_id', userId)
+    .contains('metadata_json', {
+      intent: 'learning_question',
+      digest_id: digestId,
+    })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw error;
+  return Boolean(data?.id);
+}
+
+async function cargarUltimoControlExploracion(supabase, userId) {
+  const controles = ['active', 'paused', 'snoozed']
+    .map((estado) => `${EXPLORATION_CONTROL_PREFIX}${estado}`);
+  const { data, error } = await supabase
+    .from('user_memory')
+    .select('id, tipo, contenido, status, created_at, last_seen_at')
+    .eq('user_id', userId)
+    .eq('status', 'active')
+    .in('contenido', controles)
+    .order('last_seen_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data || null;
 }
 
 async function iniciarPipelineRun(supabase, { stage, endpoint, fechaObjetivo }) {
@@ -192,27 +329,49 @@ module.exports = function cerebroRoutes(app, supabase) {
   }
 
   async function contarPreguntasExploracionHoy() {
-    const { count, error } = await supabase
-      .from('user_memory')
-      .select('id', { count: 'exact', head: true })
-      .eq('tipo', 'pregunta_sistema')
-      .gte('created_at', inicioDiaISO(new Date()));
+    const { inicio, fin } = getRangoDiaMadridUTC(getFechaMadridISO());
+    const [memories, pending] = await Promise.all([
+      supabase
+        .from('user_memory')
+        .select('id', { count: 'exact', head: true })
+        .eq('tipo', 'pregunta_sistema')
+        .gte('created_at', inicio)
+        .lt('created_at', fin),
+      supabase
+        .from('mia_outbox')
+        .select('id', { count: 'exact', head: true })
+        .contains('metadata_json', { intent: 'learning_question' })
+        .in('delivery_status', ['QUEUED', 'PROVIDER_ACCEPTED', 'SENT_TO_WHATSAPP'])
+        .gte('created_at', inicio)
+        .lt('created_at', fin),
+    ]);
 
-    if (error) throw error;
-    return count || 0;
+    if (memories.error) throw memories.error;
+    if (pending.error) throw pending.error;
+    return Number(memories.count || 0) + Number(pending.count || 0);
   }
 
   async function tienePreguntaExploracionReciente(userId) {
     const desde = restarDias(new Date(), EXPLORACION_COOLDOWN_DIAS).toISOString();
-    const { count, error } = await supabase
-      .from('user_memory')
-      .select('id', { count: 'exact', head: true })
-      .eq('user_id', userId)
-      .eq('tipo', 'pregunta_sistema')
-      .gte('created_at', desde);
+    const [memories, pending] = await Promise.all([
+      supabase
+        .from('user_memory')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .eq('tipo', 'pregunta_sistema')
+        .gte('created_at', desde),
+      supabase
+        .from('mia_outbox')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .contains('metadata_json', { intent: 'learning_question' })
+        .in('delivery_status', ['QUEUED', 'PROVIDER_ACCEPTED', 'SENT_TO_WHATSAPP', 'DELIVERED', 'READ'])
+        .gte('created_at', desde),
+    ]);
 
-    if (error) throw error;
-    return (count || 0) > 0;
+    if (memories.error) throw memories.error;
+    if (pending.error) throw pending.error;
+    return Number(memories.count || 0) + Number(pending.count || 0) > 0;
   }
 
   async function explorarUsuarioMIA(userId, options = {}) {
@@ -221,7 +380,7 @@ module.exports = function cerebroRoutes(app, supabase) {
 
     const { data: user, error: errUser } = await supabase
       .from('users')
-      .select('id, name, phone, subscription, preferences, preferencias_extra, contexto_narrativo, ultima_interaccion_at, phone_verified')
+      .select('id, name, phone, subscription, preferences, preferencias_extra, contexto_narrativo, ultima_interaccion_at, phone_verified, organization_id')
       .eq('id', userId)
       .maybeSingle();
 
@@ -230,17 +389,24 @@ module.exports = function cerebroRoutes(app, supabase) {
     if (!user.phone) return { ok: false, reason: 'usuario_sin_telefono', user_id: userId };
     if (user.phone_verified === false) return { ok: false, reason: 'telefono_no_verificado', user_id: userId };
 
-    const { data: memorias, error: errMemorias } = await supabase
-      .from('user_memory')
-      .select('id, tipo, contenido, created_at')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false })
-      .limit(50);
+    const [memoriasResult, ultimoControlExploracion] = await Promise.all([
+      supabase
+        .from('user_memory')
+        .select('id, tipo, contenido, created_at')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(50),
+      cargarUltimoControlExploracion(supabase, userId),
+    ]);
+    const { data: memorias, error: errMemorias } = memoriasResult;
 
     if (errMemorias) throw errMemorias;
 
     const memoriaLista = memorias || [];
-    if (!force && estadoExploracionDesdeMemorias(memoriaLista) === 'paused') {
+    const estadoExploracion = estadoExploracionDesdeMemorias(
+      ultimoControlExploracion ? [ultimoControlExploracion] : memoriaLista
+    );
+    if (!force && estadoExploracion === 'paused') {
       return {
         ok: true,
         skipped: true,
@@ -265,22 +431,25 @@ module.exports = function cerebroRoutes(app, supabase) {
       };
     }
 
+    let digestElegible = null;
     if (!force) {
-      const { data: digestHoy, error: digestError } = await supabase
-        .from('digests')
-        .select('id')
-        .eq('user_id', userId)
-        .eq('fecha', getFechaMadridISO())
-        .eq('enviado', true)
-        .limit(1)
-        .maybeSingle();
-      if (digestError) throw digestError;
-      if (!digestHoy) {
+      digestElegible = await cargarUltimoDigestEntregadoParaExploracion(supabase, userId);
+      if (!digestElegible) {
         return {
           ok: true,
           skipped: true,
-          reason: 'sin_digest_enviado_hoy',
+          reason: 'sin_digest_entregado_reciente',
           user_id: userId,
+          ventana_dias: EXPLORACION_DIGEST_WINDOW_DIAS,
+        };
+      }
+      if (await digestYaExplorado(supabase, userId, digestElegible.id)) {
+        return {
+          ok: true,
+          skipped: true,
+          reason: 'digest_ya_explorado',
+          user_id: userId,
+          digest_id: digestElegible.id,
         };
       }
     }
@@ -323,50 +492,44 @@ module.exports = function cerebroRoutes(app, supabase) {
         zona_incertidumbre: zonaIncertidumbre,
         pregunta,
         preguntas_hoy: preguntasHoy,
+        digest_id: digestElegible?.id || null,
       };
     }
 
-    await enviarDigestPro(user.phone, pregunta);
-
-    const { data: memoriaInsertada, error: errMemoria } = await supabase
-      .from('user_memory')
-      .insert({
-        user_id: userId,
-        tipo: 'pregunta_sistema',
-        contenido: pregunta,
-        peso_inicial: 0.5,
-      })
-      .select('id')
-      .single();
-
-    if (errMemoria) throw errMemoria;
-
-    const { data: conversacion, error: errConversacion } = await supabase
-      .from('user_conversations')
-      .insert({
-        user_id: userId,
-        estado: 'activa',
-        tipo: 'pregunta_exploracion',
-        contexto_json: {
-          pregunta_enviada: pregunta,
-          zona_incertidumbre: zonaIncertidumbre,
-          memoria_id: memoriaInsertada?.id || null,
-        },
-        expira_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-      })
-      .select('id')
-      .single();
-
-    if (errConversacion) throw errConversacion;
+    const queuedQuestion = await encolarComunicacionWhatsApp(supabase, {
+      source: 'mia_exploration_question',
+      sourceId: digestElegible?.id
+        ? `digest:${digestElegible.id}:user:${userId}`
+        : `${getFechaMadridISO()}:${userId}:${zonaIncertidumbre.topic || 'general'}`,
+      userId,
+      toPhone: user.phone,
+      body: pregunta,
+      organizationId: user.organization_id || null,
+      metadata: {
+        intent: 'learning_question',
+        topic: zonaIncertidumbre.topic || 'general',
+        confidence: zonaIncertidumbre.confidence || null,
+        zona_incertidumbre: zonaIncertidumbre,
+        digest_id: digestElegible?.id || null,
+        digest_fecha: digestElegible?.fecha || null,
+      },
+    });
+    if (!queuedQuestion.ok || (!queuedQuestion.queued && !queuedQuestion.existing)) {
+      throw new Error(queuedQuestion.error || queuedQuestion.reason || 'exploration_outbox_unavailable');
+    }
 
     return {
       ok: true,
       user_id: userId,
       pregunta,
+      outbox_id: queuedQuestion.id || null,
+      encolada: Boolean(queuedQuestion.queued),
       zona_incertidumbre: zonaIncertidumbre,
-      memoria_id: memoriaInsertada?.id || null,
-      conversacion_id: conversacion?.id || null,
+      memoria_id: null,
+      conversacion_id: null,
+      pending_delivery: true,
       preguntas_hoy: preguntasHoy + 1,
+      digest_id: digestElegible?.id || null,
     };
   }
 
@@ -763,37 +926,23 @@ module.exports = function cerebroRoutes(app, supabase) {
       });
 
       const explorar = req.body?.explorar === true || req.query.explorar === 'true';
-      const exploraciones = [];
-      if (explorar) {
-        const preguntasHoy = await contarPreguntasExploracionHoy();
-        const disponibles = Math.max(0, MAX_PREGUNTAS_EXPLORACION_DIA - preguntasHoy);
-
-        if (disponibles > 0) {
-          const { data: candidatos, error: errUsuarios } = await supabase
-            .from('users')
-            .select('id, ultima_interaccion_at')
-            .in('subscription', ['corral', 'agricultor', 'cooperativa'])
-            .not('phone', 'is', null)
-            .neq('phone', '')
-            .or('phone_verified.is.null,phone_verified.eq.true')
-            .order('ultima_interaccion_at', { ascending: true, nullsFirst: true })
-            .limit(Math.min(100, Math.max(disponibles * 5, disponibles)));
-
-          if (errUsuarios) throw errUsuarios;
-
-          for (const user of candidatos || []) {
-            if (exploraciones.filter((item) => item.ok && !item.skipped).length >= disponibles) break;
-            try {
-              exploraciones.push(await explorarUsuarioMIA(user.id, {
-                dryRun: dryRunExploracion,
-                force: false,
-              }));
-            } catch (err) {
-              exploraciones.push({ ok: false, user_id: user.id, error: err.message });
-            }
-          }
-        }
-      }
+      const exploracion = explorar
+        ? await ejecutarExploracionDiariaAcotada({
+          supabase,
+          contarPreguntasFn: contarPreguntasExploracionHoy,
+          explorarUsuarioFn: explorarUsuarioMIA,
+          dryRun: dryRunExploracion,
+          limit: req.body?.limit || req.query.limit || 100,
+        })
+        : {
+          ok: true,
+          dry_run: dryRunExploracion,
+          evaluados: 0,
+          seleccionados: 0,
+          encoladas: 0,
+          errores: 0,
+          resultados: [],
+        };
 
       const result = {
         ok: true,
@@ -805,21 +954,60 @@ module.exports = function cerebroRoutes(app, supabase) {
         salud_recomendaciones: saludRecomendaciones,
         exploracion: {
           habilitada: explorar,
-          dry_run: dryRunExploracion,
-          resultados: exploraciones,
+          ...exploracion,
         },
       };
 
       await cerrarPipelineRun(supabase, run, {
         status: saludRecomendaciones.status === 'critical' ? 'warning' : 'ok',
-        procesadas: embeddings.actualizadas + perfiles.filter((p) => p.ok).length + exploraciones.filter((e) => e.ok && !e.skipped).length,
-        errores: perfiles.filter((p) => !p.ok).length + exploraciones.filter((e) => !e.ok).length,
+        procesadas: embeddings.actualizadas + perfiles.filter((p) => p.ok).length + exploracion.seleccionados,
+        errores: perfiles.filter((p) => !p.ok).length + exploracion.errores,
         response_json: result,
       });
 
       return res.json(result);
     } catch (err) {
       console.error('[mia] Error en /cerebro/ciclo-diario:', err.message);
+      await cerrarPipelineRun(supabase, run, {
+        status: 'error',
+        errores: 1,
+        error_msg: err.message,
+        response_json: { error: err.message },
+      });
+      return res.status(500).json({ ok: false, error: err.message });
+    }
+  };
+
+  const exploracionDiariaHandler = async (req, res) => {
+    if (!checkCronToken(req, res)) return;
+
+    const fechaObjetivo = getFechaMadridISO();
+    const run = await iniciarPipelineRun(supabase, {
+      stage: 'mia_exploracion_diaria',
+      endpoint: '/cerebro/exploracion-diaria',
+      fechaObjetivo,
+    });
+
+    try {
+      const result = await ejecutarExploracionDiariaAcotada({
+        supabase,
+        contarPreguntasFn: contarPreguntasExploracionHoy,
+        explorarUsuarioFn: explorarUsuarioMIA,
+        dryRun: req.body?.dryRun === true || req.query.dryRun === 'true',
+        limit: req.body?.limit || req.query.limit || 100,
+      });
+      const response = { fecha: fechaObjetivo, ...result };
+
+      await cerrarPipelineRun(supabase, run, {
+        status: result.errores > 0 ? 'warning' : 'ok',
+        procesadas: result.evaluados,
+        errores: result.errores,
+        response_json: response,
+      });
+
+      return res.json(response);
+    } catch (err) {
+      console.error('[mia] Error en /cerebro/exploracion-diaria:', err.message);
       await cerrarPipelineRun(supabase, run, {
         status: 'error',
         errores: 1,
@@ -845,16 +1033,16 @@ module.exports = function cerebroRoutes(app, supabase) {
   };
 
   app.post('/cerebro/embeddings/inicializar', inicializarEmbeddingsHandler);
-  app.get('/cerebro/embeddings/inicializar', inicializarEmbeddingsHandler);
   app.post('/cerebro/perfil/actualizar/:userId', actualizarPerfilHandler);
-  app.get('/cerebro/perfil/actualizar/:userId', actualizarPerfilHandler);
   app.post('/cerebro/perfil/backfill', backfillPerfilesHandler);
-  app.get('/cerebro/perfil/backfill', backfillPerfilesHandler);
   app.get('/cerebro/diagnostico/usuario/:userId', diagnosticoUsuarioHandler);
   app.post('/cerebro/explorar/:userId', explorarUsuarioHandler);
-  app.get('/cerebro/explorar/:userId', explorarUsuarioHandler);
+  app.post('/cerebro/exploracion-diaria', exploracionDiariaHandler);
   app.post('/cerebro/ciclo-diario', cicloDiarioHandler);
-  app.get('/cerebro/ciclo-diario', cicloDiarioHandler);
   app.post('/cerebro/salud-recomendaciones', saludRecomendacionesHandler);
-  app.get('/cerebro/salud-recomendaciones', saludRecomendacionesHandler);
 };
+
+module.exports.ejecutarExploracionDiariaAcotada = ejecutarExploracionDiariaAcotada;
+module.exports.cargarUltimoDigestEntregadoParaExploracion = cargarUltimoDigestEntregadoParaExploracion;
+module.exports.digestYaExplorado = digestYaExplorado;
+module.exports.cargarUltimoControlExploracion = cargarUltimoControlExploracion;

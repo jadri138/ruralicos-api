@@ -27,6 +27,8 @@ test('limpia tablas personales nuevas y legacy', () => {
     'official_list_matches',
     'mia_actions',
     'mia_decisions',
+    'whatsapp_delivery_events',
+    'whatsapp_logs',
     'mia_outbox',
     'mia_agent_cases',
     'mia_structured_memory',

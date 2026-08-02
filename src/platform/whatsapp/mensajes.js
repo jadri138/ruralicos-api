@@ -4,262 +4,13 @@
 // reset de contrasena, mensajes admin). Usa la infraestructura de client.js.
 
 const {
-  canonicalSector,
-  canonicalSubsector,
-  canonicalTipoAlerta,
-} = require('../../shared/preferenceCanonical');
-const { alertaCoincideConUsuario } = require('../../modules/alertas/seleccion/alertaMatcher');
-const {
-
   getAdminAlertPhones,
   maskPhone,
   enviarMensajeUltraMsg,
   guardarLogWhatsApp,
-  norm,
   ULTRAMSG_INSTANCE_ID,
   ULTRAMSG_TOKEN,
 } = require('./client');
-
-async function enviarWhatsAppResumen(alerta, supabase) {
-  if (!ULTRAMSG_INSTANCE_ID || !ULTRAMSG_TOKEN) {
-    throw new Error('Faltan ULTRAMSG_INSTANCE_ID o ULTRAMSG_TOKEN en .env');
-  }
-
-  if (alerta?.estado_ia !== 'listo') {
-    console.log(`[PRO] Alerta ${alerta?.id} → estado no listo → no se envía`);
-    return;
-  }
-
-  if (!alerta?.resumen?.trim()) {
-    console.log(`[PRO] Alerta ${alerta.id} → sin resumen válido → no se envía`);
-    return;
-  }
-
-  const resumen = alerta.resumen.trim();
-
-  // 1) Obtener usuarios PRO con teléfono
-  const { data: usuariosPro, error } = await supabase
-    .from('users')
-    .select('id, phone, preferences, subscription')
-    .in('subscription', ['corral', 'agricultor', 'cooperativa'])
-    .not('phone', 'is', null)
-    .neq('phone', '')
-    .or('phone_verified.is.null,phone_verified.eq.true');
-
-  if (error) {
-    console.error('[PRO] Error consultando usuarios PRO:', error.message);
-    throw error;
-  }
-
-  if (!usuariosPro || usuariosPro.length === 0) {
-    console.log('[PRO] No hay usuarios PRO con teléfono → no se envía nada');
-    return;
-  }
-
-  console.log(
-    `[PRO] Enviando alerta ${alerta.id} a ${usuariosPro.length} usuarios PRO (con filtros).`
-  );
-
-  let enviados = 0;
-  const errores = [];
-
-  // Comprueba si dos arrays tienen al menos un elemento en común (ya normalizados)
-  const intersecta = (a, b) => a.some((x) => b.includes(x));
-
-  // Normalizar etiquetas de la alerta una sola vez (fuera del bucle de usuarios)
-  const provinciasANorm  = Array.isArray(alerta.provincias)
-    ? alerta.provincias.map(norm)
-    : [];
-  const sectoresANorm    = Array.isArray(alerta.sectores)
-    ? alerta.sectores.map(canonicalSector).filter(Boolean)
-    : [];
-  // FIX 2: subsectores de la alerta también normalizados
-  const subsectoresANorm = Array.isArray(alerta.subsectores)
-    ? alerta.subsectores.map(canonicalSubsector).filter(Boolean)
-    : [];
-  const tiposANorm       = Array.isArray(alerta.tipos_alerta)
-    ? alerta.tipos_alerta.map(canonicalTipoAlerta).filter(Boolean)
-    : [];
-
-  for (const user of usuariosPro) {
-    const telefono = (user.phone || '').trim();
-    if (!telefono) continue;
-
-    const prefs = user.preferences || {};
-    const pasaFiltroCentral = alertaCoincideConUsuario(alerta, user);
-    if (!pasaFiltroCentral) continue;
-
-    // Preferencias del usuario normalizadas
-    const provinciasUserNorm  = Array.isArray(prefs.provincias)
-      ? prefs.provincias.map(norm)
-      : [];
-    const sectoresUserNorm    = Array.isArray(prefs.sectores)
-      ? prefs.sectores.map(canonicalSector).filter(Boolean)
-      : [];
-    // FIX 2: subsectores del usuario también normalizados
-    const subsectoresUserNorm = Array.isArray(prefs.subsectores)
-      ? prefs.subsectores.map(canonicalSubsector).filter(Boolean)
-      : [];
-    const tiposUser           = prefs.tipos_alerta || {};
-
-    // ==== 1. FILTRO PROVINCIA ====
-    // [] en usuario → sin filtro (recibe todo)
-    // [] en alerta  → nacional (llega a todos)
-    // FIX 1: antes faltaba el caso provinciasANorm.length === 0
-    const okProvincia =
-      pasaFiltroCentral ||
-      provinciasUserNorm.length === 0 ||
-      provinciasANorm.length === 0 ||
-      intersecta(provinciasUserNorm, provinciasANorm);
-
-    if (!okProvincia) continue;
-
-    // ==== 2. FILTRO SECTOR ====
-    // "mixto" en usuario acepta agricultura y ganadería
-    // FIX 3: "mixto" en alerta también acepta usuarios de agricultura/ganadería
-    const tieneMixtoUser  = sectoresUserNorm.includes('mixto');
-    const tieneMixtoAlerta = sectoresANorm.includes('mixto');
-
-    const okSector =
-      pasaFiltroCentral ||
-      sectoresUserNorm.length === 0 ||
-      sectoresANorm.length === 0 ||
-      intersecta(sectoresUserNorm, sectoresANorm) ||
-      (tieneMixtoUser  && intersecta(['agricultura', 'ganaderia'], sectoresANorm)) ||
-      (tieneMixtoAlerta && intersecta(['agricultura', 'ganaderia'], sectoresUserNorm));
-
-    if (!okSector) continue;
-
-    // ==== 3. FILTRO SUBSECTOR ====
-    // FIX 2: ahora ambos arrays están normalizados, la comparación es case-insensitive
-    const okSubsector =
-      pasaFiltroCentral ||
-      subsectoresUserNorm.length === 0 ||
-      subsectoresANorm.length === 0 ||
-      intersecta(subsectoresUserNorm, subsectoresANorm);
-
-    if (!okSubsector) continue;
-
-    // ==== 4. FILTRO TIPO DE ALERTA ====
-    // Solo filtra si AMBOS tienen tipos definidos
-    const tiposUserActivos = Object.entries(tiposUser)
-      .filter(([_, v]) => v === true)
-      .map(([k]) => canonicalTipoAlerta(k))
-      .filter(Boolean);
-
-    const hayTiposUsuario = tiposUserActivos.length > 0;
-    const hayTiposAlerta  = tiposANorm.length > 0;
-
-    let okTipo = true;
-    if (hayTiposUsuario && hayTiposAlerta) {
-      okTipo = tiposANorm.some((t) => tiposUserActivos.includes(t));
-    }
-
-    if (!okTipo && !pasaFiltroCentral) continue;
-
-    // ==== SI PASA TODOS LOS FILTROS, SE ENVÍA ====
-    try {
-      await enviarMensajeUltraMsg(telefono, resumen);
-      enviados++;
-      console.log('[WHATSAPP PRO] ENVIADO A', maskPhone(telefono));
-
-      await guardarLogWhatsApp({
-        phone: telefono,
-        status: 'sent',
-        message_type: 'alerta_pro',
-        error_msg: null,
-      });
-    } catch (err) {
-      console.error('[WHATSAPP PRO] Error enviando a', maskPhone(telefono), err.message);
-      errores.push({ userId: user.id, phone: maskPhone(telefono), error: err.message });
-
-      await guardarLogWhatsApp({
-        phone: telefono,
-        status: 'failed',
-        message_type: 'alerta_pro',
-        error_msg: err.message,
-      });
-    }
-  }
-
-  console.log(
-    `[PRO] Alerta ${alerta.id} enviada correctamente a ${enviados} usuarios PRO`
-  );
-  if (errores.length > 0) {
-    console.warn(`[PRO] Hubo ${errores.length} errores parciales`);
-  }
-}
-
-/**
- * ENVÍA RESUMEN DIARIO → SOLO USUARIOS FREE
- */
-
-async function enviarWhatsAppFree(supabase, mensajeFree) {
-  if (!ULTRAMSG_INSTANCE_ID || !ULTRAMSG_TOKEN) {
-    throw new Error('Faltan credenciales UltraMsg');
-  }
-
-  if (!mensajeFree?.trim()) {
-    console.warn('[FREE] Mensaje FREE vacío → no se envía');
-    return;
-  }
-
-  const { data: usuariosFree, error } = await supabase
-    .from('users')
-    .select('id, phone')
-    .eq('subscription', 'free')
-    .not('phone', 'is', null)
-    .neq('phone', '')
-    .or('phone_verified.is.null,phone_verified.eq.true');
-
-  if (error) {
-    console.error('[FREE] Error consultando usuarios FREE:', error.message);
-    throw error;
-  }
-
-  if (!usuariosFree || usuariosFree.length === 0) {
-    console.warn('[FREE] No hay usuarios FREE con teléfono → no se envía');
-    return;
-  }
-
-  console.log(
-    `[FREE] Enviando resumen diario a ${usuariosFree.length} usuarios FREE...`
-  );
-
-  let enviados = 0;
-  const errores = [];
-
-  for (const user of usuariosFree) {
-    const telefono = user.phone.trim();
-
-    try {
-      await enviarMensajeUltraMsg(telefono, mensajeFree);
-      enviados++;
-
-      await guardarLogWhatsApp({
-        phone: telefono,
-        status: 'sent',
-        message_type: 'alerta_free',
-        error_msg: null,
-      });
-    } catch (err) {
-      console.error(`[FREE] Error enviando a ${maskPhone(telefono)}:`, err.message);
-      errores.push({ userId: user.id, error: err.message });
-
-      await guardarLogWhatsApp({
-        phone: telefono,
-        status: 'failed',
-        message_type: 'alerta_free',
-        error_msg: err.message,
-      });
-    }
-  }
-
-  console.log(
-    `[FREE] Resumen diario enviado a ${enviados}/${usuariosFree.length} usuarios FREE`
-  );
-  if (errores.length > 0) console.warn(`[FREE] ${errores.length} errores`);
-}
 
 async function enviarWhatsAppRegistro(telefono, mensajeTexto) {
   if (!ULTRAMSG_INSTANCE_ID || !ULTRAMSG_TOKEN) {
@@ -399,13 +150,13 @@ async function enviarWhatsAppVerificacion(telefono, codigo) {
 /**
  * ENVÍA EL DIGEST DIARIO PERSONALIZADO → USUARIOS CORRAL / AGRICULTOR / COOPERATIVA
  *
- * Diferencias con enviarWhatsAppResumen:
+ * A diferencia del resumen gratuito, este mensaje ya llega personalizado:
  *   - Recibe directamente el teléfono y el mensaje ya preparado por digest.js
  *   - No hace queries a Supabase ni aplica filtros (ya los aplicó preparar-digest)
  *   - El delay entre mensajes lo gestiona enviar-digest, no esta función
  */
 
-async function enviarDigestPro(telefono, mensaje) {
+async function enviarDigestPro(telefono, mensaje, context = {}) {
   if (!ULTRAMSG_INSTANCE_ID || !ULTRAMSG_TOKEN) {
     throw new Error('Faltan ULTRAMSG_INSTANCE_ID o ULTRAMSG_TOKEN en .env');
   }
@@ -418,15 +169,49 @@ async function enviarDigestPro(telefono, mensaje) {
     throw new Error('enviarDigestPro: mensaje vacío');
   }
 
-  await enviarMensajeUltraMsg(telefono.trim(), mensaje.trim());
+  let providerResult;
+  try {
+    providerResult = await enviarMensajeUltraMsg(telefono.trim(), mensaje.trim(), {
+      idempotencyKey: context.idempotencyKey || context.idempotency_key || null,
+    });
+  } catch (error) {
+    guardarLogWhatsApp({
+      phone: telefono.trim(),
+      status: 'failed',
+      message_type: context.messageType || context.message_type || 'digest_pro',
+      error_msg: error.message,
+      outbox_id: context.outboxId || context.outbox_id || null,
+      digest_id: context.digestId || context.digest_id || null,
+      user_id: context.userId || context.user_id || null,
+      idempotency_key: context.idempotencyKey || context.idempotency_key || null,
+      message_version: context.messageVersion || context.message_version || null,
+      failed_at: new Date().toISOString(),
+      provider_error_code: error.providerCode || error.code || 'provider_error',
+      provider_error_reason: String(error.message || 'fallo_ultramsg').slice(0, 1000),
+    }).catch((logError) => console.error('[digest] Error guardando fallo:', logError.message));
+    throw error;
+  }
 
-  // Log no bloqueante — si falla el log no interrumpe el envío
-  guardarLogWhatsApp({
+  // Se espera al log para reducir la ventana entre la respuesta del proveedor
+  // y la correlación del ACK. Si falla, el outbox aún conserva la aceptación.
+  const logResult = await guardarLogWhatsApp({
     phone:        telefono.trim(),
-    status:       'sent',
-    message_type: 'digest_pro',
+    status:       'provider_accepted',
+    message_type: context.messageType || context.message_type || 'digest_pro',
     error_msg:    null,
-  }).catch((e) => console.error('[digest] Error guardando log:', e.message));
+    provider_message_id: providerResult.providerMessageId,
+    provider_status: providerResult.providerStatus,
+    delivery_status: 'PROVIDER_ACCEPTED',
+    outbox_id: context.outboxId || context.outbox_id || null,
+    digest_id: context.digestId || context.digest_id || null,
+    user_id: context.userId || context.user_id || null,
+    idempotency_key: providerResult.idempotencyKey || context.idempotencyKey || context.idempotency_key || null,
+    message_version: context.messageVersion || context.message_version || null,
+    accepted_at: new Date().toISOString(),
+  });
+  if (!logResult.ok) console.error('[digest] Error guardando aceptacion:', logResult.error);
+
+  return providerResult;
 }
 
 async function enviarWhatsAppDirecto(telefono, mensaje, messageType = 'directo') {
@@ -443,19 +228,27 @@ async function enviarWhatsAppDirecto(telefono, mensaje, messageType = 'directo')
   }
 
   try {
-    await enviarMensajeUltraMsg(telefono.trim(), mensaje.trim());
+    const providerResult = await enviarMensajeUltraMsg(telefono.trim(), mensaje.trim());
     await guardarLogWhatsApp({
       phone: telefono.trim(),
-      status: 'sent',
+      status: 'provider_accepted',
       message_type: messageType,
       error_msg: null,
+      provider_message_id: providerResult.providerMessageId,
+      provider_status: providerResult.providerStatus,
+      delivery_status: 'PROVIDER_ACCEPTED',
+      accepted_at: new Date().toISOString(),
     });
+    return providerResult;
   } catch (err) {
     await guardarLogWhatsApp({
       phone: telefono.trim(),
       status: 'failed',
       message_type: messageType,
       error_msg: err.message,
+      failed_at: new Date().toISOString(),
+      provider_error_code: err.providerCode || err.code || 'provider_error',
+      provider_error_reason: String(err.message || 'fallo_ultramsg').slice(0, 1000),
     });
     throw err;
   }
@@ -550,8 +343,6 @@ async function enviarWhatsAppAdmin(mensaje) {
 }
 
 module.exports = {
-  enviarWhatsAppResumen,
-  enviarWhatsAppFree,
   enviarWhatsAppRegistro,
   enviarWhatsAppTodos,
   enviarWhatsAppVerificacion,

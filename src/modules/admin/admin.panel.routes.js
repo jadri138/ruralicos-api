@@ -216,7 +216,7 @@ module.exports = (app, supabase) => {
 
       const { data, error } = await supabase
         .from('digests')
-        .select('id, user_id, fecha, mensaje, enviado, enviado_at, created_at, alerta_ids')
+        .select('id, user_id, fecha, mensaje, enviado, enviado_at, delivery_status, accepted_at, sent_to_whatsapp_at, delivered_at, read_at, failed_at, created_at, alerta_ids')
         .order('created_at', { ascending: false })
         .limit(limit);
 
@@ -234,7 +234,7 @@ module.exports = (app, supabase) => {
       const params = normalizarDigestExplainParams(req.query);
       let digestQuery = supabase
         .from('digests')
-        .select('id, user_id, fecha, mensaje, enviado, enviado_at, created_at, alerta_ids, organization_id')
+        .select('id, user_id, fecha, mensaje, enviado, enviado_at, delivery_status, provider_message_id, accepted_at, sent_to_whatsapp_at, delivered_at, read_at, failed_at, created_at, alerta_ids, organization_id')
         .order('created_at', { ascending: false })
         .limit(params.limit);
 
@@ -268,7 +268,7 @@ module.exports = (app, supabase) => {
 
         const attemptsResult = await supabase
           .from('digest_attempts')
-          .select('id, user_id, digest_id, fecha, kind, status, motivo_no_envio, error_msg, metadata_json, total_alertas_dia, total_alertas_ventana, tras_quality_gate, tras_filtro_usuario, tras_scoring, alertas_finales, created_at, updated_at')
+          .select('id, user_id, digest_id, fecha, kind, status, motivo_no_envio, error_msg, metadata_json, total_alertas_dia, total_alertas_ventana, tras_quality_gate, tras_filtro_usuario, tras_scoring, alertas_finales, judge_evaluated_count, approved_count, queued_count, delivered_count, delivery_status, created_at, updated_at')
           .in('digest_id', digestIds)
           .order('created_at', { ascending: false });
         if (attemptsResult.error) throw attemptsResult.error;
@@ -322,7 +322,7 @@ module.exports = (app, supabase) => {
       const params = normalizarDigestExplainParams(req.query);
       let query = supabase
         .from('digest_attempts')
-        .select('id, user_id, digest_id, fecha, kind, status, motivo_no_envio, error_msg, metadata_json, total_alertas_dia, total_alertas_ventana, tras_quality_gate, tras_filtro_usuario, tras_scoring, alertas_finales, created_at, updated_at')
+        .select('id, user_id, digest_id, fecha, kind, status, motivo_no_envio, error_msg, metadata_json, total_alertas_dia, total_alertas_ventana, tras_quality_gate, tras_filtro_usuario, tras_scoring, alertas_finales, judge_evaluated_count, approved_count, queued_count, delivered_count, delivery_status, created_at, updated_at')
         .order('created_at', { ascending: false })
         .limit(params.limit);
 

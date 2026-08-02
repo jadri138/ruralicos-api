@@ -2,8 +2,8 @@
 
 const { checkCronToken } = require('../../middleware/cronToken');
 const { llamarIA, parsearJSON } = require('../../platform/ia/llamarIA');
-const { enviarWhatsAppFree } = require('../../platform/whatsapp');
 const { getFechaMadridISO } = require('../../shared/fechaMadrid');
+const { encolarComunicacionWhatsApp } = require('../mia/outbox');
 const {
   diagnosticarTaxonomiaDerivadaAlerta,
 } = require('./seleccion/alertaMatcher');
@@ -356,10 +356,6 @@ ${lista}
     if (!checkCronToken(req, res)) return;
     generarResumenFreeHandler(req, res);
   });
-  app.get('/alertas/generar-resumen-free', (req, res) => {
-    if (!checkCronToken(req, res)) return;
-    generarResumenFreeHandler(req, res);
-  });
 
   // ============================================================
   // 2) Enviar el RESUMEN FREE por WhatsApp a usuarios FREE
@@ -396,25 +392,62 @@ ${lista}
 
       const mensajeFree = alertaConResumenValido.resumenfree;
 
-      await enviarWhatsAppFree(supabase, mensajeFree);
+      const { data: usuariosFree, error: usersError } = await supabase
+        .from('users')
+        .select('id, phone, organization_id')
+        .eq('subscription', 'free')
+        .not('phone', 'is', null)
+        .neq('phone', '')
+        .or('phone_verified.is.null,phone_verified.eq.true');
+      if (usersError) return res.status(500).json({ error: usersError.message });
+
+      let encolados = 0;
+      let existentes = 0;
+      const errores = [];
+      for (const user of usuariosFree || []) {
+        const queued = await encolarComunicacionWhatsApp(supabase, {
+          source: 'free_daily',
+          sourceId: `${hoy}:${user.id}`,
+          userId: user.id,
+          toPhone: user.phone,
+          body: mensajeFree,
+          organizationId: user.organization_id || null,
+          metadata: {
+            intent: 'daily_free_summary',
+            fecha: hoy,
+            alerta_id: alertaConResumenValido.id,
+          },
+        });
+        if (queued.queued) encolados++;
+        else if (queued.existing) existentes++;
+        else errores.push({ user_id: user.id, error: queued.error || queued.reason });
+      }
 
       // FIX: marcar solo las alertas que tenían este resumenfree, no todas las de hoy
-      const { error: updError } = await supabase
-        .from('alertas')
-        .update({ whatsapp_enviado_free: true })
-        .eq('fecha', hoy)
-        .eq('estado_ia', 'listo')
-        .eq('resumenfree', mensajeFree);
+      let updError = null;
+      if (errores.length === 0) {
+        const updated = await supabase
+          .from('alertas')
+          .update({ whatsapp_enviado_free: true })
+          .eq('fecha', hoy)
+          .eq('estado_ia', 'listo')
+          .eq('resumenfree', mensajeFree);
+        updError = updated.error;
+      }
 
       if (updError) {
         console.error('Error marcando whatsapp_enviado_free:', updError.message);
       }
 
       return res.json({
-        success: true,
+        success: errores.length === 0 && !updError,
         fecha: hoy,
-        enviados: 1,
-        mensaje: 'Resumen FREE enviado por WhatsApp a usuarios FREE',
+        usuarios: (usuariosFree || []).length,
+        encolados,
+        ya_encolados: existentes,
+        errores,
+        enviados: 0,
+        mensaje: 'Resumen FREE preparado en la cola unica de WhatsApp',
       });
     } catch (e) {
       console.error('Error enviar-resumen-free:', e);
@@ -423,10 +456,6 @@ ${lista}
   };
 
   app.post('/alertas/enviar-resumen-free', (req, res) => {
-    if (!checkCronToken(req, res)) return;
-    enviarResumenFreeHandler(req, res);
-  });
-  app.get('/alertas/enviar-resumen-free', (req, res) => {
     if (!checkCronToken(req, res)) return;
     enviarResumenFreeHandler(req, res);
   });

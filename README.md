@@ -68,11 +68,11 @@ La referencia completa y comentada es [`.env.example`](.env.example). Los grupos
 | Grupo | Variables principales |
 | --- | --- |
 | Base de datos | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` |
-| IA | `OPENAI_API_KEY`, `IA_GPT5_NANO_REASONING_EFFORT` |
+| IA y decisión | `OPENAI_API_KEY`, `ALERT_DECISION_TOP_K`, modelos del juez y sal de pseudónimos |
 | Sesiones y tareas | `JWT_SECRET`, `CRON_TOKEN`, `VERIFICATION_CODE_PEPPER` |
 | WhatsApp | `ULTRAMSG_INSTANCE_ID`, `ULTRAMSG_TOKEN`, `ULTRAMSG_WEBHOOK_TOKEN` |
-| Digest | `DIGEST_ONLY_MODE`, `DIGEST_VIA_OUTBOX`, `DIGEST_FINAL_VALIDATION_MODE`, límites de lote |
-| Pipeline | `BASE_URL`, `HTTP_TIMEOUT_MS`, `HTTP_RETRIES`, `MAX_LOOPS`, `PREPARAR_DIGEST_MAX_LOOPS` |
+| Digest y entrega | `DIGEST_FINAL_VALIDATION_MODE`, `ALERT_DECISION_MESSAGE_MAX_CHARS`, `OUTBOX_MAX_LOOPS`, conciliación UltraMsg |
+| Pipeline | `BASE_URL`, `HTTP_TIMEOUT_MS`, `HTTP_RETRIES`, `MAX_LOOPS`, `PREPARAR_DIGEST_MAX_LOOPS`, `HOLD_RECOVERY_MAX_LOOPS` |
 | URLs | `PUBLIC_BASE_URL`, `PIPELINE_INTERNAL_BASE_URL`, `FRONTEND_ORIGINS` |
 | Observabilidad y retención | `SENTRY_DSN`, `RETENTION_ENABLED` |
 
@@ -81,8 +81,7 @@ No se debe subir `.env` a Git ni exponer la clave `SUPABASE_SERVICE_ROLE_KEY` en
 ## Flujo diario
 
 El orquestador de producción es `node scripts/run_digest_workflow.js`. El cron
-ejecuta una sola vez todas las fases en orden mediante endpoints pequeños. No
-usa `pipeline_jobs`, claims, heartbeats ni recuperación por checkpoints.
+ejecuta una sola vez todas las fases en orden mediante endpoints pequeños.
 
 ```text
 scrapers
@@ -92,8 +91,9 @@ scrapers
   → resumen, revisión y deduplicación
   → cálculo de audiencia y candidatos
   → preparación del digest
-  → validación final
-  → envío directo o mediante outbox
+  → autoridad y validación final
+  → cola única de comunicaciones
+  → ACK y conciliación de entrega
   → feedback, clics y aprendizaje
 ```
 
@@ -123,6 +123,9 @@ npm test                  # lint + suite + invariantes
 npm run rutas:inventario  # inventario de endpoints
 npm run openapi:generar   # actualiza docs/openapi.json
 npm run p0:acceptance     # puerta de aceptación P0
+npm run replay:alert-decisions # replay offline, sin base de datos ni envíos
+npm run replay:export-snapshots -- --help # exportación histórica solo lectura
+npm run replay:grade -- --help # grader auxiliar apagado por defecto
 ```
 
 Los scripts operativos, sus riesgos y ejemplos están en [`scripts/README.md`](scripts/README.md). Las pruebas están agrupadas en [`tests/README.md`](tests/README.md).
@@ -146,7 +149,7 @@ Los scripts operativos, sus riesgos y ejemplos están en [`scripts/README.md`](s
 
 - Explicación no técnica: [`docs/EXPLICACION_SIMPLE.md`](docs/EXPLICACION_SIMPLE.md)
 - Arquitectura: [`docs/ARQUITECTURA.md`](docs/ARQUITECTURA.md)
-- Sistema de recomendación: [`docs/sistema_recomendacion_inteligente.md`](docs/sistema_recomendacion_inteligente.md)
+- Decisión de alertas, entrega y aprendizaje: [`docs/SISTEMA_DECISION_ALERTAS_LLM_IMPLEMENTADO.md`](docs/SISTEMA_DECISION_ALERTAS_LLM_IMPLEMENTADO.md)
 - Validación final: [`docs/final-digest-validator.md`](docs/final-digest-validator.md)
 - Evidencia y trazabilidad: [`docs/fact-sheet.md`](docs/fact-sheet.md) y [`docs/document-trace.md`](docs/document-trace.md)
 - Operación y despliegue: [`docs/README.md`](docs/README.md)

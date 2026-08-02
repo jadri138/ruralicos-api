@@ -2,6 +2,10 @@ const crypto = require('crypto');
 const { checkCronToken } = require('../../middleware/cronToken');
 const { conOrganizationId, extraerOrganizationId } = require('../mia/organizationContext');
 const { aplicarClickAlPerfil } = require('../aprendizaje/userInterestProfile');
+const {
+  construirMemoriaAtomica,
+  guardarMemoriasAtomicas,
+} = require('../aprendizaje/atomicMemory');
 
 // Un click indica curiosidad, no una preferencia declarada. Se incorpora con
 // poco peso y solo aprende temas concretos; nunca cambia territorio o sector.
@@ -55,19 +59,25 @@ async function guardarMemoriaClickSiPrimero(supabase, link) {
     console.warn('[clicks] No se pudo cargar alerta para memoria:', alertaError.message);
   }
 
-  const { error: memoriaError } = await supabase
-    .from('user_memory')
-    .insert(conOrganizationId({
-      user_id: link.user_id,
+  try {
+    const memory = construirMemoriaAtomica({
+      userId: link.user_id,
       tipo: 'feedback_positivo',
       contenido: `Hizo click en la alerta: ${alerta?.titulo || link.url_destino}`,
-      alerta_id: link.alerta_id,
-      digest_id: link.digest_id,
-      peso_inicial: CLICK_INTEREST_WEIGHT,
-    }, extraerOrganizationId(link)));
-
-  if (memoriaError) {
-    console.warn('[clicks] No se pudo guardar memoria de click:', memoriaError.message);
+      alertaId: link.alerta_id,
+      digestId: link.digest_id,
+      organizationId: extraerOrganizationId(link),
+      scopeType: 'alert',
+      scopeValue: String(link.alerta_id),
+      polarity: 'positive',
+      source: 'click',
+      strength: CLICK_INTEREST_WEIGHT,
+      confidence: 0.6,
+      metadata: { click_token: link.token },
+    });
+    await guardarMemoriasAtomicas(supabase, [memory]);
+  } catch (memoryError) {
+    console.warn('[clicks] No se pudo guardar memoria de click:', memoryError.message);
   }
 
   if (alerta) {

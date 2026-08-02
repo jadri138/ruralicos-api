@@ -1,12 +1,11 @@
 // src/modules/feedback/feedback.routes.js
 //
-// Capa HTTP de feedback: webhook entrante de UltraMsg y endpoints de prueba/
-// diagnostico (/feedback/parse, /feedback/perfil, /feedback/diagnostico...).
+// Capa HTTP de feedback: webhook entrante de UltraMsg y diagnóstico protegido
+// (/feedback/parse, /feedback/perfil, /feedback/diagnostico...).
 // La logica vive en feedback.service.js.
 const { checkCronToken } = require('../../middleware/cronToken');
 const { responderError } = require('../../shared/responderError');
 
-const { getFechaMadridISO } = require('../../shared/fechaMadrid');
 const { normalizePhone } = require('../../shared/phoneNormalizer');
 const {
   aplicarFeedbackAlPerfil,
@@ -42,18 +41,15 @@ const {
   procesarOutboxItemMIA,
 } = require('../mia/outbox');
 const { guardarWebhookEventSeguro } = require('../mia/webhookEvent');
+const { procesarAckUltraMsg } = require('../delivery/deliveryService');
 const {
   cargarPerfilOperativoMIA,
   aplicarPerfilOperativoAUsuario,
 } = require('../mia/userProfile');
 const { evaluarPoliticaDecisionMIA } = require('../mia/policy');
 const {
-  conOrganizationId,
-  extraerOrganizationId,
-  filtrarAlertasPorOrganization,
   cargarOrganizationContextMIA,
   aplicarOrganizationContextAUsuario,
-  obtenerMiaBranding,
 } = require('../mia/organizationContext');
 
 const {
@@ -61,167 +57,16 @@ const {
   fechaMadridConversacionMIA,
   esConversacionMIADelDia,
   getExpiracionFinDiaMadridISO,
-  aplicarLinksTrackingDigest,
-  abrirConversacionFeedbackPrueba,
-  sumarTagPerfil,
   buscarConversacionActiva,
   cargarDigestYAlertas,
+  cargarUltimoDigestEntregadoReciente,
+  extraerItemsReferenciadosInequivocamente,
   buscarUsuarioPorTelefonoEntrante,
 } = require('./feedback.service');
 
 function feedbackRoutes(app, supabase) {
   async function guardarWebhookEvent(req, result = null, error = null) {
     return guardarWebhookEventSeguro(supabase, req, result, error);
-  }
-
-  async function guardarFeedbackDesdeTexto({ phone, texto }) {
-    const telefono = normalizePhone(phone);
-    const rawText = String(texto || '').trim();
-
-    if (!telefono) return { ok: false, error: 'Telefono invalido' };
-    if (!rawText) return { ok: true, ignored: true, reason: 'texto_vacio' };
-
-    const user = await buscarUsuarioPorTelefonoEntrante(supabase, telefono, 'id, phone, organization_id');
-    if (!user) return { ok: true, ignored: true, reason: 'usuario_no_encontrado', phone: telefono };
-    const organizationId = extraerOrganizationId(user);
-
-    const desde = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    const { data: digest, error: errDigest } = await supabase
-      .from('digests')
-      .select('id, user_id, fecha, alerta_ids, organization_id, enviado_at, created_at')
-      .eq('user_id', user.id)
-      .eq('enviado', true)
-      .or(`enviado_at.gte.${desde},created_at.gte.${desde}`)
-      .order('enviado_at', { ascending: false, nullsFirst: false })
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (errDigest) throw errDigest;
-    if (!digest) return { ok: true, ignored: true, reason: 'sin_digest_reciente', user_id: user.id };
-
-    const alertaIds = Array.isArray(digest.alerta_ids) ? digest.alerta_ids.map(Number).filter(Boolean) : [];
-    if (alertaIds.length === 0) {
-      return { ok: true, ignored: true, reason: 'digest_sin_alertas', user_id: user.id, digest_id: digest.id };
-    }
-
-    const { data: alertas, error: errAlertas } = await supabase
-      .from('alertas')
-      .select('id, titulo, resumen, resumen_final, provincias, sectores, subsectores, tipos_alerta, fuente, organization_id')
-      .in('id', alertaIds);
-
-    if (errAlertas) throw errAlertas;
-    const alertasPorId = new Map((alertas || []).map((alerta) => [Number(alerta.id), alerta]));
-    if (alertasPorId.size === 0) {
-      return { ok: true, ignored: true, reason: 'sin_alertas_en_digest', user_id: user.id, digest_id: digest.id };
-    }
-    const alertasOrdenadas = alertaIds.map((id) => alertasPorId.get(id)).filter(Boolean);
-
-    let origenFeedback = 'numerico';
-    let votos = parsearVotosDigest(rawText, alertaIds.length)
-      .filter((voto) => voto.item >= 1 && voto.item <= alertaIds.length);
-
-    if (votos.length === 0) {
-      const natural = parsearVotosNaturalesPorAlertas(rawText, alertasOrdenadas);
-      if (natural.matched) {
-        origenFeedback = 'lenguaje_natural_alerta';
-        votos = natural.votos;
-      }
-    }
-
-    if (votos.length > 0) {
-      const filas = votos
-        .map((voto) => {
-          const alertaId = alertaIds[voto.item - 1];
-          if (!alertasPorId.has(alertaId)) return null;
-          return conOrganizationId({
-            user_id: user.id,
-            digest_id: digest.id,
-            alerta_id: alertaId,
-            item_numero: voto.item,
-            valor: voto.valor,
-            canal: 'whatsapp',
-            raw_text: rawText,
-            updated_at: new Date().toISOString(),
-          }, organizationId);
-        })
-        .filter(Boolean);
-
-      if (filas.length === 0) {
-        return { ok: true, ignored: true, reason: 'votos_fuera_de_rango', user_id: user.id, digest_id: digest.id };
-      }
-
-      const { error: upsertError } = await supabase
-        .from('alerta_feedback')
-        .upsert(filas, { onConflict: 'user_id,digest_id,alerta_id' });
-
-      if (upsertError) throw upsertError;
-
-      let tagsActualizados = 0;
-      for (const fila of filas) {
-        const resultado = await aplicarFeedbackAlPerfil(supabase, {
-          userId: user.id,
-          alerta: alertasPorId.get(Number(fila.alerta_id)),
-          delta: fila.valor,
-          rawText,
-        });
-        tagsActualizados += Number(resultado?.updated || 0);
-      }
-
-      return {
-        ok: true,
-        user_id: user.id,
-        digest_id: digest.id,
-        feedbacks_guardados: filas.length,
-        tags_actualizados: tagsActualizados,
-        raw_text: rawText,
-        origen: origenFeedback,
-        votos: filas.map((fila) => ({
-          item: fila.item_numero,
-          alerta_id: fila.alerta_id,
-          valor: fila.valor,
-        })),
-      };
-    }
-
-    const analisis = await analizarFeedbackCompleto(rawText);
-    if (!analisis.es_valido) {
-      return {
-        ok: true,
-        ignored: true,
-        reason: 'texto_cualitativo_sin_feedback_numerico',
-        user_id: user.id,
-        digest_id: digest.id,
-        raw_text: rawText,
-        confianza: analisis.confianza,
-      };
-    }
-
-    let aprendizajesPositivos = 0;
-    let aprendizajesNegativos = 0;
-
-    for (const tema of analisis.aprende_positivo || []) {
-      if (await sumarTagPerfil(supabase, user.id, tema, 1, organizationId)) aprendizajesPositivos++;
-    }
-
-    for (const tema of analisis.aprende_negativo || []) {
-      if (await sumarTagPerfil(supabase, user.id, tema, -1, organizationId)) aprendizajesNegativos++;
-    }
-
-    return {
-      ok: true,
-      user_id: user.id,
-      digest_id: digest.id,
-      feedbacks_guardados: 0,
-      raw_text: rawText,
-      sentimiento: analisis.sentimiento,
-      confianza: analisis.confianza,
-      aprendizajes_positivos: aprendizajesPositivos,
-      aprendizajes_negativos: aprendizajesNegativos,
-      aprende_positivo: analisis.aprende_positivo,
-      aprende_negativo: analisis.aprende_negativo,
-      temas_mencionados: analisis.temas_mencionados,
-    };
   }
 
   app.post('/feedback/parse', async (req, res) => {
@@ -246,153 +91,6 @@ function feedbackRoutes(app, supabase) {
       return res.json({ ok: true, texto, resultado });
     } catch (err) {
       console.error('Error en /feedback/parse:', err);
-      return res.status(500).json({ error: err.message });
-    }
-  });
-
-  const enviarDigestPruebaHandler = async (req, res) => {
-    if (!checkCronToken(req, res)) return;
-
-    try {
-      const phone = normalizePhone(req.body?.phone || req.query.phone);
-      if (!phone || phone.length !== 11) {
-        return res.status(400).json({ error: 'Indica phone en formato 34XXXXXXXXX o 6XXXXXXXX' });
-      }
-
-      const { data: user, error: errUser } = await supabase
-        .from('users')
-        .select('id, name, phone, organization_id')
-        .eq('phone', phone)
-        .maybeSingle();
-
-      if (errUser) return res.status(500).json({ error: errUser.message });
-      if (!user) return res.status(404).json({ error: 'Usuario no encontrado para ese telefono' });
-      const organizationContext = await cargarOrganizationContextMIA(supabase, user);
-      const organizationId = organizationContext.organization_id || extraerOrganizationId(user);
-      const branding = obtenerMiaBranding(organizationContext);
-
-      const { data: alertasRaw, error: errAlertas } = await supabase
-        .from('alertas')
-        .select('id, titulo, url, fuente, resumen_final, resumen, organization_id')
-        .eq('estado_ia', 'listo')
-        .order('fecha', { ascending: false })
-        .order('id', { ascending: false })
-        .limit(2);
-
-      if (errAlertas) return res.status(500).json({ error: errAlertas.message });
-      const alertas = filtrarAlertasPorOrganization(alertasRaw || [], organizationId);
-      if (!alertas || alertas.length === 0) {
-        return res.status(404).json({ error: 'No hay alertas listas para construir la prueba' });
-      }
-
-      const fecha = req.body?.fecha || req.query.fecha || getFechaMadridISO();
-      const digestPruebaRef = `${fecha}-prueba-${Date.now()}`;
-      const nombre = user.name ? ` *${user.name}*` : '';
-      const bloques = alertas.map((a, index) => {
-        const resumen = (a.resumen_final || a.resumen || a.titulo || '').replace(/\s+/g, ' ').slice(0, 280);
-        return [
-          `*${index + 1}. ${a.titulo || `Alerta ${branding.reply_sender}`}*`,
-          resumen,
-          a.url || '',
-        ].filter(Boolean).join('\n');
-      });
-
-      let mensaje = [
-        `Hola${nombre}`,
-        '',
-        `*${branding.digest_title} - prueba de valoracion*`,
-        '',
-        'Este es un digest simulado para comprobar que el sistema aprende de tus respuestas.',
-        '',
-        ...bloques.flatMap((bloque) => [bloque, '']),
-        'Cuales te han interesado?',
-        'Responde: *1*, *2*, *ambas* o *ninguna*',
-      ].join('\n').trim();
-
-      const { data: digest, error: digestError } = await supabase
-        .from('digests')
-        .upsert(conOrganizationId({
-          user_id: user.id,
-          fecha,
-          mensaje,
-          alerta_ids: alertas.map((a) => a.id),
-          enviado: true,
-          enviado_at: new Date().toISOString(),
-          error_msg: null,
-        }, organizationId), { onConflict: 'user_id,fecha' })
-        .select('id, user_id, fecha, alerta_ids, organization_id')
-        .single();
-
-      if (digestError) return res.status(500).json({ error: digestError.message });
-
-      await supabase
-        .from('alerta_click_links')
-        .delete()
-        .eq('user_id', user.id)
-        .eq('digest_id', digest.id);
-
-      const tracking = await aplicarLinksTrackingDigest(supabase, {
-        mensaje,
-        userId: user.id,
-        digestId: digest.id,
-        alertas,
-        organizationId,
-      });
-
-      if (tracking.enabled && tracking.mensaje !== mensaje) {
-        mensaje = tracking.mensaje;
-        const { error: updateDigestError } = await supabase
-          .from('digests')
-          .update({ mensaje })
-          .eq('id', digest.id);
-
-        if (updateDigestError) {
-          console.warn('[feedback:prueba] No se pudo actualizar digest con links tracking:', updateDigestError.message);
-        }
-      }
-
-      await abrirConversacionFeedbackPrueba(supabase, {
-        userId: user.id,
-        digestId: digest.id,
-        alertaIds: alertas.map((a) => a.id),
-        fecha: digestPruebaRef,
-        organizationId,
-      });
-
-      await enviarDigestPro(phone, mensaje);
-
-      return res.json({
-        ok: true,
-        mensaje: 'Digest de prueba enviado. Responde por WhatsApp 1, 2, ambas o ninguna.',
-        phone,
-        digest,
-        digest_prueba_ref: digestPruebaRef,
-        tracking: {
-          enabled: tracking.enabled,
-          links: tracking.links,
-          error: tracking.error || null,
-        },
-      });
-    } catch (err) {
-      console.error('Error en /feedback/enviar-digest-prueba:', err);
-      return res.status(500).json({ error: err.message });
-    }
-  };
-
-  app.post('/feedback/enviar-digest-prueba', enviarDigestPruebaHandler);
-  app.get('/feedback/enviar-digest-prueba', enviarDigestPruebaHandler);
-
-  app.get('/feedback/simular-respuesta', async (req, res) => {
-    if (!checkCronToken(req, res)) return;
-
-    try {
-      const result = await guardarFeedbackDesdeTexto({
-        phone: req.query.phone,
-        texto: req.query.texto || req.query.body || '+1',
-      });
-      return res.json(result);
-    } catch (err) {
-      console.error('Error en /feedback/simular-respuesta:', err);
       return res.status(500).json({ error: err.message });
     }
   });
@@ -525,6 +223,20 @@ function feedbackRoutes(app, supabase) {
     let inboundMIA = null;
 
     try {
+      const ackResult = await procesarAckUltraMsg(supabase, req.body || {});
+      if (ackResult.handled) {
+        return res.json({
+          ok: ackResult.ok,
+          handled: true,
+          matched: ackResult.matched ?? false,
+          duplicate: ackResult.duplicate ?? false,
+          changed: ackResult.changed ?? false,
+          ignored: ackResult.ignored ?? false,
+          reason: ackResult.reason || ackResult.transition_reason || null,
+          delivery_status: ackResult.delivery_status || null,
+        });
+      }
+
       const ultra = extraerUltraMsg(req.body);
 
       if (!esEventoMensajeUltraMsg(ultra.eventType)) {
@@ -640,11 +352,12 @@ function feedbackRoutes(app, supabase) {
       const perfilOperativoMIA = await cargarPerfilOperativoMIA(supabase, user.id, { user: userConOrganization });
       const usuarioMIA = aplicarPerfilOperativoAUsuario(userConOrganization, perfilOperativoMIA);
       const conversacionActiva = await buscarConversacionActiva(supabase, user.id);
-      const { digest, alertasOrdenadas } = await cargarDigestYAlertas(
+      const { digest, alertasOrdenadas, lateAssociation } = await cargarDigestYAlertas(
         supabase,
         user.id,
         conversacionActiva,
-        organizationId
+        organizationId,
+        { mensajeUsuario: texto }
       );
 
       let decisionMIA = await decidirMensajeMIA({
@@ -827,14 +540,18 @@ function feedbackRoutes(app, supabase) {
             to_phone: telefono,
             body: textoRespuesta,
             attempts: outboxMIA.attempts || 0,
+            delivery_status: outboxMIA.delivery_status || 'QUEUED',
+            provider_message_id: outboxMIA.provider_message_id || null,
+            idempotency_key: outboxMIA.idempotency_key || null,
+            message_version: outboxMIA.message_version || null,
+            user_id: user.id,
           }, enviarDigestPro)
             .then((result) => {
               if (result.ok === false) console.error('[feedback] Error enviando respuesta MIA:', result.error);
             })
             .catch((err) => console.error('[feedback] Error inesperado procesando outbox MIA:', err.message));
         } else if (!outboxMIA.id && enviarInmediato) {
-          enviarDigestPro(telefono, textoRespuesta)
-            .catch((err) => console.error('[feedback] Error enviando respuesta MIA sin outbox:', err.message));
+          console.error('[feedback] Respuesta MIA no enviada: outbox no disponible');
         }
       }
 
@@ -843,6 +560,7 @@ function feedbackRoutes(app, supabase) {
         user_id: user.id,
         organization_id: organizationId,
         digest_id: digest?.id || null,
+        late_digest_association: lateAssociation,
         conversacion_id: conversacionActiva?.id || null,
         mia_inbound_id: inboundMIA?.id || null,
         message_id: inboundMIA?.identity?.external_message_id || null,
@@ -899,13 +617,6 @@ function feedbackRoutes(app, supabase) {
 
       await guardarWebhookEvent(req, result, null);
 
-      const enviarConfirmacion = (process.env.FEEDBACK_CONFIRMATION_ENABLED || 'false').toLowerCase() === 'true';
-
-      if (enviarConfirmacion && result.ok && result.feedbacks_guardados > 0 && !interpretacion.requiere_respuesta) {
-        enviarDigestPro(telefono, 'Gracias, he guardado tu respuesta. La tendré en cuenta para ajustar próximas alertas.')
-          .catch((err) => console.error('[feedback] Error enviando confirmacion:', err.message));
-      }
-
       return res.json(result);
     } catch (err) {
       // El detalle queda en inbound/webhook_events y en el log del servidor;
@@ -927,4 +638,6 @@ module.exports.__testing = {
   esConversacionMIADelDia,
   fechaMadridConversacionMIA,
   getExpiracionFinDiaMadridISO,
+  cargarUltimoDigestEntregadoReciente,
+  extraerItemsReferenciadosInequivocamente,
 };

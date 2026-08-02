@@ -337,13 +337,16 @@ assert.ok(
   cronTokenUtils.includes('crypto.timingSafeEqual'),
   'La comparacion del CRON_TOKEN debe evitar comparacion directa'
 );
+assert.ok(
+  !cronTokenUtils.includes('req.query.token') && !cronTokenUtils.includes('ALLOW_CRON_TOKEN_QUERY'),
+  'CRON_TOKEN solo debe viajar por headers'
+);
 
 const tareasRoutes = fs.readFileSync(path.join(__dirname, '..', 'src/modules/tareas/tareas.routes.js'), 'utf8');
 const tareasHelpers = fs.readFileSync(path.join(__dirname, '..', 'src/modules/tareas/tareas.helpers.js'), 'utf8');
-const pipelineRunner = fs.readFileSync(path.join(__dirname, '..', 'src/modules/tareas/pipelineRunner.js'), 'utf8');
 assert.ok(
   tareasHelpers.includes("'x-cron-token': token") &&
-    !/new URLSearchParams\(\{\s*token/.test(tareasRoutes + tareasHelpers + pipelineRunner),
+    !/new URLSearchParams\(\{\s*token/.test(tareasRoutes + tareasHelpers),
   'Las llamadas internas del pipeline deben pasar CRON_TOKEN por header, no por query string'
 );
 

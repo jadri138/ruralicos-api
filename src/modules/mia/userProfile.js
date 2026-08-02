@@ -4,11 +4,41 @@ const {
 } = require('../aprendizaje/userInterestProfile');
 const { construirPreferenciasDesdeTexto } = require('../aprendizaje/taxonomiaRuralicos');
 const {
+  aplicarDecayMemoria,
   inferirTopic,
   inferirPolarity,
-} = require('./structuredMemory');
+} = require('../aprendizaje/atomicMemory');
 
 const PROFILE_VERSION = 'mia_user_profile_v1';
+const DURABLE_EXPLICIT_MEMORY_SOURCES = Object.freeze(['response', 'preference_edit']);
+const DURABLE_EXPLICIT_MEMORY_SCOPES = Object.freeze([
+  'topic',
+  'subsector',
+  'territory',
+  'frequency',
+  'channel',
+  'activity',
+]);
+const DURABLE_EXPLICIT_MEMORY_LIMIT = 1000;
+const USER_MEMORY_SELECT = [
+  'id',
+  'memory_key',
+  'tipo',
+  'contenido',
+  'scope_type',
+  'scope_value',
+  'polarity',
+  'source',
+  'strength',
+  'confidence',
+  'status',
+  'expires_at',
+  'duplicate_count',
+  'peso_inicial',
+  'created_at',
+  'last_seen_at',
+  'updated_at',
+].join(', ');
 
 const TOPIC_ALIASES = {
   pac: ['pac', 'politica agraria comun', 'fega', 'feaga', 'feader', 'sigpac', 'ecoregimen'],
@@ -255,12 +285,29 @@ function construirPerfilOperativoMIA({
   }
 
   for (const memory of legacyMemories || []) {
-    const topic = inferirTopic(memory.contenido);
-    const polarity = inferirPolarity(memory.tipo);
+    if (memory.status && memory.status !== 'active') continue;
+
+    const canonical = Boolean(memory.memory_key || memory.scope_type);
+    const decayed = aplicarDecayMemoria(memory);
+    if (decayed.expired || decayed.effective_strength <= 0.01) continue;
+
+    const topic = ['topic', 'subsector', 'activity'].includes(memory.scope_type)
+      ? memory.scope_value
+      : inferirTopic(memory.contenido);
+    const polarity = memory.polarity || inferirPolarity(memory.tipo);
     const sign = polarity === 'negative' ? -1 : polarity === 'positive' ? 1 : 0.25;
-    const confidence = clamp(memory.peso_inicial || 0.5, 0.1, 1);
-    const delta = sign * confidence * pesoTemporal(memory.created_at);
-    sumarTema(temas, topic, delta, 'user_memory', memory.contenido);
+    const confidence = clamp(memory.confidence || memory.peso_inicial || 0.5, 0.1, 1);
+    const strength = canonical
+      ? decayed.effective_strength
+      : pesoTemporal(memory.created_at);
+    const duplicateBoost = 1 + Math.min(3, Number(memory.duplicate_count || 0)) * 0.05;
+    const delta = sign * confidence * strength * duplicateBoost;
+
+    // Una respuesta sobre una alerta concreta solo gobierna esa alerta. Para
+    // aprender el tema hace falta otra memoria con scope topic/subsector.
+    if (memory.scope_type !== 'alert') {
+      sumarTema(temas, topic, delta, `user_memory:${memory.source || 'legacy'}`, memory.contenido);
+    }
 
     if (memory.tipo === 'dato_explotacion' && facts.length < 8) {
       facts.push({
@@ -492,6 +539,51 @@ async function selectOptional(supabase, table, select, userId, { limit = 100, or
   }
 }
 
+function memoryIdentity(memory = {}) {
+  if (memory.memory_key) return `key:${memory.memory_key}`;
+  if (memory.id !== null && memory.id !== undefined) return `id:${memory.id}`;
+  return [
+    memory.scope_type,
+    memory.scope_value,
+    memory.polarity,
+    memory.source,
+    memory.created_at,
+    memory.contenido,
+  ].map((value) => String(value || '')).join('|');
+}
+
+function mergeAtomicMemories(recent = [], explicit = []) {
+  const merged = new Map();
+  for (const memory of [...(recent || []), ...(explicit || [])]) {
+    const key = memoryIdentity(memory);
+    if (!merged.has(key)) merged.set(key, memory);
+  }
+  return [...merged.values()];
+}
+
+async function selectDurableExplicitMemories(supabase, userId) {
+  try {
+    const { data, error } = await supabase
+      .from('user_memory')
+      .select(USER_MEMORY_SELECT)
+      .eq('user_id', userId)
+      .eq('status', 'active')
+      .in('source', DURABLE_EXPLICIT_MEMORY_SOURCES)
+      // Las respuestas ligadas a una alerta concreta permanecen en la ventana
+      // reciente. La lectura durable se reserva para preferencias globales,
+      // evitando que miles de votos de items oculten una exclusión vigente.
+      .in('scope_type', DURABLE_EXPLICIT_MEMORY_SCOPES)
+      .order('last_seen_at', { ascending: false })
+      .limit(DURABLE_EXPLICIT_MEMORY_LIMIT);
+
+    if (error) throw error;
+    return { available: true, data: data || [] };
+  } catch (error) {
+    console.warn('[mia:user_profile] No se pudieron leer memorias explicitas durables:', error.message);
+    return { available: false, data: [], error: error.message };
+  }
+}
+
 async function cargarPerfilOperativoMIA(supabase, userId, { user = null, limit = 120 } = {}) {
   let userRow = user;
   if (!userRow) {
@@ -508,24 +600,28 @@ async function cargarPerfilOperativoMIA(supabase, userId, { user = null, limit =
     return construirPerfilOperativoMIA({ user: { id: userId } });
   }
 
-  const [interestRows, legacyMemories, structuredMemories] = await Promise.all([
+  const [interestRows, recentMemories, explicitMemories, structuredMemories] = await Promise.all([
     selectOptional(supabase, 'user_interest_profile', 'tag, score, positivos, negativos, updated_at', userRow.id, { limit, order: 'updated_at' }),
-    selectOptional(supabase, 'user_memory', 'tipo, contenido, peso_inicial, created_at', userRow.id, { limit, order: 'created_at' }),
+    selectOptional(supabase, 'user_memory', USER_MEMORY_SELECT, userRow.id, { limit, order: 'last_seen_at' }),
+    selectDurableExplicitMemories(supabase, userRow.id),
     selectOptional(supabase, 'mia_structured_memory', 'memory_type, topic, detail, polarity, confidence, duplicate_count, created_at, last_seen_at', userRow.id, { limit, order: 'last_seen_at' }),
   ]);
+  const atomicMemories = mergeAtomicMemories(recentMemories.data, explicitMemories.data);
 
   const profile = construirPerfilOperativoMIA({
     user: userRow,
     interestRows: interestRows.data,
-    legacyMemories: legacyMemories.data,
+    legacyMemories: atomicMemories,
     structuredMemories: structuredMemories.data,
   });
 
   return {
     ...profile,
+    atomic_memories: atomicMemories,
     availability: {
       user_interest_profile: interestRows.available,
-      user_memory: legacyMemories.available,
+      user_memory: recentMemories.available || explicitMemories.available,
+      explicit_user_memory: explicitMemories.available,
       mia_structured_memory: structuredMemories.available,
     },
   };
@@ -533,6 +629,10 @@ async function cargarPerfilOperativoMIA(supabase, userId, { user = null, limit =
 
 module.exports = {
   PROFILE_VERSION,
+  DURABLE_EXPLICIT_MEMORY_SOURCES,
+  DURABLE_EXPLICIT_MEMORY_SCOPES,
+  mergeAtomicMemories,
+  selectDurableExplicitMemories,
   construirPerfilOperativoMIA,
   cargarPerfilOperativoMIA,
   aplicarPerfilOperativoAUsuario,

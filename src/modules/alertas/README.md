@@ -25,14 +25,14 @@ Estados retenidos:
 | Archivo | Responsabilidad |
 | --- | --- |
 | `alertas.routes.js` | CRUD controlado, clasificación, resumen, revisión y estado del pipeline |
-| `revisarAlertas.routes.js` | Revisión final de alertas procesadas |
 | `deduplicar.routes.js` | Agrupa equivalencias y evita alertas repetidas |
 | `alertasFree.routes.js` | Resumen limitado para plan gratuito |
 | `alertas.service.js` | Operaciones compartidas de persistencia/proceso |
 
-Las rutas automáticas están protegidas para admin o cron según su efecto. `GET` no implica que sea público: varias rutas históricas admiten GET y POST, pero ambas deben validar el token.
+Las rutas automáticas están protegidas para admin o cron según su efecto. Las
+consultas usan `GET`; las operaciones que modifican datos usan `POST`.
 
-## Tres capas internas
+## Capas internas
 
 ### [`clasificacion/`](clasificacion/)
 
@@ -45,6 +45,24 @@ Construye la ficha de hechos, valida soporte documental, relaciona documentos y 
 ### [`seleccion/`](seleccion/)
 
 Compara alerta y usuario, aplica barreras duras, puntúa, diversifica y registra por qué entra o sale.
+
+### [`decision/`](decision/)
+
+Adapta la ficha y el perfil a contratos versionados, une candidatas exactas,
+semánticas, de memoria, cobertura y exploración, reduce a un top K y ejecuta el
+juez personal. `authority.js` vuelve a aplicar barreras, idempotencia,
+frecuencia, repetición y portfolio antes de permitir un mensaje.
+
+Estados canónicos: `SEND_NOW`, `ADD_TO_DIGEST`, `HOLD_FOR_EVIDENCE`, `DROP` y
+`BLOCKED`. Un bloqueo territorial o una falta de evidencia no se compensa con
+score. `HOLD_FOR_EVIDENCE` solo relee material ya guardado; no llama a scrapers.
+
+El replay de esta capa usa `decision/replay.js` y
+`decision/historicalSequence.js`: reproduce cada día de una ventana, aplica
+feedback/clics solo a días posteriores y compara decisión y mensaje sin enviar
+nada. `decision/replaySnapshotExporter.js` puede construir un corpus local
+seudonimizado leyendo Supabase sin mutarlo. El grader semántico de
+`decision/replayGrader.js` es opcional, inyectable y nunca decide la aceptación.
 
 ## Cómo se filtra
 
@@ -104,6 +122,11 @@ node tests\alertSelectionGate.test.js
 node tests\audienceReach.test.js
 node tests\auditedFalseDiscardCorpus.test.js
 node tests\finalValidationAuthority.test.js
+node tests\alertDecisionCore.test.js
+node tests\digestDecisionIntegration.test.js
+node tests\decisionEvidenceRecovery.test.js
+node tests\alertDecisionReplay.test.js
+node tests\alertDecisionHistoricalReplay.test.js
 ```
 
 Añade siempre un caso positivo y su contraparte negativa, especialmente para provincia, sector, expedientes individuales y descarte.

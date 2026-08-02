@@ -10,7 +10,6 @@ const { validarPassword } = require('../../shared/passwordPolicy');
 
 // Validacion de borde (tipos y tamanos); la presencia/formato la decide el handler.
 const bodyLogin = { phone: escalarCorto(32, 'telefono'), password: escalarCorto(200, 'contrasena') };
-const bodyPhone = { phone: escalarCorto(32, 'telefono') };
 const bodyPassword = { password: escalarCorto(200, 'contrasena') };
 
 module.exports = (app, supabase) => {
@@ -75,58 +74,6 @@ module.exports = (app, supabase) => {
       return res.json({ token });
     } catch (err) {
       console.error('Error en /login-phone:', err);
-      return res.status(500).json({ error: 'Error interno' });
-    }
-  });
-
-  /**
-   * LEGACY - PRIMER ACCESO: POST /first-login
-   * body: { phone } => { token }
-   * Solo si el usuario existe y NO tiene password_hash (null/empty).
-   * Desactivado por defecto: usar recuperacion de contrasena.
-   */
-  app.post('/first-login', loginLimiter, validarBody(bodyPhone), async (req, res) => {
-    try {
-      const legacyFirstLoginEnabled = String(process.env.ENABLE_LEGACY_FIRST_LOGIN || 'false').toLowerCase() === 'true';
-      if (!legacyFirstLoginEnabled) {
-        return res.status(410).json({
-          error: 'Primer acceso legacy desactivado. Usa recuperar contrasena.',
-        });
-      }
-
-      let { phone } = req.body || {};
-      if (!phone) return res.status(400).json({ error: 'Falta el teléfono' });
-
-      const normalizedPhone = normalizePhone(phone);
-      if (normalizedPhone.length !== LONGITUD_TELEFONO) {
-        return res.status(400).json({ error: 'Teléfono no válido' });
-      }
-
-      const { data: user, error } = await supabase
-        .from('users')
-        .select('id, phone, password_hash')
-        .eq('phone', normalizedPhone)
-        .maybeSingle();
-
-      if (error) return res.status(500).json({ error: 'Error interno' });
-      if (!user) {
-        return res.status(401).json({ error: 'No se pudo iniciar el primer acceso' });
-      }
-
-      // Si ya tiene contraseña, no es "primer acceso"
-      if (user.password_hash) {
-        return res.status(401).json({ error: 'No se pudo iniciar el primer acceso' });
-      }
-
-      const token = jwt.sign(
-        { sub: user.id, phone: user.phone, firstLogin: true },
-        process.env.JWT_SECRET,
-        { expiresIn: '30m' }
-      );
-
-      return res.json({ token });
-    } catch (err) {
-      console.error('Error en /first-login:', err);
       return res.status(500).json({ error: 'Error interno' });
     }
   });

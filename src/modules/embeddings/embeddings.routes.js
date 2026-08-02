@@ -4,7 +4,6 @@ const {
   inicializarOpenAI,
   generarEmbedding,
   generarEmbeddingsBatch,
-  similitudCoseno,
   calcularCentroidePonderado,
 } = require('../../platform/ia/embeddings');
 
@@ -79,43 +78,6 @@ function textoPerfilInicial(user = {}) {
 }
 
 module.exports = function embeddingsRoutes(app, supabase) {
-  async function generarEmbeddingHandler(req, res) {
-    if (!checkCronToken(req, res)) return;
-
-    const { text, otherText, forceMock } = req.body || {};
-    if (!text || typeof text !== 'string' || text.trim().length === 0) {
-      return res.status(400).json({ error: 'Indica text en el body' });
-    }
-
-    try {
-      inicializarOpenAI();
-
-      const texto = String(text).trim();
-      const usarMock = Boolean(forceMock || process.env.EMBEDDINGS_FORCE_MOCK === 'true');
-      const embedding = await generarEmbedding(texto, usarMock);
-
-      const result = {
-        ok: true,
-        text: texto,
-        embedding_length: Array.isArray(embedding) ? embedding.length : null,
-        sample: Array.isArray(embedding) ? embedding.slice(0, 16) : null,
-        source: usarMock ? 'mock' : 'openai',
-      };
-
-      if (otherText && typeof otherText === 'string' && otherText.trim().length > 0) {
-        const otherEmbedding = await generarEmbedding(String(otherText).trim(), usarMock);
-        result.other_text = String(otherText).trim();
-        result.other_embedding_length = Array.isArray(otherEmbedding) ? otherEmbedding.length : null;
-        result.similarity = similitudCoseno(embedding, otherEmbedding);
-      }
-
-      return res.json(result);
-    } catch (err) {
-      console.error('[embeddings] Error en /embeddings/test:', err.message);
-      return res.status(500).json({ error: err.message });
-    }
-  }
-
   async function generarAlertasSinEmbedding(options = {}) {
     const batchSize = clampNumber(options.batchSize, DEFAULT_BATCH_SIZE, 1, 50);
     const maxBatches = clampNumber(options.maxBatches, DEFAULT_MAX_BATCHES, 1, 200);
@@ -302,8 +264,6 @@ module.exports = function embeddingsRoutes(app, supabase) {
       .map((user) => Number(user.id));
   }
 
-  app.post('/embeddings/test', generarEmbeddingHandler);
-
   const generarAlertasHandler = async (req, res) => {
     if (!checkCronToken(req, res)) return;
 
@@ -376,9 +336,6 @@ module.exports = function embeddingsRoutes(app, supabase) {
   };
 
   app.post('/embeddings/generar-alertas', generarAlertasHandler);
-  app.get('/embeddings/generar-alertas', generarAlertasHandler);
   app.post('/embeddings/actualizar-perfil/:userId', actualizarPerfilHandler);
-  app.get('/embeddings/actualizar-perfil/:userId', actualizarPerfilHandler);
   app.post('/embeddings/ciclo-completo', cicloCompletoHandler);
-  app.get('/embeddings/ciclo-completo', cicloCompletoHandler);
 };

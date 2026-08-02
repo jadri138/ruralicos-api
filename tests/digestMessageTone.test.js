@@ -2,7 +2,6 @@ process.env.SUPABASE_URL = process.env.SUPABASE_URL || 'https://example.supabase
 process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || 'test-service-role-key';
 
 const {
-  anadirInstruccionFeedback,
   construirAccionRescate,
   construirResumenFacilDigest,
   construirTituloFacilDigest,
@@ -57,20 +56,17 @@ const accion = construirAccionRescate(alertaAgua, 'directo');
 assert(accion.startsWith('Comprueba si'), 'Convierte acciones crudas en una frase natural');
 assert(!/publicado el 2026-06-15/i.test(accion), 'Elimina fecha redundante de la accion');
 
-const mensaje = anadirInstruccionFeedback(
-  generarMensajeDigestFallback({
-    user: { nombre: 'Jose', subscription: 'agricultor' },
-    alertas: [alertaAgua],
-    fecha: '2026-06-15',
-  }),
-  [alertaAgua]
-);
+const mensaje = generarMensajeDigestFallback({
+  user: { nombre: 'Jose', subscription: 'agricultor' },
+  alertas: [alertaAgua],
+  fecha: '2026-06-15',
+});
 assert(mensaje.includes('*Agua y riego*'), 'El mensaje final usa el grupo correcto');
 assert(!mensaje.includes('En sencillo:'), 'El mensaje final elimina la etiqueta mecanica "En sencillo"');
 assert(!mensaje.includes('Qué revisar:'), 'El mensaje final integra la accion en una frase natural');
 assert(mensaje.includes('Comprueba si'), 'El mensaje final conserva la accion util sin etiqueta');
 assert(!mensaje.includes('Qué miraría'), 'El mensaje final no usa el texto antiguo');
-assert(mensaje.includes('_Si te interesa, responde con *1*. Si no, responde *ninguna*._'), 'Usa cierre de feedback natural');
+assert(!/responde con \*?1\*?|responde \*?ninguna\*?/i.test(mensaje), 'No fuerza feedback al final de cada digest');
 assert(formatearFechaDigest('2026-06-23') === '23 de junio', 'Convierte la fecha ISO a una fecha natural');
 
 const alertaAyudaSinPlazo = {

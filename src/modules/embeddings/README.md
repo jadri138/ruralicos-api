@@ -6,7 +6,6 @@ Endpoints operativos para crear vectores de alertas y recalcular perfiles semán
 
 | Endpoint | Función |
 | --- | --- |
-| `POST /embeddings/test` | Diagnóstico controlado de vectorización |
 | `/embeddings/generar-alertas` | Genera vectores ausentes de alertas |
 | `/embeddings/actualizar-perfil/:userId` | Recalcula el perfil de una persona |
 | `/embeddings/ciclo-completo` | Coordina ambas operaciones |

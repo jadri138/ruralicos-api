@@ -85,6 +85,62 @@ async function main() {
     assert(llamadas[0].opts.signal, 'debe llevar señal de timeout');
   });
 
+  await test('puede devolver uso y latencia junto al texto para auditoria del juez', async () => {
+    const { fetchImpl } = fakeFetch([respuestaOk('{"decision":"ok"}', {
+      input_tokens: 80,
+      output_tokens: 20,
+      total_tokens: 100,
+      input_tokens_details: { cached_tokens: 30 },
+    })]);
+    const result = await llamarIA('prompt', 'instr', 'gpt-5-nano', {
+      ...OPTS_RAPIDAS,
+      fetchImpl,
+      returnMetadata: true,
+    });
+    assert.strictEqual(result.text, '{"decision":"ok"}');
+    assert.strictEqual(result.metadata.model, 'gpt-5-nano');
+    assert.strictEqual(result.metadata.usage.total_tokens, 100);
+    assert.strictEqual(result.metadata.usage.cached_input_tokens, 30);
+    assert.strictEqual(result.metadata.cost, null, 'sin tarifas configuradas no inventa un coste');
+    assert(Number.isInteger(result.metadata.duration_ms));
+  });
+
+  await test('calcula coste solo cuando recibe tarifas explicitas para el modelo', async () => {
+    const { fetchImpl } = fakeFetch([respuestaOk('ok', {
+      input_tokens: 80,
+      output_tokens: 20,
+      total_tokens: 100,
+      input_tokens_details: { cached_tokens: 30 },
+    })]);
+    const result = await llamarIA('prompt', 'instr', 'modelo-coste-test', {
+      ...OPTS_RAPIDAS,
+      fetchImpl,
+      returnMetadata: true,
+      pricing: {
+        'modelo-coste-test': {
+          currency: 'EUR',
+          input_per_million: 1,
+          cached_input_per_million: 0.1,
+          output_per_million: 2,
+        },
+      },
+    });
+    assert.deepStrictEqual(result.metadata.cost, {
+      amount: 0.000093,
+      currency: 'EUR',
+      estimated: true,
+      basis: {
+        model: 'modelo-coste-test',
+        input_tokens: 80,
+        cached_input_tokens: 30,
+        output_tokens: 20,
+        input_per_million: 1,
+        cached_input_per_million: 0.1,
+        output_per_million: 2,
+      },
+    });
+  });
+
   await test('reintenta en 429 transitorio y termina bien', async () => {
     const { fetchImpl, llamadas } = fakeFetch([
       respuestaError(429, '{"error":{"message":"rate limit"}}'),
