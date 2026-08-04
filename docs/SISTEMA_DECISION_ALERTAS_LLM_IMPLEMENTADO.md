@@ -393,6 +393,35 @@ Ningún dato se perdió: la migración solo añade columnas y rellena las nuevas
 La versión quedó registrada a mano en `supabase_migrations.schema_migrations`,
 porque el historial remoto no admite `db push` sin reconciliarse antes.
 
+### Limpieza de trazas no consumidas (4 de agosto de 2026)
+
+`digest_candidate_decisions` ocupaba 464 MB —el 61 % de la base— y crecía unas
+32.000 filas al día. El 97 % eran trazas de tres etapas que ningún consumidor
+leía nunca: los únicos `stage` consultados por el código son
+`personal_relevance_judge`, `selection` y `final_validation`.
+
+Se retiró la persistencia fila a fila de `quality_gate`,
+`organization_visibility` y `user_filter`, y se borró su histórico. La
+explicación que aportaban vive ahora, de forma agregada y mucho más barata, en
+el embudo por barrera del intento (`ranking_funnel.stopped_by`).
+
+| Medida | Antes | Después |
+| --- | ---: | ---: |
+| Base de datos | 763 MB | 320 MB |
+| `digest_candidate_decisions` | 464 MB | 21 MB |
+| Filas en esa tabla | 419.365 | 14.607 |
+| Crecimiento diario estimado | ~36 MB | ~1 MB |
+
+Las tablas de negocio quedaron intactas: usuarios, alertas, digests,
+`digest_items`, intentos, fichas, memoria, perfiles y feedback conservan
+exactamente el mismo número de filas. `tests/digestDecisionAuditFailClosed.test.js`
+impide que esas tres etapas vuelvan a persistirse fila a fila.
+
+También se ejecutó la retención operativa (`private.run_operational_retention`),
+que retiró 607 registros técnicos caducados: 247 `raw_documents` sin alerta
+asociada, 325 `scraper_runs`, 29 `whatsapp_logs` de más de 90 días y 6
+`pipeline_runs`. Ninguna alerta entró en esa purga.
+
 ### Comprobar si la migración está aplicada
 
 Antes de desplegar la API nueva:

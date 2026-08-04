@@ -60,9 +60,18 @@ async function main() {
     );
   }
   assert(
-    diagnosticStages.includes('quality_gate') && diagnosticStages.includes('selection'),
+    diagnosticStages.includes('selection'),
     'las etapas legacy puramente diagnosticas deben conservar su comportamiento tolerante'
   );
+  // quality_gate, organization_visibility y user_filter dejaron de persistirse:
+  // nadie las leia y generaban ~32.000 filas al dia. Su explicacion vive ahora
+  // en el embudo por barrera del intento (`ranking_funnel.stopped_by`).
+  for (const retirada of ['quality_gate', 'organization_visibility', 'user_filter']) {
+    assert(
+      !diagnosticStages.includes(retirada) && !canonicalStages.includes(retirada),
+      `${retirada} no debe volver a persistirse fila a fila`
+    );
+  }
 
   const failingSupabase = {
     from(table) {

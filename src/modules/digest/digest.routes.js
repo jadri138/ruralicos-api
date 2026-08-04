@@ -130,38 +130,6 @@ const {
   construirPreviewDigestUsuario,
 } = require('./digest.service');
 
-function decisionesQualityGate(alertas = [], rechazadas = []) {
-  const rejected = new Map((rechazadas || []).map((item) => [String(item.id), item]));
-  return (alertas || []).map((alerta) => {
-    const rechazo = rejected.get(String(alerta.id));
-    return rechazo
-      ? {
-        id: alerta.id,
-        action: 'exclude',
-        motivo: 'quality_gate',
-        score: rechazo.score,
-        flags: rechazo.flags || [],
-      }
-      : {
-        id: alerta.id,
-        action: 'include',
-        motivo: 'quality_gate_pass',
-        score: alerta.calidad_mia?.score ?? null,
-      };
-  });
-}
-
-function decisionesVisibilidadOrganizacion(alertas = [], visibles = []) {
-  const visibleIds = new Set((visibles || []).map((alerta) => String(alerta.id)));
-  return (alertas || []).map((alerta) => ({
-    id: alerta.id,
-    action: visibleIds.has(String(alerta.id)) ? 'include' : 'exclude',
-    motivo: visibleIds.has(String(alerta.id))
-      ? 'organization_visible'
-      : 'organization_not_visible',
-  }));
-}
-
 function decisionesValidacionFinal(alertas = [], validation = null) {
   const items = Array.isArray(validation?.item_results) ? validation.item_results : [];
   return (alertas || []).map((alerta) => {
@@ -588,28 +556,14 @@ module.exports = function digestRoutes(app, supabase) {
         let digestAttemptId = attemptStart.id || null;
         let attemptKind = 'daily';
 
-        await registrarDigestCandidateDecisions(supabase, {
-          userId: user.id,
-          organizationId,
-          fecha: hoy,
-          kind: 'daily',
-          stage: 'quality_gate',
-          digestAttemptId,
-          decisions: decisionesQualityGate(alertasDia || [], alertasDescartadasCalidad),
-          metadata: { min_score: DIGEST_QUALITY_GATE ? 65 : null },
-        });
+        // Las etapas quality_gate, organization_visibility y user_filter ya no
+        // se persisten fila a fila: nadie las leía y generaban ~32.000 filas
+        // diarias. El embudo por barrera del contrato canónico
+        // (`ranking_funnel.stopped_by`) conserva esa explicación de forma
+        // agregada en el intento del día.
 
         // Filtrar alertas relevantes para este usuario
         const alertasVisibles = filtrarAlertasPorOrganization(alertas, organizationId);
-        await registrarDigestCandidateDecisions(supabase, {
-          userId: user.id,
-          organizationId,
-          fecha: hoy,
-          kind: 'daily',
-          stage: 'organization_visibility',
-          digestAttemptId,
-          decisions: decisionesVisibilidadOrganizacion(alertas, alertasVisibles),
-        });
         const decisionFn = (alerta) => decidirAlertaParaDigest(alerta, userConOrganization, {
           qualityGate: DIGEST_QUALITY_GATE,
           allowReview: DIGEST_INCLUDE_REVIEW,
@@ -625,15 +579,6 @@ module.exports = function digestRoutes(app, supabase) {
           exclusionPreferencias: (item) => alertaExcluidaPorPreferenciasExtra(item, user.preferencias_extra),
         });
         const alertasUsuario = seleccionBase.alertas;
-        await registrarDigestCandidateDecisions(supabase, {
-          userId: user.id,
-          organizationId,
-          fecha: hoy,
-          kind: 'daily',
-          stage: 'user_filter',
-          digestAttemptId,
-          decisions: seleccionBase.decisiones,
-        });
         const perfilOperativoMIA = await cargarPerfilOperativoMIA(supabase, user.id, { user: userConOrganization });
         const aprendizaje = perfilOperativoMIA.availability?.user_interest_profile
           ? perfilOperativoMIA.interest_profile
@@ -809,19 +754,6 @@ module.exports = function digestRoutes(app, supabase) {
               },
             });
             digestAttemptId = rescueAttempt.id || digestAttemptId;
-            await registrarDigestCandidateDecisions(supabase, {
-              userId: user.id,
-              organizationId,
-              fecha: hoy,
-              kind: attemptKind,
-              stage: 'quality_gate',
-              digestAttemptId,
-              decisions: decisionesQualityGate(
-                alertasRescateCache.raw,
-                alertasRescateCache.rechazadas
-              ),
-              metadata: { rescue_from: desdeRescate },
-            });
             await registrarDigestCandidateDecisions(supabase, {
               userId: user.id,
               organizationId,
