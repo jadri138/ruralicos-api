@@ -114,6 +114,7 @@ test('construye explicacion why-sent con seleccion, fact sheet y validacion fina
     approved: 1,
     queued: 1,
     delivered: 1,
+    stopped_by: {},
   });
   assert.strictEqual(result.items.length, 1);
   assert.strictEqual(result.items[0].selection.action, 'include');

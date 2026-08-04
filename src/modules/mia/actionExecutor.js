@@ -1,5 +1,5 @@
 const { conOrganizationId } = require('./organizationContext');
-const { clasificarFeedbackDigest } = require('./feedbackClassifier');
+const { FEEDBACK_CATEGORIES, clasificarFeedbackDigest } = require('./feedbackClassifier');
 const {
   construirMemoriaAtomica,
   construirMemoriasYaSolicitadaPeroSimilares,
@@ -116,15 +116,23 @@ function construirMemoriaLegacyRows({
 
     if (Number(feedback.valor) === 0) continue;
 
+    // "Me mandas demasiado" no es desinterés por esa alerta ni por su tema:
+    // pide menos volumen. Se guarda en el ámbito de frecuencia para que no
+    // contamine el perfil temático.
+    const esQuejaDeFrecuencia = Number(feedback.valor) < 0
+      && clasificarFeedbackDigest({ texto, feedback, alerta }).category === FEEDBACK_CATEGORIES.TOO_FREQUENT;
+
     memoryRows.push(construirMemoriaAtomica({
       userId: user.id,
       tipo: Number(feedback.valor) > 0 ? 'feedback_positivo' : 'feedback_negativo',
-      contenido: alerta.titulo || feedback.razon || `Feedback item ${feedback.item_numero}`,
-      alertaId: alerta.id,
+      contenido: esQuejaDeFrecuencia
+        ? 'Pide recibir menos mensajes'
+        : alerta.titulo || feedback.razon || `Feedback item ${feedback.item_numero}`,
+      alertaId: esQuejaDeFrecuencia ? null : alerta.id,
       digestId: digest?.id || null,
       organizationId: orgId,
-      scopeType: 'alert',
-      scopeValue: String(alerta.id),
+      scopeType: esQuejaDeFrecuencia ? 'frequency' : 'alert',
+      scopeValue: esQuejaDeFrecuencia ? 'volumen' : String(alerta.id),
       polarity: Number(feedback.valor) > 0 ? 'positive' : 'negative',
       source: 'response',
       strength: 1,
@@ -133,6 +141,7 @@ function construirMemoriaLegacyRows({
       metadata: {
         item_numero: Number(feedback.item_numero),
         feedback_reason: feedback.razon || null,
+        ...(esQuejaDeFrecuencia ? { feedback_category: FEEDBACK_CATEGORIES.TOO_FREQUENT } : {}),
       },
     }));
   }

@@ -72,6 +72,26 @@ test('detecta perfil de usuario incompleto', () => {
   assert.strictEqual(result.category, FEEDBACK_CATEGORIES.USER_PROFILE_MISSING);
 });
 
+test('una queja de volumen es frecuencia, no desinteres por el tema', () => {
+  for (const texto of [
+    'me mandas demasiados mensajes',
+    'quiero menos alertas',
+    'no me mandes tantos avisos',
+  ]) {
+    const result = clasificarFeedbackDigest({
+      texto,
+      feedback: { valor: -1 },
+      alerta: { titulo: 'Ayuda maquinaria', sectores: ['agricultura'] },
+    });
+
+    assert.strictEqual(
+      result.category,
+      FEEDBACK_CATEGORIES.TOO_FREQUENT,
+      `"${texto}" debe clasificarse como frecuencia`
+    );
+  }
+});
+
 test('marca rechazo simple como wrong_topic suave', () => {
   const result = clasificarFeedbackDigest({
     texto: 'no me interesa',

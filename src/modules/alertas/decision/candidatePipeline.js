@@ -31,6 +31,28 @@ const GENERATOR_REASON = Object.freeze({
   exploration: REASON_CODES.SAFE_EXPLORATION,
 });
 
+// Barrera concreta que detuvo a una candidata. El orden es el que aplica
+// evaluateCandidateEligibility y permite explicar el silencio por causa en vez
+// de con un unico total agregado.
+const ELIGIBILITY_STAGES = Object.freeze({
+  CONTRACT: 'contract',
+  VALIDITY: 'validity',
+  EXCLUSION: 'exclusion',
+  TERRITORY: 'territory',
+  ACTIVITY: 'activity',
+  EVIDENCE: 'evidence',
+  ELIGIBLE: 'eligible',
+});
+
+const STAGE_ORDER = Object.freeze([
+  ELIGIBILITY_STAGES.CONTRACT,
+  ELIGIBILITY_STAGES.VALIDITY,
+  ELIGIBILITY_STAGES.EXCLUSION,
+  ELIGIBILITY_STAGES.TERRITORY,
+  ELIGIBILITY_STAGES.ACTIVITY,
+  ELIGIBILITY_STAGES.EVIDENCE,
+]);
+
 const SPANISH_MONTHS = Object.freeze({
   enero: 0,
   febrero: 1,
@@ -398,26 +420,46 @@ function evaluateCandidateEligibility(candidate, profile, options = {}) {
   if (!validation.valid) {
     return {
       eligible: false,
+      stage: ELIGIBILITY_STAGES.CONTRACT,
       state: DECISION_STATES.BLOCKED,
       reason_codes: [REASON_CODES.TRUTH_CARD_INVALID],
       trace: { validation },
     };
   }
   if (card.status === TRUTH_CARD_STATES.BLOCKED) {
-    return { eligible: false, state: DECISION_STATES.BLOCKED, reason_codes: [REASON_CODES.TRUTH_CARD_BLOCKED], trace: {} };
+    return {
+      eligible: false,
+      stage: ELIGIBILITY_STAGES.CONTRACT,
+      state: DECISION_STATES.BLOCKED,
+      reason_codes: [REASON_CODES.TRUTH_CARD_BLOCKED],
+      trace: {},
+    };
   }
   if (card.status === TRUTH_CARD_STATES.EXPIRED
     || card.time?.expired
     || verifiedDeadlineExpired(card, options.now)) {
-    return { eligible: false, state: DECISION_STATES.BLOCKED, reason_codes: [REASON_CODES.EXPIRED], trace: {} };
+    return {
+      eligible: false,
+      stage: ELIGIBILITY_STAGES.VALIDITY,
+      state: DECISION_STATES.BLOCKED,
+      reason_codes: [REASON_CODES.EXPIRED],
+      trace: {},
+    };
   }
   if (card.risk?.contradiction) {
-    return { eligible: false, state: DECISION_STATES.BLOCKED, reason_codes: [REASON_CODES.CONTRADICTORY_EVIDENCE], trace: {} };
+    return {
+      eligible: false,
+      stage: ELIGIBILITY_STAGES.VALIDITY,
+      state: DECISION_STATES.BLOCKED,
+      reason_codes: [REASON_CODES.CONTRADICTORY_EVIDENCE],
+      trace: {},
+    };
   }
   const exclusion = matchesExplicitExclusion(card, profile);
   if (exclusion) {
     return {
       eligible: false,
+      stage: ELIGIBILITY_STAGES.EXCLUSION,
       state: DECISION_STATES.BLOCKED,
       reason_codes: [REASON_CODES.EXPLICIT_EXCLUSION],
       trace: { exclusion: { scope: exclusion.scope, key: exclusion.key, source: exclusion.source } },
@@ -427,6 +469,7 @@ function evaluateCandidateEligibility(candidate, profile, options = {}) {
   if (!territory.allowed) {
     return {
       eligible: false,
+      stage: ELIGIBILITY_STAGES.TERRITORY,
       state: territory.hold ? DECISION_STATES.HOLD_FOR_EVIDENCE : DECISION_STATES.BLOCKED,
       reason_codes: [territory.reason],
       trace: { territory },
@@ -436,6 +479,7 @@ function evaluateCandidateEligibility(candidate, profile, options = {}) {
   if (!activity.allowed) {
     return {
       eligible: false,
+      stage: ELIGIBILITY_STAGES.ACTIVITY,
       state: DECISION_STATES.BLOCKED,
       reason_codes: [activity.reason],
       trace: { territory, activity },
@@ -449,6 +493,7 @@ function evaluateCandidateEligibility(candidate, profile, options = {}) {
   if (gaps.length > 0) {
     return {
       eligible: false,
+      stage: ELIGIBILITY_STAGES.EVIDENCE,
       state: DECISION_STATES.HOLD_FOR_EVIDENCE,
       reason_codes: [...new Set(gaps.map(evidenceGapReason))],
       trace: { territory, activity, missing_evidence: gaps },
@@ -457,6 +502,7 @@ function evaluateCandidateEligibility(candidate, profile, options = {}) {
 
   return {
     eligible: true,
+    stage: ELIGIBILITY_STAGES.ELIGIBLE,
     state: null,
     reason_codes: [territory.reason, ...(activity.reason ? [activity.reason] : [])],
     trace: { territory, activity, policy_version: options.policyVersion || CONTRACT_VERSIONS.policy },
@@ -505,15 +551,50 @@ function scoreCandidate(candidate, profile, eligibility, options = {}) {
   return { score: Number(score.toFixed(3)), contributions };
 }
 
+// Embudo del blueprint: explica el silencio por causa. Cada nivel es el
+// remanente tras aplicar esa barrera, de modo que una caida a cero senala la
+// barrera responsable sin necesidad de revisar alertas una a una.
+function buildEligibilityFunnel({ generated = 0, stageStops = new Map(), reasonStops = new Map() } = {}) {
+  const stages = {};
+  let remaining = generated;
+  for (const stage of STAGE_ORDER) {
+    remaining -= stageStops.get(stage) || 0;
+    stages[stage] = Math.max(0, remaining);
+  }
+  return {
+    generated,
+    passed_contract: stages[ELIGIBILITY_STAGES.CONTRACT],
+    passed_validity: stages[ELIGIBILITY_STAGES.VALIDITY],
+    passed_exclusion: stages[ELIGIBILITY_STAGES.EXCLUSION],
+    passed_territory: stages[ELIGIBILITY_STAGES.TERRITORY],
+    passed_activity: stages[ELIGIBILITY_STAGES.ACTIVITY],
+    passed_evidence: stages[ELIGIBILITY_STAGES.EVIDENCE],
+    stopped_by: Object.fromEntries(
+      STAGE_ORDER
+        .map((stage) => [stage, stageStops.get(stage) || 0])
+        .filter(([, count]) => count > 0)
+    ),
+    reason_codes: Object.fromEntries([...reasonStops.entries()].sort(
+      (left, right) => right[1] - left[1] || String(left[0]).localeCompare(String(right[0]))
+    )),
+  };
+}
+
 function rankCandidateUnion({ candidateSets = {}, profile, topK = 15, now = new Date(), policyVersion } = {}) {
   const merged = mergeCandidateSets(candidateSets);
   const eligible = [];
   const holds = [];
   const blocked = [];
+  const stageStops = new Map();
+  const reasonStops = new Map();
   for (const candidate of merged) {
     const eligibility = evaluateCandidateEligibility(candidate, profile, { policyVersion, now });
     if (!eligibility.eligible) {
       const result = { ...candidate, eligibility, pre_score: 0, score_contributions: [] };
+      stageStops.set(eligibility.stage, (stageStops.get(eligibility.stage) || 0) + 1);
+      for (const code of eligibility.reason_codes || []) {
+        reasonStops.set(code, (reasonStops.get(code) || 0) + 1);
+      }
       if (eligibility.state === DECISION_STATES.HOLD_FOR_EVIDENCE) holds.push(result);
       else blocked.push(result);
       continue;
@@ -555,8 +636,9 @@ function rankCandidateUnion({ candidateSets = {}, profile, topK = 15, now = new 
     blocked,
     dropped,
     funnel: {
-      generated: merged.length,
+      ...buildEligibilityFunnel({ generated: merged.length, stageStops, reasonStops }),
       eligible: eligible.length,
+      // Las seleccionadas son exactamente las parejas que veran el juez LLM.
       selected: selected.length,
       held: holds.length,
       blocked: blocked.length,
@@ -567,7 +649,10 @@ function rankCandidateUnion({ candidateSets = {}, profile, topK = 15, now = new 
 
 module.exports = {
   GENERATOR_ORDER,
+  ELIGIBILITY_STAGES,
+  STAGE_ORDER,
   AUTONOMOUS_COMMUNITY_PROVINCES,
+  buildEligibilityFunnel,
   safeMetadata,
   mergeCandidateSets,
   territoryEligibility,

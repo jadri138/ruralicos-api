@@ -2,12 +2,17 @@
 
 > Estado del repositorio: implementado y probado en local.
 >
-> Estado operativo: requiere despliegue coordinado. La migración
+> Estado operativo: la migración
 > [`20260801211224_alert_decision_delivery_contracts.sql`](../supabase/migrations/20260801211224_alert_decision_delivery_contracts.sql)
-> no se ha aplicado a producción durante este trabajo y no se ha comprobado la
-> configuración de ACK de la instancia real de UltraMsg.
+> **se aplicó a producción el 4 de agosto de 2026** y quedó verificada con
+> `npm run check:decision-schema`. Falta desplegar la API de esta versión,
+> comprobar la configuración de ACK de la instancia real de UltraMsg y volver a
+> arrancar el cron diario, que está parado desde el 2 de agosto.
 >
-> Fecha de esta documentación: 1 de agosto de 2026.
+> Fecha de esta documentación: 1 de agosto de 2026. Revisión del 4 de agosto de
+> 2026: se completaron el embudo del silencio por barrera, las rachas de
+> silencio por persona, la separación de oportunidades e información en el
+> mensaje y el ámbito de la queja de frecuencia.
 
 Este documento describe el resultado de implementar el
 [`BLUEPRINT_SISTEMA_DECISION_ALERTAS_LLM.md`](BLUEPRINT_SISTEMA_DECISION_ALERTAS_LLM.md).
@@ -67,6 +72,32 @@ aplicada.
 La diferencia entre alertas y fichas muestra que existe mucho histórico
 anterior al contrato nuevo. La compatibilidad transforma esos registros de
 forma conservadora; no rellena hechos que no estén respaldados.
+
+### Estado operativo observado el 4 de agosto de 2026
+
+Segunda lectura de solo lectura, con el flujo antiguo todavía en producción y
+la migración sin aplicar:
+
+| Señal | Valor observado |
+| --- | --- |
+| Alertas nuevas por día | ~500 (3 y 4 de agosto) |
+| Último `digest_attempts.fecha` | 2 de agosto |
+| Último `whatsapp_logs` | 2 de agosto, 15:40 |
+| Intentos del 2 de agosto | 124, todos `no_send` |
+| Digests creados del 1 de agosto | 14 para 81 personas |
+| Alertas sin `resumen_final` | 9.370 de 16.808 |
+| Alertas de los últimos 7 días sin resumen | 2.773 |
+
+Dos hechos importantes: el flujo diario lleva parado desde el 2 de agosto
+mientras la captura sigue funcionando, y los días en que sí corrió terminaron
+casi siempre en silencio. Los motivos dominantes eran
+`daily_sin_alertas_rescate_iniciado`, `final_validation_blocked` y
+`no_habia_alertas`, sin un embudo que dijera en qué barrera caía cada alerta:
+exactamente el problema que el contrato nuevo convierte en `stopped_by`.
+
+Todos los `whatsapp_logs` recientes están en `sent`, que con el esquema antiguo
+sólo significa «el proveedor aceptó». No hay ninguna prueba de entrega al
+teléfono hasta que exista el ACK.
 
 ## Arquitectura efectiva
 
@@ -176,6 +207,46 @@ filas `PENDING` o `FAILED` cuyo siguiente intento ya venció. Reclama cada fila
 como `PROCESSING`, recupera trabajos atascados y aplica backoff. El workflow lo
 ejecuta antes de preparar los digests; no existe otro cron ni descarga material.
 
+## Embudo del silencio
+
+Cada ejecución guarda dónde se detuvo cada candidata, no solo cuántas quedaron.
+El ranking devuelve el embudo por barrera y la preparación del digest lo
+persiste en `digest_attempts.metadata_json.ranking_funnel`:
+
+```text
+generadas
+→ pasan contrato de ficha
+→ pasan vigencia
+→ pasan exclusiones explícitas
+→ pasan territorio
+→ pasan actividad y beneficiario
+→ pasan evidencia mínima
+→ candidatas valoradas por el juez
+```
+
+`stopped_by` cuenta cuántas cayeron en cada barrera y `reason_codes` reparte
+esas caídas por motivo cerrado. Un silencio total queda así explicado por su
+causa: «hoy nadie recibió nada porque las 14 alertas eran de otra provincia»,
+sin revisar alertas una a una y sin rebajar la barrera.
+
+`/admin/mia/recommendation-health` agrega ese reparto en
+`digest_funnel.stopped_by` junto al embudo de entrega.
+
+## Silencio por persona
+
+El silencio global puede ser cero y aun así haber gente olvidada. Además de
+`global_silence_streak_days`, el panel expone:
+
+| Métrica | Significado |
+| --- | --- |
+| `user_silence_streak_days_max` | Racha más larga de una sola persona |
+| `users_silenced_streak` | Personas por encima del umbral |
+| `user_silence_streaks` | Las 20 rachas mayores, para saber a quién mirar |
+
+Superar el umbral genera el aviso `user_silence_multiple_days`. Un digest
+existente corta la racha de esa persona, de modo que un segundo intento
+marcado `skipped_existing` no produce un aviso falso.
+
 ## Memoria y aprendizaje
 
 La fuente canónica es `user_memory`, con clave idempotente, ámbito, polaridad,
@@ -191,6 +262,14 @@ Un clic es débil. Un fallo de transporte no aprende nada. Un rechazo mantiene
 su ámbito: por ejemplo, «ya la pedí, pero similares sí» produce una memoria para
 esa alerta y otra señal positiva para el tema, no una exclusión global.
 
+Cada causa de rechazo actualiza una parte distinta del perfil. En concreto,
+«me mandas demasiados mensajes» se clasifica como `too_frequent` y se guarda en
+el ámbito `frequency`, sin atarse a la alerta que se respondió: pedir menos
+volumen no significa que el tema deje de interesar. El resto de causas
+negativas (`wrong_location`, `individual_case_noise`, `misclassification`,
+`too_generic`, `user_profile_missing`, `wrong_topic`) conservan su ámbito
+propio.
+
 `mia_structured_memory` se conserva temporalmente para lectura histórica y
 borrado de privacidad, pero las escrituras nuevas pasan por el adaptador a
 `user_memory`.
@@ -203,6 +282,27 @@ pero el mismo digest nunca genera dos preguntas. Por defecto limita a 20
 preguntas globales al día y deja 30 días de espera por persona. La pregunta se
 encola y su conversación de aprendizaje solo se abre tras una entrega real. Un
 lease de 5 minutos permite terminar ese postproceso si el proceso se reinicia.
+
+## Forma del mensaje
+
+Cada bloque sale solo de hechos con evidencia y siempre conserva el enlace
+oficial. Cuando el digest mezcla alertas que piden un trámite con otras que
+únicamente conviene conocer, el mensaje las separa en dos apartados y muestra
+primero las accionables:
+
+```text
+*Esto pide que hagas algo*
+*1. ...*
+
+*Esto es solo para que lo sepas*
+*2. ...*
+```
+
+Una alerta cuenta como accionable solo si su acción está respaldada por
+evidencia; un plazo suelto no basta, porque prometería un trámite que la ficha
+no sostiene. Si todas las alertas son del mismo tipo, no aparece ningún
+apartado. Los títulos reservan su espacio antes del recorte por longitud, de
+modo que nunca queda un apartado sin alertas debajo.
 
 ## Entrega real
 
@@ -274,6 +374,40 @@ La migración es aditiva y forward-only. Reutiliza tablas actuales y añade:
 Los registros históricos que antes significaban «HTTP aceptado» se migran como
 `PROVIDER_ACCEPTED`, nunca como `DELIVERED`.
 
+### Resultado de la aplicación (4 de agosto de 2026)
+
+Aplicada dentro de una transacción y verificada a continuación:
+
+| Comprobación | Resultado |
+| --- | --- |
+| Tablas y columnas del contrato | 9 de 9 completas |
+| Índices nuevos | 32 |
+| Restricciones validadas | 18 |
+| Funciones (`reserve_alert_decision_llm_call`, retención) | 3 de 3 |
+| RLS en las dos tablas nuevas | Activado |
+| Filas antes y después | Idénticas en las 10 tablas |
+| `digests` marcados `PROVIDER_ACCEPTED` | 2.566 (los que tenían `enviado=true`) |
+| `digests` marcados `DELIVERED` | **0**, como exige el contrato |
+
+Ningún dato se perdió: la migración solo añade columnas y rellena las nuevas.
+La versión quedó registrada a mano en `supabase_migrations.schema_migrations`,
+porque el historial remoto no admite `db push` sin reconciliarse antes.
+
+### Comprobar si la migración está aplicada
+
+Antes de desplegar la API nueva:
+
+```powershell
+npm run check:decision-schema
+npm run check:decision-schema -- --json
+```
+
+Sólo lee. Recorre las tablas y columnas que el flujo nuevo necesita e informa
+de lo que falta. Devuelve 0 si el contrato está completo y 1 si falta algo o si
+no se pudo comprobar. Distingue tres situaciones que no deben confundirse: una
+tabla ausente, una columna ausente y una credencial inválida. Un fallo de
+credencial nunca se informa como «migración no aplicada».
+
 ### Despliegue coordinado
 
 1. Detener temporalmente el único cron diario.
@@ -284,11 +418,13 @@ Los registros históricos que antes significaban «HTTP aceptado» se migran com
    migraciones como aplicadas ni reparar el historial por intuición.
 3. Probar la migración en una base local limpia o entorno de staging.
 4. Aplicar la migración al proyecto correcto.
-5. Desplegar la API de esta misma versión.
-6. Configurar y verificar el webhook de UltraMsg con un entorno controlado.
-7. Ejecutar replay y comprobaciones de esquema; después hacer un dry-run de
-   outbox/conciliación sin mensajes reales.
-8. Reactivar un solo cron con el comando diario y vigilar el primer ciclo.
+5. Comprobar el resultado con `npm run check:decision-schema` y no continuar
+   hasta que devuelva 0.
+6. Desplegar la API de esta misma versión.
+7. Configurar y verificar el webhook de UltraMsg con un entorno controlado.
+8. Ejecutar replay; después hacer un dry-run de outbox/conciliación sin
+   mensajes reales.
+9. Reactivar un solo cron con el comando diario y vigilar el primer ciclo.
 
 No se debe desplegar la API nueva antes de que existan sus columnas, ni aplicar
 la migración y dejar durante horas una API antigua escribiendo semántica legacy.
@@ -330,6 +466,7 @@ relevantes:
 | `RECOMMENDATION_VOLUME_MIN_BASELINE_VOLUME` | `5` | Mediana mínima para evitar alertas por volúmenes residuales |
 | `RECOMMENDATION_VOLUME_DROP_RATIO` | `0.5` | Una caída hasta la mitad o menos se considera anómala |
 | `RECOMMENDATION_VOLUME_SPIKE_RATIO` | `2` | Un volumen del doble o más se considera anómalo |
+| `RECOMMENDATION_USER_SILENCE_STREAK_DAYS` | `7` | Días evaluados seguidos sin recibir nada antes de avisar por persona; el código limita entre 2 y 60 |
 | `ULTRAMSG_RECONCILE_ACCEPTED_MS` | `600000` | Espera para conciliar un aceptado |
 | `ULTRAMSG_RECONCILE_SENT_MS` | `1800000` | Espera para conciliar un enviado a WhatsApp |
 | `ULTRAMSG_RECONCILE_TIMEOUT_MS` | `15000` | Timeout de consulta; el código limita a 60 segundos |
@@ -429,7 +566,11 @@ la red.
 - tasa de `HOLD_FOR_EVIDENCE`, reparto de todo su ciclo y tasa de resolución;
   un `RESOLVED` que solo transfirió el caso a otro reintento no cuenta como
   solución efectiva;
-- usuarios sin digest y causa cuantitativa;
+- usuarios sin digest y causa cuantitativa, con el reparto de `stopped_by`: una
+  barrera que concentre casi todas las caídas señala un problema de datos, no
+  una razón para rebajarla;
+- rachas de silencio por persona además de la global: `users_silenced_streak`
+  distinto de cero significa que alguien lleva días evaluado sin recibir nada;
 - otra provincia enviada, hechos sin evidencia y duplicados: objetivo cero;
 - llamadas lógicas, intentos reales al proveedor, reintentos, latencia, caché,
   fallbacks, tokens y coste por día, evaluación, usuario y digest aprobado. El endpoint protegido
@@ -446,6 +587,16 @@ la red.
   no convierte contenido viejo e incompleto en evidencia verificada.
 - La migración necesita validación contra una base local/staging y aplicación
   coordinada; este trabajo no la aplicó a producción.
+- El historial local y el remoto de migraciones **no coinciden**: varias
+  migraciones antiguas figuran en `supabase_migrations.schema_migrations` con
+  una marca de tiempo distinta a la del fichero local (por ejemplo
+  `20260728153020` remoto frente a `20260728170000` local). Por eso **no debe
+  usarse `supabase db push`**: intentaría reaplicar migraciones que ya están
+  puestas. Mientras no se reconcilie, cada migración nueva debe aplicarse de
+  forma explícita y registrarse a mano en el historial.
+- El límite diario del juez (`ALERT_DECISION_LLM_DAILY_CALL_LIMIT`) sigue en
+  `0`, lo que significa «no hacer llamadas». Debe fijarse un valor positivo
+  antes de activar el flujo nuevo.
 - La auditoría encontró diferencias entre el historial local y remoto de
   migraciones antiguas. Deben reconciliarse antes de ejecutar `db push`; no se
   modificó ese historial durante esta implementación.
@@ -468,3 +619,10 @@ Las suites focalizadas están en `tests/alertDecisionCore.test.js`,
 `tests/alertDecisionDeliveryMigration.test.js`, además de las pruebas de salud,
 exploración y controlador único. Todas usan dobles locales; no deben realizar
 un envío real.
+
+El embudo por barrera se comprueba en `tests/alertDecisionCore.test.js` (una
+candidata por cada barrera y un silencio total atribuido a territorio) y su
+agregación en `tests/miaRecommendationHealth.test.js`, junto a las rachas de
+silencio por persona. La separación del mensaje está en
+`tests/digestDecisionMessage.test.js` y el ámbito de la queja de frecuencia en
+`tests/feedbackClassifier.test.js` y `tests/miaActionExecutor.test.js`.

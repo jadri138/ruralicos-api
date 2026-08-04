@@ -2,6 +2,7 @@ const assert = require('assert');
 const {
   analizarAnomaliasVolumen,
   calcularRachaSilencioGlobal,
+  calcularRachaSilencioPorUsuario,
   calcularSaludRecomendaciones,
   construirVolumenDiario,
   contarRepeticionesPorUsuario,
@@ -191,6 +192,49 @@ assert.strictEqual(
   'un dia calendario no evaluado rompe la racha'
 );
 
+// El silencio global puede ser cero y aun asi haber personas olvidadas.
+const attemptsSilencioUsuario = [
+  { user_id: 10, fecha: '2026-07-27', status: 'no_send' },
+  { user_id: 10, fecha: '2026-07-28', status: 'no_send' },
+  { user_id: 10, fecha: '2026-07-29', status: 'no_send' },
+  { user_id: 11, fecha: '2026-07-27', status: 'no_send' },
+  { user_id: 11, fecha: '2026-07-28', status: 'sent' },
+  { user_id: 11, fecha: '2026-07-29', status: 'no_send' },
+  { user_id: 12, fecha: '2026-07-29', status: 'sent' },
+];
+assert.deepStrictEqual(
+  calcularRachaSilencioPorUsuario(attemptsSilencioUsuario),
+  [
+    { user_id: '10', streak_days: 3 },
+    { user_id: '11', streak_days: 1 },
+  ],
+  'cada persona acumula su propia racha y quien recibio algo no aparece'
+);
+assert.strictEqual(
+  calcularRachaSilencioGlobal(attemptsSilencioUsuario),
+  0,
+  'el silencio global es cero porque algun usuario si recibio'
+);
+assert.deepStrictEqual(
+  calcularRachaSilencioPorUsuario(
+    attemptsSilencioUsuario,
+    [{ user_id: 10, fecha: '2026-07-29' }]
+  ),
+  [{ user_id: '11', streak_days: 1 }],
+  'un digest existente corta la racha de esa persona'
+);
+
+const saludSilencioUsuario = calcularSaludRecomendaciones({
+  attempts: attemptsSilencioUsuario,
+  volumePolicy: { userSilenceStreakDays: 3 },
+});
+assert.strictEqual(saludSilencioUsuario.metrics.user_silence_streak_days_max, 3);
+assert.strictEqual(saludSilencioUsuario.metrics.users_silenced_streak, 1);
+assert(
+  saludSilencioUsuario.flags.some((flag) => flag.code === 'user_silence_multiple_days'),
+  'una persona silenciada varios dias genera aviso operativo'
+);
+
 const attemptsFunnel = [
   {
     fecha: '2026-07-30',
@@ -214,7 +258,33 @@ assert.deepStrictEqual(resumirEmbudoDigest(attemptsFunnel), {
   approved: 5,
   queued: 2,
   delivered: 1,
+  stopped_by: {},
 });
+
+// El silencio debe poder explicarse por barrera, no solo con un total.
+assert.deepStrictEqual(
+  resumirEmbudoDigest([
+    {
+      fecha: '2026-07-30',
+      judge_evaluated_count: 0,
+      metadata_json: { ranking_funnel: { stopped_by: { territory: 4, validity: 1 } } },
+    },
+    {
+      fecha: '2026-07-30',
+      judge_evaluated_count: 0,
+      metadata_json: { ranking_funnel: { stopped_by: { territory: 2, activity: 3 } } },
+    },
+    { fecha: '2026-07-30', judge_evaluated_count: 2, metadata_json: null },
+  ]),
+  {
+    judge_evaluated: 2,
+    approved: 0,
+    queued: 0,
+    delivered: 0,
+    stopped_by: { territory: 6, activity: 3, validity: 1 },
+  },
+  'las barreras se agregan ordenadas por impacto y un intento sin embudo no rompe el resumen'
+);
 assert.strictEqual(
   construirVolumenDiario(attemptsFunnel)[0].available_alerts,
   12,
@@ -235,6 +305,7 @@ assert.deepStrictEqual(healthFunnel.metrics.digest_funnel, {
   approved: 5,
   queued: 2,
   delivered: 1,
+  stopped_by: {},
 });
 assert.deepStrictEqual(healthFunnel.metrics.delivery_status_counts, {
   QUEUED: 1,

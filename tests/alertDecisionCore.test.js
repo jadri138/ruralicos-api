@@ -367,6 +367,72 @@ test('una contradiccion bloquea antes del score y antes del LLM', async () => {
   assert.strictEqual(called, false);
 });
 
+test('el embudo explica el silencio por barrera y no por un total agregado', () => {
+  const sets = {
+    exact: [
+      { alert_id: 1, truth_card: card(1), score: 1 },
+      { alert_id: 2, truth_card: card(2, { deadline: '2020-01-01' }), score: 1 },
+      { alert_id: 3, truth_card: card(3, { province: 'Huesca' }), score: 1 },
+      {
+        alert_id: 4,
+        truth_card: card(4, { sector: 'ganaderia', subsector: 'vacuno' }),
+        score: 1,
+      },
+      { alert_id: 5, truth_card: card(5, { beneficiaries: null }), score: 1 },
+    ],
+  };
+  const ranking = rankCandidateUnion({ candidateSets: sets, profile: profile(), topK: 10 });
+  const { funnel } = ranking;
+
+  assert.strictEqual(funnel.generated, 5);
+  // Cada nivel conserva solo lo que supero esa barrera.
+  assert.strictEqual(funnel.passed_validity, 4, 'la caducada cae en vigencia');
+  assert.strictEqual(funnel.passed_territory, 3, 'otra provincia cae en territorio');
+  assert.strictEqual(funnel.passed_activity, 2, 'otra actividad cae en actividad');
+  assert.strictEqual(funnel.passed_evidence, 1, 'la que no tiene beneficiarios queda retenida');
+  assert.strictEqual(funnel.eligible, 1);
+  assert.strictEqual(funnel.selected, 1);
+
+  // El embudo nunca puede crecer al avanzar de barrera.
+  const niveles = [
+    funnel.generated,
+    funnel.passed_contract,
+    funnel.passed_validity,
+    funnel.passed_exclusion,
+    funnel.passed_territory,
+    funnel.passed_activity,
+    funnel.passed_evidence,
+  ];
+  assert(niveles.every((valor, index) => index === 0 || valor <= niveles[index - 1]));
+
+  assert.deepStrictEqual(funnel.stopped_by, {
+    validity: 1,
+    territory: 1,
+    activity: 1,
+    evidence: 1,
+  });
+  assert.strictEqual(funnel.reason_codes[REASON_CODES.TERRITORY_MISMATCH], 1);
+  assert.strictEqual(funnel.reason_codes[REASON_CODES.EXPIRED], 1);
+  assert.strictEqual(funnel.reason_codes[REASON_CODES.ACTIVITY_MISMATCH], 1);
+});
+
+test('un silencio total identifica la barrera responsable', () => {
+  const sets = {
+    exact: [6, 7, 8].map((id) => ({
+      alert_id: id,
+      truth_card: card(id, { province: 'Huesca' }),
+      score: 1,
+    })),
+  };
+  const ranking = rankCandidateUnion({ candidateSets: sets, profile: profile(), topK: 10 });
+
+  assert.strictEqual(ranking.candidates.length, 0);
+  assert.strictEqual(ranking.funnel.passed_validity, 3);
+  assert.strictEqual(ranking.funnel.passed_territory, 0);
+  assert.deepStrictEqual(ranking.funnel.stopped_by, { territory: 3 });
+  assert.strictEqual(ranking.funnel.reason_codes[REASON_CODES.TERRITORY_MISMATCH], 3);
+});
+
 test('el top K es determinista aunque se reordenen las entradas', () => {
   const setsA = {
     exact: [3, 1, 2].map((id) => ({ alert_id: id, truth_card: card(id), score: 1 })),

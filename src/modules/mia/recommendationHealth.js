@@ -65,14 +65,27 @@ function resumirEmbudoDigest(attempts = []) {
     queued: 0,
     delivered: 0,
   };
+  // Barrera que detuvo a cada candidata antes del juez. Permite responder
+  // "por que no se envio nada" sin revisar alertas una a una.
+  const stoppedBy = new Map();
 
   for (const row of attempts || []) {
     funnel.judge_evaluated += enteroNoNegativo(row?.judge_evaluated_count);
     funnel.approved += enteroNoNegativo(row?.approved_count);
     funnel.queued += enteroNoNegativo(row?.queued_count);
     funnel.delivered += enteroNoNegativo(row?.delivered_count);
+
+    const barreras = row?.metadata_json?.ranking_funnel?.stopped_by;
+    if (!barreras || typeof barreras !== 'object') continue;
+    for (const [stage, count] of Object.entries(barreras)) {
+      const total = enteroNoNegativo(count);
+      if (total > 0) stoppedBy.set(stage, (stoppedBy.get(stage) || 0) + total);
+    }
   }
 
+  funnel.stopped_by = Object.fromEntries(
+    [...stoppedBy.entries()].sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+  );
   return funnel;
 }
 
@@ -400,13 +413,16 @@ function normalizarFechaCalendario(value) {
   return { fecha, ordinal: Math.floor(timestamp / (24 * 60 * 60 * 1000)) };
 }
 
-function calcularRachaSilencioGlobal(attempts = [], digests = []) {
+// Dias calendario en los que hubo evaluacion, con la marca de si produjeron
+// resultado. `userId` acota el calculo a una persona; sin el, es global.
+function construirDiasEvaluados(attempts = [], digests = [], { userId = null } = {}) {
+  const mismoUsuario = (row) => userId === null || String(row?.user_id) === String(userId);
   const diasEvaluados = new Map();
 
   for (const attempt of attempts || []) {
     const status = String(attempt?.status || '').trim().toLowerCase();
     const dia = normalizarFechaCalendario(attempt?.fecha);
-    if (!dia || !ESTADOS_INTENTO_EVALUADO.has(status)) continue;
+    if (!dia || !ESTADOS_INTENTO_EVALUADO.has(status) || !mismoUsuario(attempt)) continue;
 
     const actual = diasEvaluados.get(dia.fecha) || {
       fecha: dia.fecha,
@@ -420,11 +436,16 @@ function calcularRachaSilencioGlobal(attempts = [], digests = []) {
   // Un digest existente tambien prueba que ese dia produjo resultado. Esto evita
   // falsos avisos si un segundo intento quedo como `skipped_existing`.
   for (const digest of digests || []) {
+    if (!mismoUsuario(digest)) continue;
     const dia = normalizarFechaCalendario(digest?.fecha);
     const evaluado = dia ? diasEvaluados.get(dia.fecha) : null;
     if (evaluado) evaluado.tieneResultado = true;
   }
 
+  return diasEvaluados;
+}
+
+function rachaDesdeDiasEvaluados(diasEvaluados) {
   let racha = 0;
   let ordinalAnterior = null;
   for (const dia of [...diasEvaluados.values()].sort((a, b) => a.ordinal - b.ordinal)) {
@@ -434,6 +455,31 @@ function calcularRachaSilencioGlobal(attempts = [], digests = []) {
   }
 
   return racha;
+}
+
+function calcularRachaSilencioGlobal(attempts = [], digests = []) {
+  return rachaDesdeDiasEvaluados(construirDiasEvaluados(attempts, digests));
+}
+
+// El silencio global puede ser cero y aun asi haber personas que llevan
+// semanas sin recibir nada. El blueprint pide vigilar ambas escalas.
+function calcularRachaSilencioPorUsuario(attempts = [], digests = []) {
+  const usuarios = new Set(
+    (attempts || [])
+      .filter((row) => ESTADOS_INTENTO_EVALUADO.has(String(row?.status || '').trim().toLowerCase()))
+      .map((row) => row?.user_id)
+      .filter((id) => id !== undefined && id !== null && id !== '')
+      .map((id) => String(id))
+  );
+
+  return [...usuarios]
+    .map((userId) => ({
+      user_id: userId,
+      streak_days: rachaDesdeDiasEvaluados(construirDiasEvaluados(attempts, digests, { userId })),
+    }))
+    .filter((row) => row.streak_days > 0)
+    .sort((left, right) => right.streak_days - left.streak_days
+      || left.user_id.localeCompare(right.user_id, 'es', { numeric: true }));
 }
 
 function calcularSaludRecomendaciones({
@@ -465,6 +511,16 @@ function calcularSaludRecomendaciones({
   const digestConFeedback = idsUnicos(feedback, 'digest_id');
   const repeticiones = contarRepeticionesPorUsuario(entregados);
   const rachaSilencioGlobal = calcularRachaSilencioGlobal(attempts, digests);
+  const silencioPorUsuario = calcularRachaSilencioPorUsuario(attempts, digests);
+  const umbralSilencioUsuario = numeroAcotado(
+    volumePolicy.userSilenceStreakDays ?? process.env.RECOMMENDATION_USER_SILENCE_STREAK_DAYS,
+    7,
+    2,
+    60
+  );
+  const usuariosSilenciados = silencioPorUsuario.filter(
+    (row) => row.streak_days >= umbralSilencioUsuario
+  );
   const judgeMetrics = resumirUsoJuez(judgeDecisions);
   const digestFunnel = resumirEmbudoDigest(attempts);
   const volumeHealth = analizarAnomaliasVolumen(attempts, volumePolicy);
@@ -488,6 +544,10 @@ function calcularSaludRecomendaciones({
     selection_includes_with_trace: conTrace,
     repeated_alerts_same_user: repeticiones,
     global_silence_streak_days: rachaSilencioGlobal,
+    user_silence_streak_days_max: silencioPorUsuario[0]?.streak_days || 0,
+    users_silenced_streak: usuariosSilenciados.length,
+    // Solo los primeros: el panel necesita a quien mirar, no el censo completo.
+    user_silence_streaks: usuariosSilenciados.slice(0, 20),
     digest_funnel: digestFunnel,
     delivery_status_counts: contarEstadosEntrega(digests),
     volume_health: volumeHealth,
@@ -525,6 +585,14 @@ function calcularSaludRecomendaciones({
       'global_silence_multiple_days',
       'critical',
       `${rachaSilencioGlobal} dias calendario consecutivos evaluados sin resultados`
+    );
+  }
+  if (usuariosSilenciados.length > 0) {
+    add(
+      'user_silence_multiple_days',
+      'warning',
+      `${usuariosSilenciados.length} personas llevan ${umbralSilencioUsuario} dias o mas evaluadas sin recibir nada ` +
+      `(maximo ${metrics.user_silence_streak_days_max})`
     );
   }
   if (metrics.judge_budget_unavailable > 0) {
@@ -596,7 +664,7 @@ async function generarSaludRecomendaciones(supabase, { days = 14, persist = true
     supabase.from('alerta_feedback').select('digest_id, user_id, alerta_id, valor, feedback_category').gte('created_at', desde),
     supabase
       .from('digest_attempts')
-      .select('user_id, fecha, status, motivo_no_envio, total_alertas_dia, judge_evaluated_count, approved_count, queued_count, delivered_count, delivery_status')
+      .select('user_id, fecha, status, motivo_no_envio, total_alertas_dia, judge_evaluated_count, approved_count, queued_count, delivered_count, delivery_status, metadata_json')
       .gte('created_at', desde),
     supabase.from('digest_candidate_decisions').select('stage, action, decision_json').eq('stage', 'selection').gte('created_at', traceDesde),
     supabase
@@ -648,6 +716,7 @@ async function generarSaludRecomendaciones(supabase, { days = 14, persist = true
 module.exports = {
   analizarAnomaliasVolumen,
   calcularRachaSilencioGlobal,
+  calcularRachaSilencioPorUsuario,
   calcularSaludRecomendaciones,
   construirVolumenDiario,
   contarEstadosEntrega,

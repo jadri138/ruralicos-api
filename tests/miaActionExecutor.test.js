@@ -169,6 +169,32 @@ assert(
   'No convierte el matiz en desinterés general por ayudas'
 );
 
+// "Demasiado frecuente" pide menos volumen; no puede penalizar la alerta ni su tema.
+const frecuenciaRows = construirMemoriaLegacyRows({
+  user,
+  digest,
+  alertasOrdenadas,
+  texto: 'me mandas demasiados mensajes',
+  decision: {
+    version: 'mia_decision_v2',
+    confidence: 0.9,
+    feedback_actions: [{ item_numero: 1, valor: -1 }],
+  },
+});
+assert(frecuenciaRows.length === 1, 'La queja de volumen genera una sola memoria');
+assert(
+  frecuenciaRows[0].scope_type === 'frequency',
+  'La queja de volumen se guarda en el ambito de frecuencia'
+);
+assert(
+  !frecuenciaRows.some((row) => ['alert', 'topic'].includes(row.scope_type)),
+  'Una queja de volumen no marca la alerta ni el tema como no deseados'
+);
+assert(
+  (frecuenciaRows[0].alerta_id ?? null) === null,
+  'No se ata la queja de volumen a la alerta concreta'
+);
+
 const decisionPreferencias = {
   intent: 'actualizar_preferencias',
   feedback_actions: [],

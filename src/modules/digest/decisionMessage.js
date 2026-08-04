@@ -21,10 +21,25 @@ function factMap(projection = {}) {
   return new Map((projection.facts || []).map((fact) => [fact.field, fact.value]));
 }
 
-function renderDecisionAlertBlock(alerta = {}, index = 0) {
-  const projection = alerta.personal_decision?.message_projection
+// Titulos en lenguaje corriente: separan lo que pide un tramite de lo que solo
+// conviene conocer. No aparecen si el mensaje es de un unico tipo.
+const SECCION_ACCION = 'Esto pide que hagas algo';
+const SECCION_INFORMACION = 'Esto es solo para que lo sepas';
+
+function alertaProjection(alerta = {}) {
+  return alerta.personal_decision?.message_projection
     || alerta.decision_digest?.canonical?.message_projection
     || null;
+}
+
+// Solo una accion con evidencia convierte la alerta en oportunidad. Un plazo
+// suelto no basta: prometeria un tramite que la ficha no respalda.
+function alertaPideAccion(alerta = {}) {
+  return Boolean(factMap(alertaProjection(alerta) || {}).get('action'));
+}
+
+function renderDecisionAlertBlock(alerta = {}, index = 0) {
+  const projection = alertaProjection(alerta);
   if (!projection?.allowed || !renderSafeMessageBlock(projection)) return null;
 
   const facts = factMap(projection);
@@ -67,24 +82,45 @@ function renderDecisionDigestMessage({
   const limit = Math.max(800, Math.min(4096, Number(maxChars) || DEFAULT_MAX_MESSAGE_CHARS));
   const name = userName(user);
   const header = `${name ? `Hola ${name} 👋\n\n` : ''}*Tus alertas rurales del ${formatDate(fecha)}*`;
-  const validAlerts = [];
-  const blocks = [];
-  for (const alerta of alertas || []) {
-    const block = renderDecisionAlertBlock(alerta, blocks.length);
-    if (!block) continue;
-    blocks.push(block);
-    validAlerts.push(alerta);
-  }
-  if (blocks.length === 0) return { message: null, alertas: [], omitted: (alertas || []).length };
+  const total = (alertas || []).length;
 
-  const includedBlocks = fitBlocks(header, blocks, limit);
-  if (includedBlocks.length === 0) {
-    return { message: null, alertas: [], omitted: (alertas || []).length };
+  // Primero lo accionable, despues lo informativo. Dentro de cada grupo se
+  // conserva el orden que ya fijo la autoridad final (accion y plazo).
+  const ordenadas = [
+    ...(alertas || []).filter((alerta) => alertaPideAccion(alerta)),
+    ...(alertas || []).filter((alerta) => !alertaPideAccion(alerta)),
+  ];
+  const renderizadas = [];
+  for (const alerta of ordenadas) {
+    const block = renderDecisionAlertBlock(alerta, renderizadas.length);
+    if (!block) continue;
+    renderizadas.push({ alerta, block, accion: alertaPideAccion(alerta) });
   }
+  if (renderizadas.length === 0) return { message: null, alertas: [], omitted: total };
+
+  // Los titulos de seccion ocupan sitio: se reservan antes de recortar para no
+  // pasarse del limite del proveedor.
+  const mezcla = renderizadas.some((item) => item.accion) && renderizadas.some((item) => !item.accion);
+  const reserva = mezcla ? SECCION_ACCION.length + SECCION_INFORMACION.length + 12 : 0;
+  const includedBlocks = fitBlocks(header, renderizadas.map((item) => item.block), limit - reserva);
+  if (includedBlocks.length === 0) {
+    return { message: null, alertas: [], omitted: total };
+  }
+
+  const incluidas = renderizadas.slice(0, includedBlocks.length);
+  const conAccion = incluidas.filter((item) => item.accion).map((item) => item.block);
+  const soloInfo = incluidas.filter((item) => !item.accion).map((item) => item.block);
+  const partes = [header];
+  if (conAccion.length > 0 && soloInfo.length > 0) {
+    partes.push(`*${SECCION_ACCION}*`, ...conAccion, `*${SECCION_INFORMACION}*`, ...soloInfo);
+  } else {
+    partes.push(...incluidas.map((item) => item.block));
+  }
+
   return {
-    message: [header, ...includedBlocks].join('\n\n'),
-    alertas: validAlerts.slice(0, includedBlocks.length),
-    omitted: Math.max(0, (alertas || []).length - includedBlocks.length),
+    message: partes.join('\n\n'),
+    alertas: incluidas.map((item) => item.alerta),
+    omitted: Math.max(0, total - incluidas.length),
   };
 }
 

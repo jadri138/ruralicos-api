@@ -2,6 +2,7 @@ const FEEDBACK_CATEGORIES = Object.freeze({
   WRONG_TOPIC: 'wrong_topic',
   WRONG_LOCATION: 'wrong_location',
   TOO_GENERIC: 'too_generic',
+  TOO_FREQUENT: 'too_frequent',
   MISCLASSIFICATION: 'misclassification',
   INDIVIDUAL_CASE_NOISE: 'individual_case_noise',
   USER_PROFILE_MISSING: 'user_profile_missing',
@@ -58,6 +59,13 @@ function classifyByRules(text, alertText, flags) {
     flags.includes('notificacion_individual')) {
     reasons.push('individual_case_signal');
     return { category: FEEDBACK_CATEGORIES.INDIVIDUAL_CASE_NOISE, confidence: 0.88, reasons };
+  }
+
+  // Una queja de volumen se resuelve enviando menos, no dejando de tratar el
+  // tema. Debe ganar a las reglas de desinteres para no contaminar el perfil.
+  if (/\b(demasiados mensajes|demasiadas alertas|muchos mensajes|muchas alertas|demasiado a menudo|demasiada frecuencia|menos mensajes|menos alertas|no me mandes tantos|no me mandes tantas|todos los dias|cada dia me|me satura|me saturas|es spam|son spam)\b/.test(text)) {
+    reasons.push('frequency_signal');
+    return { category: FEEDBACK_CATEGORIES.TOO_FREQUENT, confidence: 0.86, reasons };
   }
 
   if (/\b(no es ayuda|no es subvencion|no es curso|no es normativa|esta mal clasificado|mal clasificado|clasificacion incorrecta|esto es licitacion|es una licitacion)\b/.test(text) ||
