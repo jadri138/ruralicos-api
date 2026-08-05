@@ -271,7 +271,27 @@ El veto sigue siendo fail-closed cuando sí hay algo que auditar: si Supabase
 rechaza la escritura o falta una fila, esa candidata no se aprueba.
 `tests/digestDecisionAuditFailClosed.test.js` cubre ambos lados.
 
-Quedaba una segunda causa, que el 5 de agosto afectó a 24 personas: una misma
+La causa de fondo de los 24 fallos del 5 de agosto era otra, y estaba en el
+guardado por lotes. `construirDigestCandidateDecisionRow` añadía `reason_codes`,
+`llm_calls` y `cache_hit` **sólo si tenían valor**, pero las tres son `NOT NULL`
+en la tabla. Una candidata bloqueada por el ranking no pasa por el juez y no
+traía ninguna de las dos últimas; una evaluada sí. En un upsert por lotes
+PostgREST usa la unión de columnas de todas las filas, así que la fila
+incompleta llegaba con `NULL` en vez de con su valor por defecto y Postgres
+rechazaba **el lote entero**:
+
+```text
+null value in column "llm_calls" violates not-null constraint
+```
+
+Por eso fallaba justo cuando una persona tenía candidatas de los dos tipos, y
+no cuando eran homogéneas. Las tres columnas se rellenan ahora siempre —una
+candidata bloqueada declara `llm_calls: 0` y `cache_hit: false`, que es la
+verdad— y `tests/digestCandidateDecisions.test.js` comprueba que todas las
+filas de un lote comparten las columnas obligatorias. Verificado contra la base
+real: el lote antiguo se rechaza y el nuevo entra.
+
+Antes se corrigió otra causa que resultó no ser la principal: una misma
 alerta puede aparecer dos veces en la misma tanda de auditoría —bloqueada por
 el ranking y luego resuelta por el portfolio—, y Postgres rechaza el lote
 entero cuando dos filas comparten la clave de conflicto («ON CONFLICT DO UPDATE

@@ -75,7 +75,12 @@ function construirDigestCandidateDecisionRow(input = {}) {
   const inputHash = input.input_hash ?? input.inputHash ?? decision.input_hash;
   if (inputHash) row.input_hash = texto(inputHash, 128);
   const reasonCodes = input.reason_codes ?? input.reasonCodes ?? decision.reason_codes;
-  if (Array.isArray(reasonCodes)) row.reason_codes = [...new Set(reasonCodes.map(String))];
+  // Siempre presente: es NOT NULL en la tabla y, en un guardado por lotes, una
+  // fila que omita la columna la recibe como NULL en lugar de su valor por
+  // defecto. Basta una fila así para que se rechace el lote entero.
+  row.reason_codes = Array.isArray(reasonCodes)
+    ? [...new Set(reasonCodes.map(String))]
+    : [];
   const decidedAt = input.decided_at ?? input.decidedAt ?? decision.decided_at;
   if (decidedAt) row.decided_at = decidedAt;
 
@@ -110,12 +115,16 @@ function construirDigestCandidateDecisionRow(input = {}) {
   if (Object.keys(llmUsage).length > 0) row.llm_usage = llmUsage;
   const llmCost = jsonObject(input.llm_cost ?? input.llmCost ?? decision.llm_cost ?? judgeAudit.cost);
   if (Object.keys(llmCost).length > 0) row.llm_cost = llmCost;
+  // `llm_calls` y `cache_hit` también son NOT NULL. Una candidata bloqueada por
+  // el ranking no pasa por el juez y no traía ninguno de los dos, así que un
+  // lote que mezclara bloqueadas y evaluadas tumbaba la auditoría de esa
+  // persona (24 usuarios el 5-08-2026).
   const llmCalls = nonNegativeInteger(
     input.llm_calls ?? input.llmCalls ?? decision.llm_calls ?? judgeAudit.llm_calls
   );
-  if (llmCalls !== null) row.llm_calls = llmCalls;
+  row.llm_calls = llmCalls ?? 0;
   const cacheHit = input.cache_hit ?? input.cacheHit ?? decision.cache_hit ?? judgeAudit.cache_hit;
-  if (cacheHit !== undefined && cacheHit !== null) row.cache_hit = cacheHit === true;
+  row.cache_hit = cacheHit === true;
   const fallbackReason = input.fallback_reason
     ?? input.fallbackReason
     ?? decision.fallback_reason
