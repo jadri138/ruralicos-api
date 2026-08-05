@@ -422,6 +422,51 @@ test('una convocatoria autonomica llega a las provincias de su comunidad', () =>
     !territorioDe('La Rioja', 'La Rioja').includes(REASON_CODES.TERRITORY_MISMATCH),
     'La Rioja es comunidad y provincia a la vez'
   );
+
+  // El caso de produccion llega por ficha v3, donde `territorio` es una lista
+  // de objetos con evidencia, no de cadenas. Ese camino debe clasificar igual.
+  const fichaDe = (ambito) => adaptFactSheetV3({
+    schema_version: 'fact_sheet_v3',
+    builder_version: 'fact_sheet_builder_v6',
+    alerta_id: 502,
+    territorio: [{
+      valor: ambito,
+      source: 'alerta.resumen_final',
+      status: 'verified',
+      evidencia: `TERRITORIO: ${ambito}`,
+      confidence: 0.78,
+      evidence_level: 'derived',
+    }],
+    tema_principal: verified('Ayuda a la modernizacion'),
+    resumen_neutro: verified('Convocatoria de ayudas agrarias.'),
+    sectores: [verified('agricultura')],
+    accion_requerida: verified('Presentar la solicitud.'),
+    beneficiarios: verified('Titulares de explotaciones agrarias.'),
+    url_oficial: verified('https://example.org/oficial/502'),
+    status: 'ready_for_digest',
+  }, { legacyAlert: { id: 502, titulo: `Ayuda en ${ambito}`, provincias: [ambito] } });
+
+  const fichaAragon = fichaDe('aragon');
+  assert.deepStrictEqual(fichaAragon.territory.regions, ['aragon']);
+  assert.deepStrictEqual(fichaAragon.territory.provinces, []);
+  assert(evidenceIsUsable(fichaAragon.evidence.territory), 'la ficha conserva evidencia territorial');
+
+  for (const [ambito, provincia, alcanza] of [
+    ['aragon', 'Teruel', true],
+    ['aragon', 'Zaragoza', true],
+    ['andalucia', 'Jaén', true],
+    ['aragon', 'Córdoba', false],
+  ]) {
+    const codes = evaluateCandidateEligibility(
+      { alert_id: 502, truth_card: fichaDe(ambito), origins: [] },
+      perfilDe(provincia)
+    ).reason_codes || [];
+    assert.strictEqual(
+      !codes.includes(REASON_CODES.TERRITORY_MISMATCH),
+      alcanza,
+      `ficha v3 ${ambito} -> ${provincia} (motivos: ${codes.join(',')})`
+    );
+  }
 });
 
 test('el embudo explica el silencio por barrera y no por un total agregado', () => {
