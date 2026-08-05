@@ -8,7 +8,9 @@
 // así que subirla nunca provoca un envío repetido.
 // v9: las comunidades autónomas dejan de tratarse como provincia, así que las
 // decisiones tomadas con la versión anterior bloqueaban territorio de más.
-const DIGEST_DECISION_VERSION = 'digest_decision_v9_territory_scopes';
+// v10: la auditoría consolida las decisiones repetidas de una misma alerta, que
+// antes hacían fallar el lote entero y dejaban a esa persona sin digest.
+const DIGEST_DECISION_VERSION = 'digest_decision_v10_audit_dedupe';
 
 const ESTADOS_TERMINALES_INMUTABLES = new Set([
   'generated',

@@ -358,6 +358,15 @@ Eso reabre los silencios de la versión anterior sin poder provocar un reenvío,
 porque los estados que ya enviaron siguen siendo inmutables. Cubierto en
 `tests/digestAttempts.test.js`.
 
+Ojo: un `failed` **también** cuenta como terminal si lleva la versión vigente.
+No se reintenta solo.
+
+Para reintentar el mismo día sin desplegar una versión nueva existe
+`PREPARAR_DIGEST_FORCE=true` en el workflow, que añade `force=true` a
+`preparar-digest`. Reevalúa a quien ya tiene un intento cerrado hoy y sigue
+dejando fuera a quien ya tiene un digest enviado, así que no puede duplicar
+mensajes. Apagado por defecto.
+
 ## Diagnóstico de cobertura
 
 Responde a «¿por qué hoy no le llega nada a nadie?» sin enviar ni un mensaje:

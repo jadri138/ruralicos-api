@@ -14,6 +14,7 @@
  *   RUN_OFFICIAL_LISTS=true
  *   RUN_REPAIR=true
  *   RUN_DAILY_EXPLORATION=true
+ *   PREPARAR_DIGEST_FORCE=true   (reevalua intentos ya cerrados hoy)
  *   MAX_LOOPS=200
  *   PREPARAR_DIGEST_MAX_LOOPS=200
  *   HOLD_RECOVERY_MAX_LOOPS=20
@@ -35,6 +36,7 @@ const RUN_SCRAPERS = parseBool(process.env.RUN_SCRAPERS, true);
 const RUN_OFFICIAL_LISTS = parseBool(process.env.RUN_OFFICIAL_LISTS, true);
 const RUN_REPAIR = parseBool(process.env.RUN_REPAIR, true);
 const RUN_DAILY_EXPLORATION = parseBool(process.env.RUN_DAILY_EXPLORATION, true);
+const PREPARAR_DIGEST_FORCE = parseBool(process.env.PREPARAR_DIGEST_FORCE, false);
 // Cada vuelta de clasificar/resumir/revisar consume un lote pequeño
 // (CLASIFICAR_BATCH_SIZE = 8 por defecto). Con ~700-800 alertas nuevas al día
 // hacen falta ~100 vueltas solo para clasificar, así que 40 dejaba el workflow
@@ -340,9 +342,16 @@ async function main() {
   // Relee solo evidencia que ya existe en alertas/raw_documents. Es una fase
   // acotada del mismo workflow; no descarga documentos ni crea otro cron.
   const holdEvidenceRecovery = await runHoldEvidenceRecoveryStep();
+  // PREPARAR_DIGEST_FORCE reevalúa a quien ya tiene un intento cerrado hoy.
+  // Sirve para reintentar el mismo día tras corregir algo sin tener que
+  // desplegar una versión de decisión nueva. No puede reenviar: las personas
+  // con un digest ya enviado quedan fuera igualmente.
+  const rutaPrepararDigest = conFecha('/alertas/preparar-digest');
   const prepararDigest = await runBatchedStep(
     'preparar-digest',
-    conFecha('/alertas/preparar-digest'),
+    PREPARAR_DIGEST_FORCE
+      ? appendQuery(rutaPrepararDigest, { force: 'true' })
+      : rutaPrepararDigest,
     { method: 'POST' },
     PREPARAR_DIGEST_MAX_LOOPS
   );

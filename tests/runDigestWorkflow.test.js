@@ -97,6 +97,22 @@ test('permite fijar fecha para pasos diarios', () => {
   assert(script.includes("conFecha('/alertas/preparar-digest')"), 'preparar digest debe aceptar fecha');
 });
 
+test('permite reintentar el mismo dia sin desplegar una version nueva', () => {
+  assert(
+    script.includes('const PREPARAR_DIGEST_FORCE = parseBool(process.env.PREPARAR_DIGEST_FORCE, false)'),
+    'debe existir el interruptor y estar apagado por defecto'
+  );
+  assert(
+    script.includes("appendQuery(rutaPrepararDigest, { force: 'true' })"),
+    'encendido debe pedir la reevaluacion al endpoint'
+  );
+  // Apagado, la ruta no lleva force: el comportamiento diario no cambia.
+  assert(
+    /PREPARAR_DIGEST_FORCE\s*\n?\s*\?\s*appendQuery/.test(script),
+    'sin el interruptor se usa la ruta normal'
+  );
+});
+
 test('permite completar la preparacion segura usuario a usuario', () => {
   assert(
     script.includes('const PREPARAR_DIGEST_MAX_LOOPS = Number(process.env.PREPARAR_DIGEST_MAX_LOOPS || 200)'),
