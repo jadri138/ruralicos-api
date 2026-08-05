@@ -165,6 +165,36 @@ async function main() {
   assert.strictEqual(vacio.stored, 0);
   assert.strictEqual(upsertLlamado, false, 'sin decisiones no se escribe nada');
 
+  // Dos decisiones de la misma alerta comparten fila: Postgres rechazaria el
+  // lote entero si se enviaran las dos ("cannot affect row a second time"), y
+  // eso tumbaba la auditoria de 24 personas el 5-08-2026.
+  const lotes = [];
+  const supabaseLotes = {
+    from() {
+      return {
+        async upsert(filas) {
+          lotes.push(filas);
+          return { error: null };
+        },
+      };
+    },
+  };
+  const duplicadas = await registrarDigestCandidateDecisionsCanonicas(supabaseLotes, {
+    userId: 12,
+    fecha: '2026-08-05',
+    stage: 'personal_relevance_judge',
+    decisions: [
+      { id: 34, action: 'blocked', motivo: 'primera' },
+      { id: 34, action: 'include', motivo: 'definitiva' },
+      { id: 35, action: 'include' },
+    ],
+  });
+  assert.strictEqual(duplicadas.ok, true, 'una alerta repetida no puede tumbar la auditoria');
+  assert.strictEqual(lotes[0].length, 2, 'la alerta repetida viaja una sola vez');
+  const fila34 = lotes[0].find((row) => Number(row.alerta_id) === 34);
+  assert.strictEqual(fila34.action, 'include', 'gana la ultima decision, que es la definitiva');
+  assert.strictEqual(fila34.reason, 'definitiva');
+
   // La garantia sigue viva: en cuanto hay algo que auditar y falla, se cierra.
   await assert.rejects(
     () => registrarDigestCandidateDecisionsCanonicas(

@@ -140,21 +140,38 @@ const REQUIRED_CANONICAL_AUDIT_STAGES = Object.freeze([
 
 const REQUIRED_CANONICAL_AUDIT_STAGE_SET = new Set(REQUIRED_CANONICAL_AUDIT_STAGES);
 
+// Postgres rechaza un upsert entero si el mismo lote trae dos filas con la
+// misma clave de conflicto ("cannot affect row a second time"). Una alerta
+// puede aparecer dos veces en una misma tanda de auditoría -por ejemplo
+// bloqueada por el ranking y luego resuelta por el portfolio-, así que se
+// consolida por clave y gana la última, que es la decisión definitiva.
+function consolidarPorClaveDeConflicto(rows = []) {
+  const porClave = new Map();
+  for (const row of rows) {
+    porClave.set(
+      [row.user_id, row.fecha, row.kind, row.alerta_id, row.stage].join('|'),
+      row
+    );
+  }
+  return [...porClave.values()];
+}
+
 async function registrarDigestCandidateDecisions(supabase, input = {}) {
   const rows = construirDigestCandidateDecisionRows(input);
-  if (!supabase?.from || rows.length === 0) {
-    return { ok: true, available: Boolean(supabase?.from), stored: 0, rows };
+  const filas = consolidarPorClaveDeConflicto(rows);
+  if (!supabase?.from || filas.length === 0) {
+    return { ok: true, available: Boolean(supabase?.from), stored: 0, rows, filas };
   }
 
   try {
     const { error } = await supabase
       .from('digest_candidate_decisions')
-      .upsert(rows, { onConflict: 'user_id,fecha,kind,alerta_id,stage' });
+      .upsert(filas, { onConflict: 'user_id,fecha,kind,alerta_id,stage' });
     if (error) throw error;
-    return { ok: true, available: true, stored: rows.length, rows };
+    return { ok: true, available: true, stored: filas.length, rows, filas };
   } catch (error) {
     console.warn('[digest_candidate_decisions] No se pudo guardar auditoria:', error.message);
-    return { ok: false, available: false, stored: 0, error: error.message, rows };
+    return { ok: false, available: false, stored: 0, error: error.message, rows, filas };
   }
 }
 
@@ -205,18 +222,22 @@ async function registrarDigestCandidateDecisionsCanonicas(supabase, input = {}) 
   }
 
   const result = await registrarDigestCandidateDecisions(supabase, input);
-  const expected = Array.isArray(result.rows) ? result.rows.length : 0;
+  // Cada decisión enviada debe haber producido una fila auditable...
+  const construidas = Array.isArray(result.rows) ? result.rows.length : 0;
+  // ...y lo que se persiste son esas filas consolidadas por clave, porque dos
+  // decisiones de la misma alerta comparten fila por definición.
+  const persistibles = Array.isArray(result.filas) ? result.filas.length : construidas;
   if (
     !result.ok
     || !result.available
-    || expected !== submitted
-    || result.stored !== expected
+    || construidas !== submitted
+    || result.stored !== persistibles
   ) {
     const error = new Error(`No se pudo guardar la auditoria canonica de ${stage}`);
     error.code = 'CANONICAL_DECISION_AUDIT_FAILED';
     error.stage = stage;
     error.audit_error = result.error
-      || (expected === 0 ? 'canonical_audit_empty' : 'canonical_audit_incomplete');
+      || (construidas === 0 ? 'canonical_audit_empty' : 'canonical_audit_incomplete');
     throw error;
   }
   return result;

@@ -271,6 +271,16 @@ El veto sigue siendo fail-closed cuando sí hay algo que auditar: si Supabase
 rechaza la escritura o falta una fila, esa candidata no se aprueba.
 `tests/digestDecisionAuditFailClosed.test.js` cubre ambos lados.
 
+Quedaba una segunda causa, que el 5 de agosto afectó a 24 personas: una misma
+alerta puede aparecer dos veces en la misma tanda de auditoría —bloqueada por
+el ranking y luego resuelta por el portfolio—, y Postgres rechaza el lote
+entero cuando dos filas comparten la clave de conflicto («ON CONFLICT DO UPDATE
+command cannot affect row a second time»). Las filas se consolidan ahora por
+`(user_id, fecha, kind, alerta_id, stage)` antes del upsert y gana la última,
+que es la decisión definitiva. La comprobación distingue las decisiones
+recibidas de las filas persistibles, así que sigue detectando una pérdida real
+de auditoría.
+
 ### Tope de vueltas insuficiente para el volumen real
 
 La misma ejecución dejó después `[clasificar] alcanzo MAX_LOOPS=100`. No era un
