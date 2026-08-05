@@ -195,6 +195,36 @@ async function main() {
   assert.strictEqual(fila34.action, 'include', 'gana la ultima decision, que es la definitiva');
   assert.strictEqual(fila34.reason, 'definitiva');
 
+  // El error debe decir QUE fallo, no solo que fallo: sin esto la causa real
+  // solo existia en el log del proceso.
+  await assert.rejects(
+    () => registrarDigestCandidateDecisionsCanonicas(
+      { from() { return { async upsert() { return { error: { message: 'duplicate key value' } }; } }; } },
+      {
+        userId: 12,
+        fecha: '2026-08-05',
+        stage: 'personal_relevance_judge',
+        decisions: [{ id: 34, action: 'include' }],
+      }
+    ),
+    (error) => error.audit_error === 'duplicate key value'
+      && error.audit_counts?.submitted === 1,
+    'el rechazo de Supabase debe viajar en audit_error'
+  );
+
+  // Una decision sin alerta no produce fila: eso es perdida de auditoria y se
+  // distingue del rechazo de la base.
+  await assert.rejects(
+    () => registrarDigestCandidateDecisionsCanonicas(supabaseVigilado, {
+      userId: 12,
+      fecha: '2026-08-05',
+      stage: 'personal_relevance_judge',
+      decisions: [{ id: 34, action: 'include' }, { action: 'include' }],
+    }),
+    (error) => /canonical_audit_incomplete: 1\/2/.test(error.audit_error || ''),
+    'debe indicar cuantas decisiones se quedaron sin fila'
+  );
+
   // La garantia sigue viva: en cuanto hay algo que auditar y falla, se cierra.
   await assert.rejects(
     () => registrarDigestCandidateDecisionsCanonicas(

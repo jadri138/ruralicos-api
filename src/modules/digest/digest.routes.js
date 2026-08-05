@@ -987,8 +987,18 @@ module.exports = function digestRoutes(app, supabase) {
             judgeEvaluatedCount: canonicalDecisionResult.evaluated?.length || 0,
             approvedCount: 0,
             motivoNoEnvio: 'canonical_audit_failed',
-            errorMsg: auditError.message,
-            metadata: { plan: plan.nombre, origen: origenDigest },
+            // El mensaje propio sólo dice que la auditoría falló. La causa real
+            // -el error que devolvió Supabase- viaja en `audit_error`, y sin
+            // guardarla aquí sólo existía en el log del proceso.
+            errorMsg: [auditError.message, auditError.audit_error]
+              .filter(Boolean)
+              .join(' | '),
+            metadata: {
+              plan: plan.nombre,
+              origen: origenDigest,
+              audit_error: auditError.audit_error || null,
+              audit_decisions: canonicalDecisionResult.audit_decisions?.length ?? null,
+            },
           });
           errores.push({ userId: user.id, error: auditError.message, stage: 'canonical_audit' });
           continue;

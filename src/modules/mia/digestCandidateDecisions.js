@@ -236,8 +236,15 @@ async function registrarDigestCandidateDecisionsCanonicas(supabase, input = {}) 
     const error = new Error(`No se pudo guardar la auditoria canonica de ${stage}`);
     error.code = 'CANONICAL_DECISION_AUDIT_FAILED';
     error.stage = stage;
+    // Distinguir la causa: un rechazo de Supabase no se investiga igual que una
+    // decisión que no llegó a producir fila auditable.
     error.audit_error = result.error
-      || (construidas === 0 ? 'canonical_audit_empty' : 'canonical_audit_incomplete');
+      || (construidas === 0
+        ? 'canonical_audit_empty'
+        : construidas !== submitted
+          ? `canonical_audit_incomplete: ${construidas}/${submitted} decisiones produjeron fila`
+          : `canonical_audit_not_stored: ${result.stored}/${persistibles} filas persistidas`);
+    error.audit_counts = { submitted, construidas, persistibles, stored: result.stored };
     throw error;
   }
   return result;
