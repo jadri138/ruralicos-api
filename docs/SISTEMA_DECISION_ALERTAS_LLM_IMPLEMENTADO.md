@@ -310,6 +310,41 @@ por `TERRITORY_EVIDENCE_MISSING` en lugar de por territorio.
 La barrera sigue bloqueando lo que debe: Andalucía no alcanza a Teruel y La
 Rioja no alcanza a Córdoba. Cubierto en `tests/alertDecisionCore.test.js`.
 
+## Diagnóstico de cobertura
+
+Responde a «¿por qué hoy no le llega nada a nadie?» sin enviar ni un mensaje:
+
+```powershell
+npm run diag:cobertura
+npm run diag:cobertura -- --fecha 2026-08-05
+npm run diag:cobertura -- --json
+```
+
+Reproduce el embudo real —alertas del día, compuerta de calidad, filtro por
+persona y barreras duras— y dice cuántas personas tendrían material y en qué
+barrera cae el resto. Sólo lee: no llama a la IA, no construye ni guarda
+fichas, no toca la cola y no envía. Es seguro con producción en marcha.
+
+Las fichas se leen tal como están almacenadas, así que el resultado es un
+suelo: el workflow real construye las que faltan y suele aprobar algo más.
+
+Medición del 5 de agosto de 2026, con 79 personas de pago:
+
+| Etapa | Valor |
+| --- | ---: |
+| Alertas del día | 1.000 |
+| Pasan la compuerta de calidad | 911 |
+| Personas sin ninguna candidata | 1 |
+| Parejas persona-alerta evaluadas | 868 |
+| Aprobadas por las barreras | 56 |
+| **Personas con material** | **36** |
+
+El cuello no está en el volumen ni en el filtro por persona: está en la
+evidencia. `alertas` no guarda beneficiarios ni acción, así que una candidata
+**sin ficha nunca supera las barreras** —cae por `BENEFICIARY_EVIDENCE_MISSING`
+o `ACTION_EVIDENCE_MISSING`— y la cobertura de fichas es baja. Ése es el techo
+real de la cobertura, por delante de cualquier ajuste de umbrales.
+
 ## Memoria y aprendizaje
 
 La fuente canónica es `user_memory`, con clave idempotente, ámbito, polaridad,
@@ -542,7 +577,7 @@ relevantes:
 | `ALERT_DECISION_JUDGE_MODEL` | `gpt-5-nano` | Modelo del juez principal |
 | `ALERT_DECISION_SECOND_OPINION_MODEL` | modelo principal | Modelo de segunda opinión selectiva |
 | `ALERT_DECISION_JUDGE_CONCURRENCY` | `3` | Evaluaciones simultáneas; el código limita entre 1 y 6 |
-| `ALERT_DECISION_LLM_DAILY_CALL_LIMIT` | `0` | Tope diario de juez y segunda opinión; antes de producción debe configurarse un valor positivo medido. Si no puede comprobarse el uso de un tope activo, no hace llamadas |
+| `ALERT_DECISION_LLM_DAILY_CALL_LIMIT` | `0` | Tope diario de juez y segunda opinión. **`0` o vacío significa sin tope**, no «sin llamadas»: el juez funciona con normalidad y el gasto queda sin acotar. Conviene fijar un valor positivo medido. Si hay un tope activo pero no puede comprobarse cuánto se ha gastado, ahí sí se dejan de abrir llamadas |
 | `ALERT_DECISION_JUDGE_PRICING_JSON` | sin valor | Tarifas explícitas por modelo para calcular coste; sin ellas se guardan tokens y el coste queda `null`, nunca inventado |
 | `ALERT_DECISION_PSEUDONYM_SALT` | fallback interno | Sal estable para pseudónimos; configurar un secreto largo y estable en producción |
 | `ALERT_DECISION_MESSAGE_MAX_CHARS` | `3200` | Tamaño máximo del mensaje; límite efectivo 800..4096 |
@@ -687,8 +722,9 @@ la red.
   puestas. Mientras no se reconcilie, cada migración nueva debe aplicarse de
   forma explícita y registrarse a mano en el historial.
 - El límite diario del juez (`ALERT_DECISION_LLM_DAILY_CALL_LIMIT`) sigue en
-  `0`, lo que significa «no hacer llamadas». Debe fijarse un valor positivo
-  antes de activar el flujo nuevo.
+  `0`, que en el código significa **sin tope**: el juez evalúa con normalidad y
+  el gasto de IA no está acotado. Conviene fijar un número medido, pero no
+  bloquea los envíos.
 - La auditoría encontró diferencias entre el historial local y remoto de
   migraciones antiguas. Deben reconciliarse antes de ejecutar `db push`; no se
   modificó ese historial durante esta implementación.

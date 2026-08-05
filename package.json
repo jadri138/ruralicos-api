@@ -25,6 +25,7 @@
     "replay:grade": "node scripts/grade_alert_decision_replay.js",
     "check:core": "node scripts/check_core_logic.js",
     "check:decision-schema": "node scripts/check_decision_schema.js",
+    "diag:cobertura": "node scripts/diagnostico_cobertura_digest.js",
     "test:local": "node scripts/run_tests.js"
   },
   "dependencies": {
