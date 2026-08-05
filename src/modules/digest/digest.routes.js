@@ -931,22 +931,55 @@ module.exports = function digestRoutes(app, supabase) {
           continue;
         }
 
-        await registrarDigestCandidateDecisionsCanonicas(supabase, {
-          userId: user.id,
-          organizationId,
-          fecha: hoy,
-          kind: attemptKind,
-          stage: 'personal_relevance_judge',
-          digestAttemptId,
-          decisions: canonicalDecisionResult.audit_decisions,
-          metadata: {
-            contract_version: canonicalDecisionResult.contract_version,
-            policy_version: canonicalDecisionResult.policy_version,
-            funnel: canonicalDecisionResult.ranking?.funnel || null,
-            portfolio: canonicalDecisionResult.portfolio?.counts || null,
-            recovery: recoveryDiagnostics,
-          },
-        });
+        try {
+          await registrarDigestCandidateDecisionsCanonicas(supabase, {
+            userId: user.id,
+            organizationId,
+            fecha: hoy,
+            kind: attemptKind,
+            stage: 'personal_relevance_judge',
+            digestAttemptId,
+            decisions: canonicalDecisionResult.audit_decisions,
+            metadata: {
+              contract_version: canonicalDecisionResult.contract_version,
+              policy_version: canonicalDecisionResult.policy_version,
+              funnel: canonicalDecisionResult.ranking?.funnel || null,
+              portfolio: canonicalDecisionResult.portfolio?.counts || null,
+              recovery: recoveryDiagnostics,
+            },
+          });
+        } catch (auditError) {
+          // El veto por falta de auditoría es por persona: sin traza esta
+          // candidata no puede aprobarse. Pero un fallo suyo no puede dejar sin
+          // digest al resto del lote, así que se cierra este usuario y se sigue.
+          if (holdsReclamados.length > 0) {
+            try {
+              await finalizarHoldsDecision(supabase, {
+                claimed: holdsReclamados,
+                decisions: [],
+                policy: retryPolicy,
+              });
+            } catch (releaseError) {
+              errores.push({ userId: user.id, warning: 'hold_retry_release_failed', error: releaseError.message });
+            }
+            holdsReclamados = [];
+          }
+          await registrarDigestAttempt(supabase, {
+            userId: user.id,
+            organizationId,
+            fecha: hoy,
+            kind: attemptKind,
+            status: 'failed',
+            ...funnelActual(0),
+            judgeEvaluatedCount: canonicalDecisionResult.evaluated?.length || 0,
+            approvedCount: 0,
+            motivoNoEnvio: 'canonical_audit_failed',
+            errorMsg: auditError.message,
+            metadata: { plan: plan.nombre, origen: origenDigest },
+          });
+          errores.push({ userId: user.id, error: auditError.message, stage: 'canonical_audit' });
+          continue;
+        }
         if (holdsReclamados.length > 0) {
           await finalizarHoldsDecision(supabase, {
             claimed: holdsReclamados,

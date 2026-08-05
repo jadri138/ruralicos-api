@@ -195,13 +195,20 @@ async function registrarDigestCandidateDecisionsCanonicas(supabase, input = {}) 
     throw error;
   }
 
-  const result = await registrarDigestCandidateDecisions(supabase, input);
   const submitted = Array.isArray(input.decisions) ? input.decisions.length : 0;
+  // Sin candidatas no hay nada que auditar. Eso es silencio legitimo -el
+  // usuario no tenia alertas aplicables ese dia-, no un fallo de persistencia:
+  // tratarlo como error impedia auditar y tumbaba el lote entero por una sola
+  // persona. El motivo del silencio se registra en digest_attempts.
+  if (submitted === 0) {
+    return { ok: true, available: Boolean(supabase?.from), stored: 0, rows: [], empty: true };
+  }
+
+  const result = await registrarDigestCandidateDecisions(supabase, input);
   const expected = Array.isArray(result.rows) ? result.rows.length : 0;
   if (
     !result.ok
     || !result.available
-    || expected === 0
     || expected !== submitted
     || result.stored !== expected
   ) {

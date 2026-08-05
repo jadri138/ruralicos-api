@@ -141,6 +141,62 @@ async function main() {
     'una candidata sin fila auditable debe bloquear tambien a las demas'
   );
 
+  // Un usuario sin candidatas no tiene nada que auditar. Eso es silencio
+  // legitimo y no puede tratarse como fallo: hacerlo tumbaba el lote entero
+  // por una sola persona (error observado en produccion el 4-08-2026).
+  let upsertLlamado = false;
+  const supabaseVigilado = {
+    from() {
+      return {
+        async upsert() {
+          upsertLlamado = true;
+          return { error: null };
+        },
+      };
+    },
+  };
+  const vacio = await registrarDigestCandidateDecisionsCanonicas(supabaseVigilado, {
+    userId: 12,
+    fecha: '2026-08-04',
+    stage: 'personal_relevance_judge',
+    decisions: [],
+  });
+  assert.strictEqual(vacio.ok, true, 'una lista vacia no es un fallo de auditoria');
+  assert.strictEqual(vacio.stored, 0);
+  assert.strictEqual(upsertLlamado, false, 'sin decisiones no se escribe nada');
+
+  // La garantia sigue viva: en cuanto hay algo que auditar y falla, se cierra.
+  await assert.rejects(
+    () => registrarDigestCandidateDecisionsCanonicas(
+      { from() { return { async upsert() { return { error: { message: 'fallo' } }; } }; } },
+      {
+        userId: 12,
+        fecha: '2026-08-04',
+        stage: 'personal_relevance_judge',
+        decisions: [{ id: 34, action: 'include' }],
+      }
+    ),
+    (error) => error.code === 'CANONICAL_DECISION_AUDIT_FAILED',
+    'con decisiones reales el veto sigue siendo fail-closed'
+  );
+
+  // El fallo de auditoria de una persona no puede abortar la ruta completa.
+  const rutaSource = fs.readFileSync(
+    path.join(__dirname, '..', 'src', 'modules', 'digest', 'digest.routes.js'),
+    'utf8'
+  );
+  const bloqueJuez = rutaSource.slice(
+    rutaSource.indexOf("stage: 'personal_relevance_judge'")
+  );
+  assert(
+    /catch \(auditError\)/.test(bloqueJuez.slice(0, 2000)),
+    'la auditoria del juez debe aislar su fallo por usuario'
+  );
+  assert(
+    /motivoNoEnvio: 'canonical_audit_failed'/.test(bloqueJuez.slice(0, 3000)),
+    'un fallo de auditoria debe quedar registrado como intento fallido de esa persona'
+  );
+
   console.log('OK: ningun digest canonico se aprueba o envia sin auditoria persistida');
 }
 

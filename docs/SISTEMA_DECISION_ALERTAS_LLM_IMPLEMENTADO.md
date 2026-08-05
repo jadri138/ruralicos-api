@@ -247,6 +247,30 @@ Superar el umbral genera el aviso `user_silence_multiple_days`. Un digest
 existente corta la racha de esa persona, de modo que un segundo intento
 marcado `skipped_existing` no produce un aviso falso.
 
+## Incidente del 5 de agosto de 2026: silencio tratado como fallo
+
+La primera ejecución real del workflow con el contrato nuevo terminó en
+`[500] POST /alertas/preparar-digest -> No se pudo guardar la auditoria canonica
+de personal_relevance_judge`. Se evaluaron 10 personas y el lote se detuvo.
+
+Causa: `registrarDigestCandidateDecisionsCanonicas` trataba una lista de
+decisiones vacía como fallo de auditoría (`expected === 0`). Un usuario cuya
+preselección no dejó ninguna candidata no tiene nada que auditar, y eso es
+silencio legítimo, no un error. Además, esa llamada quedaba fuera del `try` que
+aísla a cada persona, así que la excepción abortaba la petición completa: una
+sola persona sin candidatas dejaba sin digest a las otras 80.
+
+Se corrigieron las dos cosas:
+
+- sin decisiones no se escribe nada y no se lanza error; el motivo del silencio
+  sigue registrándose en `digest_attempts`;
+- un fallo de auditoría cierra solo a esa persona, con
+  `motivo_no_envio = canonical_audit_failed`, y el lote continúa.
+
+El veto sigue siendo fail-closed cuando sí hay algo que auditar: si Supabase
+rechaza la escritura o falta una fila, esa candidata no se aprueba.
+`tests/digestDecisionAuditFailClosed.test.js` cubre ambos lados.
+
 ## Memoria y aprendizaje
 
 La fuente canónica es `user_memory`, con clave idempotente, ámbito, polaridad,
