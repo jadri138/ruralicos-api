@@ -310,6 +310,27 @@ por `TERRITORY_EVIDENCE_MISSING` en lugar de por territorio.
 La barrera sigue bloqueando lo que debe: Andalucía no alcanza a Teruel y La
 Rioja no alcanza a Córdoba. Cubierto en `tests/alertDecisionCore.test.js`.
 
+### El vector de la alerta sólo se carga cuando sirve
+
+`preparar-digest` procesa una persona por petición (`PREPARAR_DIGEST_BATCH_SIZE`
+es 1 para que cada lote sea corto y reintentable). Con 79 personas eso son 79
+vueltas, y cada una recargaba **todas** las alertas del día incluyendo
+`embedding`: un vector de unos 25 KB por fila.
+
+Con mil alertas al día eso es del orden de 25 MB por vuelta y cerca de 2 GB por
+ejecución. El 5 de agosto de 2026 el workflow llegó a la vuelta 78 y Supabase
+dejó de responder (error 522 de Cloudflare, proyecto en plan gratuito).
+
+El vector sólo se usa en `ordenarPorPerfilVectorial`, que no hace nada si la
+persona no tiene `perfil_embedding`. Ahora los usuarios se cargan antes que las
+alertas y `withEmbedding` se decide con ese dato, en las tres consultas del
+handler: la del día, la de holds reclamados y la del rescate —que abarca varios
+días y era la más pesada—. Si nadie tiene perfil vectorial, el vector no viaja.
+
+`tests/digestAlertLoadWeight.test.js` fija las tres cosas: el valor por defecto
+no cambia, `withEmbedding: false` no pide el vector y el handler decide con
+`perfil_embedding`.
+
 ### Reevaluar el mismo día tras cambiar la lógica
 
 `digest_attempts` guarda `metadata_json.decision_version`. Un `no_send` o un

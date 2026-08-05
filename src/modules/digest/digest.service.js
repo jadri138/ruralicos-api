@@ -84,6 +84,12 @@ function numeroConfig(name, fallback, min = 0, max = Number.MAX_SAFE_INTEGER) {
 // Un digest puede requerir varias llamadas IA. En Render una request larga se
 // corta antes de terminar y el workflow nunca alcanza /enviar-digest. Procesar
 // un usuario por request mantiene cada lote reintentable e idempotente.
+//
+// El coste es que cada vuelta recarga las alertas del día enteras. Con muchas
+// personas eso multiplica la lectura del mismo material y puede agotar el
+// tráfico de un plan pequeño. Subirlo con `PREPARAR_DIGEST_BATCH_SIZE` ahorra
+// en proporción, pero alarga cada request: hay que comprobar que el lote sigue
+// terminando antes del corte de Render antes de dejarlo fijo.
 const PREPARAR_DIGEST_BATCH_SIZE = numeroConfig('PREPARAR_DIGEST_BATCH_SIZE', 1, 1, 50);
 const DIGEST_LOCAL_FALLBACK = (process.env.DIGEST_LOCAL_FALLBACK || 'true').toLowerCase() !== 'false';
 const DIGEST_QUALITY_GATE = (process.env.DIGEST_QUALITY_GATE || 'true').toLowerCase() !== 'false';
@@ -436,10 +442,15 @@ function aplicarFiltroFechaAlertas(query, { fecha, desde, hasta, ids } = {}) {
   return next;
 }
 
+// `withEmbedding: false` evita traer el vector de cada alerta. Sólo sirve para
+// ordenar por perfil vectorial, así que cuando nadie del lote tiene
+// `perfil_embedding` es peso muerto: son unos 25 KB por alerta y esta consulta
+// se repite en cada vuelta del workflow.
 async function cargarAlertasListasDigest(supabase, options = {}) {
+  const conEmbedding = options.withEmbedding !== false;
   let query = supabase
     .from('alertas')
-    .select(ALERTA_DIGEST_SELECT_WITH_EMBEDDING);
+    .select(conEmbedding ? ALERTA_DIGEST_SELECT_WITH_EMBEDDING : ALERTA_DIGEST_SELECT);
   if (options.requireReady !== false) query = query.eq('estado_ia', 'listo');
   query = aplicarFiltroFechaAlertas(query, options);
   let { data, error } = await query;

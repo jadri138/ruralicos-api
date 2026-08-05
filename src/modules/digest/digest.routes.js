@@ -335,12 +335,26 @@ module.exports = function digestRoutes(app, supabase) {
       const limiteRaw = Number(req.query.limit || req.body?.limit || process.env.PREPARAR_DIGEST_BATCH_SIZE || PREPARAR_DIGEST_BATCH_SIZE);
       const limiteDigests = Math.max(1, Math.min(50, Number.isFinite(limiteRaw) ? limiteRaw : PREPARAR_DIGEST_BATCH_SIZE));
 
-      // 1) Alertas del día listas para enviar
-      const { data: alertasDia, error: errAlertas } = await cargarAlertasListasDigest(supabase, { fecha: hoy });
+      // 1) Usuarios de pago. Se cargan antes que las alertas para saber si hace
+      // falta traer los vectores: el embedding de la alerta sólo se usa para
+      // ordenar por perfil vectorial y pesa unos 25 KB por fila. Traerlo en
+      // cada vuelta cuando nadie tiene `perfil_embedding` disparaba el tráfico
+      // y llegó a tumbar la base (error 522 de Supabase, 5-08-2026).
+      const { data: usuarios, error: errUsuarios } = await cargarUsuariosPagoDigest(supabase);
+
+      if (errUsuarios) return res.status(500).json({ error: errUsuarios.message });
+
+      const necesitaVectores = (usuarios || []).some((user) => user?.perfil_embedding);
+
+      // 2) Alertas del día listas para enviar
+      const { data: alertasDia, error: errAlertas } = await cargarAlertasListasDigest(supabase, {
+        fecha: hoy,
+        withEmbedding: necesitaVectores,
+      });
 
       if (errAlertas) return res.status(500).json({ error: errAlertas.message });
 
-      // 2) Compuerta de calidad antes de personalizar por usuario
+      // 3) Compuerta de calidad antes de personalizar por usuario
       const totalAlertasDia = (alertasDia || []).length;
       let alertas = alertasDia || [];
       let alertasDescartadasCalidad = [];
@@ -359,11 +373,6 @@ module.exports = function digestRoutes(app, supabase) {
       } else if (!alertas || alertas.length === 0) {
         console.log('[digest] No hay alertas con calidad suficiente hoy; se revisaran rescates semanales si aplica');
       }
-
-      // 3) Usuarios de pago
-      const { data: usuarios, error: errUsuarios } = await cargarUsuariosPagoDigest(supabase);
-
-      if (errUsuarios) return res.status(500).json({ error: errUsuarios.message });
 
       if (!usuarios || usuarios.length === 0) {
         return res.json({
@@ -507,6 +516,7 @@ module.exports = function digestRoutes(app, supabase) {
             const { data: alertasRetry, error: retryAlertError } = await cargarAlertasListasDigest(supabase, {
               ids: holdsReclamados.map((hold) => hold.alerta_id),
               requireReady: false,
+              withEmbedding: necesitaVectores,
             });
             if (retryAlertError) throw retryAlertError;
             const visibles = filtrarAlertasPorOrganization(alertasRetry || [], organizationId);
@@ -652,9 +662,12 @@ module.exports = function digestRoutes(app, supabase) {
 
           if (rescateElegible) {
             if (!alertasRescateCache) {
+              // El rescate abarca varios días: sin este filtro era la consulta
+              // más pesada de todo el workflow.
               const { data: alertasVentana, error: errRescate } = await cargarAlertasListasDigest(supabase, {
                 desde: desdeRescate,
                 hasta: hoy,
+                withEmbedding: necesitaVectores,
               });
               if (errRescate) {
                 console.warn('[digest:rescue] No se pudieron cargar alertas de rescate:', errRescate.message);
