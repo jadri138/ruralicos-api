@@ -310,6 +310,23 @@ por `TERRITORY_EVIDENCE_MISSING` en lugar de por territorio.
 La barrera sigue bloqueando lo que debe: Andalucía no alcanza a Teruel y La
 Rioja no alcanza a Córdoba. Cubierto en `tests/alertDecisionCore.test.js`.
 
+### Reevaluar el mismo día tras cambiar la lógica
+
+`digest_attempts` guarda `metadata_json.decision_version`. Un `no_send` o un
+`failed` sólo cuentan como terminales si su versión coincide con
+`DIGEST_DECISION_VERSION`; los estados que ya produjeron un mensaje (`sent`,
+`generated`, `rescued`, `skipped_existing`) son terminales siempre.
+
+Consecuencia observada el 5 de agosto de 2026: tras corregir el territorio,
+`preparar-digest` devolvió `procesadas=0`. No es que rechazara a nadie, es que
+todas las personas ya tenían un `no_send` de esa misma mañana marcado con la
+versión vigente, así que no se reevaluó a nadie.
+
+**Al cambiar la lógica de decisión hay que subir `DIGEST_DECISION_VERSION`.**
+Eso reabre los silencios de la versión anterior sin poder provocar un reenvío,
+porque los estados que ya enviaron siguen siendo inmutables. Cubierto en
+`tests/digestAttempts.test.js`.
+
 ## Diagnóstico de cobertura
 
 Responde a «¿por qué hoy no le llega nada a nadie?» sin enviar ni un mensaje:

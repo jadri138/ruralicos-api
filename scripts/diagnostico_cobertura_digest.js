@@ -46,15 +46,29 @@ function diaValido(value) {
   return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ''));
 }
 
-async function cargarFichasPorAlerta(supabase, ids = []) {
+// Lotes pequeños: la ficha completa es un JSON grande y pedir muchas de una vez
+// alarga la URL y el cuerpo hasta hacer fallar la petición.
+async function cargarFichasPorAlerta(supabase, ids = [], { tamanoLote = 50 } = {}) {
   const fichas = new Map();
-  for (let i = 0; i < ids.length; i += 200) {
-    const { data, error } = await supabase
-      .from('alert_fact_sheets')
-      .select(FICHA_SELECT)
-      .in('alerta_id', ids.slice(i, i + 200));
-    if (error) throw new Error(`alert_fact_sheets: ${error.message}`);
-    for (const row of data || []) fichas.set(Number(row.alerta_id), row);
+  for (let i = 0; i < ids.length; i += tamanoLote) {
+    const lote = ids.slice(i, i + tamanoLote);
+    let ultimoError = null;
+    for (let intento = 1; intento <= 3; intento += 1) {
+      try {
+        const { data, error } = await supabase
+          .from('alert_fact_sheets')
+          .select(FICHA_SELECT)
+          .in('alerta_id', lote);
+        if (error) throw new Error(error.message);
+        for (const row of data || []) fichas.set(Number(row.alerta_id), row);
+        ultimoError = null;
+        break;
+      } catch (error) {
+        ultimoError = error;
+        await new Promise((resolve) => setTimeout(resolve, 500 * intento));
+      }
+    }
+    if (ultimoError) throw new Error(`alert_fact_sheets: ${ultimoError.message}`);
   }
   return fichas;
 }

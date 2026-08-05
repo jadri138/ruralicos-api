@@ -87,6 +87,19 @@ test('normaliza fila de auditoria de digest', () => {
 });
 
 test('solo reabre no-envios producidos por una version anterior', () => {
+  // Caso real (5-08-2026): tras corregir el territorio, preparar-digest no
+  // reevaluo a nadie porque los `no_send` de esa misma manana ya contaban como
+  // terminales. Subir la version es lo que reabre esos silencios.
+  assert.strictEqual(esDigestAttemptTerminalActual({
+    status: 'no_send',
+    metadata_json: { decision_version: 'digest_decision_v8_alert_authority' },
+  }), false, 'un silencio de la version anterior debe reevaluarse');
+  for (const status of ['sent', 'generated', 'rescued', 'skipped_existing']) {
+    assert.strictEqual(esDigestAttemptTerminalActual({
+      status,
+      metadata_json: { decision_version: 'digest_decision_v8_alert_authority' },
+    }), true, `${status}: subir la version nunca puede provocar un reenvio`);
+  }
   assert.strictEqual(esDigestAttemptTerminalActual({
     status: 'no_send',
     metadata_json: { decision_version: 'digest_decision_v6' },

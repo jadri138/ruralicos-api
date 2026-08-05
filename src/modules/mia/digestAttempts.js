@@ -1,7 +1,14 @@
 // Versiona la decision completa del digest, no solo el esquema de la fila.
 // Al cambiar filtros/validadores, subir esta version permite reevaluar una vez
 // los no-envios antiguos sin tocar digests ya generados o enviados.
-const DIGEST_DECISION_VERSION = 'digest_decision_v8_alert_authority';
+// Subir esta versión cuando cambie la lógica de decisión: un `no_send` o un
+// `failed` de una versión anterior deja de considerarse terminal y esa persona
+// se vuelve a evaluar el mismo día. Los estados que ya produjeron un mensaje
+// (`sent`, `generated`, `rescued`, `skipped_existing`) siguen siendo inmutables,
+// así que subirla nunca provoca un envío repetido.
+// v9: las comunidades autónomas dejan de tratarse como provincia, así que las
+// decisiones tomadas con la versión anterior bloqueaban territorio de más.
+const DIGEST_DECISION_VERSION = 'digest_decision_v9_territory_scopes';
 
 const ESTADOS_TERMINALES_INMUTABLES = new Set([
   'generated',
