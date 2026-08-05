@@ -14,7 +14,7 @@
  *   RUN_OFFICIAL_LISTS=true
  *   RUN_REPAIR=true
  *   RUN_DAILY_EXPLORATION=true
- *   MAX_LOOPS=40
+ *   MAX_LOOPS=200
  *   PREPARAR_DIGEST_MAX_LOOPS=200
  *   HOLD_RECOVERY_MAX_LOOPS=20
  *   OUTBOX_MAX_LOOPS=50
@@ -35,7 +35,12 @@ const RUN_SCRAPERS = parseBool(process.env.RUN_SCRAPERS, true);
 const RUN_OFFICIAL_LISTS = parseBool(process.env.RUN_OFFICIAL_LISTS, true);
 const RUN_REPAIR = parseBool(process.env.RUN_REPAIR, true);
 const RUN_DAILY_EXPLORATION = parseBool(process.env.RUN_DAILY_EXPLORATION, true);
-const MAX_LOOPS = Number(process.env.MAX_LOOPS || 40);
+// Cada vuelta de clasificar/resumir/revisar consume un lote pequeño
+// (CLASIFICAR_BATCH_SIZE = 8 por defecto). Con ~700-800 alertas nuevas al día
+// hacen falta ~100 vueltas solo para clasificar, así que 40 dejaba el workflow
+// abortando a diario por tope de vueltas. 200 da margen para un día punta o
+// para recuperar un atraso reciente.
+const MAX_LOOPS = Number(process.env.MAX_LOOPS || 200);
 const PREPARAR_DIGEST_MAX_LOOPS = Number(process.env.PREPARAR_DIGEST_MAX_LOOPS || 200);
 const HOLD_RECOVERY_MAX_LOOPS = Number(process.env.HOLD_RECOVERY_MAX_LOOPS || 20);
 const OUTBOX_MAX_LOOPS = Number(process.env.OUTBOX_MAX_LOOPS || 50);

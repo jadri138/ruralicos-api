@@ -21,6 +21,65 @@ function normalizeText(value) {
     .trim();
 }
 
+// Comunidad autónoma -> provincias que abarca. Vive aquí porque la ficha ya
+// debe distinguir el ámbito al construirse: si una comunidad se guarda como
+// provincia, la expansión autonómica posterior nunca ocurre y una convocatoria
+// regional queda bloqueada para las provincias que sí cubre.
+const AUTONOMOUS_COMMUNITY_PROVINCES = Object.freeze({
+  andalucia: ['almeria', 'cadiz', 'cordoba', 'granada', 'huelva', 'jaen', 'malaga', 'sevilla'],
+  aragon: ['huesca', 'teruel', 'zaragoza'],
+  asturias: ['asturias'],
+  'principado de asturias': ['asturias'],
+  'illes balears': ['illes balears', 'islas baleares', 'baleares'],
+  baleares: ['illes balears', 'islas baleares', 'baleares'],
+  canarias: ['las palmas', 'santa cruz de tenerife'],
+  cantabria: ['cantabria'],
+  'castilla la mancha': ['albacete', 'ciudad real', 'cuenca', 'guadalajara', 'toledo'],
+  'castilla y leon': ['avila', 'burgos', 'leon', 'palencia', 'salamanca', 'segovia', 'soria', 'valladolid', 'zamora'],
+  cataluna: ['barcelona', 'girona', 'lleida', 'tarragona'],
+  'comunitat valenciana': ['alicante', 'castellon', 'valencia'],
+  'comunidad valenciana': ['alicante', 'castellon', 'valencia'],
+  extremadura: ['badajoz', 'caceres'],
+  galicia: ['a coruna', 'lugo', 'ourense', 'pontevedra'],
+  madrid: ['madrid'],
+  'comunidad de madrid': ['madrid'],
+  murcia: ['murcia'],
+  'region de murcia': ['murcia'],
+  navarra: ['navarra'],
+  'comunidad foral de navarra': ['navarra'],
+  'pais vasco': ['alava', 'araba', 'bizkaia', 'vizcaya', 'gipuzkoa', 'guipuzcoa'],
+  'la rioja': ['la rioja'],
+  ceuta: ['ceuta'],
+  melilla: ['melilla'],
+});
+
+function isAutonomousCommunity(value) {
+  return Object.prototype.hasOwnProperty.call(
+    AUTONOMOUS_COMMUNITY_PROVINCES,
+    normalizeText(value)
+  );
+}
+
+// Separa una lista mezclada de territorios en comunidades y provincias.
+// Madrid, Murcia, Navarra, Cantabria y La Rioja son ambas cosas: se conservan
+// en los dos lados para que coincidan tanto por provincia como por comunidad.
+function splitTerritoryScopes(values = []) {
+  const regions = [];
+  const provinces = [];
+  for (const value of values) {
+    const normalized = normalizeText(value);
+    if (!normalized || normalized === 'nacional') continue;
+    if (isAutonomousCommunity(value)) {
+      regions.push(value);
+      const expanded = AUTONOMOUS_COMMUNITY_PROVINCES[normalized];
+      if (expanded.length === 1 && expanded[0] === normalized) provinces.push(value);
+    } else {
+      provinces.push(value);
+    }
+  }
+  return { regions, provinces };
+}
+
 function compactText(value, max = 500) {
   const text = String(value || '').replace(/\s+/g, ' ').trim();
   if (!text) return null;
@@ -155,16 +214,18 @@ function adaptFactSheetV3(input = {}, options = {}) {
   const territoryValues = uniqueStrings(sheet.territorio);
   const normalizedTerritories = territoryValues.map(normalizeText);
   const national = normalizedTerritories.some((value) => ['nacional', 'espana', 'todo el territorio nacional'].includes(value));
-  const regions = uniqueStrings(
+  const declaredRegions = uniqueStrings(
     sheet.resumen_estructurado?.comunidades
       || legacy.comunidades
       || legacy.comunidades_autonomas
       || legacy.ccaa
   );
   const municipalities = uniqueStrings(sheet.resumen_estructurado?.municipios || legacy.municipios);
-  const provinces = national
-    ? territoryValues.filter((value) => normalizeText(value) !== 'nacional')
-    : territoryValues;
+  // El campo `territorio` mezcla comunidades y provincias. Clasificarlo aquí es
+  // lo que permite que una convocatoria autonómica llegue a sus provincias.
+  const scopes = splitTerritoryScopes(territoryValues);
+  const regions = uniqueStrings([...declaredRegions, ...scopes.regions]);
+  const provinces = scopes.provinces;
   const flags = uniqueStrings([...(sheet.flags || []), ...(row.flags || [])]);
   const reasons = uniqueStrings([...(sheet.reasons || []), ...(row.reasons || [])]);
   const contradiction = flags.some((flag) => /contradic|conflict/i.test(flag));
@@ -261,8 +322,13 @@ function adaptFactSheetV3(input = {}, options = {}) {
 
 function adaptLegacyAlert(alert = {}) {
   const sourceText = [alert.titulo, alert.contenido, alert.resumen_final].filter(Boolean).join(' ');
-  const provinces = uniqueStrings(alert.provincias);
-  const national = provinces.some((province) => normalizeText(province) === 'nacional');
+  const territoryValues = uniqueStrings(alert.provincias);
+  const national = territoryValues.some((province) => normalizeText(province) === 'nacional');
+  // `provincias` trae también comunidades autónomas ("Andalucía", "Aragón").
+  // Sin separarlas, la barrera territorial bloqueaba una convocatoria regional
+  // para los usuarios de sus propias provincias.
+  const legacyScopes = splitTerritoryScopes(territoryValues);
+  const provinces = legacyScopes.provinces;
   const action = alert.accion || alert.accion_requerida || null;
   const deadline = alert.plazo || alert.fecha_limite || null;
   const beneficiaries = alert.beneficiarios || null;
@@ -271,7 +337,10 @@ function adaptLegacyAlert(alert = {}) {
     title: evidenceFromLegacy('title', alert.titulo, sourceText),
     summary: evidenceFromLegacy('summary', alert.resumen_final || alert.contenido, sourceText),
     beneficiaries: evidenceFromLegacy('beneficiaries', beneficiaries, sourceText),
-    territory: evidenceFromLegacy('territory', provinces, sourceText),
+    // La evidencia cubre todo el ámbito declarado, comunidades incluidas: si
+    // sólo mirara `provinces`, una convocatoria autonómica se quedaría sin
+    // respaldo territorial y caería por falta de evidencia.
+    territory: evidenceFromLegacy('territory', territoryValues, sourceText),
     deadline: evidenceFromLegacy('deadline', deadline, sourceText),
     action: evidenceFromLegacy('action', action, sourceText),
     amount: evidenceFromLegacy('amount', alert.importe, sourceText),
@@ -323,10 +392,19 @@ function adaptLegacyAlert(alert = {}) {
       legal_forms: [],
     },
     territory: {
-      level: national ? 'national' : uniqueStrings(alert.municipios).length ? 'municipal' : 'provincial',
+      level: national
+        ? 'national'
+        : uniqueStrings(alert.municipios).length
+          ? 'municipal'
+          : legacyScopes.regions.length && !provinces.length
+            ? 'regional'
+            : 'provincial',
       national,
-      regions: uniqueStrings(alert.comunidades || alert.ccaa),
-      provinces: provinces.filter((province) => normalizeText(province) !== 'nacional'),
+      regions: uniqueStrings([
+        ...uniqueStrings(alert.comunidades || alert.ccaa),
+        ...legacyScopes.regions,
+      ]),
+      provinces,
       municipalities: uniqueStrings(alert.municipios),
       individual_case: Boolean(alert.expediente_individual),
     },
@@ -398,6 +476,9 @@ function evidenceGapReason(field) {
 
 module.exports = {
   CRITICAL_EVIDENCE_FIELDS,
+  AUTONOMOUS_COMMUNITY_PROVINCES,
+  isAutonomousCommunity,
+  splitTerritoryScopes,
   normalizeText,
   compactText,
   uniqueStrings,

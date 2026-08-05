@@ -367,6 +367,63 @@ test('una contradiccion bloquea antes del score y antes del LLM', async () => {
   assert.strictEqual(called, false);
 });
 
+test('una convocatoria autonomica llega a las provincias de su comunidad', () => {
+  // Caso real de produccion (5-08-2026): `alertas.provincias` trae comunidades
+  // ("Andalucia", "Aragon") mezcladas con provincias. Guardarlas como provincia
+  // impedia la expansion autonomica y bloqueaba el 52% de las candidatas.
+  const { adaptLegacyAlert, evidenceIsUsable } = decision;
+  const alertaDe = (ambito) => adaptLegacyAlert({
+    id: 501,
+    titulo: `Ayuda a la modernizacion en ${ambito}`,
+    contenido: `Convocatoria de ayudas agrarias con ambito en ${ambito}.`,
+    resumen_final: `Ayudas para agricultura en ${ambito}`,
+    provincias: [ambito],
+    sectores: ['agricultura'],
+    accion_requerida: 'Presentar solicitud',
+    beneficiarios: 'Titulares de explotaciones',
+    url: 'https://example.org/oficial/501',
+  });
+  const perfilDe = (provincia) => buildDecisionProfile({
+    user: { id: 77, preferences: { provincias: [provincia], sectores: ['agricultura'] } },
+    pseudonymSalt: 'test-salt',
+  });
+  const territorioDe = (ambito, provincia) => evaluateCandidateEligibility(
+    { alert_id: 501, truth_card: alertaDe(ambito), origins: [] },
+    perfilDe(provincia)
+  ).reason_codes || [];
+
+  // La comunidad se clasifica como region, no como provincia.
+  const andalucia = alertaDe('Andalucía');
+  assert.deepStrictEqual(andalucia.territory.provinces, []);
+  assert.deepStrictEqual(andalucia.territory.regions, ['Andalucía']);
+  assert.strictEqual(andalucia.territory.level, 'regional');
+  // Y conserva evidencia territorial: sin ella caeria por falta de respaldo.
+  assert(evidenceIsUsable(andalucia.evidence.territory), 'la region debe respaldar el territorio');
+
+  for (const [ambito, provincia] of [['Andalucía', 'Jaén'], ['Andalucía', 'Córdoba'], ['Aragón', 'Teruel']]) {
+    const codes = territorioDe(ambito, provincia);
+    assert(
+      !codes.includes(REASON_CODES.TERRITORY_MISMATCH)
+      && !codes.includes(REASON_CODES.TERRITORY_EVIDENCE_MISSING),
+      `${ambito} debe alcanzar ${provincia} (motivos: ${codes.join(',')})`
+    );
+  }
+
+  // La barrera sigue bloqueando lo que no corresponde.
+  for (const [ambito, provincia] of [['Andalucía', 'Teruel'], ['La Rioja', 'Córdoba']]) {
+    assert(
+      territorioDe(ambito, provincia).includes(REASON_CODES.TERRITORY_MISMATCH),
+      `${ambito} no puede alcanzar ${provincia}`
+    );
+  }
+
+  // Una comunidad uniprovincial coincide por los dos caminos.
+  assert(
+    !territorioDe('La Rioja', 'La Rioja').includes(REASON_CODES.TERRITORY_MISMATCH),
+    'La Rioja es comunidad y provincia a la vez'
+  );
+});
+
 test('el embudo explica el silencio por barrera y no por un total agregado', () => {
   const sets = {
     exact: [

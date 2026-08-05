@@ -271,6 +271,45 @@ El veto sigue siendo fail-closed cuando sí hay algo que auditar: si Supabase
 rechaza la escritura o falta una fila, esa candidata no se aprueba.
 `tests/digestDecisionAuditFailClosed.test.js` cubre ambos lados.
 
+### Tope de vueltas insuficiente para el volumen real
+
+La misma ejecución dejó después `[clasificar] alcanzo MAX_LOOPS=100`. No era un
+fallo del código: cada vuelta consume un lote de `CLASIFICAR_BATCH_SIZE` (8 por
+defecto), y con 650-820 alertas nuevas al día hacen falta unas 100 vueltas solo
+para clasificar. El valor por defecto era 40, es decir 320 alertas: el workflow
+habría abortado a diario aunque no hubiera atraso.
+
+`MAX_LOOPS` pasa a 200 por defecto. Si hace falta recuperar varios días
+seguidos, conviene subirlo puntualmente o aumentar `CLASIFICAR_BATCH_SIZE`,
+teniendo en cuenta que cada alerta consume una llamada de IA y que cada fase
+tiene un límite de 15 minutos por petición.
+
+El corte por tope de vueltas es deliberado: prefiere no preparar un digest
+incompleto antes que enviar con datos a medias. Solo había que dimensionarlo.
+
+### Comunidades autónomas guardadas como provincia
+
+La primera ejecución completa terminó sin enviar nada: 124 decisiones, ninguna
+aprobada. El embudo señaló la causa de más de la mitad de los bloqueos.
+
+`alertas.provincias` mezcla provincias con comunidades autónomas
+(`["Andalucía"]`, `["aragón"]`, `["la_rioja"]`). Los dos adaptadores de ficha
+volcaban ese campo entero en `territory.provinces`, así que `territory.regions`
+quedaba vacío y `expandedRegionalProvinces` no tenía nada que expandir. Una
+convocatoria andaluza no alcanzaba a un usuario de Jaén ni de Córdoba, y una
+aragonesa no alcanzaba a Teruel: `TERRITORY_MISMATCH` en 64 de 124 decisiones.
+
+`splitTerritoryScopes` clasifica ahora cada valor con el mapa de comunidades,
+que pasa a vivir en `truthCard.js` (antes duplicado en `candidatePipeline.js`).
+Las comunidades uniprovinciales —Madrid, Murcia, Navarra, Cantabria, La Rioja—
+se conservan en ambos lados para que coincidan por los dos caminos. La
+evidencia territorial se construye con el ámbito completo: al mover las
+comunidades fuera de `provinces` se quedaba sin respaldo y las alertas caían
+por `TERRITORY_EVIDENCE_MISSING` en lugar de por territorio.
+
+La barrera sigue bloqueando lo que debe: Andalucía no alcanza a Teruel y La
+Rioja no alcanza a Córdoba. Cubierto en `tests/alertDecisionCore.test.js`.
+
 ## Memoria y aprendizaje
 
 La fuente canónica es `user_memory`, con clave idempotente, ámbito, polaridad,

@@ -6,6 +6,7 @@ const {
   TRUTH_CARD_STATES,
 } = require('./contracts');
 const {
+  AUTONOMOUS_COMMUNITY_PROVINCES,
   adaptAlertTruthCard,
   evidenceGapReason,
   evidenceIsUsable,
@@ -121,33 +122,6 @@ function verifiedDeadlineExpired(card, now = new Date()) {
   return Number.isFinite(deadline) && Number.isFinite(current) && current > deadline;
 }
 
-const AUTONOMOUS_COMMUNITY_PROVINCES = Object.freeze({
-  andalucia: ['almeria', 'cadiz', 'cordoba', 'granada', 'huelva', 'jaen', 'malaga', 'sevilla'],
-  aragon: ['huesca', 'teruel', 'zaragoza'],
-  asturias: ['asturias'],
-  'principado de asturias': ['asturias'],
-  'illes balears': ['illes balears', 'islas baleares', 'baleares'],
-  baleares: ['illes balears', 'islas baleares', 'baleares'],
-  canarias: ['las palmas', 'santa cruz de tenerife'],
-  cantabria: ['cantabria'],
-  'castilla la mancha': ['albacete', 'ciudad real', 'cuenca', 'guadalajara', 'toledo'],
-  'castilla y leon': ['avila', 'burgos', 'leon', 'palencia', 'salamanca', 'segovia', 'soria', 'valladolid', 'zamora'],
-  cataluna: ['barcelona', 'girona', 'lleida', 'tarragona'],
-  'comunitat valenciana': ['alicante', 'castellon', 'valencia'],
-  'comunidad valenciana': ['alicante', 'castellon', 'valencia'],
-  extremadura: ['badajoz', 'caceres'],
-  galicia: ['a coruna', 'lugo', 'ourense', 'pontevedra'],
-  madrid: ['madrid'],
-  'comunidad de madrid': ['madrid'],
-  murcia: ['murcia'],
-  'region de murcia': ['murcia'],
-  navarra: ['navarra'],
-  'comunidad foral de navarra': ['navarra'],
-  'pais vasco': ['alava', 'araba', 'bizkaia', 'vizcaya', 'gipuzkoa', 'guipuzcoa'],
-  'la rioja': ['la rioja'],
-  ceuta: ['ceuta'],
-  melilla: ['melilla'],
-});
 
 function candidateId(item = {}) {
   return item.alert_id
