@@ -500,6 +500,15 @@ module.exports = function digestRoutes(app, supabase) {
           continue;
         }
 
+        // Aislamiento por persona. Antes, cualquier excepción fuera de los
+        // try/catch internos -por ejemplo un claim de HOLD perdido o una
+        // auditoría rechazada en el gate de autoenvío- subía al catch del
+        // endpoint y abortaba el lote entero: el 4-08-2026 el cron se detuvo tras
+        // 19 usuarios y dejó un intento colgado en `evaluating`. Ahora el fallo
+        // se cierra en el intento de esa persona y el lote continúa.
+        // El cuerpo conserva su indentación: reindentar 1.200 líneas habría
+        // ocultado los cambios reales de esta reparación.
+        try {
         const organizationContext = await cargarOrganizationContextMIA(supabase, user);
         const organizationId = organizationContext.organization_id || null;
         const userConOrganization = aplicarOrganizationContextAUsuario(user, organizationContext);
@@ -944,6 +953,28 @@ module.exports = function digestRoutes(app, supabase) {
           continue;
         }
 
+        // Cerrar los HOLD reclamados ANTES de la auditoría. La auditoría hace
+        // upsert sobre esa misma fila y reescribe sus columnas de ciclo de vida:
+        // si se ejecutaba primero, el claim en PROCESSING desaparecía y el
+        // cierre posterior fallaba con HOLD_RETRY_CLAIM_LOST, que además subía
+        // sin control y tumbaba el lote. Después la auditoría deja la fila con
+        // el estado que corresponde a la decisión nueva.
+        if (holdsReclamados.length > 0) {
+          const cierres = await finalizarHoldsDecision(supabase, {
+            claimed: holdsReclamados,
+            decisions: canonicalDecisionResult.audit_decisions,
+            policy: retryPolicy,
+          });
+          for (const cierre of cierres.filter((item) => item.claim_lost)) {
+            errores.push({
+              userId: user.id,
+              alertaId: cierre.alerta_id,
+              warning: 'hold_retry_claim_lost',
+            });
+          }
+          holdsReclamados = [];
+        }
+
         try {
           await registrarDigestCandidateDecisionsCanonicas(supabase, {
             userId: user.id,
@@ -1002,14 +1033,6 @@ module.exports = function digestRoutes(app, supabase) {
           });
           errores.push({ userId: user.id, error: auditError.message, stage: 'canonical_audit' });
           continue;
-        }
-        if (holdsReclamados.length > 0) {
-          await finalizarHoldsDecision(supabase, {
-            claimed: holdsReclamados,
-            decisions: canonicalDecisionResult.audit_decisions,
-            policy: retryPolicy,
-          });
-          holdsReclamados = [];
         }
 
         alertasFinales = prepararAlertasFinalesDigest(
@@ -1732,6 +1755,26 @@ module.exports = function digestRoutes(app, supabase) {
             },
           });
           errores.push({ userId: user.id, error: errIA.message });
+        }
+        } catch (errorUsuario) {
+          // Red de seguridad del lote: la persona queda con un intento cerrado y
+          // una causa legible, y el cron sigue con la siguiente.
+          console.error(`[digest] Error no controlado user ${user.id}:`, errorUsuario.message);
+          await registrarDigestAttempt(supabase, {
+            userId: user.id,
+            fecha: hoy,
+            kind: 'daily',
+            status: 'failed',
+            motivoNoEnvio: 'error_usuario_no_controlado',
+            errorMsg: [errorUsuario.code, errorUsuario.message].filter(Boolean).join(': '),
+            metadata: { plan: plan.nombre, error_code: errorUsuario.code || null },
+          });
+          errores.push({
+            userId: user.id,
+            error: errorUsuario.message,
+            code: errorUsuario.code || null,
+            stage: 'user_unhandled',
+          });
         }
       }
 
