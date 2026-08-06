@@ -60,6 +60,7 @@ const {
 } = require('../delivery/deliveryState');
 const {
   esDigestAttemptTerminalActual,
+  recuperarIntentosEvaluandoAtascados,
   registrarDigestAttempt,
 } = require('../mia/digestAttempts');
 const {
@@ -400,6 +401,11 @@ module.exports = function digestRoutes(app, supabase) {
         'skipped_existing',
         'failed',
       ];
+      // Antes de decidir a quién le toca hoy: si una pasada anterior murió a
+      // mitad, su intento quedó en `evaluating` y esa persona no volvería a
+      // evaluarse nunca. Se cierra con causa y vuelve a la cola.
+      const evaluandoRecuperados = await recuperarIntentosEvaluandoAtascados(supabase, { fecha: hoy });
+
       let usuariosAttemptTerminal = new Set();
 
       if (!force) {
@@ -1794,6 +1800,7 @@ module.exports = function digestRoutes(app, supabase) {
         rescates_generados:   rescatados,
         usuarios_sin_alertas: sinAlertas,
         usuarios_sin_telefono: sinTelefono,
+        intentos_evaluating_recuperados: evaluandoRecuperados.recovered,
         saltados,
         fallback_local:       0,
         rescate: {
