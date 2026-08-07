@@ -121,19 +121,27 @@ test('solo reabre no-envios producidos por una version anterior', () => {
   // devolvio `usuarios_evaluados: 0`. Los 94 silencios de esa manana llevaban
   // v10, la misma version que seguia en el codigo, asi que nadie entraba
   // siquiera al bucle. La barrera cambio: la version tiene que haber subido.
-  assert.notStrictEqual(
-    DIGEST_DECISION_VERSION,
-    'digest_decision_v10_audit_dedupe',
-    'cambiar la barrera territorial obliga a subir la version: si no, los no_send del dia bloquean la reevaluacion'
-  );
-  assert.strictEqual(esDigestAttemptTerminalActual({
-    status: 'no_send',
-    metadata_json: { decision_version: 'digest_decision_v10_audit_dedupe' },
-  }), false, 'los silencios tomados con la barrera territorial rota se reabren');
-  assert.strictEqual(esDigestAttemptTerminalActual({
-    status: 'failed',
-    metadata_json: { decision_version: 'digest_decision_v10_audit_dedupe' },
-  }), false, 'las auditorias fallidas de v10 se reintentan');
+  // Cada version cuya barrera se corrigio debe quedar reabierta: un silencio
+  // decidido con una regla que ya sabemos equivocada no puede contar como
+  // decision firme del dia.
+  for (const anterior of [
+    'digest_decision_v10_audit_dedupe',   // territorio roto por el centinela
+    'digest_decision_v11_territorio_fuente', // retenia por falta de beneficiarios
+  ]) {
+    assert.notStrictEqual(
+      DIGEST_DECISION_VERSION,
+      anterior,
+      `cambiar una barrera obliga a subir la version por encima de ${anterior}: si no, los no_send del dia impiden reevaluar y el cron devuelve usuarios_evaluados: 0`
+    );
+    assert.strictEqual(esDigestAttemptTerminalActual({
+      status: 'no_send',
+      metadata_json: { decision_version: anterior },
+    }), false, `los silencios de ${anterior} se reabren`);
+    assert.strictEqual(esDigestAttemptTerminalActual({
+      status: 'failed',
+      metadata_json: { decision_version: anterior },
+    }), false, `las auditorias fallidas de ${anterior} se reintentan`);
+  }
 });
 
 test('un re-registro parcial no incluye columnas de embudo no pasadas (no machaca generated)', () => {
