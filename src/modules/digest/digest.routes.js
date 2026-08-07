@@ -1002,18 +1002,7 @@ module.exports = function digestRoutes(app, supabase) {
           // El veto por falta de auditoría es por persona: sin traza esta
           // candidata no puede aprobarse. Pero un fallo suyo no puede dejar sin
           // digest al resto del lote, así que se cierra este usuario y se sigue.
-          if (holdsReclamados.length > 0) {
-            try {
-              await finalizarHoldsDecision(supabase, {
-                claimed: holdsReclamados,
-                decisions: [],
-                policy: retryPolicy,
-              });
-            } catch (releaseError) {
-              errores.push({ userId: user.id, warning: 'hold_retry_release_failed', error: releaseError.message });
-            }
-            holdsReclamados = [];
-          }
+          // Los HOLD reclamados ya quedaron cerrados justo antes de auditar.
           await registrarDigestAttempt(supabase, {
             userId: user.id,
             organizationId,
