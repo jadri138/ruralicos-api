@@ -318,23 +318,26 @@ test('sin beneficiarios se envia igual; sin fuente oficial se retiene', () => {
   assert(sinFuente.eligibility.reason_codes.includes(REASON_CODES.OFFICIAL_URL_MISSING));
 });
 
-test('un plazo verificado se revalida al decidir y no caduca antes de terminar su dia', () => {
-  const expired = candidate(71, { truthCard: card(71, { deadline: '2026-07-30' }) });
-  const expiredEligibility = decision.evaluateCandidateEligibility(expired, profile(), {
+test('un plazo pasado ya no silencia la alerta: el boletin puede traer la resolucion', () => {
+  // Decision de producto (7-08-2026): el boletin publica la resolucion, la
+  // concesion, el listado de beneficiarios o el pago mucho despues de cerrarse
+  // el plazo de solicitud. Bloquear por fecha vencida dejaba a la persona sin
+  // la noticia que estaba esperando. El plazo se sigue imprimiendo en el
+  // mensaje, asi que quien lo lea ve en que punto esta.
+  const vencido = candidate(71, { truthCard: card(71, { deadline: '2026-07-30' }) });
+  assert.strictEqual(decision.evaluateCandidateEligibility(vencido, profile(), {
     now: '2026-08-01T08:00:00.000Z',
-  });
-  assert.strictEqual(expiredEligibility.eligible, false);
-  assert.deepStrictEqual(expiredEligibility.reason_codes, [REASON_CODES.EXPIRED]);
+  }).eligible, true, 'una ayuda con el plazo cerrado sigue llegando');
 
-  const spanishExpired = candidate(72, {
+  const vencidoEnTexto = candidate(72, {
     truthCard: card(72, { deadline: '30 de julio de 2026' }),
   });
-  assert.strictEqual(decision.evaluateCandidateEligibility(spanishExpired, profile(), {
+  assert.strictEqual(decision.evaluateCandidateEligibility(vencidoEnTexto, profile(), {
     now: '2026-08-01T08:00:00.000Z',
-  }).eligible, false);
+  }).eligible, true);
 
-  const today = candidate(73, { truthCard: card(73, { deadline: '2026-08-01' }) });
-  assert.strictEqual(decision.evaluateCandidateEligibility(today, profile(), {
+  const hoy = candidate(73, { truthCard: card(73, { deadline: '2026-08-01' }) });
+  assert.strictEqual(decision.evaluateCandidateEligibility(hoy, profile(), {
     now: '2026-08-01T20:00:00.000Z',
   }).eligible, true);
 });
@@ -486,7 +489,9 @@ test('el embudo explica el silencio por barrera y no por un total agregado', () 
   const sets = {
     exact: [
       { alert_id: 1, truth_card: card(1), score: 1 },
-      { alert_id: 2, truth_card: card(2, { deadline: '2020-01-01' }), score: 1 },
+      // La vigencia ya solo detiene una contradiccion: un plazo pasado dejo de
+      // silenciar, porque el boletin puede traer la resolucion o el pago.
+      { alert_id: 2, truth_card: card(2, { contradiction: true }), score: 1 },
       { alert_id: 3, truth_card: card(3, { province: 'Huesca' }), score: 1 },
       {
         alert_id: 4,
@@ -503,7 +508,7 @@ test('el embudo explica el silencio por barrera y no por un total agregado', () 
 
   assert.strictEqual(funnel.generated, 5);
   // Cada nivel conserva solo lo que supero esa barrera.
-  assert.strictEqual(funnel.passed_validity, 4, 'la caducada cae en vigencia');
+  assert.strictEqual(funnel.passed_validity, 4, 'la contradictoria cae en vigencia');
   assert.strictEqual(funnel.passed_territory, 3, 'otra provincia cae en territorio');
   assert.strictEqual(funnel.passed_activity, 2, 'otra actividad cae en actividad');
   assert.strictEqual(funnel.passed_evidence, 1, 'la que no tiene fuente oficial queda retenida');
@@ -529,7 +534,7 @@ test('el embudo explica el silencio por barrera y no por un total agregado', () 
     evidence: 1,
   });
   assert.strictEqual(funnel.reason_codes[REASON_CODES.TERRITORY_MISMATCH], 1);
-  assert.strictEqual(funnel.reason_codes[REASON_CODES.EXPIRED], 1);
+  assert.strictEqual(funnel.reason_codes[REASON_CODES.CONTRADICTORY_EVIDENCE], 1);
   assert.strictEqual(funnel.reason_codes[REASON_CODES.ACTIVITY_MISMATCH], 1);
 });
 

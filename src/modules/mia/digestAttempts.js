@@ -14,7 +14,14 @@
 // derivarse del boletín cuando la alerta no lo declara. Cambia quién es
 // elegible, así que los `no_send` de v10 -tomados con la barrera rota- no pueden
 // seguir contando como decisión firme del día.
-const DIGEST_DECISION_VERSION = 'digest_decision_v11_territorio_fuente';
+// v12: la barrera de evidencia deja de exigir beneficiarios y acción. Los
+// silencios de v11 se tomaron reteniendo por un dato que el mensaje no afirma.
+//
+// AVISO PARA QUIEN TOQUE LA DECISIÓN: esta constante es manual y ya ha fallado
+// dos veces (7-08-2026). Si cambias una barrera y no la subes, el cron devuelve
+// `usuarios_evaluados: 0` y parece que el despliegue no ha servido de nada,
+// porque los intentos del día ya cuentan como resueltos.
+const DIGEST_DECISION_VERSION = 'digest_decision_v12_evidencia_minima';
 
 const ESTADOS_TERMINALES_INMUTABLES = new Set([
   'generated',

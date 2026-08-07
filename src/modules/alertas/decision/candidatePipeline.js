@@ -115,14 +115,6 @@ function deadlineTimestamp(value) {
   return null;
 }
 
-function verifiedDeadlineExpired(card, now = new Date()) {
-  if (!evidenceIsUsable(card?.evidence?.deadline)) return false;
-  const deadline = deadlineTimestamp(card?.time?.deadline);
-  const current = now instanceof Date ? now.getTime() : new Date(now).getTime();
-  return Number.isFinite(deadline) && Number.isFinite(current) && current > deadline;
-}
-
-
 function candidateId(item = {}) {
   return item.alert_id
     ?? item.alerta_id
@@ -409,17 +401,11 @@ function evaluateCandidateEligibility(candidate, profile, options = {}) {
       trace: {},
     };
   }
-  if (card.status === TRUTH_CARD_STATES.EXPIRED
-    || card.time?.expired
-    || verifiedDeadlineExpired(card, options.now)) {
-    return {
-      eligible: false,
-      stage: ELIGIBILITY_STAGES.VALIDITY,
-      state: DECISION_STATES.BLOCKED,
-      reason_codes: [REASON_CODES.EXPIRED],
-      trace: {},
-    };
-  }
+  // El plazo ya no decide si la alerta sale. Un boletín publica la resolución,
+  // la concesión, el listado de beneficiarios o el pago mucho después de
+  // cerrarse el plazo de solicitud: eso es justo lo que la persona espera saber,
+  // y bloquearlo era dejarla sin la noticia. El plazo se sigue mostrando en el
+  // mensaje, así que quien lo lea ve por sí mismo en qué punto está.
   if (card.risk?.contradiction) {
     return {
       eligible: false,
@@ -632,7 +618,6 @@ module.exports = {
   territoryEligibility,
   matchesExplicitExclusion,
   deadlineTimestamp,
-  verifiedDeadlineExpired,
   evaluateCandidateEligibility,
   scoreCandidate,
   rankCandidateUnion,
