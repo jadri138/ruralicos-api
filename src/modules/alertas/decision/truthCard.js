@@ -9,10 +9,27 @@ const {
   PROVINCIAS_POR_FUENTE,
 } = require('../../../shared/geography');
 
+// Campos que la ficha debe declarar siempre para que el contrato sea válido.
+// Declararlos no obliga a que estén verificados: eso lo mide la evidencia.
 const CRITICAL_EVIDENCE_FIELDS = Object.freeze([
   'territory',
   'beneficiaries',
   'action',
+  'official_url',
+]);
+
+// Campos cuya evidencia SÍ decide si la alerta puede salir.
+//
+// Antes eran los cuatro a la vez, y el extractor no consigue sacar
+// "beneficiarios" de la mayoría de los boletines: eso retenía una de cada tres
+// candidatas por un dato que el mensaje ni siquiera llega a afirmar. La
+// proyección del mensaje sólo imprime lo que tiene evidencia, así que sin
+// beneficiarios esa línea simplemente no aparece y lo enviado sigue siendo
+// cierto. Territorio y fuente oficial se quedan: el territorio porque nadie debe
+// recibir algo de fuera de su comunidad, y la URL porque todo dato tiene que ser
+// verificable en el boletín.
+const BLOCKING_EVIDENCE_FIELDS = Object.freeze([
+  'territory',
   'official_url',
 ]);
 
@@ -543,7 +560,7 @@ function evidenceIsUsable(evidence) {
 }
 
 function getCriticalEvidenceGaps(card, options = {}) {
-  const fields = [...CRITICAL_EVIDENCE_FIELDS];
+  const fields = [...BLOCKING_EVIDENCE_FIELDS];
   if (options.forUrgency) fields.push('deadline');
   if (options.requireAmount) fields.push('amount');
   return fields.filter((field) => !evidenceIsUsable(card?.evidence?.[field]));
@@ -564,7 +581,7 @@ function validateAlertTruthCard(card) {
   return {
     valid: errors.length === 0,
     errors,
-    missing_critical: card ? getCriticalEvidenceGaps(card) : [...CRITICAL_EVIDENCE_FIELDS],
+    missing_critical: card ? getCriticalEvidenceGaps(card) : [...BLOCKING_EVIDENCE_FIELDS],
   };
 }
 
@@ -580,6 +597,7 @@ function evidenceGapReason(field) {
 
 module.exports = {
   CRITICAL_EVIDENCE_FIELDS,
+  BLOCKING_EVIDENCE_FIELDS,
   AUTONOMOUS_COMMUNITY_PROVINCES,
   TERRITORIO_SIN_DATO,
   ambitoTerritorialDeFuente,

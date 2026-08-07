@@ -460,9 +460,9 @@ function evaluateCandidateEligibility(candidate, profile, options = {}) {
     };
   }
 
-  const type = normalizeText(card.nature?.type);
-  const requiresAction = /ayuda|subvencion|obligacion|plazo|curso|tramite|convocatoria|alegacion|subsan/.test(type);
-  const gaps = getCriticalEvidenceGaps(card).filter((field) => field !== 'action' || requiresAction);
+  // `action` ya no forma parte de la barrera, así que sobra la excepción por
+  // tipo de documento que la relajaba caso a caso.
+  const gaps = getCriticalEvidenceGaps(card);
   if (card.status === TRUTH_CARD_STATES.INCOMPLETE && gaps.length === 0) gaps.push('evidence');
   if (gaps.length > 0) {
     return {
