@@ -297,12 +297,25 @@ test('un expediente individual exige municipio exacto', () => {
   assert.deepStrictEqual(foreign.eligibility.reason_codes, [REASON_CODES.INDIVIDUAL_TERRITORY_MISSING]);
 });
 
-test('evidencia esencial ausente produce HOLD y no DROP', () => {
-  const incomplete = card(7, { beneficiaries: null, status: 'insufficient_evidence' });
-  const item = candidate(7, { truthCard: incomplete });
-  assert.strictEqual(item.eligibility.eligible, false);
-  assert.strictEqual(item.eligibility.state, DECISION_STATES.HOLD_FOR_EVIDENCE);
-  assert(item.eligibility.reason_codes.includes(REASON_CODES.BENEFICIARY_EVIDENCE_MISSING));
+test('sin beneficiarios se envia igual; sin fuente oficial se retiene', () => {
+  // Decision de producto (7-08-2026): mejor recibir de mas que de menos,
+  // siempre que lo enviado sea cierto. El extractor no consigue sacar
+  // "beneficiarios" de la mayoria de boletines y eso retenia una de cada tres
+  // candidatas por un dato que el mensaje ni siquiera afirma: la proyeccion
+  // solo imprime lo que tiene evidencia, asi que esa linea desaparece y ya.
+  const sinBeneficiarios = candidate(7, { truthCard: card(7, { beneficiaries: null }) });
+  assert.strictEqual(
+    sinBeneficiarios.eligibility.eligible,
+    true,
+    'la falta de beneficiarios no puede dejar sin aviso a quien si tiene la alerta en su comunidad'
+  );
+
+  // Lo verificable si es innegociable: sin fuente oficial no hay como
+  // comprobar el dato, asi que se retiene en vez de enviarse.
+  const sinFuente = candidate(8, { truthCard: card(8, { officialUrl: null }) });
+  assert.strictEqual(sinFuente.eligibility.eligible, false);
+  assert.strictEqual(sinFuente.eligibility.state, DECISION_STATES.HOLD_FOR_EVIDENCE);
+  assert(sinFuente.eligibility.reason_codes.includes(REASON_CODES.OFFICIAL_URL_MISSING));
 });
 
 test('un plazo verificado se revalida al decidir y no caduca antes de terminar su dia', () => {
@@ -480,7 +493,9 @@ test('el embudo explica el silencio por barrera y no por un total agregado', () 
         truth_card: card(4, { sector: 'ganaderia', subsector: 'vacuno' }),
         score: 1,
       },
-      { alert_id: 5, truth_card: card(5, { beneficiaries: null }), score: 1 },
+      // Sin fuente oficial: es lo que hoy retiene la barrera de evidencia, ya
+      // que la falta de beneficiarios dejo de bloquear.
+      { alert_id: 5, truth_card: card(5, { officialUrl: null }), score: 1 },
     ],
   };
   const ranking = rankCandidateUnion({ candidateSets: sets, profile: profile(), topK: 10 });
@@ -491,7 +506,7 @@ test('el embudo explica el silencio por barrera y no por un total agregado', () 
   assert.strictEqual(funnel.passed_validity, 4, 'la caducada cae en vigencia');
   assert.strictEqual(funnel.passed_territory, 3, 'otra provincia cae en territorio');
   assert.strictEqual(funnel.passed_activity, 2, 'otra actividad cae en actividad');
-  assert.strictEqual(funnel.passed_evidence, 1, 'la que no tiene beneficiarios queda retenida');
+  assert.strictEqual(funnel.passed_evidence, 1, 'la que no tiene fuente oficial queda retenida');
   assert.strictEqual(funnel.eligible, 1);
   assert.strictEqual(funnel.selected, 1);
 
