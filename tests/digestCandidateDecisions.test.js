@@ -1,4 +1,66 @@
 const assert = require('assert');
+const { construirDigestCandidateDecisionRows } = require('../src/modules/mia/digestCandidateDecisions');
+
+// Columnas NOT NULL de digest_candidate_decisions que el código rellena. En un
+// upsert por lotes, PostgREST usa la union de columnas de todas las filas: la
+// que omita una la recibe como NULL, no con su valor por defecto, y el lote
+// entero se rechaza. Por eso todas las filas deben traerlas siempre.
+const COLUMNAS_OBLIGATORIAS = [
+  'user_id', 'alerta_id', 'fecha', 'kind', 'stage', 'action',
+  'decision_json', 'metadata_json', 'reason_codes', 'llm_calls', 'cache_hit',
+];
+
+{
+  // Caso real: una candidata bloqueada por el ranking (sin paso por el juez)
+  // junto a otra evaluada por el juez (con uso de LLM).
+  const filas = construirDigestCandidateDecisionRows({
+    userId: 77,
+    fecha: '2026-08-05',
+    kind: 'daily',
+    stage: 'personal_relevance_judge',
+    decisions: [
+      { id: 1, decision: 'BLOCKED', reason_codes: ['TERRITORY_MISMATCH'], action: 'blocked' },
+      {
+        id: 2,
+        decision: 'ADD_TO_DIGEST',
+        reason_codes: ['APPROVED_DIGEST'],
+        action: 'include',
+        llm_calls: 1,
+        cache_hit: false,
+        judge_audit: { model: 'gpt-5-nano', llm_calls: 1 },
+      },
+    ],
+  });
+
+  assert.strictEqual(filas.length, 2, 'las dos decisiones producen fila');
+  for (const columna of COLUMNAS_OBLIGATORIAS) {
+    for (const [indice, fila] of filas.entries()) {
+      assert(
+        Object.prototype.hasOwnProperty.call(fila, columna) && fila[columna] !== null,
+        `fila ${indice}: ${columna} debe venir siempre para no romper el lote`
+      );
+    }
+  }
+  // Todas las filas del lote comparten el mismo conjunto de columnas críticas.
+  const bloqueada = filas.find((f) => Number(f.alerta_id) === 1);
+  assert.strictEqual(bloqueada.llm_calls, 0, 'una bloqueada no consumió IA, pero declara 0');
+  assert.strictEqual(bloqueada.cache_hit, false);
+  assert.deepStrictEqual(bloqueada.reason_codes, ['TERRITORY_MISMATCH']);
+  const evaluada = filas.find((f) => Number(f.alerta_id) === 2);
+  assert.strictEqual(evaluada.llm_calls, 1);
+
+  // Una decisión sin reason codes tampoco puede dejar la columna fuera.
+  const [sinCodigos] = construirDigestCandidateDecisionRows({
+    userId: 77,
+    fecha: '2026-08-05',
+    stage: 'personal_relevance_judge',
+    decisions: [{ id: 3, decision: 'DROP' }],
+  });
+  assert.deepStrictEqual(sinCodigos.reason_codes, []);
+  assert.strictEqual(sinCodigos.llm_calls, 0);
+  assert.strictEqual(sinCodigos.cache_hit, false);
+}
+
 
 const {
   construirDigestCandidateDecisionRow,

@@ -53,6 +53,8 @@ function construirDigestCandidateDecisionRow(input = {}) {
     updated_at: new Date().toISOString(),
   };
 
+  // Columnas de ámbito de la llamada: valen lo mismo para todas las filas del
+  // lote, así que incluirlas u omitirlas nunca rompe la uniformidad.
   const optional = [
     ['organization_id', input.organization_id ?? input.organizationId],
     ['digest_id', input.digest_id ?? input.digestId],
@@ -62,29 +64,29 @@ function construirDigestCandidateDecisionRow(input = {}) {
     if (value !== undefined && value !== null && value !== '') row[key] = value;
   }
 
-  const decisionState = input.decision_state ?? input.decisionState ?? decision.decision;
-  if (decisionState) row.decision_state = texto(decisionState, 40);
-  const contractVersion = input.contract_version ?? input.contractVersion ?? decision.contract_version;
-  if (contractVersion) row.contract_version = texto(contractVersion, 80);
-  const policyVersion = input.policy_version ?? input.policyVersion ?? decision.policy_version;
-  if (policyVersion) row.policy_version = texto(policyVersion, 80);
-  const judgeVersion = input.judge_version ?? input.judgeVersion ?? decision.judge_version;
-  if (judgeVersion) row.judge_version = texto(judgeVersion, 80);
-  const promptVersion = input.prompt_version ?? input.promptVersion ?? decision.prompt_version;
-  if (promptVersion) row.prompt_version = texto(promptVersion, 80);
-  const inputHash = input.input_hash ?? input.inputHash ?? decision.input_hash;
-  if (inputHash) row.input_hash = texto(inputHash, 128);
+  // Columnas que dependen de CADA decisión. Van siempre, aunque valgan null:
+  // PostgREST construye el INSERT con la unión de claves de todas las filas del
+  // lote y a la que le falte una se la manda como NULL, no con su DEFAULT. Una
+  // sola fila incompleta tumbaba la auditoría de esa persona -es el origen del
+  // error `null value in column "llm_calls"` del 5-08-2026-.
   const reasonCodes = input.reason_codes ?? input.reasonCodes ?? decision.reason_codes;
-  if (Array.isArray(reasonCodes)) row.reason_codes = [...new Set(reasonCodes.map(String))];
-  const decidedAt = input.decided_at ?? input.decidedAt ?? decision.decided_at;
-  if (decidedAt) row.decided_at = decidedAt;
+  Object.assign(row, {
+    decision_state: texto(input.decision_state ?? input.decisionState ?? decision.decision, 40),
+    contract_version: texto(input.contract_version ?? input.contractVersion ?? decision.contract_version, 80),
+    policy_version: texto(input.policy_version ?? input.policyVersion ?? decision.policy_version, 80),
+    judge_version: texto(input.judge_version ?? input.judgeVersion ?? decision.judge_version, 80),
+    prompt_version: texto(input.prompt_version ?? input.promptVersion ?? decision.prompt_version, 80),
+    input_hash: texto(input.input_hash ?? input.inputHash ?? decision.input_hash, 128),
+    reason_codes: Array.isArray(reasonCodes) ? [...new Set(reasonCodes.map(String))] : [],
+    decided_at: input.decided_at ?? input.decidedAt ?? decision.decided_at ?? null,
+  });
 
   if (row.stage === 'personal_relevance_judge') {
     const lifecycle = construirLifecycleHold({
       ...decision,
-      decision: decisionState,
-      reason_codes: reasonCodes,
-      input_hash: inputHash,
+      decision: row.decision_state,
+      reason_codes: row.reason_codes,
+      input_hash: row.input_hash,
     }, { now: row.updated_at });
     Object.assign(row, {
       hold_status: lifecycle.hold_status || null,
@@ -100,34 +102,71 @@ function construirDigestCandidateDecisionRow(input = {}) {
 
   const judgeAudit = jsonObject(input.judge_audit ?? input.judgeAudit ?? decision.judge_audit);
   const cachedFrom = jsonObject(judgeAudit.cached_from);
-  const llmModel = input.llm_model
-    ?? input.llmModel
-    ?? decision.llm_model
-    ?? judgeAudit.model
-    ?? cachedFrom.model;
-  if (llmModel) row.llm_model = texto(llmModel, 80);
   const llmUsage = jsonObject(input.llm_usage ?? input.llmUsage ?? decision.llm_usage ?? judgeAudit.usage);
-  if (Object.keys(llmUsage).length > 0) row.llm_usage = llmUsage;
   const llmCost = jsonObject(input.llm_cost ?? input.llmCost ?? decision.llm_cost ?? judgeAudit.cost);
-  if (Object.keys(llmCost).length > 0) row.llm_cost = llmCost;
+  // `llm_calls` y `cache_hit` son NOT NULL. Una candidata bloqueada por el
+  // ranking no pasa por el juez y no trae ninguno de los dos: sin este valor por
+  // defecto, un lote que mezclara bloqueadas y evaluadas tumbaba la auditoría de
+  // esa persona (24 usuarios el 5-08-2026).
   const llmCalls = nonNegativeInteger(
     input.llm_calls ?? input.llmCalls ?? decision.llm_calls ?? judgeAudit.llm_calls
   );
-  if (llmCalls !== null) row.llm_calls = llmCalls;
-  const cacheHit = input.cache_hit ?? input.cacheHit ?? decision.cache_hit ?? judgeAudit.cache_hit;
-  if (cacheHit !== undefined && cacheHit !== null) row.cache_hit = cacheHit === true;
-  const fallbackReason = input.fallback_reason
-    ?? input.fallbackReason
-    ?? decision.fallback_reason
-    ?? judgeAudit.fallback;
-  if (fallbackReason) row.fallback_reason = texto(fallbackReason, 80);
+  Object.assign(row, {
+    llm_model: texto(
+      input.llm_model ?? input.llmModel ?? decision.llm_model ?? judgeAudit.model ?? cachedFrom.model,
+      80
+    ),
+    llm_usage: Object.keys(llmUsage).length > 0 ? llmUsage : null,
+    llm_cost: Object.keys(llmCost).length > 0 ? llmCost : null,
+    llm_calls: llmCalls ?? 0,
+    cache_hit: (input.cache_hit ?? input.cacheHit ?? decision.cache_hit ?? judgeAudit.cache_hit) === true,
+    fallback_reason: texto(
+      input.fallback_reason ?? input.fallbackReason ?? decision.fallback_reason ?? judgeAudit.fallback,
+      80
+    ),
+  });
   return row;
 }
 
+// Columnas NOT NULL de la tabla que escribe la auditoría, con el valor que debe
+// tener una fila cuando la decisión no aporta nada. Es la última red: aunque un
+// camino nuevo olvide rellenar una, el lote no se pierde entero.
+const VALORES_MINIMOS_NOT_NULL = Object.freeze({
+  kind: 'daily',
+  action: 'unknown',
+  decision_json: {},
+  metadata_json: {},
+  reason_codes: [],
+  llm_calls: 0,
+  cache_hit: false,
+});
+
+// PostgREST manda un único INSERT con la unión de claves del lote y rellena con
+// NULL las que falten en una fila. Uniformar las claves antes de escribir es lo
+// que impide que una fila incompleta invalide la auditoría de toda la persona.
+function uniformarFilasAuditoria(rows = []) {
+  const columnas = new Set();
+  for (const row of rows) for (const key of Object.keys(row)) columnas.add(key);
+  return rows.map((row) => {
+    const completa = {};
+    for (const columna of columnas) {
+      const valor = row[columna];
+      completa[columna] = valor === undefined || valor === null
+        ? (Object.prototype.hasOwnProperty.call(VALORES_MINIMOS_NOT_NULL, columna)
+          ? VALORES_MINIMOS_NOT_NULL[columna]
+          : null)
+        : valor;
+    }
+    return completa;
+  });
+}
+
 function construirDigestCandidateDecisionRows(input = {}) {
-  return (Array.isArray(input.decisions) ? input.decisions : [])
-    .map((decision) => construirDigestCandidateDecisionRow({ ...input, decision }))
-    .filter(Boolean);
+  return uniformarFilasAuditoria(
+    (Array.isArray(input.decisions) ? input.decisions : [])
+      .map((decision) => construirDigestCandidateDecisionRow({ ...input, decision }))
+      .filter(Boolean)
+  );
 }
 
 const REQUIRED_CANONICAL_AUDIT_STAGES = Object.freeze([

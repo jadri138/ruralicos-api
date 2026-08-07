@@ -92,17 +92,16 @@ function construirLifecycleHold(decision = {}, { now = new Date(), policy = {} }
   const attempts = Math.max(0, Number(decision.hold_retry_attempt ?? decision.hold_attempts) || 0);
   const current = isoDate(now);
   return {
-    hold_status: HOLD_RETRY_STATUS.PENDING,
+    ...construirPatchHold(HOLD_RETRY_STATUS.PENDING, {
+      nextAt: siguienteReintentoHold({ now: current, attempts, policy }),
+      resolution: {
+        reason_codes: decisionReasonCodes(decision),
+        input_hash: decision.input_hash || decision.judge_audit?.input_hash || null,
+        previous_hold_id: decision.hold_retry_source_id || null,
+      },
+    }),
     hold_attempts: attempts,
-    hold_next_at: siguienteReintentoHold({ now: current, attempts, policy }),
     hold_last_at: current,
-    hold_claim_token: null,
-    hold_claimed_at: null,
-    hold_resolution_json: {
-      reason_codes: decisionReasonCodes(decision),
-      input_hash: decision.input_hash || decision.judge_audit?.input_hash || null,
-      previous_hold_id: decision.hold_retry_source_id || null,
-    },
   };
 }
 
@@ -162,12 +161,11 @@ async function reclamarHoldsDecisionUsuario(supabase, {
   const staleResult = await supabase
     .from('digest_candidate_decisions')
     .update({
-      hold_status: HOLD_RETRY_STATUS.FAILED,
-      hold_claim_token: null,
-      hold_claimed_at: null,
-      hold_next_at: current,
+      ...construirPatchHold(HOLD_RETRY_STATUS.FAILED, {
+        nextAt: current,
+        resolution: { retry_error: 'stale_processing_lease' },
+      }),
       hold_last_at: current,
-      hold_resolution_json: { retry_error: 'stale_processing_lease' },
     })
     .eq('user_id', userId)
     .eq('stage', 'personal_relevance_judge')
@@ -193,9 +191,11 @@ async function reclamarHoldsDecisionUsuario(supabase, {
     const { data, error: claimError } = await supabase
       .from('digest_candidate_decisions')
       .update({
-        hold_status: HOLD_RETRY_STATUS.PROCESSING,
-        hold_claim_token: claimToken,
-        hold_claimed_at: current,
+        ...construirPatchHold(HOLD_RETRY_STATUS.PROCESSING, {
+          claimToken,
+          claimedAt: current,
+          resolution: row.hold_resolution_json || {},
+        }),
         hold_last_at: current,
       })
       .eq('id', row.id)
@@ -214,14 +214,59 @@ async function reclamarHoldsDecisionUsuario(supabase, {
   };
 }
 
+// Única puerta de escritura del ciclo de vida de un HOLD. Devuelve siempre una
+// combinación que cumple `digest_candidate_decisions_hold_lifecycle_check`:
+// PENDING/FAILED exigen próxima cita, PROCESSING exige claim, y los estados
+// finales exigen que no quede próxima cita pendiente.
+function construirPatchHold(status, { nextAt = null, claimToken = null, claimedAt = null, resolution = {} } = {}) {
+  const estado = String(status || '').trim().toUpperCase();
+  if (!Object.values(HOLD_RETRY_STATUS).includes(estado)) {
+    throw new TypeError(`hold_status_invalido:${status}`);
+  }
+  const resolucion = resolution && typeof resolution === 'object' && !Array.isArray(resolution)
+    ? resolution
+    : {};
+
+  if (estado === HOLD_RETRY_STATUS.PROCESSING) {
+    if (!claimToken || !claimedAt) throw new TypeError('hold_processing_requiere_claim');
+    return {
+      hold_status: estado,
+      hold_next_at: null,
+      hold_claim_token: claimToken,
+      hold_claimed_at: claimedAt,
+      hold_resolution_json: resolucion,
+    };
+  }
+
+  if ([HOLD_RETRY_STATUS.PENDING, HOLD_RETRY_STATUS.FAILED].includes(estado)) {
+    if (!nextAt) throw new TypeError('hold_pendiente_requiere_next_at');
+    return {
+      hold_status: estado,
+      hold_next_at: nextAt,
+      hold_claim_token: null,
+      hold_claimed_at: null,
+      hold_resolution_json: resolucion,
+    };
+  }
+
+  return {
+    hold_status: estado,
+    hold_next_at: null,
+    hold_claim_token: null,
+    hold_claimed_at: null,
+    hold_resolution_json: resolucion,
+  };
+}
+
+// Un claim perdido no es un fallo del sistema: significa que otra pasada ya
+// cerró ese HOLD. Antes lanzaba y, sin try/catch alrededor, dejaba sin digest a
+// todo el lote. Ahora se informa y el reintento del mismo día es idempotente.
 async function actualizarHoldReclamado(supabase, hold, patch = {}, { now = new Date() } = {}) {
   const current = isoDate(now);
   const { data, error } = await supabase
     .from('digest_candidate_decisions')
     .update({
       ...patch,
-      hold_claim_token: null,
-      hold_claimed_at: null,
       hold_last_at: current,
       updated_at: current,
     })
@@ -231,12 +276,8 @@ async function actualizarHoldReclamado(supabase, hold, patch = {}, { now = new D
     .select('id')
     .maybeSingle();
   if (error) throw error;
-  if (!data?.id) {
-    const claimError = new Error(`hold_retry_claim_lost:${hold.id}`);
-    claimError.code = 'HOLD_RETRY_CLAIM_LOST';
-    throw claimError;
-  }
-  return data;
+  if (!data?.id) return { id: hold.id, claim_lost: true };
+  return { ...data, claim_lost: false };
 }
 
 async function finalizarHoldsDecision(supabase, {
@@ -250,12 +291,18 @@ async function finalizarHoldsDecision(supabase, {
   for (const hold of claimed || []) {
     const decision = byAlert.get(String(hold.alerta_id));
     if (!decision) {
-      await actualizarHoldReclamado(supabase, hold, {
-        hold_status: HOLD_RETRY_STATUS.FAILED,
-        hold_next_at: siguienteReintentoHold({ now, attempts: hold.hold_attempts, policy }),
-        hold_resolution_json: { retry_error: 'canonical_decision_missing' },
-      }, { now });
-      results.push({ alerta_id: hold.alerta_id, status: HOLD_RETRY_STATUS.FAILED });
+      const fallo = await actualizarHoldReclamado(supabase, hold, construirPatchHold(
+        HOLD_RETRY_STATUS.FAILED,
+        {
+          nextAt: siguienteReintentoHold({ now, attempts: hold.hold_attempts, policy }),
+          resolution: { retry_error: 'canonical_decision_missing' },
+        }
+      ), { now });
+      results.push({
+        alerta_id: hold.alerta_id,
+        status: HOLD_RETRY_STATUS.FAILED,
+        claim_lost: fallo.claim_lost === true,
+      });
       continue;
     }
 
@@ -263,17 +310,20 @@ async function finalizarHoldsDecision(supabase, {
     const exhausted = reasons.includes('HOLD_RETRY_EXHAUSTED');
     const transferred = esHoldTransitorio(decision);
     const status = exhausted ? HOLD_RETRY_STATUS.EXHAUSTED : HOLD_RETRY_STATUS.RESOLVED;
-    await actualizarHoldReclamado(supabase, hold, {
-      hold_status: status,
-      hold_next_at: null,
-      hold_resolution_json: {
+    const cierre = await actualizarHoldReclamado(supabase, hold, construirPatchHold(status, {
+      resolution: {
         decision_state: decisionState(decision),
         reason_codes: reasons,
         transferred_to_new_hold: transferred,
         retry_attempt: Math.max(0, Number(hold.hold_attempts) || 0) + 1,
       },
-    }, { now });
-    results.push({ alerta_id: hold.alerta_id, status, decision_state: decisionState(decision) });
+    }), { now });
+    results.push({
+      alerta_id: hold.alerta_id,
+      status,
+      decision_state: decisionState(decision),
+      claim_lost: cierre.claim_lost === true,
+    });
   }
   return results;
 }
@@ -290,11 +340,9 @@ async function cerrarHoldsSinAlerta(supabase, {
       remaining.push(hold);
       continue;
     }
-    await actualizarHoldReclamado(supabase, hold, {
-      hold_status: HOLD_RETRY_STATUS.EXPIRED,
-      hold_next_at: null,
-      hold_resolution_json: { retry_error: 'alert_missing_or_not_visible' },
-    }, { now });
+    await actualizarHoldReclamado(supabase, hold, construirPatchHold(HOLD_RETRY_STATUS.EXPIRED, {
+      resolution: { retry_error: 'alert_missing_or_not_visible' },
+    }), { now });
   }
   return remaining;
 }
@@ -307,6 +355,7 @@ module.exports = {
   decisionReasonCodes,
   esHoldTransitorio,
   siguienteReintentoHold,
+  construirPatchHold,
   construirLifecycleHold,
   adjuntarRetryAAlerta,
   retryMetadataFromCandidate,

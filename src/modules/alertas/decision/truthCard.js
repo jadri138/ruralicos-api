@@ -4,6 +4,10 @@ const {
   REASON_CODES,
   TRUTH_CARD_STATES,
 } = require('./contracts');
+const {
+  MARCADORES_NACIONALES,
+  PROVINCIAS_POR_FUENTE,
+} = require('../../../shared/geography');
 
 const CRITICAL_EVIDENCE_FIELDS = Object.freeze([
   'territory',
@@ -68,7 +72,7 @@ function splitTerritoryScopes(values = []) {
   const provinces = [];
   for (const value of values) {
     const normalized = normalizeText(value);
-    if (!normalized || normalized === 'nacional') continue;
+    if (!normalized || normalized === 'nacional' || esTerritorioSinDato(value)) continue;
     if (isAutonomousCommunity(value)) {
       regions.push(value);
       const expanded = AUTONOMOUS_COMMUNITY_PROVINCES[normalized];
@@ -78,6 +82,76 @@ function splitTerritoryScopes(values = []) {
     }
   }
   return { regions, provinces };
+}
+
+// El extractor de fichas escribe un valor centinela cuando NO ha detectado
+// territorio ("no_detectado"). Consumirlo como si fuera una provincia real
+// hacía chocar toda alerta estatal contra el territorio del usuario: el
+// 5-08-2026 bloqueó 53 candidatas con TERRITORY_MISMATCH y dejó cero digests.
+const TERRITORIO_SIN_DATO = new Set([
+  '',
+  'nd',
+  'n a',
+  'na',
+  'no detectado',
+  'no detectada',
+  'no detectados',
+  'no determinado',
+  'no consta',
+  'no aplica',
+  'no disponible',
+  'desconocido',
+  'desconocida',
+  'sin determinar',
+  'sin especificar',
+  'sin territorio',
+  'sin datos',
+  'pendiente',
+  'null',
+  'none',
+  'ninguno',
+  'ninguna',
+  'varios',
+  'varias',
+]);
+
+function esTerritorioSinDato(value) {
+  return TERRITORIO_SIN_DATO.has(normalizeText(value));
+}
+
+// Ámbito respaldado por el boletín que publica la alerta. Es la misma regla que
+// aplica el motor de selección desde hace meses (`esAlertaNacional`): el BOE y
+// el FEGA publican en todo el Estado y cada boletín autonómico cubre sus
+// provincias. Sin ella una convocatoria estatal se queda sin territorio y
+// ninguna persona la recibe.
+function ambitoTerritorialDeFuente(fuente) {
+  const clave = String(fuente || '').trim().toUpperCase();
+  const provincias = PROVINCIAS_POR_FUENTE[clave];
+  if (!Array.isArray(provincias) || provincias.length === 0) return null;
+  const national = provincias.some((value) => MARCADORES_NACIONALES.has(normalizeText(value)));
+  return {
+    source: clave,
+    national,
+    provinces: national ? [] : [...provincias],
+  };
+}
+
+function evidenciaTerritorialDeFuente(scope) {
+  if (!scope) return null;
+  const valores = scope.national ? ['nacional'] : scope.provinces;
+  return {
+    ref: 'truth:territory',
+    field: 'territory',
+    level: EVIDENCE_LEVELS.SUPPORTED,
+    confidence: 0.6,
+    fragments: valores.map((value) => ({
+      value,
+      fragment: `Publicado en ${scope.source}`,
+      source: 'alert.fuente',
+      confidence: 0.6,
+      level: EVIDENCE_LEVELS.SUPPORTED,
+    })),
+  };
 }
 
 function compactText(value, max = 500) {
@@ -211,9 +285,9 @@ function adaptFactSheetV3(input = {}, options = {}) {
     sheet.appeal_deadline,
     sheet.plazo
   );
-  const territoryValues = uniqueStrings(sheet.territorio);
+  const territoryValues = uniqueStrings(sheet.territorio).filter((value) => !esTerritorioSinDato(value));
   const normalizedTerritories = territoryValues.map(normalizeText);
-  const national = normalizedTerritories.some((value) => ['nacional', 'espana', 'todo el territorio nacional'].includes(value));
+  const declaredNational = normalizedTerritories.some((value) => ['nacional', 'espana', 'todo el territorio nacional'].includes(value));
   const declaredRegions = uniqueStrings(
     sheet.resumen_estructurado?.comunidades
       || legacy.comunidades
@@ -224,8 +298,19 @@ function adaptFactSheetV3(input = {}, options = {}) {
   // El campo `territorio` mezcla comunidades y provincias. Clasificarlo aquí es
   // lo que permite que una convocatoria autonómica llegue a sus provincias.
   const scopes = splitTerritoryScopes(territoryValues);
-  const regions = uniqueStrings([...declaredRegions, ...scopes.regions]);
-  const provinces = scopes.provinces;
+  const declaredRegionScopes = uniqueStrings([...declaredRegions, ...scopes.regions]);
+  // Sin ámbito declarado manda el boletín de publicación. Es la única fuente
+  // que queda y es oficial: una convocatoria del BOE es estatal aunque la ficha
+  // no haya sabido extraer el territorio del texto.
+  const sourceScope = declaredNational
+    || declaredRegionScopes.length
+    || scopes.provinces.length
+    || municipalities.length
+    ? null
+    : ambitoTerritorialDeFuente(legacy.fuente || sheet.document_trace?.source || options.source);
+  const national = declaredNational || Boolean(sourceScope?.national);
+  const regions = declaredRegionScopes;
+  const provinces = sourceScope && !sourceScope.national ? sourceScope.provinces : scopes.provinces;
   const flags = uniqueStrings([...(sheet.flags || []), ...(row.flags || [])]);
   const reasons = uniqueStrings([...(sheet.reasons || []), ...(row.reasons || [])]);
   const contradiction = flags.some((flag) => /contradic|conflict/i.test(flag));
@@ -236,7 +321,9 @@ function adaptFactSheetV3(input = {}, options = {}) {
     title: normalizeEvidence('title', sheet.tema_principal),
     summary: normalizeEvidence('summary', sheet.resumen_neutro),
     beneficiaries: normalizeEvidence('beneficiaries', sheet.beneficiarios),
-    territory: normalizeEvidence('territory', sheet.territorio),
+    territory: sourceScope
+      ? evidenciaTerritorialDeFuente(sourceScope)
+      : normalizeEvidence('territory', sheet.territorio),
     deadline: normalizeEvidence('deadline', deadlineField),
     action: normalizeEvidence('action', firstField(sheet.accion_codigo, sheet.accion_requerida)),
     amount: normalizeEvidence('amount', sheet.importe),
@@ -322,13 +409,31 @@ function adaptFactSheetV3(input = {}, options = {}) {
 
 function adaptLegacyAlert(alert = {}) {
   const sourceText = [alert.titulo, alert.contenido, alert.resumen_final].filter(Boolean).join(' ');
-  const territoryValues = uniqueStrings(alert.provincias);
-  const national = territoryValues.some((province) => normalizeText(province) === 'nacional');
+  const territoryValues = uniqueStrings(alert.provincias).filter((value) => !esTerritorioSinDato(value));
+  const declaredNational = territoryValues.some(
+    (province) => MARCADORES_NACIONALES.has(normalizeText(province))
+  );
   // `provincias` trae también comunidades autónomas ("Andalucía", "Aragón").
   // Sin separarlas, la barrera territorial bloqueaba una convocatoria regional
   // para los usuarios de sus propias provincias.
   const legacyScopes = splitTerritoryScopes(territoryValues);
-  const provinces = legacyScopes.provinces;
+  const declaredMunicipalities = uniqueStrings(alert.municipios);
+  const declaredRegionsLegacy = uniqueStrings([
+    ...uniqueStrings(alert.comunidades || alert.ccaa),
+    ...legacyScopes.regions,
+  ]);
+  // Igual que en la ficha v3: si la alerta no declara territorio, el boletín
+  // que la publica es la evidencia territorial que queda.
+  const sourceScope = declaredNational
+    || declaredRegionsLegacy.length
+    || legacyScopes.provinces.length
+    || declaredMunicipalities.length
+    ? null
+    : ambitoTerritorialDeFuente(alert.fuente);
+  const national = declaredNational || Boolean(sourceScope?.national);
+  const provinces = sourceScope && !sourceScope.national
+    ? sourceScope.provinces
+    : legacyScopes.provinces;
   const action = alert.accion || alert.accion_requerida || null;
   const deadline = alert.plazo || alert.fecha_limite || null;
   const beneficiaries = alert.beneficiarios || null;
@@ -340,7 +445,9 @@ function adaptLegacyAlert(alert = {}) {
     // La evidencia cubre todo el ámbito declarado, comunidades incluidas: si
     // sólo mirara `provinces`, una convocatoria autonómica se quedaría sin
     // respaldo territorial y caería por falta de evidencia.
-    territory: evidenceFromLegacy('territory', territoryValues, sourceText),
+    territory: sourceScope
+      ? evidenciaTerritorialDeFuente(sourceScope)
+      : evidenceFromLegacy('territory', territoryValues, sourceText),
     deadline: evidenceFromLegacy('deadline', deadline, sourceText),
     action: evidenceFromLegacy('action', action, sourceText),
     amount: evidenceFromLegacy('amount', alert.importe, sourceText),
@@ -394,18 +501,15 @@ function adaptLegacyAlert(alert = {}) {
     territory: {
       level: national
         ? 'national'
-        : uniqueStrings(alert.municipios).length
+        : declaredMunicipalities.length
           ? 'municipal'
-          : legacyScopes.regions.length && !provinces.length
+          : declaredRegionsLegacy.length && !provinces.length
             ? 'regional'
             : 'provincial',
       national,
-      regions: uniqueStrings([
-        ...uniqueStrings(alert.comunidades || alert.ccaa),
-        ...legacyScopes.regions,
-      ]),
+      regions: declaredRegionsLegacy,
       provinces,
-      municipalities: uniqueStrings(alert.municipios),
+      municipalities: declaredMunicipalities,
       individual_case: Boolean(alert.expediente_individual),
     },
     action: { code: null, label: action },
@@ -477,6 +581,9 @@ function evidenceGapReason(field) {
 module.exports = {
   CRITICAL_EVIDENCE_FIELDS,
   AUTONOMOUS_COMMUNITY_PROVINCES,
+  TERRITORIO_SIN_DATO,
+  ambitoTerritorialDeFuente,
+  esTerritorioSinDato,
   isAutonomousCommunity,
   splitTerritoryScopes,
   normalizeText,

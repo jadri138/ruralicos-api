@@ -142,6 +142,47 @@ async function registrarDigestAttempt(supabase, input = {}) {
   }
 }
 
+// `evaluating` es un estado de paso: se escribe al empezar con una persona y lo
+// sustituye el resultado. Si el proceso muere en medio -o lo mata el reinicio
+// del contenedor- la fila se queda ahí para siempre y esa persona no se vuelve a
+// evaluar. Al arrancar una pasada se cierran los intentos de días anteriores y
+// los del propio día que llevan más de `staleMs` sin tocarse.
+const EVALUATING_STALE_MS = 30 * 60 * 1000;
+
+async function recuperarIntentosEvaluandoAtascados(supabase, {
+  fecha,
+  staleMs = EVALUATING_STALE_MS,
+  now = new Date(),
+} = {}) {
+  if (!supabase?.from || !fecha) return { ok: false, available: false, recovered: 0 };
+  const limite = new Date(new Date(now).getTime() - Math.max(60000, Number(staleMs) || 0)).toISOString();
+
+  try {
+    const { data, error } = await supabase
+      .from('digest_attempts')
+      .update({
+        status: 'failed',
+        motivo_no_envio: 'evaluating_interrumpido_recuperado',
+        error_msg: 'El intento quedo en evaluating: el proceso no llego a cerrarlo.',
+        updated_at: new Date(now).toISOString(),
+      })
+      .eq('status', 'evaluating')
+      .lte('fecha', fecha)
+      .lt('updated_at', limite)
+      .select('id, user_id, fecha');
+
+    if (error) throw error;
+    const recuperados = Array.isArray(data) ? data : [];
+    if (recuperados.length > 0) {
+      console.warn(`[digest_attempts] ${recuperados.length} intento(s) atascado(s) en evaluating recuperados`);
+    }
+    return { ok: true, available: true, recovered: recuperados.length, attempts: recuperados };
+  } catch (error) {
+    console.warn('[digest_attempts] No se pudieron recuperar intentos en evaluating:', error.message);
+    return { ok: false, available: false, recovered: 0, error: error.message };
+  }
+}
+
 function seleccionarDigestAttemptCanonico(attempts = []) {
   const statusPriority = {
     rescued: 60,
@@ -230,9 +271,11 @@ async function actualizarDigestAttemptPorDigest(supabase, digestId, patch = {}) 
 
 module.exports = {
   DIGEST_DECISION_VERSION,
+  EVALUATING_STALE_MS,
   actualizarDigestAttemptPorDigest,
   construirDigestAttemptRow,
   esDigestAttemptTerminalActual,
+  recuperarIntentosEvaluandoAtascados,
   registrarDigestAttempt,
   seleccionarDigestAttemptCanonico,
 };

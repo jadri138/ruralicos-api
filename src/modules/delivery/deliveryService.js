@@ -369,10 +369,26 @@ async function registrarEventoEntrega(supabase, item, event = {}) {
     processed_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
-  const { error } = await supabase.from('whatsapp_delivery_events').insert(row);
+  // UltraMsg reenvía el mismo ACK varias veces. `event_hash` es único, así que
+  // se le pide a Postgres que ignore el duplicado en lugar de provocar un 23505:
+  // el efecto es el mismo pero deja de escribir un ERROR en el log de la base
+  // por cada reenvío legítimo. La fila devuelta distingue insertado de ignorado.
+  const tabla = supabase.from('whatsapp_delivery_events');
+  if (typeof tabla.upsert !== 'function') {
+    const { error } = await tabla.insert(row);
+    if (error?.code === '23505') return { inserted: false, duplicate: true };
+    if (error) throw error;
+    return { inserted: true, duplicate: false };
+  }
+
+  const consulta = tabla.upsert(row, { onConflict: 'event_hash', ignoreDuplicates: true });
+  const { data, error } = typeof consulta.select === 'function'
+    ? await consulta.select('id')
+    : await consulta;
   if (error?.code === '23505') return { inserted: false, duplicate: true };
   if (error) throw error;
-  return { inserted: true, duplicate: false };
+  const insertado = Array.isArray(data) ? data.length > 0 : data !== null && data !== undefined;
+  return { inserted: insertado, duplicate: !insertado };
 }
 
 async function reclamarPostprocesoPreguntaAprendizaje(supabase, item) {
@@ -929,6 +945,7 @@ module.exports = {
   aplicarEventoEntrega,
   postprocesarPreguntaAprendizajeEntregada,
   procesarAckUltraMsg,
+  registrarEventoEntrega,
   registrarAceptacionProveedor,
   registrarFalloProveedor,
   conciliarEntregasUltraMsg,
