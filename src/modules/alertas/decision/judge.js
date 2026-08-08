@@ -501,14 +501,72 @@ function enforceJudgeSafety(decision, card, candidate, policy = {}) {
   }
   if (![DECISION_STATES.DROP, DECISION_STATES.BLOCKED].includes(decision.decision)
     && decision.confidence < (policy.minJudgeConfidence ?? 0.5)) {
-    return safeDecision(DECISION_STATES.HOLD_FOR_EVIDENCE, [REASON_CODES.LLM_ABSTAINED], {
-      missing_information: decision.missing_information.length
-        ? decision.missing_information
-        : ['confianza suficiente'],
-      user_reason: 'La relevancia personal no se puede confirmar con suficiente seguridad.',
+    // El juez no se ve seguro de CUANTO le interesa. Eso no retiene: la alerta
+    // ya paso territorio, actividad y fuente oficial, asi que va al resumen
+    // diario con los hechos que la ficha si respalda. Lo que no puede es
+    // interrumpir: la urgencia se pone a cero.
+    return repartirEnDigestAnteLaDuda(card, [REASON_CODES.LLM_ABSTAINED], {
+      scores: {
+        applicability: Math.max(decision.applicability, 0.5),
+        usefulness: Math.max(decision.usefulness, 0.5),
+        novelty: decision.novelty,
+      },
+      userReason: 'Puede encajar con lo que te interesa; los datos son los que publica el boletin.',
     });
   }
   return decision;
+}
+
+const CAMPOS_PUBLICABLES = Object.freeze([
+  'title',
+  'summary',
+  'territory',
+  'beneficiaries',
+  'action',
+  'deadline',
+  'official_url',
+]);
+
+// Hechos de la ficha que se pueden imprimir en el mensaje: solo los que tienen
+// evidencia utilizable. Es la garantia de que lo enviado es cierto aunque el
+// juez no haya sabido redactar su propia lista.
+function hechosVerificablesDeLaFicha(card) {
+  return Object.entries(card?.evidence || {})
+    .filter(([, evidence]) => evidenceIsUsable(evidence))
+    .filter(([field]) => CAMPOS_PUBLICABLES.includes(field))
+    .map(([field, evidence]) => ({ field, evidence_ref: evidence.ref }));
+}
+
+// Una alerta solo puede repartirse si se puede comprobar en el boletin.
+function tieneFuenteOficial(hechos = []) {
+  return hechos.some((hecho) => hecho.field === 'official_url');
+}
+
+// El juez sigue decidiendo, pero una DUDA suya no retiene la alerta: la manda al
+// resumen diario, que es el canal de bajo riesgo. Para cuando el juez opina, las
+// barreras duras ya han garantizado territorio, actividad y fuente verificable,
+// asi que la duda es sobre cuanto le interesa, no sobre si le corresponde.
+// Decision de producto (8-08-2026): evaluar lo que hay y repartirlo a quien le
+// pueda venir bien. Nunca convierte una duda en envio urgente.
+function repartirEnDigestAnteLaDuda(card, reasonCodes, { scores = {}, userReason } = {}) {
+  const hechos = hechosVerificablesDeLaFicha(card);
+  if (!tieneFuenteOficial(hechos)) {
+    return safeDecision(DECISION_STATES.HOLD_FOR_EVIDENCE, reasonCodes, {
+      missing_information: ['fuente oficial verificable'],
+      user_reason: 'Sin enlace al boletin no se puede comprobar el dato, asi que no se envia.',
+    });
+  }
+  return safeDecision(DECISION_STATES.ADD_TO_DIGEST, [...reasonCodes, REASON_CODES.APPROVED_DIGEST], {
+    applicability: scores.applicability ?? 0.5,
+    usefulness: scores.usefulness ?? 0.5,
+    actionability: scores.actionability ?? (evidenceIsUsable(card?.evidence?.action) ? 0.6 : 0.4),
+    urgency: 0,
+    novelty: scores.novelty ?? 0.5,
+    confidence: scores.confidence ?? 0.5,
+    evidence_refs: hechos.map((hecho) => hecho.evidence_ref),
+    message_facts: hechos,
+    user_reason: userReason,
+  });
 }
 
 function deterministicFallback(candidate, reasonCode, policy = {}) {
@@ -521,18 +579,7 @@ function deterministicFallback(candidate, reasonCode, policy = {}) {
     && normalizeScore(card?.quality?.coverage) >= 0.8
     && getCriticalEvidenceGaps(card).length === 0;
   if (highConfidence) {
-    const messageFacts = Object.entries(card.evidence)
-      .filter(([, evidence]) => evidenceIsUsable(evidence))
-      .filter(([field]) => [
-        'title',
-        'summary',
-        'territory',
-        'beneficiaries',
-        'action',
-        'deadline',
-        'official_url',
-      ].includes(field))
-      .map(([field, evidence]) => ({ field, evidence_ref: evidence.ref }));
+    const messageFacts = hechosVerificablesDeLaFicha(card);
     return safeDecision(DECISION_STATES.ADD_TO_DIGEST, [reasonCode, REASON_CODES.APPROVED_DIGEST], {
       applicability: 0.85,
       usefulness: 0.8,
@@ -576,7 +623,7 @@ function intersectFacts(primary = [], secondary = []) {
   return primary.filter((fact) => second.has(`${fact.field}:${fact.evidence_ref}`));
 }
 
-function reconcileOpinions(primary, secondary) {
+function reconcileOpinions(primary, secondary, card = null) {
   if (primary.decision === secondary.decision) {
     const facts = intersectFacts(primary.message_facts, secondary.message_facts);
     const secondaryRefs = new Set(secondary.evidence_refs);
@@ -609,9 +656,21 @@ function reconcileOpinions(primary, secondary) {
       user_reason: 'Las evaluaciones coinciden en la utilidad, pero no en que deba interrumpir ahora.',
     });
   }
-  return safeDecision(DECISION_STATES.HOLD_FOR_EVIDENCE, [REASON_CODES.SECOND_OPINION_DISAGREEMENT], {
-    missing_information: ['resolver desacuerdo entre evaluaciones'],
-    user_reason: 'Las evaluaciones no coinciden y la alerta queda retenida.',
+  // Dos lecturas que no coinciden siguen siendo dos lecturas de la misma alerta,
+  // que ya paso las barreras duras. En vez de retenerla, se reparte en el
+  // resumen diario con lo que ambas respaldan -y si no coinciden en ningun
+  // hecho, con lo que la ficha demuestra por si sola-.
+  const acordados = intersectFacts(primary.message_facts, secondary.message_facts);
+  return repartirEnDigestAnteLaDuda(card, [REASON_CODES.SECOND_OPINION_DISAGREEMENT], {
+    scores: {
+      applicability: Math.min(primary.applicability, secondary.applicability),
+      usefulness: Math.min(primary.usefulness, secondary.usefulness),
+      confidence: Math.min(primary.confidence, secondary.confidence),
+      novelty: Math.min(primary.novelty, secondary.novelty),
+    },
+    userReason: acordados.length
+      ? 'Puede encajar con lo que te interesa; los datos son los que publica el boletin.'
+      : 'Puede encajar con lo que te interesa; se muestran solo los datos que constan en el boletin.',
   });
 }
 
@@ -1002,7 +1061,7 @@ async function judgeCandidate({
     };
   }
   return {
-    decision: reconcileOpinions(primary.decision, secondary.decision),
+    decision: reconcileOpinions(primary.decision, secondary.decision, candidate?.truth_card),
     audit: buildJudgeAudit({
       request: primaryRequest,
       startedAt,

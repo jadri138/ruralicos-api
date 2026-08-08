@@ -1056,7 +1056,7 @@ test('una entrega previa solo se repite por actualizacion material verificable',
   assert.deepStrictEqual(legacyUnknown.reason_codes, [REASON_CODES.ALREADY_DELIVERED]);
 });
 
-test('la segunda opinion solo se usa en frontera y el desacuerdo retiene', async () => {
+test('la segunda opinion solo se usa en frontera y el desacuerdo se reparte en el digest', async () => {
   const stable = candidate(60, { preScore: 90 });
   let secondCalls = 0;
   const stableResult = await judgeCandidate({
@@ -1087,8 +1087,22 @@ test('la segunda opinion solo se usa en frontera y el desacuerdo retiene', async
     },
   });
   assert.strictEqual(secondCalls, 1);
-  assert.strictEqual(boundaryResult.decision.decision, DECISION_STATES.HOLD_FOR_EVIDENCE);
+  // Decision de producto (8-08-2026): el juez evalua lo que hay y lo reparte a
+  // quien le pueda venir bien. Un desacuerdo entre las dos lecturas es una duda
+  // sobre CUANTO le interesa, no sobre si le corresponde -eso ya lo garantizaron
+  // territorio, actividad y fuente oficial-, asi que va al resumen diario en vez
+  // de retenerse.
+  assert.strictEqual(boundaryResult.decision.decision, DECISION_STATES.ADD_TO_DIGEST);
   assert(boundaryResult.decision.reason_codes.includes(REASON_CODES.SECOND_OPINION_DISAGREEMENT));
+  assert.strictEqual(
+    boundaryResult.decision.urgency,
+    0,
+    'una duda nunca puede convertirse en un envio urgente que interrumpa'
+  );
+  assert(
+    boundaryResult.decision.message_facts.some((fact) => fact.field === 'official_url'),
+    'lo repartido siempre lleva la fuente oficial para poder comprobarlo'
+  );
 });
 
 test('la auditoria del juez queda versionada y solo conserva hash y metadatos tecnicos', async () => {
