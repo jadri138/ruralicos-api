@@ -212,7 +212,13 @@ function estadoDesdeIssues(issues, coverage) {
     || flags.has('taxonomy_conflict')
     || flags.has('empty_taxonomy_ready')
     || flags.has('cross_sector_match')
-    || flags.has('operative_deadline_expired')
+    // `operative_deadline_expired` ya no bloquea: un boletin publica la
+    // resolucion, la concesion, el listado de beneficiarios o el pago mucho
+    // despues de cerrarse el plazo de solicitud, y esa es la noticia que la
+    // persona espera. La decision se tomo el 7-08-2026 y se retiro de la
+    // autoridad canonica; aqui seguia viva y volvia a silenciar lo mismo una
+    // capa mas abajo. El plazo se conserva en la ficha y se imprime en el
+    // mensaje, asi que quien lo lea ve en que punto esta.
   ) {
     return FACT_SHEET_STATUS.BLOCKED;
   }

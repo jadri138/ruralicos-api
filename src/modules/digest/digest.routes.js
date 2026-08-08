@@ -111,6 +111,7 @@ const {
   resumirValidacionFinalDigest,
   prepararValidacionFinalDigestShadow,
   preseleccionarAlertasConFactSheet,
+  asegurarFactSheetsDelDia,
   guardarFactSheetsDigestShadow,
   filtrarAlertasPorValidacionFinalDigest,
   alertasReintentablesPorTextoAusente,
@@ -373,6 +374,19 @@ module.exports = function digestRoutes(app, supabase) {
         console.log('[digest] No hay alertas listas hoy; se revisaran rescates semanales si aplica');
       } else if (!alertas || alertas.length === 0) {
         console.log('[digest] No hay alertas con calidad suficiente hoy; se revisaran rescates semanales si aplica');
+      }
+
+      // La ficha de la alerta debe existir ANTES de decidir. Se escribia solo
+      // dentro de la generacion del digest, asi que era un subproducto del envio:
+      // sin digest no habia ficha, sin ficha la autoridad canonica solo veia una
+      // tarjeta de compatibilidad pobre, el juez se abstenia y no habia digest.
+      // El constructor es extractivo y no llama a ningun modelo.
+      const fichasDelDia = await asegurarFactSheetsDelDia({ supabase, alertas });
+      if (fichasDelDia.construidas > 0 || fichasDelDia.fallidas > 0) {
+        console.log(
+          `[digest:fact-sheet] ${fichasDelDia.guardadas} fichas nuevas de ${fichasDelDia.evaluadas} alertas`
+          + ` (ya tenian ${fichasDelDia.ya_tenian}, fallidas ${fichasDelDia.fallidas})`
+        );
       }
 
       if (!usuarios || usuarios.length === 0) {
