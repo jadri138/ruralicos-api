@@ -117,6 +117,45 @@ test('solo reabre no-envios producidos por una version anterior', () => {
     metadata_json: { decision_version: 'digest_decision_v1' },
   }), true, 'un envio real nunca se reabre por un cambio de version');
 
+  // Caso real (8-08-2026): una pasada a las 00:01 de Madrid juzgo a los 79
+  // usuarios contra un dia todavia sin alertas, los sello con la version
+  // vigente, y por la manana el cron se los salto aunque ya habia 6 alertas
+  // listas esperando. Un silencio sobre un dia vacio no es una decision sobre
+  // ese dia.
+  const selladoConDiaVacio = {
+    status: 'no_send',
+    total_alertas_dia: 0,
+    metadata_json: { decision_version: DIGEST_DECISION_VERSION },
+  };
+  assert.strictEqual(
+    esDigestAttemptTerminalActual(selladoConDiaVacio, { alertasDelDiaAhora: 6 }),
+    false,
+    'si ya hay alertas del dia que nadie ha visto, ese silencio se reabre'
+  );
+  assert.strictEqual(
+    esDigestAttemptTerminalActual(selladoConDiaVacio, { alertasDelDiaAhora: 0 }),
+    true,
+    'un dia realmente vacio no reevalua a nadie en balde'
+  );
+  assert.strictEqual(
+    esDigestAttemptTerminalActual({
+      status: 'no_send',
+      total_alertas_dia: 133,
+      metadata_json: { decision_version: DIGEST_DECISION_VERSION },
+    }, { alertasDelDiaAhora: 133 }),
+    true,
+    'un silencio decidido con todo el material del dia se respeta'
+  );
+  assert.strictEqual(
+    esDigestAttemptTerminalActual({
+      status: 'sent',
+      total_alertas_dia: 0,
+      metadata_json: { decision_version: DIGEST_DECISION_VERSION },
+    }, { alertasDelDiaAhora: 50 }),
+    true,
+    'un envio ya hecho nunca se reabre por llegar alertas nuevas'
+  );
+
   // Incidente 7-08-2026: la reparacion del territorio se desplego pero el cron
   // devolvio `usuarios_evaluados: 0`. Los 94 silencios de esa manana llevaban
   // v10, la misma version que seguia en el codigo, asi que nadie entraba
@@ -301,7 +340,11 @@ test('digest implementa rescate semanal y auditoria de no-envios', () => {
 
   assert(source.includes("const PREPARAR_DIGEST_BATCH_SIZE = numeroConfig('PREPARAR_DIGEST_BATCH_SIZE', 1"), 'El batch debe caber dentro del timeout de Render');
   assert(source.includes(".in('status', estadosAttemptTerminales)"), 'Debe omitir usuarios ya resueltos en lotes anteriores');
-  assert(source.includes('.filter(esDigestAttemptTerminalActual)'), 'Debe reabrir no-envios de una version anterior');
+  assert(source.includes('esDigestAttemptTerminalActual(attempt, {'), 'Debe reabrir no-envios de una version anterior');
+  assert(
+    source.includes('alertasDelDiaAhora: totalAlertasDia'),
+    'Debe reabrir el silencio decidido antes de que el dia tuviera alertas'
+  );
   assert(source.includes('usuarios_evaluados_batch: usuariosEvaluados'), 'El progreso debe contar usuarios evaluados, tengan o no digest');
   assert(source.includes('DIGEST_RESCUE_AFTER_DAYS'), 'Debe existir umbral de rescate semanal');
   assert(source.includes('generarMensajeDigestRescate'), 'Debe existir mensaje de rescate');

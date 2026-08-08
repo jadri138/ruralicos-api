@@ -112,11 +112,26 @@ function construirDigestAttemptRow(input = {}) {
   return row;
 }
 
-function esDigestAttemptTerminalActual(attempt = {}) {
+// `alertasDelDiaAhora` es cuántas alertas hay listas para esa fecha en el momento
+// de preguntar. Sirve para detectar un silencio decidido antes de que existiera
+// el material del día: una pasada lanzada a las 00:01 de Madrid juzga a todo el
+// mundo contra un día todavía vacío, lo sella, y cuando por la mañana llegan las
+// alertas el cron se salta a esas personas (8-08-2026: 79 usuarios sellados con
+// `total_alertas_dia = 0` y 6 alertas esperando sin evaluar).
+function esDigestAttemptTerminalActual(attempt = {}, { alertasDelDiaAhora = null } = {}) {
   const status = normalizarTexto(attempt.status, 60);
   if (ESTADOS_TERMINALES_INMUTABLES.has(status)) return true;
   if (!['no_send', 'failed'].includes(status)) return false;
-  return attempt.metadata_json?.decision_version === DIGEST_DECISION_VERSION;
+  if (attempt.metadata_json?.decision_version !== DIGEST_DECISION_VERSION) return false;
+
+  // Solo se reabre si HOY hay más material del día que cuando se decidió. Si el
+  // día sigue igual de vacío -un domingo de verdad-, la decisión se respeta y no
+  // se reevalúa a nadie en balde.
+  if (alertasDelDiaAhora !== null) {
+    const decididoCon = normalizarEntero(attempt.total_alertas_dia, 0);
+    if (normalizarEntero(alertasDelDiaAhora, 0) > decididoCon) return false;
+  }
+  return true;
 }
 
 async function registrarDigestAttempt(supabase, input = {}) {

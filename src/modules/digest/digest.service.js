@@ -1748,6 +1748,66 @@ async function prepararValidacionFinalDigestShadow({
   };
 }
 
+// Garantiza que las alertas listas del dia tengan su ficha ANTES de decidir.
+//
+// Hasta ahora `alert_fact_sheets` solo se escribia dentro de la generacion del
+// digest, asi que la ficha era un subproducto del envio y no una entrada de la
+// decision. Eso creaba un circulo cerrado: sin digest no habia ficha, sin ficha
+// la autoridad canonica solo tenia una tarjeta de compatibilidad muy pobre, el
+// juez se abstenia y por tanto no habia digest. La cobertura historica lo
+// delata: nunca paso del 10-23% y seguia exactamente al volumen de envios.
+//
+// El constructor es extractivo -lee el documento oficial ya guardado y no llama
+// a ningun modelo-, asi que ejecutarlo aqui no añade coste de LLM. Solo se
+// construye lo que falta, de modo que las vueltas siguientes del cron no repiten
+// trabajo.
+async function asegurarFactSheetsDelDia({
+  supabase,
+  alertas = [],
+  organizationId = null,
+  limite = 200,
+  loadFactSheetFn = cargarFactSheetActual,
+  buildFactSheetFn = construirFactSheetAlerta,
+  storeFactSheetFn = guardarFactSheetShadow,
+} = {}) {
+  const stats = { evaluadas: 0, ya_tenian: 0, construidas: 0, guardadas: 0, fallidas: 0 };
+  if (!supabase?.from) return { ...stats, available: false };
+
+  const maximo = Math.max(0, Math.min(500, Number(limite) || 0));
+  for (const alerta of alertas || []) {
+    const alertaId = alerta?.id || alerta?.alerta_id;
+    if (!alertaId || stats.construidas >= maximo) continue;
+    stats.evaluadas += 1;
+    try {
+      const actual = await loadFactSheetFn(supabase, { alertaId });
+      if (actual) {
+        stats.ya_tenian += 1;
+        continue;
+      }
+      const factSheet = await buildFactSheetFn(alerta, {
+        supabase,
+        organizationId: alerta.organization_id ?? organizationId,
+      });
+      if (!factSheet?.alerta_id) {
+        stats.fallidas += 1;
+        continue;
+      }
+      stats.construidas += 1;
+      const guardado = await storeFactSheetFn(supabase, {
+        factSheet,
+        organizationId: alerta.organization_id ?? organizationId,
+      });
+      if (guardado?.stored) stats.guardadas += 1;
+      else stats.fallidas += 1;
+    } catch (error) {
+      // Una alerta sin documento recuperable no puede frenar al resto del dia.
+      stats.fallidas += 1;
+      console.warn(`[digest:fact-sheet] alerta ${alertaId}:`, error.message);
+    }
+  }
+  return { ...stats, available: true };
+}
+
 async function guardarFactSheetsDigestShadow({
   supabase,
   alertas = [],
@@ -3366,6 +3426,7 @@ module.exports = {
   resumirValidacionFinalDigest,
   prepararValidacionFinalDigestShadow,
   preseleccionarAlertasConFactSheet,
+  asegurarFactSheetsDelDia,
   guardarFactSheetsDigestShadow,
   motivosCriticosValidacionFinal,
   filtrarAlertasPorValidacionFinalDigest,

@@ -403,7 +403,7 @@ test('el resumen generado no convierte una etiqueta inventada en evidencia taxon
   assert(!sheet.taxonomy_evidence.some((item) => item.tag === 'subsector:vacuno'));
 });
 
-test('bloquea una oportunidad cuyo plazo operativo ya ha terminado', () => {
+test('un plazo operativo terminado se anota pero ya no bloquea la ficha', () => {
   const alerta = alertaBase(13, {
     fecha: '2026-06-01',
     titulo: 'Ayudas para explotaciones agrarias en Huesca',
@@ -415,8 +415,20 @@ test('bloquea una oportunidad cuyo plazo operativo ya ha terminado', () => {
     now: new Date('2026-07-01T10:00:00Z'),
   });
 
-  assert.strictEqual(sheet.status, FACT_SHEET_STATUS.BLOCKED);
-  assert(sheet.flags.includes('operative_deadline_expired'));
+  // Decision de producto (7-08-2026): un boletin publica la resolucion, la
+  // concesion, el listado de beneficiarios o el pago mucho despues de cerrarse
+  // el plazo de solicitud, y esa es justo la noticia que la persona espera. El
+  // plazo se conserva y se imprime en el mensaje, de modo que quien lo lea ve en
+  // que punto esta la convocatoria.
+  assert.notStrictEqual(
+    sheet.status,
+    FACT_SHEET_STATUS.BLOCKED,
+    'un plazo pasado no puede silenciar la alerta'
+  );
+  assert(
+    sheet.flags.includes('operative_deadline_expired'),
+    'la marca se conserva para poder explicar el caso'
+  );
 });
 
 test('mantiene vigente una oportunidad cuyo plazo termina en el futuro', () => {
