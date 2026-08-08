@@ -411,7 +411,7 @@ module.exports = function digestRoutes(app, supabase) {
       if (!force) {
         const { data: attemptsTerminales, error: errAttemptsTerminales } = await supabase
           .from('digest_attempts')
-          .select('user_id, status, metadata_json')
+          .select('user_id, status, metadata_json, total_alertas_dia')
           .eq('fecha', hoy)
           .in('status', estadosAttemptTerminales);
 
@@ -421,7 +421,9 @@ module.exports = function digestRoutes(app, supabase) {
 
         usuariosAttemptTerminal = new Set(
           (attemptsTerminales || [])
-            .filter(esDigestAttemptTerminalActual)
+            .filter((attempt) => esDigestAttemptTerminalActual(attempt, {
+              alertasDelDiaAhora: totalAlertasDia,
+            }))
             .map((attempt) => attempt.user_id)
         );
       }
