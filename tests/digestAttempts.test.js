@@ -164,8 +164,9 @@ test('solo reabre no-envios producidos por una version anterior', () => {
   // decidido con una regla que ya sabemos equivocada no puede contar como
   // decision firme del dia.
   for (const anterior of [
-    'digest_decision_v10_audit_dedupe',   // territorio roto por el centinela
-    'digest_decision_v11_territorio_fuente', // retenia por falta de beneficiarios
+    'digest_decision_v10_audit_dedupe',       // territorio roto por el centinela
+    'digest_decision_v11_territorio_fuente',  // retenia por falta de beneficiarios
+    'digest_decision_v12_evidencia_minima',   // una duda del juez todavia retenia
   ]) {
     assert.notStrictEqual(
       DIGEST_DECISION_VERSION,
