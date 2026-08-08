@@ -728,6 +728,22 @@ Responde UNICAMENTE con la ficha final. Sin JSON, sin explicaciones, sin nada ma
     }
   });
 
+  async function recuperarEvidenciaBopaSegura(fecha, limite) {
+    try {
+      const {
+        recuperarAlertasBopaSinEvidencia,
+      } = require('../boletines/scrapers/BOPA/bopaEvidenceRecovery');
+      return await recuperarAlertasBopaSinEvidencia(supabase, {
+        fecha,
+        limit: limite,
+        dryRun: false,
+      });
+    } catch (error) {
+      console.warn('[alertas:bopa-evidencia] No se pudo recuperar evidencia BOPA:', error.message);
+      return { ok: false, error: error.message };
+    }
+  }
+
   app.post('/alertas/reparar-pendientes-ia', async (req, res) => {
     if (!checkCronToken(req, res)) return;
 
@@ -745,6 +761,14 @@ Responde UNICAMENTE con la ficha final. Sin JSON, sin explicaciones, sin nada ma
 
       if (selectError) return res.status(500).json({ error: selectError.message });
 
+      // BOPA publica anuncios cuyo texto no viene en el listado y quedan en
+      // `needs_evidence`. El modulo que los rescata existia y estaba probado,
+      // pero solo se podia lanzar a mano: el 8-08-2026 dejo 48 de las 118
+      // alertas del dia atascadas para siempre. Se ejecuta aqui porque este paso
+      // ya va antes de clasificar, asi que lo recuperado sigue su curso en la
+      // misma pasada. Un fallo suyo no puede tumbar la reparacion principal.
+      const bopa = await recuperarEvidenciaBopaSegura(fecha, req.query.bopa_limit);
+
       const ids = (candidatas || []).map((a) => a.id);
       if (ids.length === 0) {
         return res.json({
@@ -752,6 +776,7 @@ Responde UNICAMENTE con la ficha final. Sin JSON, sin explicaciones, sin nada ma
           fecha,
           reparadas: 0,
           mensaje: 'No hay alertas con estado_ia nulo y resumen pendiente',
+          bopa_evidencia: bopa,
         });
       }
 
@@ -770,6 +795,7 @@ Responde UNICAMENTE con la ficha final. Sin JSON, sin explicaciones, sin nada ma
         fecha,
         reparadas: ids.length,
         ids,
+        bopa_evidencia: bopa,
         siguiente_paso: 'Lanzar /alertas/clasificar, /alertas/resumir y /alertas/revisar hasta que /alertas/estado-pipeline no muestre pendientes.',
       });
     } catch (err) {
