@@ -26,8 +26,8 @@
 
 | Documento | Estado | Tema |
 | --- | --- | --- |
-| [`DECISION_V2_ARCHITECTURE.md`](DECISION_V2_ARCHITECTURE.md) | Diseño acordado, pendiente de implementar | Arquitectura objetivo del nuevo motor de decisión por usuario y despliegue inicial en sombra |
-| [`PROMPT_DECISION_V2_NEXT_SESSION.md`](PROMPT_DECISION_V2_NEXT_SESSION.md) | Prompt de continuidad | Instrucciones listas para retomar la reconstrucción de `decision-v2` en otra sesión |
+| [`DECISION_V2_ARCHITECTURE.md`](DECISION_V2_ARCHITECTURE.md) | Implementado en sombra, pendiente de evaluación real | Arquitectura del nuevo motor de decisión conjunta por usuario |
+| [`PROMPT_DECISION_V2_NEXT_SESSION.md`](PROMPT_DECISION_V2_NEXT_SESSION.md) | Histórico | Encargo utilizado para construir `decision-v2`; la operación actual está documentada en el README del módulo |
 | [`BLUEPRINT_SISTEMA_DECISION_ALERTAS_LLM.md`](BLUEPRINT_SISTEMA_DECISION_ALERTAS_LLM.md) | Propuesta, no implementado | Diseño integral desde una alerta ya creada hasta su decisión, envío y aprendizaje. Scrapers fuera de alcance |
 
 ## Validación

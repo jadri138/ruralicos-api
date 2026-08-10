@@ -1,6 +1,6 @@
 # Decision v2: arquitectura objetivo del digest
 
-Estado: diseño acordado, pendiente de implementación.
+Estado: implementado en modo sombra; pendiente de aplicar la migración, activar la configuración y evaluar resultados reales antes de cualquier sustitución en producción.
 
 Este documento describe el sistema final de decisión de alertas para los digests de Ruralicos y el modo seguro de construirlo en paralelo. Es la referencia para futuras sesiones de desarrollo de `decision-v2`.
 

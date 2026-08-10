@@ -14,6 +14,8 @@
  *   RUN_OFFICIAL_LISTS=true
  *   RUN_REPAIR=true
  *   RUN_DAILY_EXPLORATION=true
+ *   RUN_DECISION_V2_SHADOW=false
+ *   DECISION_V2_SHADOW_RUN_KEY=<uuid> (opcional; se genera por ejecucion)
  *   PREPARAR_DIGEST_FORCE=true   (reevalua intentos ya cerrados hoy)
  *   MAX_LOOPS=200
  *   PREPARAR_DIGEST_MAX_LOOPS=200
@@ -26,6 +28,7 @@
  */
 
 require('dotenv').config();
+const { randomUUID } = require('crypto');
 
 const BASE_URL = (process.env.BASE_URL || '').replace(/\/+$/, '');
 const CRON_TOKEN = process.env.CRON_TOKEN || '';
@@ -36,6 +39,11 @@ const RUN_SCRAPERS = parseBool(process.env.RUN_SCRAPERS, true);
 const RUN_OFFICIAL_LISTS = parseBool(process.env.RUN_OFFICIAL_LISTS, true);
 const RUN_REPAIR = parseBool(process.env.RUN_REPAIR, true);
 const RUN_DAILY_EXPLORATION = parseBool(process.env.RUN_DAILY_EXPLORATION, true);
+const RUN_DECISION_V2_SHADOW = parseBool(process.env.RUN_DECISION_V2_SHADOW, false);
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const DECISION_V2_SHADOW_RUN_KEY = UUID_PATTERN.test(process.env.DECISION_V2_SHADOW_RUN_KEY || '')
+  ? process.env.DECISION_V2_SHADOW_RUN_KEY
+  : randomUUID();
 const PREPARAR_DIGEST_FORCE = parseBool(process.env.PREPARAR_DIGEST_FORCE, false);
 // Cada vuelta de clasificar/resumir/revisar consume un lote pequeño
 // (CLASIFICAR_BATCH_SIZE = 8 por defecto). Con ~700-800 alertas nuevas al día
@@ -45,6 +53,7 @@ const PREPARAR_DIGEST_FORCE = parseBool(process.env.PREPARAR_DIGEST_FORCE, false
 const MAX_LOOPS = Number(process.env.MAX_LOOPS || 200);
 const PREPARAR_DIGEST_MAX_LOOPS = Number(process.env.PREPARAR_DIGEST_MAX_LOOPS || 200);
 const HOLD_RECOVERY_MAX_LOOPS = Number(process.env.HOLD_RECOVERY_MAX_LOOPS || 20);
+const DECISION_V2_SHADOW_MAX_LOOPS = Number(process.env.DECISION_V2_SHADOW_MAX_LOOPS || 200);
 const OUTBOX_MAX_LOOPS = Number(process.env.OUTBOX_MAX_LOOPS || 50);
 const STEP_DELAY_MS = Number(process.env.STEP_DELAY_MS || 800);
 const HTTP_RETRIES = Number(process.env.HTTP_RETRIES || 3);
@@ -60,6 +69,9 @@ const BATCH_METRIC_KEYS = [
   'usuarios_sin_telefono',
   'saltados',
   'fallback_local',
+  'generated',
+  'empty',
+  'errors',
 ];
 
 if (!BASE_URL) {
@@ -221,6 +233,15 @@ async function runOptionalStep(name, path, options = {}) {
   }
 }
 
+async function runOptionalBatchedStep(name, path, options = {}, maxLoops = MAX_LOOPS) {
+  try {
+    return await runBatchedStep(name, path, options, maxLoops);
+  } catch (err) {
+    console.warn(`[${name}] fase shadow aislada omitida: ${err.message}`);
+    return { ok: false, optional: true, skipped: true, error: err.message };
+  }
+}
+
 async function runHoldEvidenceRecoveryStep({
   limit = 25,
   concurrency = 2,
@@ -320,6 +341,8 @@ async function main() {
     runOfficialLists: RUN_OFFICIAL_LISTS,
     runRepair: RUN_REPAIR,
     runDailyExploration: RUN_DAILY_EXPLORATION,
+    runDecisionV2Shadow: RUN_DECISION_V2_SHADOW,
+    decisionV2ShadowRunKey: RUN_DECISION_V2_SHADOW ? DECISION_V2_SHADOW_RUN_KEY : null,
   });
 
   const scrapers = RUN_SCRAPERS
@@ -342,6 +365,19 @@ async function main() {
   // Relee solo evidencia que ya existe en alertas/raw_documents. Es una fase
   // acotada del mismo workflow; no descarga documentos ni crea otro cron.
   const holdEvidenceRecovery = await runHoldEvidenceRecoveryStep();
+  // decision-v2 usa datos reales y persiste exclusivamente en shadow_*.
+  // Su fallo es visible pero nunca bloquea el motor de produccion ni alcanza
+  // digests, outbox o WhatsApp.
+  const decisionV2Shadow = RUN_DECISION_V2_SHADOW
+    ? await runOptionalBatchedStep(
+      'decision-v2-shadow',
+      appendQuery(conFecha('/alertas/decision-v2-shadow'), {
+        run_key: DECISION_V2_SHADOW_RUN_KEY,
+      }),
+      { method: 'POST' },
+      DECISION_V2_SHADOW_MAX_LOOPS
+    )
+    : { skipped: true, reason: 'decision_v2_shadow_desactivado' };
   // PREPARAR_DIGEST_FORCE reevalúa a quien ya tiene un intento cerrado hoy.
   // Sirve para reintentar el mismo día tras corregir algo sin tener que
   // desplegar una versión de decisión nueva. No puede reenviar: las personas
@@ -400,6 +436,7 @@ async function main() {
       recuperadas: holdEvidenceRecovery?.recovered ?? 0,
       agotadas: holdEvidenceRecovery?.exhausted ?? 0,
     },
+    decisionV2Shadow,
     prepararDigest: {
       usuarios_evaluados: prepararDigest?.totalProgress ?? null,
       ...prepararDigest.metrics,

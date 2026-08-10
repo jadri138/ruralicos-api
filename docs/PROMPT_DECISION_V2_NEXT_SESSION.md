@@ -1,5 +1,9 @@
 # Prompt de continuidad: reconstrucción de decision-v2
 
+> Estado: encargo histórico ya implementado en modo sombra. Para activar,
+> ejecutar y consultar el sistema usa
+> [`../src/modules/alertas/decision-v2/README.md`](../src/modules/alertas/decision-v2/README.md).
+
 Copia desde el siguiente bloque en una nueva sesión de Codex.
 
 ---
