@@ -91,7 +91,96 @@ llamaba**:
 
 ---
 
-## 5. Lo que queda por hacer: que decida la IA
+## 5. Lo que queda por hacer: que el modelo elija y el código escriba
+
+> **Corrección importante (10-08-2026).** Una versión anterior de esta sección
+> decía que el estrangulamiento era el `top-K` y la preselección heurística. Con
+> los primeros digests reales delante, eso resultó ser **falso**. Los datos del
+> primer día que envió están abajo. No empieces por donde yo empecé.
+
+### Lo que se midió el 10-08-2026, el primer día que volvió a enviar
+
+14 digests generados, 46 usuarios con alertas aprobadas por el juez. El embudo:
+
+```
+juez aprueba          72 parejas / 46 usuarios
+gate de autoenvio     72 parejas / 46 usuarios
+validacion final      15 parejas / 14 usuarios   <-- aqui se pierden 32 usuarios
+enviado               15 parejas / 14 usuarios
+```
+
+**Los filtros viejos NO son el problema.** De las 75 alertas que el motor de
+selección marcó `review_only`, el juez canónico bloqueó **74 por su cuenta** (29
+por territorio). Solo 1 sobrevivió a ambos. Quitar ese veto es legítimo por
+simplificar, pero **no recupera volumen**: recupera una alerta.
+
+Y lo que retienen está bien retenido: usuario de Valladolid al que el rescate
+semanal le acercaba el IAE de La Rioja, subvenciones de aguas de Canarias y una
+licencia de levaduras de Navarra. Territorio cruzado.
+
+### Dónde está el daño real: `JUDGE_CONTRADICTION`
+
+**107 parejas retenidas en un solo día, 53 usuarios afectados.** De los 20
+usuarios que se quedaron sin digest teniendo alertas aprobadas, 30 de sus alertas
+cayeron por aquí.
+
+Y no significa «esto no le interesa». En `judge.js`, `enforceJudgeSafety` lo
+devuelve cuando **el modelo cita una `evidence_ref` que no está en la ficha**:
+
+```js
+const invalidRef = decision.evidence_refs.find((ref) => !refs.has(ref));
+const invalidFact = decision.message_facts.find((fact) => …);
+if (invalidRef || invalidFact) return safeDecision(HOLD_FOR_EVIDENCE, [JUDGE_CONTRADICTION], …)
+```
+
+Es un **fallo de forma del modelo rellenando el JSON**, no un juicio sobre la
+alerta. Se están perdiendo avisos válidos porque `gpt-5-nano` referencia mal.
+
+### El cambio
+
+**El modelo elige alertas. El código escribe los hechos.**
+
+`projectApprovedMessageFacts` (en `messageProjection.js`) ya construye el mensaje
+solo con campos que tienen evidencia utilizable. Si el modelo no redacta ni cita,
+no puede citar mal, y `JUDGE_CONTRADICTION` **desaparece solo**: deja de existir
+la clase entera de fallo.
+
+Forma objetivo: **una llamada por persona**, no por candidata. Recibe el perfil y
+todas las candidatas que pasaron las reglas duras, y devuelve qué ids entran y por
+qué. Aritmética, y es la razón de que sea a la vez más simple y más barato:
+
+| | hoy | después |
+| --- | --- | --- |
+| Llamadas al modelo | 394/día | **79/día** |
+| Alertas que ve cada persona | 2,3 | todas las de su zona |
+
+Subir los topes sin cambiar la forma daría ~10.000 llamadas/día. **Las dos cosas
+van juntas.**
+
+### Nadie va a revisar nada
+
+Decisión del dueño (10-08-2026): **el sistema es autónomo**. Todo camino termina
+en enviar o no enviar; no existen salas de espera. Hoy están llenas y nadie las
+vacía:
+
+```
+hold_lifecycle_total: 234    hold_successfully_resolved: 0    hold_resolution_rate_pct: 0
+```
+
+234 retenidas, **cero resueltas, nunca**. Fuera: `HOLD_FOR_EVIDENCE` y su ciclo
+(`digest/decisionHoldRetry.js`, columnas, índice, reintentos y el paso
+`hold-evidence-recovery`), los `review_only` y los estados
+`pendiente_revision_manual` y `needs_evidence` como destino final.
+
+### Por qué la validación final se puede quitar sin perder honestidad
+
+Hoy hay dos garantías haciendo lo mismo: **por construcción**
+(`projectApprovedMessageFacts` solo imprime lo respaldado) y **por revisión** (el
+validador relee el mensaje ya escrito). Si la primera es correcta, la segunda no
+puede encontrar nada real — y hoy bloquea a 12 usuarios. Se garantiza
+construyendo, no vigilando.
+
+### Sección histórica: el diagnóstico que NO era
 
 ### El problema medido
 
