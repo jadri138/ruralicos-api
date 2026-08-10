@@ -7,7 +7,7 @@ const migrationPath = path.join(
   '..',
   'supabase',
   'migrations',
-  '20260810142035_add_decision_v2_shadow_tables.sql'
+  '20260810172543_add_decision_v2_shadow_tables.sql'
 );
 const sql = fs.readFileSync(migrationPath, 'utf8');
 

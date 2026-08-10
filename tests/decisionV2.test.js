@@ -141,6 +141,40 @@ test('no usa estado IA, score, taxonomia o resumen como barrera', () => {
   assert(prepared.llmInput.candidates[0].official.content_fragment.includes('explotaciones agrarias'));
 });
 
+test('trata la suscripcion solo como plan comercial y no como prueba de beneficiario', () => {
+  const prepared = prepararEntradaDecisionV2({
+    user: user({
+      subscription: 'agricultor',
+      preferences: {
+        provincias: ['Zaragoza'],
+        sectores: [],
+        subsectores: [],
+        cultivos: [],
+        especies: [],
+        tipos_alerta: [],
+      },
+    }),
+    alerts: [alert(81, {
+      titulo: 'Ayuda para empresas de servicios digitales',
+      contenido: 'Convocatoria oficial dirigida exclusivamente a empresas de servicios digitales.',
+      sectores: [],
+      tipos_alerta: [],
+    })],
+  });
+
+  assert.strictEqual(prepared.profile.subscription, 'agricultor');
+  assert.strictEqual(prepared.policy.subscription_meaning, 'commercial_plan_only');
+  assert.strictEqual(prepared.policy.subscription_role_inference, 'forbidden');
+  assert.deepStrictEqual(prepared.policy.beneficiary_fit_requires, [
+    'explicit_profile_information',
+    'official_document_evidence',
+  ]);
+  assert.match(prepared.policy.system_prompt, /plan de suscripcion es solo un plan comercial/i);
+  assert.match(prepared.policy.system_prompt, /nunca demuestra que el usuario sea agricultor/i);
+  assert.match(prepared.policy.system_prompt, /informacion explicita del perfil/i);
+  assert.match(prepared.policy.system_prompt, /documento oficial/i);
+});
+
 test('valida cobertura exacta, IDs, duplicados y maximo', () => {
   const prepared = prepararEntradaDecisionV2({
     user: user(),
@@ -247,6 +281,48 @@ test('registra ERROR inmediato ante fallo tecnico', async () => {
   assert.strictEqual(result.status, 'ERROR');
   assert.strictEqual(result.error_code, 'llm_technical_error');
   assert.strictEqual(result.selected_alerts.length, 0);
+});
+
+test('conserva muchas candidatas y sus truncamientos ante un limite tecnico', async () => {
+  const candidateCount = 240;
+  const alerts = Array.from({ length: candidateCount }, (_, index) => alert(2000 + index, {
+    titulo: `Documento oficial extenso ${index + 1}`,
+    contenido: `Contenido oficial ${index + 1}. ${'evidencia rural '.repeat(180)}`,
+  }));
+  const expectedIds = alerts.map((item) => item.id);
+  let receivedIds = [];
+  const result = await ejecutarDecisionV2({
+    user: user(),
+    alerts,
+    totalOfficialChars: 50000,
+    callLLM: async ({ input }) => {
+      receivedIds = JSON.parse(input).candidates.map((candidate) => candidate.alert_id);
+      const error = new Error('context_length_exceeded');
+      error.metadata = {
+        response_status: 'error',
+        technical_limit: 'context_length_exceeded',
+      };
+      throw error;
+    },
+  });
+
+  assert.deepStrictEqual(receivedIds, expectedIds, 'la peticion conjunta debe conservar todos los IDs');
+  assert.deepStrictEqual(
+    result.candidates_snapshot.map((snapshot) => snapshot.alert_id),
+    expectedIds,
+    'los snapshots auditables deben conservar todos los IDs'
+  );
+  assert(result.candidates_snapshot.every((snapshot) => snapshot.official.content_truncated === true));
+  assert(result.candidates_snapshot.every((snapshot) =>
+    snapshot.official.content_original_chars > snapshot.official.content_fragment.length
+  ));
+  assert.strictEqual(result.status, 'ERROR');
+  assert.strictEqual(result.error_code, 'llm_technical_error');
+  assert.strictEqual(result.error_details.technical_limit, 'context_length_exceeded');
+  assert.strictEqual(result.decisions.length, candidateCount);
+  assert(result.decisions.every((decision) =>
+    decision.decision_source === 'technical_error' && decision.decision === null
+  ));
 });
 
 test('devuelve EMPTY sin llamar al LLM cuando todas quedan objetivamente fuera', async () => {

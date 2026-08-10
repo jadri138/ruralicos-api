@@ -178,7 +178,7 @@ No uses datos personales reales en fixtures, logs o respuestas.
    No multipliques archivos si no existe una frontera clara.
 
 6. Añade una forma explícita de ejecutar v2 en sombra. Debe generar y persistir `shadow_digest_runs` y `shadow_digest_items`, pero ser imposible que esa ruta llame al envío real.
-7. Añade pruebas unitarias del contrato y filtros, pruebas del corpus real y una prueba de integración que demuestre que la sombra crea el digest simulado sin escribir `digests`, `digest_items`, tracking, outbox o logs de proveedor.
+7. Añade pruebas unitarias del contrato y filtros, una prueba contractual del corpus observado con `callLLM` simulado y una prueba de integración que demuestre que la sombra crea el digest simulado sin escribir `digests`, `digest_items`, tracking, outbox o logs de proveedor. La clasificación del LLM real se validará ejecutando la sombra.
 8. Ejecuta primero pruebas dirigidas; después `npm run check:core` y las validaciones amplias que correspondan.
 9. Ejecuta `graphify update .` después de los cambios.
 10. Entrega al usuario un resumen en español: qué se construyó, qué se conservó, qué queda pendiente, riesgos y pruebas ejecutadas.

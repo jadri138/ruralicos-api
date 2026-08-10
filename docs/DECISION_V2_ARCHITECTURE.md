@@ -242,7 +242,7 @@ La petición debe incluir un snapshot suficiente para reproducir la decisión.
 - Preferencias, inclusiones y exclusiones expresas.
 - Contexto adicional relevante del perfil.
 
-El plan de suscripción no puede utilizarse para inferir el tipo legal del beneficiario.
+El plan de suscripción es exclusivamente comercial. No demuestra que el usuario sea agricultor, cooperativa, empresa, autónomo o beneficiario de una ayuda. El encaje con los beneficiarios debe proceder de información explícita del perfil y del documento oficial.
 
 ### Cada candidata
 
@@ -449,6 +449,8 @@ El corpus debe incluir al menos los errores reales ya observados:
 - Gestión del conejo silvestre: reconocer su posible relación agraria.
 
 También deben mantenerse las garantías territoriales y de no duplicación actuales.
+
+La prueba automatizada de este corpus utiliza un `callLLM` simulado con las decisiones esperadas. Por tanto, demuestra el contrato conjunto, el recorrido de todos los casos y la precedencia del contenido oficial frente a datos derivados, pero no valida la calidad semántica del LLM real. Esa evidencia solo se obtendrá ejecutando y revisando la sombra real.
 
 ## 15. Criterios para activar v2
 

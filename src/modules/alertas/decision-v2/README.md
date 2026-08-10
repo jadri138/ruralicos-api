@@ -11,6 +11,11 @@ aparezca exactamente una vez como `include` o `exclude`, con motivo y evidencia.
 Solo se permite un reintento para corregir un contrato tecnicamente invalido; un
 fallo posterior termina en `ERROR` sin seleccion alternativa.
 
+El plan de suscripcion se conserva como dato comercial, pero no acredita que el
+usuario sea agricultor, cooperativa, empresa, autonomo o beneficiario. El encaje
+con los beneficiarios solo puede apoyarse en informacion explicita del perfil y
+en el documento oficial.
+
 ## Activacion local o en un entorno controlado
 
 La fase esta apagada por defecto en ambos lados:
@@ -88,6 +93,12 @@ no impide que el motor de produccion continue.
 
 ## Pruebas dirigidas
 
+`decisionV2Corpus.test.js` usa un `callLLM` simulado que devuelve las decisiones
+esperadas. Verifica el contrato conjunto, el recorrido de los casos observados y
+la precedencia del contenido oficial frente a datos derivados; no demuestra que
+el LLM real vaya a clasificarlos correctamente. Esa comprobacion queda para una
+ejecucion real de la sombra.
+
 ```powershell
 node tests/decisionV2.test.js
 node tests/decisionV2Corpus.test.js
@@ -95,4 +106,3 @@ node tests/decisionV2Shadow.test.js
 node tests/decisionV2Migration.test.js
 node tests/decisionV2Workflow.test.js
 ```
-

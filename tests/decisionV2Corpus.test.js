@@ -25,7 +25,7 @@ function buildAlert(item) {
 }
 
 (async () => {
-  console.log('\n=== TESTS: corpus real decision-v2 ===\n');
+  console.log('\n=== TESTS: corpus contractual decision-v2 con LLM simulado ===\n');
   let calls = 0;
   let payload = null;
   const expectedById = new Map(corpus.cases.map((item) => [item.id, item]));
@@ -89,10 +89,10 @@ function buildAlert(item) {
   assert(!/\bPAC\b/.test(impacto.official.content_fragment));
   assert(/PAC/.test(impacto.derived.final_summary), 'el dato enganoso queda marcado como derivado');
   assert.strictEqual(result.status, 'GENERATED');
-  console.log('OK: siete casos reales evaluados conjuntamente con contenido oficial prioritario');
-  console.log('\nResultados corpus decision-v2: 1 aprobado, 0 fallidos');
+  console.log('OK: siete casos observados recorren el contrato conjunto con decisiones simuladas');
+  console.log('\nResultados corpus contractual decision-v2: 1 aprobado, 0 fallidos');
 })().catch((error) => {
-  console.error('FAIL: corpus real decision-v2');
+  console.error('FAIL: corpus contractual decision-v2 con LLM simulado');
   console.error(error.stack || error.message);
   process.exit(1);
 });
