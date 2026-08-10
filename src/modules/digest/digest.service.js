@@ -2091,17 +2091,49 @@ function filtrarAlertasPorCalidadDigest(alertas = [], { minScore = 65 } = {}) {
   return { aceptadas, rechazadas };
 }
 
-function generarMensajeDigestFallback({ user, alertas, fecha, organizationContext = null }) {
+function agruparAlertasDigestPreservandoOrden(alertas = []) {
+  const grupos = [];
+  for (const alerta of alertas || []) {
+    const grupo = grupoDigestAlerta(alerta);
+    const key = alerta.grupo_digest_key || grupo.key;
+    const previous = grupos[grupos.length - 1];
+    if (!previous || previous.key !== key) {
+      grupos.push({
+        key,
+        label: alerta.grupo_digest || grupo.label,
+        alertas: [],
+      });
+    }
+    grupos[grupos.length - 1].alertas.push(alerta);
+  }
+  return grupos;
+}
+
+function renderizarMensajeDigestFallback({
+  user,
+  alertas,
+  fecha,
+  organizationContext = null,
+  preserveOrder = false,
+  maxChars = 1600,
+  maxItems = 5,
+}) {
   const branding = obtenerMiaBranding(organizationContext || user.mia_organization_context || null);
   const saludo = construirSaludoDigest(user);
-  const seleccion = (alertas || []).slice(0, 5);
+  const seleccion = Number.isFinite(Number(maxItems)) && Number(maxItems) > 0
+    ? (alertas || []).slice(0, Number(maxItems))
+    : [...(alertas || [])];
   const tituloDigest = `${branding.digest_title} del ${formatearFechaDigest(fecha)}`;
   const cierre = branding.website
     ? `_Cualquier duda, visita ${branding.website}_`
     : `_Cualquier duda, contacta con ${branding.reply_sender}_`;
 
   let itemNumero = 0;
-  const bloques = agruparAlertasDigest(seleccion).map((grupo) => {
+  const renderedItems = [];
+  const grupos = preserveOrder
+    ? agruparAlertasDigestPreservandoOrden(seleccion)
+    : agruparAlertasDigest(seleccion);
+  const bloques = grupos.map((grupo) => {
     const items = grupo.alertas.map((alerta) => {
       itemNumero += 1;
       const prioridad = clasificarPrioridadAlerta(alerta);
@@ -2120,17 +2152,24 @@ function generarMensajeDigestFallback({ user, alertas, fecha, organizationContex
           : '';
       const url = String(alerta.url || '').trim();
 
-      return [
+      const renderedBlock = [
         `*${itemNumero}. ${prefijoPrioridad}${titulo}*`,
         [resumen, accion].filter(Boolean).join(' '),
         url,
       ].filter(Boolean).join('\n');
+      renderedItems.push({
+        alert_id: alerta.id,
+        final_position: itemNumero,
+        group: grupo.label,
+        rendered_block: renderedBlock,
+      });
+      return renderedBlock;
     });
 
     return [`*${grupo.label}*`, ...items].join('\n');
   }).join('\n\n');
 
-  return [
+  const completeMessage = [
     saludo,
     '',
     `*${tituloDigest}*`,
@@ -2138,7 +2177,22 @@ function generarMensajeDigestFallback({ user, alertas, fecha, organizationContex
     bloques,
     '',
     cierre,
-  ].join('\n').slice(0, 1600).trim();
+  ].join('\n').trim();
+  const message = Number.isFinite(Number(maxChars)) && Number(maxChars) > 0
+    ? completeMessage.slice(0, Number(maxChars)).trim()
+    : completeMessage;
+
+  return { message, items: renderedItems };
+}
+
+function generarMensajeDigestFallback({ user, alertas, fecha, organizationContext = null }) {
+  return renderizarMensajeDigestFallback({
+    user,
+    alertas,
+    fecha,
+    organizationContext,
+    preserveOrder: false,
+  }).message;
 }
 
 function naturalizarAccionDigest(texto) {
@@ -3438,6 +3492,8 @@ module.exports = {
   limpiarMensajeDigestIA,
   mensajeDigestPareceGenerico,
   filtrarAlertasPorCalidadDigest,
+  agruparAlertasDigestPreservandoOrden,
+  renderizarMensajeDigestFallback,
   generarMensajeDigestFallback,
   construirAccionRescate,
   recortarTextoRescate,
