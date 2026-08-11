@@ -306,6 +306,8 @@ async function persistirResultadoShadow(supabase, {
         excluded: decisions.filter((item) => item.decision === 'exclude').length,
         technical_errors: decisions.filter((item) => item.decision_source === 'technical_error').length,
         duplicate_input_rows: engineResult.duplicate_input_count || 0,
+        luna_review_recommended: engineResult.usage_json?.routing?.escalation_recommended === true,
+        luna_review_used: engineResult.usage_json?.routing?.escalation_used === true,
       },
       finished_at: new Date().toISOString(),
     });

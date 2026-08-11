@@ -6,6 +6,7 @@
 // alertas.service.js.
 const { checkCronToken } = require('../../middleware/cronToken');
 const { llamarIA } = require('../../platform/ia/llamarIA');
+const { OPENAI_MODELS } = require('../../platform/ia/modelPolicy');
 const { getFechaMadridISO } = require('../../shared/fechaMadrid');
 const {
   sanitizarTextoPostgres,
@@ -574,7 +575,10 @@ ${borrador}
 Responde UNICAMENTE con la ficha final. Sin JSON, sin explicaciones, sin nada mas.
 `.trim();
 
-            const respuestaIA = await llamarIA(prompt, instructions, 'gpt-5-nano', { maxOutputTokens: 820, task: 'revisar' });
+            const respuestaIA = await llamarIA(prompt, instructions, OPENAI_MODELS.economy, {
+              maxOutputTokens: 820,
+              task: 'revisar',
+            });
             revision = normalizarFichaIA(respuestaIA, a);
             resumenFinal = revision.texto;
           }

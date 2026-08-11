@@ -1,5 +1,6 @@
 process.env.OPENAI_API_KEY = process.env.OPENAI_API_KEY || 'test-key';
 process.env.IA_RUNS_LOG = 'false';
+process.env.IA_GPT56_LUNA_REASONING_EFFORT = 'low';
 
 const assert = require('assert');
 const { llamarIA, parsearJSON, __testing } = require('../src/platform/ia/llamarIA');
@@ -103,6 +104,22 @@ async function main() {
     assert.strictEqual(result.metadata.usage.cached_input_tokens, 30);
     assert.strictEqual(result.metadata.cost, null, 'sin tarifas configuradas no inventa un coste');
     assert(Number.isInteger(result.metadata.duration_ms));
+  });
+
+  await test('usa Luna con razonamiento bajo sin aceptar el medio por defecto', async () => {
+    const { fetchImpl, llamadas } = fakeFetch([respuestaOk('ok')]);
+    await llamarIA('prompt', 'instr', 'gpt-5.6-luna', { ...OPTS_RAPIDAS, fetchImpl });
+    const body = JSON.parse(llamadas[0].opts.body);
+    assert.strictEqual(body.model, 'gpt-5.6-luna');
+    assert.deepStrictEqual(body.reasoning, { effort: 'low' });
+  });
+
+  await test('usa nano como modelo economico cuando el caller no elige uno', async () => {
+    const { fetchImpl, llamadas } = fakeFetch([respuestaOk('ok')]);
+    await llamarIA('prompt', 'instr', undefined, { ...OPTS_RAPIDAS, fetchImpl });
+    const body = JSON.parse(llamadas[0].opts.body);
+    assert.strictEqual(body.model, 'gpt-5-nano');
+    assert.deepStrictEqual(body.reasoning, { effort: 'minimal' });
   });
 
   await test('calcula coste solo cuando recibe tarifas explicitas para el modelo', async () => {

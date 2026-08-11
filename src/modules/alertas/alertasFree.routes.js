@@ -2,6 +2,7 @@
 
 const { checkCronToken } = require('../../middleware/cronToken');
 const { llamarIA, parsearJSON } = require('../../platform/ia/llamarIA');
+const { OPENAI_MODELS } = require('../../platform/ia/modelPolicy');
 const { getFechaMadridISO } = require('../../shared/fechaMadrid');
 const { encolarComunicacionWhatsApp } = require('../mia/outbox');
 const {
@@ -297,7 +298,7 @@ ${lista}
       let generador = 'ia_validada';
       let fallbackMotivo = null;
       try {
-        contenido = await llamarIA(prompt, instructions, 'gpt-4o-mini', { task: 'resumen_free' });
+        contenido = await llamarIA(prompt, instructions, OPENAI_MODELS.economy, { task: 'resumen_free' });
       } catch (e) {
         console.error('Error IA FREE:', e.message);
         fallbackMotivo = 'error_ia';

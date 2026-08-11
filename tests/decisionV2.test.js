@@ -48,10 +48,15 @@ function alert(id, overrides = {}) {
   };
 }
 
-function validResponse(userId, included = [], excluded = []) {
+function validResponse(userId, included = [], excluded = [], {
+  needsReview = false,
+  reviewReason = '',
+} = {}) {
   return JSON.stringify({
     decision_version: CONTRACT_VERSION,
     user_id: userId,
+    needs_review: needsReview,
+    review_reason: reviewReason,
     included,
     excluded,
   });
@@ -203,6 +208,22 @@ test('valida cobertura exacta, IDs, duplicados y maximo', () => {
   });
   assert.strictEqual(repeatedPriority.ok, false);
   assert(repeatedPriority.errors.some((error) => error.code === 'invalid_priority_sequence'));
+
+  const missingReviewSignal = validarRespuestaDecisionV2(JSON.stringify({
+    decision_version: CONTRACT_VERSION,
+    user_id: 501,
+    included: [],
+    excluded: [
+      { alert_id: 9, reason: 'No encaja.', evidence: ['Texto oficial.'] },
+      { alert_id: 10, reason: 'No encaja.', evidence: ['Texto oficial.'] },
+    ],
+  }), {
+    userId: 501,
+    candidates: prepared.candidates,
+    maxIncluded: 2,
+  });
+  assert.strictEqual(missingReviewSignal.ok, false);
+  assert(missingReviewSignal.errors.some((error) => error.code === 'invalid_needs_review'));
 });
 
 test('hace una sola decision conjunta y conserva todas las candidatas una vez', async () => {
@@ -232,12 +253,14 @@ test('hace una sola decision conjunta y conserva todas las candidatas una vez', 
 
 test('permite exactamente un reintento para corregir formato', async () => {
   const inputs = [];
+  const models = [];
   const result = await ejecutarDecisionV2({
     user: user(),
     alerts: [alert(13)],
     maxIncluded: 1,
-    callLLM: async ({ input }) => {
+    callLLM: async ({ input, model }) => {
       inputs.push(input);
+      models.push(model);
       if (inputs.length === 1) return '{invalido';
       return validResponse(501, [
         { alert_id: 13, priority: 1, reason: 'Encaja.', evidence: ['Evidencia oficial.'] },
@@ -245,9 +268,60 @@ test('permite exactamente un reintento para corregir formato', async () => {
     },
   });
   assert.strictEqual(inputs.length, 2);
+  assert.deepStrictEqual(models, ['gpt-5-nano', 'gpt-5.6-luna']);
   assert(inputs[1].includes('Corrige exclusivamente el formato tecnico'));
   assert.strictEqual(result.status, 'GENERATED');
   assert.strictEqual(result.llm_attempts, 2);
+});
+
+test('escala una duda material a Luna solo cuando el cupo lo permite', async () => {
+  const calls = [];
+  const result = await ejecutarDecisionV2({
+    user: user(),
+    alerts: [alert(20)],
+    maxIncluded: 1,
+    allowLunaEscalation: true,
+    callLLM: async ({ model, stage }) => {
+      calls.push({ model, stage });
+      if (model === 'gpt-5-nano') {
+        return validResponse(501, [
+          { alert_id: 20, priority: 1, reason: 'Posible encaje.', evidence: ['Beneficiarios amplios.'] },
+        ], [], { needsReview: true, reviewReason: 'Beneficiario ambiguo.' });
+      }
+      return validResponse(501, [], [
+        { alert_id: 20, reason: 'Luna resuelve que no encaja.', evidence: ['Solo entidades publicas.'] },
+      ]);
+    },
+  });
+  assert.deepStrictEqual(calls, [
+    { model: 'gpt-5-nano', stage: 'primary' },
+    { model: 'gpt-5.6-luna', stage: 'semantic_escalation' },
+  ]);
+  assert.strictEqual(result.status, 'EMPTY');
+  assert.strictEqual(result.decisions[0].reason, 'Luna resuelve que no encaja.');
+  assert.strictEqual(result.usage_json.routing.escalation_used, true);
+  assert.strictEqual(result.usage_json.routing.reason, 'nano_requested_review');
+});
+
+test('respeta el cupo y conserva la decision valida de nano si Luna no fue seleccionada', async () => {
+  let calls = 0;
+  const result = await ejecutarDecisionV2({
+    user: user(),
+    alerts: [alert(21)],
+    maxIncluded: 1,
+    allowLunaEscalation: false,
+    callLLM: async () => {
+      calls += 1;
+      return validResponse(501, [
+        { alert_id: 21, priority: 1, reason: 'Encaje provisional.', evidence: ['Actividad agraria.'] },
+      ], [], { needsReview: true, reviewReason: 'Caso fronterizo.' });
+    },
+  });
+  assert.strictEqual(calls, 1);
+  assert.strictEqual(result.status, 'GENERATED');
+  assert.strictEqual(result.usage_json.routing.escalation_recommended, true);
+  assert.strictEqual(result.usage_json.routing.escalation_used, false);
+  assert.strictEqual(result.usage_json.routing.reason, 'review_cap_not_selected');
 });
 
 test('registra ERROR si el contrato vuelve a fallar, sin fallback semantico', async () => {

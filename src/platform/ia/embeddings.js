@@ -10,6 +10,8 @@
  */
 
 // OpenAI es OPCIONAL - solo se carga si es realmente necesario
+const { OPENAI_MODELS } = require('./modelPolicy');
+
 let OpenAI = null;
 let openaiClient = null;
 let isTestMode = false;
@@ -74,7 +76,7 @@ async function generarEmbedding(texto, forzarMock = false) {
 
   try {
     const response = await openaiClient.embeddings.create({
-      model: 'text-embedding-3-small',
+      model: OPENAI_MODELS.embedding,
       input: textoLimpio,
     });
 
@@ -124,7 +126,7 @@ async function generarEmbeddingsBatch(textos, forzarMock = false, onProgress = n
     for (let i = 0; i < textos.length; i += BATCH_SIZE) {
       const lote = textos.slice(i, i + BATCH_SIZE);
       const response = await openaiClient.embeddings.create({
-        model: 'text-embedding-3-small',
+        model: OPENAI_MODELS.embedding,
         input: lote.map(t => t.slice(0, 8000).trim()),
       });
 

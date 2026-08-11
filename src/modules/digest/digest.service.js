@@ -35,6 +35,7 @@
 const crypto = require('crypto');
 
 const { llamarIA }                 = require('../../platform/ia/llamarIA');
+const { OPENAI_MODELS }            = require('../../platform/ia/modelPolicy');
 
 const { getPlan }                  = require('../../config/planes');
 const {
@@ -2956,7 +2957,9 @@ async function generarMensajeDigest({ user, alertas, fecha, plan, aprendizaje, o
     ? 'Puedes usar hasta 3-4 frases por alerta si el contenido lo justifica. Incluye plazos, destinatarios y datos clave cuando aparezcan.'
     : 'Se conciso. 1-2 frases por alerta con lo mas importante.';
 
-  const modelo = esCooperativa ? 'gpt-4o' : 'gpt-4o-mini';
+  const modelo = esCooperativa
+    ? 'gpt-4o'
+    : process.env.DIGEST_MESSAGE_MODEL || OPENAI_MODELS.qualityEfficient;
 
   const prompt = `
 Eres el asistente de alertas agrarias de ${branding.reply_sender}. Redactas el mensaje de WhatsApp del dia para un profesional del campo. Hablas EN PLURAL, como empresa ("hemos revisado", "te avisamos"), y al usuario de tu. No eres un asesor: avisas de lo que ha salido hoy en los boletines, por si le interesa mirarlo. NUNCA afirmas que algo le afecta; como mucho lo planteas en condicional ("si tienes regadio, igual te interesa").

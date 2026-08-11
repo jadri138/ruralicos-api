@@ -9,6 +9,7 @@ const {
   CONTRACT_VERSION,
   PROMPT_VERSION,
   DEFAULT_MODEL,
+  DEFAULT_ESCALATION_MODEL,
   construirPerfilSnapshot,
   ejecutarDecisionV2,
 } = require('./decisionEngine');
@@ -23,18 +24,29 @@ function numeroConfig(value, fallback, min, max) {
 }
 
 function crearLlamadorDecisionV2(callIA = llamarIA) {
-  return ({ input, instructions, model, textFormat, maxOutputTokens }) => callIA(
+  return ({ input, instructions, model, textFormat, maxOutputTokens, stage = 'primary' }) => callIA(
     input,
     instructions,
     model,
     {
-      task: 'decision_v2_shadow',
+      task: `decision_v2_shadow_${stage}`,
       textFormat,
       maxOutputTokens,
       returnMetadata: true,
       retries: 0,
     }
   );
+}
+
+function seleccionarRevisionLuna({ workflowRunKey, userId, percent = 10 } = {}) {
+  const safePercent = numeroConfig(percent, 10, 0, 100);
+  if (safePercent <= 0) return false;
+  if (safePercent >= 100) return true;
+  const digest = crypto
+    .createHash('sha256')
+    .update(`${String(workflowRunKey || '')}:${String(userId || '')}`)
+    .digest();
+  return digest.readUInt32BE(0) / 0x100000000 < safePercent / 100;
 }
 
 function validarRenderShadow(rendered, selectedAlerts = []) {
@@ -104,6 +116,8 @@ async function ejecutarShadowParaUsuario({
   workflowDate,
   workflowRunKey,
   model = DEFAULT_MODEL,
+  escalationModel = DEFAULT_ESCALATION_MODEL,
+  allowLunaEscalation = true,
   maxIncluded = getMaxAlertasDigestUsuario(user),
   totalOfficialChars = numeroConfig(
     process.env.DECISION_V2_MAX_OFFICIAL_INPUT_CHARS,
@@ -146,6 +160,8 @@ async function ejecutarShadowParaUsuario({
       sentAlertIds,
       maxIncluded,
       model,
+      escalationModel,
+      allowLunaEscalation,
       callLLM,
       totalOfficialChars,
     });
@@ -192,6 +208,8 @@ async function ejecutarDecisionV2ShadowBatch(supabase, {
   workflowRunKey,
   batchSize = numeroConfig(process.env.DECISION_V2_SHADOW_BATCH_SIZE, 1, 1, 25),
   model = process.env.DECISION_V2_MODEL || DEFAULT_MODEL,
+  escalationModel = process.env.DECISION_V2_ESCALATION_MODEL || DEFAULT_ESCALATION_MODEL,
+  lunaReviewPercent = numeroConfig(process.env.DECISION_V2_LUNA_REVIEW_PERCENT, 10, 0, 100),
   repository = defaultRepository,
   callLLM = crearLlamadorDecisionV2(),
   renderMessage = renderizarMensajeDigestFallback,
@@ -233,6 +251,12 @@ async function ejecutarDecisionV2ShadowBatch(supabase, {
       workflowDate,
       workflowRunKey,
       model,
+      escalationModel,
+      allowLunaEscalation: seleccionarRevisionLuna({
+        workflowRunKey,
+        userId: user.id,
+        percent: lunaReviewPercent,
+      }),
       callLLM,
       renderMessage,
     }));
@@ -252,6 +276,7 @@ async function ejecutarDecisionV2ShadowBatch(supabase, {
 module.exports = {
   RENDER_VERSION,
   crearLlamadorDecisionV2,
+  seleccionarRevisionLuna,
   validarRenderShadow,
   ejecutarShadowParaUsuario,
   ejecutarDecisionV2ShadowBatch,

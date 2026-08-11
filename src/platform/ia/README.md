@@ -8,6 +8,7 @@ Capa mínima de acceso a modelos y embeddings. Centraliza llamadas, diagnóstico
 | --- | --- |
 | `llamarIA.js` | Ejecución de tareas generativas/estructuradas, extracción de contenido y diagnóstico |
 | `embeddings.js` | Generación de vectores para similitud semántica |
+| `modelPolicy.js` | Modelos económicos por nivel de tarea y razonamiento por defecto |
 
 ## Garantías esperadas
 
