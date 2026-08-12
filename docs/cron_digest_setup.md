@@ -45,16 +45,8 @@ sin evidencia no bloquea el resto del día ni provoca descargas nuevas.
 La API necesita además `PUBLIC_BASE_URL`, credenciales de Supabase, OpenAI y
 UltraMsg según `.env.example`.
 
-Para ejecutar `decision-v2` en sombra sin enviar sus resultados, configura:
-
-- En el Web Service de la API: `DECISION_V2_SHADOW_ENABLED=true`.
-- En el Cron Job: `RUN_DECISION_V2_SHADOW=true`.
-
-El cron lo ejecuta con perfiles y ayudas reales, antes del motor vigente, pero
-persiste el resultado exclusivamente en `shadow_digest_runs`,
-`shadow_candidate_decisions` y `shadow_digest_items`. Un fallo de esta fase se
-registra y no bloquea el digest real. No crea filas de entrega, no escribe en
-`mia_outbox` y no contacta con UltraMsg.
+`shadow-v2` no forma parte de este cron. Su runner es manual, independiente y
+está apagado por defecto; consulta `src/modules/alertas/shadow-v2/README.md`.
 
 Opcionales:
 
@@ -73,7 +65,6 @@ Opcionales:
 - `ALERT_DECISION_HOLD_RETRY_MAX_HOURS=96`
 - `ALERT_DECISION_HOLD_RETRY_LEASE_MS=900000`
 - `OUTBOX_MAX_LOOPS=50`
-- `DECISION_V2_SHADOW_MAX_LOOPS=200`
 
 La API admite estos ajustes opcionales de decisión y entrega:
 
@@ -92,11 +83,6 @@ La API admite estos ajustes opcionales de decisión y entrega:
 - `RUN_DAILY_EXPLORATION=true`
 - `MIA_MAX_PREGUNTAS_EXPLORACION_DIA=20`
 - `MIA_EXPLORACION_COOLDOWN_DIAS=30`
-- Los modelos de decision-v2 no se configuran en Render: la politica versionada
-  fija `gpt-5-nano` como primario y `gpt-5.6-luna` como revision selectiva.
-- `DECISION_V2_LUNA_REVIEW_PERCENT=10`
-- `DECISION_V2_SHADOW_BATCH_SIZE=1`
-- `DECISION_V2_MAX_OFFICIAL_INPUT_CHARS=180000`
 - `DIGEST_MESSAGE_MODEL=gpt-5.6-luna`
 - `MIA_GROUNDED_MODEL=gpt-5.6-luna`
 - `CRITICAL_DOUBLE_CHECK_MODEL_A=gpt-5-nano`

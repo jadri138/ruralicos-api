@@ -64,13 +64,11 @@ nada. `decision/replaySnapshotExporter.js` puede construir un corpus local
 seudonimizado leyendo Supabase sin mutarlo. El grader semántico de
 `decision/replayGrader.js` es opcional, inyectable y nunca decide la aceptación.
 
-### [`decision-v2/`](decision-v2/)
+### [`shadow-v2/`](shadow-v2/)
 
-Motor nuevo y aislado en sombra. Parte de todas las alertas ingeridas del día,
-aplica únicamente filtros objetivos y realiza una decisión LLM conjunta por
-usuario. Persiste perfil, candidatas, contrato, respuestas, decisiones, items y
-mensaje completo en tres tablas `shadow_*`; no alcanza ninguna ruta de entrega.
-Su [README](decision-v2/README.md) documenta activación, ejecución y consultas.
+Motor shadow manual y aislado. Aplica prefiltro, clasificación global con IA 1,
+cruce ficha-perfil y selección personal con IA 2. Solo persiste en las tres
+tablas `shadow_v2_*`; no registra rutas, no entra en el cron y no puede enviar.
 
 ## Cómo se filtra
 

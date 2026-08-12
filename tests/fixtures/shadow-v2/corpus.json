@@ -1,0 +1,71 @@
+{
+  "excluded": [
+    {
+      "id": 101,
+      "title": "Subvenciones para actuaciones de memoria histórica",
+      "organization": "Consejería de Cultura",
+      "official_content": "Convocatoria destinada a asociaciones memorialistas para recuperar la memoria democrática.",
+      "expected_prefilter": true,
+      "ai1": { "relevant": false, "actionable": true, "status": "active", "territories": { "national": false, "regions": ["Aragón"], "provinces": [], "municipalities": [] }, "activities": [], "beneficiary_types": ["asociaciones memorialistas"], "content_type": "aid", "action": "solicitar", "deadline": "2026-09-01", "summary": "Ayuda cultural de memoria democrática.", "evidence": ["asociaciones memorialistas"] }
+    },
+    {
+      "id": 102,
+      "title": "Educación permanente para entidades locales",
+      "organization": "Consejería de Educación",
+      "official_content": "Programa dirigido exclusivamente a ayuntamientos y otras entidades locales.",
+      "expected_prefilter": true,
+      "ai1": { "relevant": false, "actionable": true, "status": "active", "territories": { "national": false, "regions": ["Castilla y León"], "provinces": [], "municipalities": [] }, "activities": [], "beneficiary_types": ["entidades locales"], "content_type": "opportunity", "action": "participar", "deadline": null, "summary": "Programa educativo para entidades locales.", "evidence": ["exclusivamente a ayuntamientos"] }
+    },
+    {
+      "id": 103,
+      "title": "Concesión de ayudas a entidades de voluntariado",
+      "organization": "Consejería de Derechos Sociales",
+      "official_content": "Se resuelve y publica la concesión definitiva a entidades de voluntariado.",
+      "expected_prefilter": true,
+      "ai1": { "relevant": false, "actionable": false, "status": "closed", "territories": { "national": false, "regions": ["Galicia"], "provinces": [], "municipalities": [] }, "activities": [], "beneficiary_types": ["entidades de voluntariado"], "content_type": "information", "action": "consultar la resolución", "deadline": null, "summary": "Concesión ya resuelta.", "evidence": ["concesión definitiva"] }
+    },
+    {
+      "id": 104,
+      "title": "Ayuda por ocupación ilegal de viviendas",
+      "organization": "Consejería de Vivienda",
+      "official_content": "Ayudas generales a propietarios afectados por ocupación ilegal de viviendas.",
+      "expected_prefilter": true,
+      "ai1": { "relevant": false, "actionable": true, "status": "active", "territories": { "national": false, "regions": ["Madrid"], "provinces": [], "municipalities": [] }, "activities": [], "beneficiary_types": ["propietarios de viviendas"], "content_type": "aid", "action": "solicitar", "deadline": null, "summary": "Ayuda general de vivienda.", "evidence": ["propietarios afectados"] }
+    },
+    { "id": 105, "title": "Anuncio de extravío de título universitario", "organization": "Universidad pública", "official_content": "Se anuncia el extravío del título universitario.", "expected_prefilter": false },
+    { "id": 106, "title": "Aprobación inicial del presupuesto municipal", "organization": "Ayuntamiento", "official_content": "Presupuesto general municipal para el ejercicio.", "expected_prefilter": false },
+    { "id": 107, "title": "Exposición de la cuenta general", "organization": "Ayuntamiento", "official_content": "La cuenta general queda expuesta al público.", "expected_prefilter": false },
+    { "id": 108, "title": "Delegación de alcaldía para celebración civil", "organization": "Ayuntamiento", "official_content": "Delegación temporal de funciones de alcaldía.", "expected_prefilter": false },
+    { "id": 109, "title": "Bolsa de empleo de auxiliar administrativo", "organization": "Diputación", "official_content": "Bases de una bolsa general de empleo administrativo.", "expected_prefilter": false }
+  ],
+  "accepted_by_ai1": [
+    {
+      "id": 201,
+      "title": "Indemnización por sacrificio obligatorio de ganado bovino",
+      "organization": "Consejería de Agricultura y Ganadería",
+      "official_content": "Podrán solicitar la indemnización los titulares de explotaciones de ganado bovino de Asturias sometidas a sacrificio obligatorio hasta el 30 de septiembre de 2026.",
+      "ai1": { "relevant": true, "actionable": true, "status": "active", "territories": { "national": false, "regions": ["Asturias"], "provinces": ["Asturias"], "municipalities": [] }, "activities": ["bovino"], "beneficiary_types": ["titular de explotación ganadera"], "content_type": "aid", "action": "solicitar la indemnización", "deadline": "2026-09-30", "summary": "Indemnización por sacrificio sanitario obligatorio de bovino.", "evidence": ["titulares de explotaciones de ganado bovino", "hasta el 30 de septiembre de 2026"] }
+    },
+    {
+      "id": 202,
+      "title": "Ayudas para transformación en regadío de frutales",
+      "organization": "Dirección General de Agricultura",
+      "official_content": "Agricultores de frutales de Huesca podrán solicitar ayudas para transformar parcelas en regadío.",
+      "ai1": { "relevant": true, "actionable": true, "status": "active", "territories": { "national": false, "regions": ["Aragón"], "provinces": ["Huesca"], "municipalities": [] }, "activities": ["frutales"], "beneficiary_types": ["agricultor"], "content_type": "aid", "action": "solicitar la ayuda de regadío", "deadline": "2026-10-15", "summary": "Ayuda para transformar frutales en regadío.", "evidence": ["Agricultores de frutales de Huesca", "podrán solicitar ayudas"] }
+    },
+    {
+      "id": 203,
+      "title": "Obligación de gestión de purines en explotaciones porcinas",
+      "organization": "Consejería de Ganadería y Medio Ambiente",
+      "official_content": "Los titulares de explotaciones porcinas de Segovia deben registrar la gestión de purines antes del 1 de octubre.",
+      "ai1": { "relevant": true, "actionable": true, "status": "active", "territories": { "national": false, "regions": ["Castilla y León"], "provinces": ["Segovia"], "municipalities": [] }, "activities": ["porcino"], "beneficiary_types": ["titular de explotación ganadera"], "content_type": "obligation", "action": "registrar la gestión de purines", "deadline": "2026-10-01", "summary": "Obligación de registro para explotaciones porcinas.", "evidence": ["titulares de explotaciones porcinas", "deben registrar"] }
+    },
+    {
+      "id": 204,
+      "title": "Convocatoria abierta de ayuda agraria para modernización",
+      "organization": "Ministerio de Agricultura",
+      "official_content": "Los titulares de explotaciones agrarias podrán solicitar la ayuda hasta el 20 de noviembre de 2026.",
+      "ai1": { "relevant": true, "actionable": true, "status": "active", "territories": { "national": true, "regions": [], "provinces": [], "municipalities": [] }, "activities": ["agricultura"], "beneficiary_types": ["titular de explotación agraria"], "content_type": "aid", "action": "solicitar la ayuda", "deadline": "2026-11-20", "summary": "Ayuda abierta para modernizar explotaciones agrarias.", "evidence": ["titulares de explotaciones agrarias", "hasta el 20 de noviembre de 2026"] }
+    }
+  ]
+}
