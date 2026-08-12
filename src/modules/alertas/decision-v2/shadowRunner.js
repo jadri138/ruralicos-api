@@ -207,8 +207,11 @@ async function ejecutarDecisionV2ShadowBatch(supabase, {
   workflowDate,
   workflowRunKey,
   batchSize = numeroConfig(process.env.DECISION_V2_SHADOW_BATCH_SIZE, 1, 1, 25),
-  model = process.env.DECISION_V2_MODEL || DEFAULT_MODEL,
-  escalationModel = process.env.DECISION_V2_ESCALATION_MODEL || DEFAULT_ESCALATION_MODEL,
+  // Los modelos de la sombra forman parte de la politica de coste versionada.
+  // No leer aqui variables legacy de Render: una configuracion antigua no debe
+  // poder devolver silenciosamente toda la ejecucion a gpt-5.
+  model = DEFAULT_MODEL,
+  escalationModel = DEFAULT_ESCALATION_MODEL,
   lunaReviewPercent = numeroConfig(process.env.DECISION_V2_LUNA_REVIEW_PERCENT, 10, 0, 100),
   repository = defaultRepository,
   callLLM = crearLlamadorDecisionV2(),
