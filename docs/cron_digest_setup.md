@@ -79,7 +79,9 @@ La API admite estos ajustes opcionales de decisión y entrega:
 
 - `ALERT_DECISION_TOP_K=10`
 - `ALERT_DECISION_JUDGE_MODEL=gpt-5-nano`
-- `ALERT_DECISION_SECOND_OPINION_MODEL=gpt-5-nano`
+- `ALERT_DECISION_SECOND_OPINION_MODEL=gpt-5.6-luna`
+- `IA_GPT5_NANO_REASONING_EFFORT=minimal`
+- `IA_GPT56_LUNA_REASONING_EFFORT=low`
 - `ALERT_DECISION_LLM_DAILY_CALL_LIMIT=<tope-positivo-antes-de-produccion>`
 - `ALERT_DECISION_JUDGE_PRICING_JSON=<tarifas-explicitas-opcionales>`
 - `ALERT_DECISION_PSEUDONYM_SALT=<secreto-largo-y-estable>`
@@ -90,9 +92,15 @@ La API admite estos ajustes opcionales de decisión y entrega:
 - `RUN_DAILY_EXPLORATION=true`
 - `MIA_MAX_PREGUNTAS_EXPLORACION_DIA=20`
 - `MIA_EXPLORACION_COOLDOWN_DIAS=30`
-- `DECISION_V2_MODEL=gpt-5`
+- `DECISION_V2_MODEL=gpt-5-nano`
+- `DECISION_V2_ESCALATION_MODEL=gpt-5.6-luna`
+- `DECISION_V2_LUNA_REVIEW_PERCENT=10`
 - `DECISION_V2_SHADOW_BATCH_SIZE=1`
 - `DECISION_V2_MAX_OFFICIAL_INPUT_CHARS=180000`
+- `DIGEST_MESSAGE_MODEL=gpt-5.6-luna`
+- `MIA_GROUNDED_MODEL=gpt-5.6-luna`
+- `CRITICAL_DOUBLE_CHECK_MODEL_A=gpt-5-nano`
+- `CRITICAL_DOUBLE_CHECK_MODEL_B=gpt-5.6-luna`
 
 `DIGEST_VIA_OUTBOX` está retirado: no existe un modo de envío síncrono para el
 digest. No programes `/tareas/mia-outbox` ni `/tareas/whatsapp-reconcile` como

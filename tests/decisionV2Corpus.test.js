@@ -60,6 +60,8 @@ function buildAlert(item) {
       return JSON.stringify({
         decision_version: CONTRACT_VERSION,
         user_id: corpus.profile.id,
+        needs_review: false,
+        review_reason: '',
         included,
         excluded,
       });

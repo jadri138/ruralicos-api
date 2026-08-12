@@ -6,10 +6,13 @@ duplicado de publicacion, historial usuario-alerta y exclusiones explicitas.
 `estado_ia`, scores, embeddings, taxonomia, sectores inferidos y resumenes nunca
 reducen el universo.
 
-El LLM es la unica autoridad semantica. Su contrato exige que cada candidata
+El LLM es la unica autoridad semantica. Nano resuelve la primera pasada y su contrato exige que cada candidata
 aparezca exactamente una vez como `include` o `exclude`, con motivo y evidencia.
-Solo se permite un reintento para corregir un contrato tecnicamente invalido; un
-fallo posterior termina en `ERROR` sin seleccion alternativa.
+Tambien indica si existe una duda material. Luna solo sustituye la decision
+cuando nano pide revision y el usuario entra en un cupo determinista configurable;
+un contrato invalido de nano tambien se repara una vez con Luna. Si la revision
+selectiva falla pero nano ya habia entregado un contrato valido, se conserva nano
+y se registra el fallo. Un contrato que sigue siendo invalido termina en `ERROR`.
 
 El plan de suscripcion se conserva como dato comercial, pero no acredita que el
 usuario sea agricultor, cooperativa, empresa, autonomo o beneficiario. El encaje
@@ -23,13 +26,22 @@ La fase esta apagada por defecto en ambos lados:
 ```text
 # API
 DECISION_V2_SHADOW_ENABLED=true
-DECISION_V2_MODEL=gpt-5
+DECISION_V2_MODEL=gpt-5-nano
+DECISION_V2_ESCALATION_MODEL=gpt-5.6-luna
+DECISION_V2_LUNA_REVIEW_PERCENT=10
+IA_GPT5_NANO_REASONING_EFFORT=minimal
+IA_GPT56_LUNA_REASONING_EFFORT=low
 DECISION_V2_SHADOW_BATCH_SIZE=1
 
 # proceso que ejecuta scripts/run_digest_workflow.js
 RUN_DECISION_V2_SHADOW=true
 DECISION_V2_SHADOW_MAX_LOOPS=200
 ```
+
+`DECISION_V2_LUNA_REVIEW_PERCENT` limita las revisiones semanticas de Luna a una
+muestra estable de usuarios; `10` no significa una segunda llamada en el 10 % de
+todos los casos, sino como maximo en los seleccionados donde nano haya marcado
+una duda real. Las reparaciones tecnicas excepcionales quedan fuera del cupo.
 
 Opcionalmente, `DECISION_V2_MAX_OFFICIAL_INPUT_CHARS` controla el presupuesto
 total de fragmentos oficiales sin eliminar candidatas. No actives estas
@@ -61,7 +73,7 @@ Ejemplos de consulta desde una sesion interna con `service_role`:
 
 ```sql
 select shadow_run_id, workflow_date, user_id, status, model,
-       counts_json, error_code, mensaje_preview
+       usage_json, counts_json, error_code, mensaje_preview
 from public.shadow_digest_runs
 where workflow_date = date '2026-08-10'
 order by created_at, user_id;

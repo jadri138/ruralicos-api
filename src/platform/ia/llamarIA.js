@@ -10,6 +10,8 @@
 //   IA_TIMEOUT_MS (90000) · IA_HTTP_RETRIES (2) · IA_HTTP_RETRY_DELAY_MS (2000)
 //   IA_RUNS_LOG (true)
 
+const { OPENAI_MODELS, defaultReasoningForModel } = require('./modelPolicy');
+
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
 function numeroEnv(name, fallback, min, max) {
@@ -112,7 +114,7 @@ function registrarIARun(run) {
 // ─────────────────────────────────────────────
 // Helper: llamar a OpenAI Responses API
 // ─────────────────────────────────────────────
-async function llamarIA(prompt, instructions, model = 'gpt-4o-mini', options = {}) {
+async function llamarIA(prompt, instructions, model = OPENAI_MODELS.economy, options = {}) {
   if (!OPENAI_API_KEY) throw new Error('Falta OPENAI_API_KEY en variables de entorno');
 
   if (typeof model !== 'string' || !model.trim()) {
@@ -125,12 +127,11 @@ async function llamarIA(prompt, instructions, model = 'gpt-4o-mini', options = {
   if (options?.maxOutputTokens) body.max_output_tokens = options.maxOutputTokens;
   if (options?.reasoning) {
     body.reasoning = options.reasoning;
-  } else if (model === 'gpt-5-nano') {
-    // Estas tareas estructuradas no necesitan razonamiento medio. Reducirlo
-    // evita agotar max_output_tokens antes de producir el JSON visible.
-    body.reasoning = {
-      effort: String(process.env.IA_GPT5_NANO_REASONING_EFFORT || 'minimal'),
-    };
+  } else {
+    const defaultReasoning = defaultReasoningForModel(model);
+    // Reserva el presupuesto de salida al JSON o texto visible en vez de
+    // aceptar el razonamiento medio que algunos modelos usan por omision.
+    if (defaultReasoning) body.reasoning = defaultReasoning;
   }
 
   const fetchImpl = options?.fetchImpl || globalThis.fetch;

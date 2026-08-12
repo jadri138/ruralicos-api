@@ -1,4 +1,5 @@
 const { llamarIA, parsearJSON } = require('../../platform/ia/llamarIA');
+const { OPENAI_MODELS } = require('../../platform/ia/modelPolicy');
 const {
   TEMAS_FEEDBACK_RURALICOS,
   aliasesTemaFeedback,
@@ -358,7 +359,7 @@ Devuelve solo JSON:
     const respuestaTexto = await llamarIA(
       prompt,
       'Devuelve solo JSON valido. Sin markdown, sin explicaciones.',
-      'gpt-4o-mini',
+      OPENAI_MODELS.economy,
       { task: 'feedback_parser' }
     );
     const respuesta = parsearJSON(respuestaTexto);

@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const { OPENAI_MODELS } = require('../../../platform/ia/modelPolicy');
 const {
   CONTRACT_VERSIONS,
   DECISION_STATES,
@@ -242,7 +243,7 @@ function normalizeCallerMetadata(result, defaults = {}) {
 
 function createOpenAIJudgeCaller({
   callIA,
-  model = 'gpt-5-nano',
+  model = OPENAI_MODELS.economy,
   task = 'alert_decision_judge',
   maxOutputTokens = 2400,
   pricing = null,

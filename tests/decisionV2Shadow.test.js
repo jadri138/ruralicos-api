@@ -4,6 +4,7 @@ const path = require('path');
 const { CONTRACT_VERSION } = require('../src/modules/alertas/decision-v2/decisionEngine');
 const {
   ejecutarShadowParaUsuario,
+  seleccionarRevisionLuna,
 } = require('../src/modules/alertas/decision-v2/shadowRunner');
 const {
   persistirResultadoShadow,
@@ -113,6 +114,8 @@ function fakeSupabaseWrites() {
     callLLM: async () => JSON.stringify({
       decision_version: CONTRACT_VERSION,
       user_id: 801,
+      needs_review: false,
+      review_reason: '',
       included: [
         { alert_id: 821, priority: 1, reason: 'Primera.', evidence: ['Convocatoria oficial.'] },
         { alert_id: 820, priority: 2, reason: 'Segunda.', evidence: ['Titulares agrarios.'] },
@@ -168,6 +171,19 @@ function fakeSupabaseWrites() {
   assert.strictEqual(technical.payload.rendered, null);
   assert.strictEqual(technical.payload.engineResult.selected_alerts.length, 0);
   console.log('OK: un fallo tecnico persiste ERROR y no fabrica mensaje');
+
+  assert.strictEqual(seleccionarRevisionLuna({ workflowRunKey: 'run', userId: 1, percent: 0 }), false);
+  assert.strictEqual(seleccionarRevisionLuna({ workflowRunKey: 'run', userId: 1, percent: 100 }), true);
+  assert.strictEqual(
+    seleccionarRevisionLuna({ workflowRunKey: 'run', userId: 801, percent: 10 }),
+    seleccionarRevisionLuna({ workflowRunKey: 'run', userId: 801, percent: 10 }),
+    'la seleccion debe ser estable para poder auditar y reintentar sin cambiar de ruta'
+  );
+  const selectedAtTenPercent = Array.from({ length: 1000 }, (_, index) => index + 1)
+    .filter((userId) => seleccionarRevisionLuna({ workflowRunKey: 'run', userId, percent: 10 }))
+    .length;
+  assert(selectedAtTenPercent >= 70 && selectedAtTenPercent <= 130);
+  console.log('OK: la muestra de Luna es determinista y aproxima la tasa configurada');
 
   const sourceDir = path.join(__dirname, '..', 'src', 'modules', 'alertas', 'decision-v2');
   const source = fs.readdirSync(sourceDir)

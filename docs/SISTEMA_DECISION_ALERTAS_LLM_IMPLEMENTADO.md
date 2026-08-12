@@ -651,8 +651,8 @@ relevantes:
 | Variable | Predeterminado | Uso |
 | --- | ---: | --- |
 | `ALERT_DECISION_TOP_K` | `10` | Candidatas máximas enviadas al juez; el código limita entre 1 y 20 |
-| `ALERT_DECISION_JUDGE_MODEL` | `gpt-5-nano` | Modelo del juez principal |
-| `ALERT_DECISION_SECOND_OPINION_MODEL` | modelo principal | Modelo de segunda opinión selectiva |
+| `ALERT_DECISION_JUDGE_MODEL` | `gpt-5-nano` | Modelo de mínimo coste para el juez principal |
+| `ALERT_DECISION_SECOND_OPINION_MODEL` | `gpt-5.6-luna` | Modelo superior usado solo como segunda opinión selectiva |
 | `ALERT_DECISION_JUDGE_CONCURRENCY` | `3` | Evaluaciones simultáneas; el código limita entre 1 y 6 |
 | `ALERT_DECISION_LLM_DAILY_CALL_LIMIT` | `0` | Tope diario de juez y segunda opinión. **`0` o vacío significa sin tope**, no «sin llamadas»: el juez funciona con normalidad y el gasto queda sin acotar. Conviene fijar un valor positivo medido. Si hay un tope activo pero no puede comprobarse cuánto se ha gastado, ahí sí se dejan de abrir llamadas |
 | `ALERT_DECISION_JUDGE_PRICING_JSON` | sin valor | Tarifas explícitas por modelo para calcular coste; sin ellas se guardan tokens y el coste queda `null`, nunca inventado |

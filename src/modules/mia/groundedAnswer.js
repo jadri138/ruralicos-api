@@ -1,7 +1,8 @@
 const { llamarIA } = require('../../platform/ia/llamarIA');
+const { OPENAI_MODELS } = require('../../platform/ia/modelPolicy');
 const { obtenerMiaBranding } = require('./organizationContext');
 
-const DEFAULT_MODEL = process.env.MIA_GROUNDED_MODEL || 'gpt-4o-mini';
+const DEFAULT_MODEL = process.env.MIA_GROUNDED_MODEL || OPENAI_MODELS.qualityEfficient;
 const DEFAULT_MAX_REPLY_LENGTH = Number(process.env.MIA_GROUNDED_MAX_REPLY_LENGTH || 1200);
 const FORBIDDEN_PATTERNS = [
   /\bjaime\b/i,

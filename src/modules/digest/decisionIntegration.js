@@ -8,6 +8,7 @@ const {
   decideCandidateBatch,
 } = require('../alertas/decision');
 const { llamarIA } = require('../../platform/ia/llamarIA');
+const { OPENAI_MODELS } = require('../../platform/ia/modelPolicy');
 const { getFechaMadridISO, getRangoDiaMadridUTC } = require('../../shared/fechaMadrid');
 const { cargarCacheDecisionesJuez } = require('../mia/digestCandidateDecisions');
 const { retryMetadataFromCandidate } = require('./decisionHoldRetry');
@@ -316,8 +317,8 @@ function crearCallersJuez(options = {}) {
   if (typeof createOpenAIJudgeCaller !== 'function') {
     return { caller: undefined, secondOpinionCaller: undefined };
   }
-  const model = process.env.ALERT_DECISION_JUDGE_MODEL || 'gpt-5-nano';
-  const secondModel = process.env.ALERT_DECISION_SECOND_OPINION_MODEL || model;
+  const model = process.env.ALERT_DECISION_JUDGE_MODEL || OPENAI_MODELS.economy;
+  const secondModel = process.env.ALERT_DECISION_SECOND_OPINION_MODEL || OPENAI_MODELS.qualityEfficient;
   const pricing = parseJudgePricing();
   return {
     caller: createOpenAIJudgeCaller({
