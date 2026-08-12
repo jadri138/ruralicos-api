@@ -248,7 +248,7 @@ async function llamarIA(prompt, instructions, model = OPENAI_MODELS.economy, opt
       break;
     }
 
-    registrarIARun({
+    if (options?.skipAudit !== true) registrarIARun({
       task,
       model,
       status: 'ok',
@@ -284,7 +284,7 @@ async function llamarIA(prompt, instructions, model = OPENAI_MODELS.economy, opt
     return contenido;
   }
 
-  registrarIARun({
+  if (options?.skipAudit !== true) registrarIARun({
     task,
     model,
     status: 'error',
