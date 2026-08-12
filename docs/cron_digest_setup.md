@@ -92,8 +92,8 @@ La API admite estos ajustes opcionales de decisión y entrega:
 - `RUN_DAILY_EXPLORATION=true`
 - `MIA_MAX_PREGUNTAS_EXPLORACION_DIA=20`
 - `MIA_EXPLORACION_COOLDOWN_DIAS=30`
-- `DECISION_V2_MODEL=gpt-5-nano`
-- `DECISION_V2_ESCALATION_MODEL=gpt-5.6-luna`
+- Los modelos de decision-v2 no se configuran en Render: la politica versionada
+  fija `gpt-5-nano` como primario y `gpt-5.6-luna` como revision selectiva.
 - `DECISION_V2_LUNA_REVIEW_PERCENT=10`
 - `DECISION_V2_SHADOW_BATCH_SIZE=1`
 - `DECISION_V2_MAX_OFFICIAL_INPUT_CHARS=180000`

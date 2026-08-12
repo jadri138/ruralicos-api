@@ -26,8 +26,6 @@ La fase esta apagada por defecto en ambos lados:
 ```text
 # API
 DECISION_V2_SHADOW_ENABLED=true
-DECISION_V2_MODEL=gpt-5-nano
-DECISION_V2_ESCALATION_MODEL=gpt-5.6-luna
 DECISION_V2_LUNA_REVIEW_PERCENT=10
 IA_GPT5_NANO_REASONING_EFFORT=minimal
 IA_GPT56_LUNA_REASONING_EFFORT=low
@@ -37,6 +35,11 @@ DECISION_V2_SHADOW_BATCH_SIZE=1
 RUN_DECISION_V2_SHADOW=true
 DECISION_V2_SHADOW_MAX_LOOPS=200
 ```
+
+Los modelos no se toman de variables de Render. La politica versionada fija
+`gpt-5-nano` como primario y `gpt-5.6-luna` como revision selectiva, de modo que
+un valor legacy de `DECISION_V2_MODEL` no pueda reactivar accidentalmente
+`gpt-5`.
 
 `DECISION_V2_LUNA_REVIEW_PERCENT` limita las revisiones semanticas de Luna a una
 muestra estable de usuarios; `10` no significa una segunda llamada en el 10 % de

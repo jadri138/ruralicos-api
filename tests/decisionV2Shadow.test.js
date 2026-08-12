@@ -4,6 +4,7 @@ const path = require('path');
 const { CONTRACT_VERSION } = require('../src/modules/alertas/decision-v2/decisionEngine');
 const {
   ejecutarShadowParaUsuario,
+  ejecutarDecisionV2ShadowBatch,
   seleccionarRevisionLuna,
 } = require('../src/modules/alertas/decision-v2/shadowRunner');
 const {
@@ -204,7 +205,49 @@ function fakeSupabaseWrites() {
   assert(!/require\([^)]*(digestOutbox|whatsapp|tracking|clicks|mia\/outbox)/i.test(source));
   console.log('OK: no existe ninguna via de escritura o import de entrega');
 
-  console.log('\nResultados decisionV2Shadow: 4 aprobados, 0 fallidos');
+  const legacyPrimary = process.env.DECISION_V2_MODEL;
+  const legacyEscalation = process.env.DECISION_V2_ESCALATION_MODEL;
+  process.env.DECISION_V2_MODEL = 'gpt-5';
+  process.env.DECISION_V2_ESCALATION_MODEL = 'gpt-5';
+  try {
+    const lockedModels = [];
+    const locked = {};
+    const repository = {
+      ...fakeRepository(locked),
+      cargarUsuariosPendientesShadow: async () => [profile()],
+      cargarAlertasPeriodoShadow: async () => [alert(823)],
+      cargarDocumentosOficialesShadow: async () => new Map(),
+      cargarHistorialEnviadoShadow: async () => new Map(),
+    };
+    await ejecutarDecisionV2ShadowBatch({}, {
+      workflowDate: '2026-08-12',
+      workflowRunKey: '55555555-5555-4555-8555-555555555555',
+      lunaReviewPercent: 100,
+      repository,
+      callLLM: async ({ model }) => {
+        lockedModels.push(model);
+        return JSON.stringify({
+          decision_version: CONTRACT_VERSION,
+          user_id: 801,
+          needs_review: lockedModels.length === 1,
+          review_reason: lockedModels.length === 1 ? 'Caso fronterizo simulado.' : '',
+          included: [
+            { alert_id: 823, priority: 1, reason: 'Encaje simulado.', evidence: ['Documento oficial.'] },
+          ],
+          excluded: [],
+        });
+      },
+    });
+    assert.deepStrictEqual(lockedModels, ['gpt-5-nano', 'gpt-5.6-luna']);
+  } finally {
+    if (legacyPrimary === undefined) delete process.env.DECISION_V2_MODEL;
+    else process.env.DECISION_V2_MODEL = legacyPrimary;
+    if (legacyEscalation === undefined) delete process.env.DECISION_V2_ESCALATION_MODEL;
+    else process.env.DECISION_V2_ESCALATION_MODEL = legacyEscalation;
+  }
+  console.log('OK: ignora overrides legacy caros y conserva nano mas Luna');
+
+  console.log('\nResultados decisionV2Shadow: 5 aprobados, 0 fallidos');
 })().catch((error) => {
   console.error('FAIL: integracion completa shadow decision-v2');
   console.error(error.stack || error.message);
