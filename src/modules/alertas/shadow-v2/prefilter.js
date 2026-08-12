@@ -1,8 +1,10 @@
 const {
   RURAL_ORGANIZATIONS,
-  POSITIVE_TERMS_BY_TOPIC,
-  UNAMBIGUOUS_NEGATIVE_TERMS,
+  RURAL_TERMS_BY_TOPIC,
+  METADATA_ONLY_RURAL_TERMS,
 } = require('./config');
+
+const METADATA_ONLY_TERM_SET = new Set(METADATA_ONLY_RURAL_TERMS);
 
 function normalizeText(value) {
   return String(value || '')
@@ -32,46 +34,51 @@ function prefilterAlert(officialSnapshot = {}) {
   const duplicateOf = officialSnapshot.duplicate_of ?? null;
   const officialContent = String(officialSnapshot.official_content || '').trim();
   const officialUrl = String(officialSnapshot.official_url || '').trim();
-  const searchable = normalizeText([
+  const organizationText = normalizeText([
     officialSnapshot.title,
     officialSnapshot.organization,
-    officialSnapshot.source,
-    officialContent,
-    officialUrl,
+    officialSnapshot.section,
   ].filter(Boolean).join('\n'));
+  const metadataText = normalizeText([
+    officialSnapshot.title,
+    officialSnapshot.organization,
+    officialSnapshot.section,
+  ].filter(Boolean).join('\n'));
+  const bodyText = normalizeText(officialContent);
 
-  const organizations = detectedTerms(searchable, RURAL_ORGANIZATIONS);
-  const positiveByTopic = {};
-  for (const [topic, terms] of Object.entries(POSITIVE_TERMS_BY_TOPIC)) {
-    const found = detectedTerms(searchable, terms);
-    if (found.length > 0) positiveByTopic[topic] = found;
+  const organizations = detectedTerms(organizationText, RURAL_ORGANIZATIONS);
+  const ruralTermsByTopic = {};
+  for (const [topic, terms] of Object.entries(RURAL_TERMS_BY_TOPIC)) {
+    const metadataFound = detectedTerms(metadataText, terms);
+    const bodyFound = detectedTerms(
+      bodyText,
+      terms.filter((term) => !METADATA_ONLY_TERM_SET.has(normalizeText(term)))
+    );
+    const found = [...new Set([...metadataFound, ...bodyFound])];
+    if (found.length > 0) ruralTermsByTopic[topic] = found;
   }
-  const positiveTerms = [...new Set(Object.values(positiveByTopic).flat())];
-  const negativeTerms = detectedTerms(searchable, UNAMBIGUOUS_NEGATIVE_TERMS);
-  const ruralSignal = organizations.length > 0 || positiveTerms.length > 0;
+  const ruralTerms = [...new Set(Object.values(ruralTermsByTopic).flat())];
+  const ruralSignal = organizations.length > 0 || ruralTerms.length > 0;
   const reasons = [];
-  let passed = true;
+  let passed = false;
 
   if (duplicateOf !== null && duplicateOf !== undefined) {
-    passed = false;
     reasons.push('duplicate_already_resolved');
-  } else if (negativeTerms.length > 0 && !ruralSignal) {
-    passed = false;
-    reasons.push('unambiguous_non_rural_noise');
-  } else {
+  } else if (ruralSignal) {
+    passed = true;
     if (organizations.length > 0) reasons.push('rural_organization');
-    if (positiveTerms.length > 0) reasons.push('rural_positive_term');
-    if (negativeTerms.length > 0 && ruralSignal) reasons.push('contradictory_signals_forwarded');
-    if (!ruralSignal && negativeTerms.length === 0) reasons.push('uncertain_forwarded');
+    if (ruralTerms.length > 0) reasons.push('rural_vocabulary');
+  } else {
+    reasons.push('no_rural_signal');
   }
 
   return {
+    decision: passed ? 'PASS' : 'REJECT',
     passed,
     reasons,
     detected_organizations: organizations,
-    detected_positive_terms: positiveTerms,
-    detected_positive_terms_by_topic: positiveByTopic,
-    detected_negative_terms: negativeTerms,
+    detected_rural_terms: ruralTerms,
+    detected_rural_terms_by_topic: ruralTermsByTopic,
     has_official_document: officialContent.length > 0,
     has_official_url: /^https?:\/\//i.test(officialUrl),
     duplicate_of: duplicateOf,

@@ -49,15 +49,14 @@ const AI1_TEXT_FORMAT = Object.freeze({
 
 const AI1_INSTRUCTIONS = [
   'Eres IA 1 del sistema shadow de Ruralicos.',
-  'Comprende y clasifica globalmente una unica alerta a partir del documento oficial actual.',
-  'relevant=true solo cuando el acto pertenece realmente al ambito rural de Ruralicos.',
-  'actionable=true solo si todavia hay una accion, obligacion, oportunidad o afectacion concreta.',
-  'Una concesion ya resuelta no es una convocatoria abierta.',
-  'Palabras sueltas como ayuda o medio ambiente, o compartir una provincia, no bastan.',
-  'Beneficiarios, actividades, territorio y plazo deben estar respaldados por el documento.',
-  'El territorio explicito del acto prevalece sobre menciones incidentales.',
-  'No inventes. Si falta informacion usa arrays vacios, null o unknown.',
-  'evidence debe contener fragmentos breves y literales del texto oficial que sostengan la ficha.',
+  'Analiza una unica publicacion oficial y decide si es realmente util o afecta a personas o actividades del medio rural.',
+  'Incluye agricultura, ganaderia, silvicultura, regadio, agroalimentacion y desarrollo rural.',
+  'relevant=true solo si el asunto real de la publicacion es rural; una palabra aislada o el nombre de un organismo no bastan.',
+  'actionable=true solo si todavia se puede solicitar, cumplir, recurrir, participar o actuar, o existe una afectacion concreta vigente.',
+  'Clasifica territorio, actividades, beneficiarios, tipo, accion y plazo usando exclusivamente el documento actual.',
+  'Una concesion, adjudicacion o convocatoria ya resuelta o cerrada no es una oportunidad abierta.',
+  'No inventes ni completes por intuicion. Si falta informacion usa arrays vacios, null o unknown.',
+  'evidence debe contener fragmentos breves y literales que sostengan la decision.',
 ].join('\n');
 
 function cleanString(value, max = 1000) {

@@ -2,11 +2,15 @@ const assert = require('assert');
 const corpus = require('./fixtures/shadow-v2/corpus.json');
 const {
   AI1_MODEL,
+  AI1_INSTRUCTIONS,
+  AI1_PROMPT_VERSION,
   classifyAlertWithAi1,
   normalizeAi1Result,
 } = require('../src/modules/alertas/shadow-v2/ai1');
 const {
   AI2_MODEL,
+  AI2_INSTRUCTIONS,
+  AI2_PROMPT_VERSION,
   decideDigestWithAi2,
   normalizeAi2Result,
 } = require('../src/modules/alertas/shadow-v2/ai2');
@@ -19,6 +23,11 @@ function fakeResponse(value, usage = { input_tokens: 10, output_tokens: 5, total
 }
 
 async function main() {
+  assert.strictEqual(AI1_PROMPT_VERSION, 'shadow-v2-ai1-prompt-2');
+  assert(AI1_INSTRUCTIONS.includes('el asunto real de la publicacion es rural'));
+  assert.strictEqual(AI2_PROMPT_VERSION, 'shadow-v2-ai2-prompt-2');
+  assert(AI2_INSTRUCTIONS.includes('encaje personal concreto'));
+
   const validCard = corpus.accepted_by_ai1[0].ai1;
   assert.deepStrictEqual(normalizeAi1Result(validCard), validCard);
 

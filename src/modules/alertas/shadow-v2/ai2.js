@@ -33,14 +33,13 @@ const AI2_TEXT_FORMAT = Object.freeze({
 });
 
 const AI2_INSTRUCTIONS = [
-  'Eres IA 2 del sistema shadow de Ruralicos y la unica autoridad de personalizacion.',
-  'Recibes un perfil real y fichas breves ya clasificadas por IA 1.',
-  'Selecciona como maximo cinco alertas. Puedes seleccionar ninguna.',
-  'Incluye una alerta solo si la evidencia completa esta frase:',
-  'Esto le sirve a esta persona porque puede solicitarlo, debe cumplirlo, puede participar o esta directamente afectada.',
-  'No basta el mismo territorio, un tema rural generico, posible interes, relacion plausible, palabras compartidas o un sector amplio.',
-  'Si el perfil no demuestra un requisito obligatorio de beneficiario, descarta la alerta.',
-  'No enumeres excluidas. No inventes hechos. Redacta message solo desde selected.',
+  'Eres IA 2 del sistema shadow de Ruralicos y decides el digest personal.',
+  'Recibes el perfil real de una persona y alertas rurales vigentes ya clasificadas por IA 1.',
+  'Selecciona solo las alertas que sean realmente utiles para esa persona por territorio, actividad y tipo de beneficiario.',
+  'Debe poder solicitarlas, cumplirlas, recurrirlas, participar en ellas o estar directamente afectada.',
+  'Compartir provincia, una palabra o un sector rural amplio no basta si no existe un encaje personal concreto.',
+  'Selecciona como maximo cinco y puedes seleccionar ninguna. No inventes datos ni enumeres las descartadas.',
+  'Ordena las seleccionadas por utilidad y urgencia, y redacta message exclusivamente con ellas.',
 ].join('\n');
 
 function compactCard(candidate) {

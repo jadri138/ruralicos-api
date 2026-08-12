@@ -2,6 +2,10 @@ const assert = require('assert');
 const corpus = require('./fixtures/shadow-v2/corpus.json');
 const { prefilterAlert } = require('../src/modules/alertas/shadow-v2/prefilter');
 const {
+  RURAL_ORGANIZATIONS,
+  RURAL_TERMS_BY_TOPIC,
+} = require('../src/modules/alertas/shadow-v2/config');
+const {
   matchClassificationToProfile,
   orderCandidates,
   signalsCompatible,
@@ -45,11 +49,69 @@ const uncertain = prefilterAlert(snapshot({
   organization: 'Administración autonómica',
   official_content: 'Se abre un trámite de información pública.',
 }));
-assert.strictEqual(uncertain.passed, true);
-assert(uncertain.reasons.includes('uncertain_forwarded'));
+assert.strictEqual(uncertain.passed, false);
+assert.strictEqual(uncertain.decision, 'REJECT');
+assert(uncertain.reasons.includes('no_rural_signal'));
+
+const genericAid = prefilterAlert(snapshot({
+  id: 998,
+  title: 'Convocatoria de ayudas y subvenciones',
+  organization: 'Consejería de Cultura',
+  official_content: 'Las entidades interesadas podrán solicitar la ayuda dentro del plazo.',
+}));
+assert.strictEqual(genericAid.passed, false, 'las palabras administrativas genéricas no son señal rural');
+
+const ambiguousPacInBody = prefilterAlert(snapshot({
+  id: 995,
+  title: 'Diligencia tributaria',
+  organization: 'Administración tributaria',
+  official_content: 'Leyenda de códigos: PAC, pago de subvenciones; RA, requerimiento de aceptación.',
+}));
+assert.strictEqual(ambiguousPacInBody.passed, false, 'PAC en una leyenda administrativa no es señal rural');
+
+const pacInTitle = prefilterAlert(snapshot({
+  id: 994,
+  title: 'Solicitud única de la PAC 2026',
+  organization: 'Administración autonómica',
+  official_content: 'Se publica el trámite correspondiente.',
+}));
+assert.strictEqual(pacInTitle.passed, true, 'PAC en el título sí es una señal rural explícita');
+
+for (const organization of RURAL_ORGANIZATIONS) {
+  const result = prefilterAlert(snapshot({
+    id: 997,
+    title: 'Resolución administrativa',
+    organization,
+    official_content: 'Se publica la resolución.',
+  }));
+  assert.strictEqual(result.passed, true, `organismo rural no detectado: ${organization}`);
+  assert(result.detected_organizations.includes(organization));
+
+  const inTitle = prefilterAlert(snapshot({
+    id: 993,
+    title: `${organization}: resolución administrativa`,
+    organization: 'Administración general',
+    official_content: 'Se publica la resolución.',
+  }));
+  assert.strictEqual(inTitle.passed, true, `organismo rural no detectado en título: ${organization}`);
+}
+
+for (const [topic, terms] of Object.entries(RURAL_TERMS_BY_TOPIC)) {
+  for (const term of terms) {
+    const result = prefilterAlert(snapshot({
+      id: 996,
+      title: `Publicación sobre ${term}`,
+      organization: 'Administración autonómica',
+      official_content: 'Información oficial.',
+    }));
+    assert.strictEqual(result.passed, true, `vocabulario rural no detectado: ${topic}/${term}`);
+    assert(result.detected_rural_terms.includes(term));
+  }
+}
 
 const duplicate = prefilterAlert({ ...snapshot(corpus.accepted_by_ai1[0]), duplicate_of: 2 });
 assert.strictEqual(duplicate.passed, false);
+assert.strictEqual(duplicate.decision, 'REJECT');
 assert(duplicate.reasons.includes('duplicate_already_resolved'));
 
 const byId = new Map(corpus.accepted_by_ai1.map((item) => [item.id, {

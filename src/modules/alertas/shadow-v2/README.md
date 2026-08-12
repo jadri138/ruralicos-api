@@ -2,7 +2,7 @@
 
 Motor shadow aislado con dos decisiones semanticas consecutivas:
 
-1. un prefiltro determinista y permisivo seguido de IA 1 (`gpt-5-nano`) clasifica cada alerta globalmente;
+1. un prefiltro determinista binario deja pasar solo alertas con organismo o vocabulario rural explícito, e IA 1 (`gpt-5-nano`) las clasifica globalmente;
 2. un cruce determinista crea candidatas e IA 2 (`gpt-5.6-luna`) selecciona y redacta el digest personal.
 
 No hay votacion, segunda opinion, reparacion semantica, scores, embeddings ni memoria. El modulo solo escribe en:

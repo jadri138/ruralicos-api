@@ -5,7 +5,7 @@
       "title": "Subvenciones para actuaciones de memoria histórica",
       "organization": "Consejería de Cultura",
       "official_content": "Convocatoria destinada a asociaciones memorialistas para recuperar la memoria democrática.",
-      "expected_prefilter": true,
+      "expected_prefilter": false,
       "ai1": { "relevant": false, "actionable": true, "status": "active", "territories": { "national": false, "regions": ["Aragón"], "provinces": [], "municipalities": [] }, "activities": [], "beneficiary_types": ["asociaciones memorialistas"], "content_type": "aid", "action": "solicitar", "deadline": "2026-09-01", "summary": "Ayuda cultural de memoria democrática.", "evidence": ["asociaciones memorialistas"] }
     },
     {
@@ -13,7 +13,7 @@
       "title": "Educación permanente para entidades locales",
       "organization": "Consejería de Educación",
       "official_content": "Programa dirigido exclusivamente a ayuntamientos y otras entidades locales.",
-      "expected_prefilter": true,
+      "expected_prefilter": false,
       "ai1": { "relevant": false, "actionable": true, "status": "active", "territories": { "national": false, "regions": ["Castilla y León"], "provinces": [], "municipalities": [] }, "activities": [], "beneficiary_types": ["entidades locales"], "content_type": "opportunity", "action": "participar", "deadline": null, "summary": "Programa educativo para entidades locales.", "evidence": ["exclusivamente a ayuntamientos"] }
     },
     {
@@ -21,7 +21,7 @@
       "title": "Concesión de ayudas a entidades de voluntariado",
       "organization": "Consejería de Derechos Sociales",
       "official_content": "Se resuelve y publica la concesión definitiva a entidades de voluntariado.",
-      "expected_prefilter": true,
+      "expected_prefilter": false,
       "ai1": { "relevant": false, "actionable": false, "status": "closed", "territories": { "national": false, "regions": ["Galicia"], "provinces": [], "municipalities": [] }, "activities": [], "beneficiary_types": ["entidades de voluntariado"], "content_type": "information", "action": "consultar la resolución", "deadline": null, "summary": "Concesión ya resuelta.", "evidence": ["concesión definitiva"] }
     },
     {
@@ -29,7 +29,7 @@
       "title": "Ayuda por ocupación ilegal de viviendas",
       "organization": "Consejería de Vivienda",
       "official_content": "Ayudas generales a propietarios afectados por ocupación ilegal de viviendas.",
-      "expected_prefilter": true,
+      "expected_prefilter": false,
       "ai1": { "relevant": false, "actionable": true, "status": "active", "territories": { "national": false, "regions": ["Madrid"], "provinces": [], "municipalities": [] }, "activities": [], "beneficiary_types": ["propietarios de viviendas"], "content_type": "aid", "action": "solicitar", "deadline": null, "summary": "Ayuda general de vivienda.", "evidence": ["propietarios afectados"] }
     },
     { "id": 105, "title": "Anuncio de extravío de título universitario", "organization": "Universidad pública", "official_content": "Se anuncia el extravío del título universitario.", "expected_prefilter": false },

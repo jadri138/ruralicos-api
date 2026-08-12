@@ -5,7 +5,7 @@ const path = require('path');
 const script = fs.readFileSync(
   path.join(__dirname, '..', 'scripts', 'run_digest_workflow.js'),
   'utf8'
-);
+).replace(/\r\n/g, '\n');
 
 let passed = 0;
 let failed = 0;
