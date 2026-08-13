@@ -97,6 +97,20 @@ test('permite fijar fecha para pasos diarios', () => {
   assert(script.includes("conFecha('/alertas/preparar-digest')"), 'preparar digest debe aceptar fecha');
 });
 
+test('ejecuta shadow-v2 al final de forma reanudable y no bloqueante', () => {
+  const shadowHelperIndex = script.indexOf('async function runShadowV2Step');
+  const shadowCallIndex = script.indexOf('const shadowV2 = RUN_SHADOW_V2');
+  const lastOutboxIndex = script.indexOf('const entregarPreguntasExploracion');
+  assert(shadowHelperIndex > 0, 'debe existir el drenaje por lotes de shadow-v2');
+  assert(shadowCallIndex > lastOutboxIndex, 'shadow-v2 debe ejecutarse despues de toda la entrega');
+  assert(script.includes("const RUN_SHADOW_V2 = parseBool(process.env.RUN_SHADOW_V2, true)"));
+  assert(script.includes("'/tareas/shadow-v2'"));
+  assert(script.includes("method: 'POST', maxRetries: 0"));
+  assert(script.includes('runOptionalShadowV2Step'), 'un fallo shadow no debe tumbar el digest productivo');
+  assert(script.includes('body?.done === true'), 'debe continuar hasta completar alertas y usuarios');
+  assert(script.includes('body?.workflow_run_key !== workflowRunKey'), 'debe conservar la misma run-key al reanudar');
+});
+
 test('permite reintentar el mismo dia sin desplegar una version nueva', () => {
   assert(
     script.includes('const PREPARAR_DIGEST_FORCE = parseBool(process.env.PREPARAR_DIGEST_FORCE, false)'),

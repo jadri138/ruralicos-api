@@ -25,11 +25,12 @@ Una única tarea diaria ejecuta `node scripts/run_digest_workflow.js`:
   → /tareas/whatsapp-reconcile                  [opcional]
   → /cerebro/exploracion-diaria                 [opcional y selectiva]
   → /tareas/mia-outbox                          [solo si encoló preguntas]
+  → /tareas/shadow-v2                           [opcional, aislado y reanudable]
 ```
 
 Si clasificación, resumen, revisión o preparación no progresan, el script falla antes del envío. MIA y listados son complementarios y pueden producir `warning` sin tumbar el digest.
 
-Los endpoints individuales son fases o herramientas manuales, no crons adicionales.
+Los endpoints individuales son fases o herramientas manuales, no crons adicionales. Shadow-v2 se ejecuta al final y un fallo suyo no bloquea el digest productivo.
 
 ## 2. Tarea → código → prueba
 

@@ -66,8 +66,8 @@ seudonimizado leyendo Supabase sin mutarlo. El grader semántico de
 
 ### [`shadow-v2/`](shadow-v2/)
 
-Motor shadow manual y aislado. Aplica prefiltro, clasificación global con IA 1,
-cruce ficha-perfil y selección personal con IA 2. Solo persiste en las tres
+Motor shadow automático y aislado, ejecutado al final del cron diario. Aplica
+prefiltro, clasificación global con IA 1, cruce ficha-perfil y selección personal con IA 2. Solo persiste en las tres
 tablas `shadow_v2_*`; no registra rutas, no entra en el cron y no puede enviar.
 
 ## Cómo se filtra
