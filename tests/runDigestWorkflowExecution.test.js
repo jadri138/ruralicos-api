@@ -26,6 +26,28 @@ function respuestaPara(pathname, attempt) {
     return { success: true, processed: 3, recovered: 0, has_more: false };
   }
   if (pathname === '/cerebro/exploracion-diaria') return { ok: true, encoladas: 1 };
+  if (pathname === '/tareas/shadow-v2') {
+    if (attempt === 1) {
+      return {
+        success: true,
+        done: false,
+        workflow_run_key: '11111111-1111-5111-8111-111111111111',
+        stopped: 'max_alerts',
+        processed: 25,
+        calls: 2,
+        errors: 0,
+      };
+    }
+    return {
+      success: true,
+      done: true,
+      workflow_run_key: '11111111-1111-5111-8111-111111111111',
+      stopped: null,
+      processed: 3,
+      calls: 1,
+      errors: 0,
+    };
+  }
   if (pathname === '/alertas/generar-resumen-free') return { success: true, procesadas: 0 };
   return { success: true, ok: true };
 }
@@ -43,6 +65,7 @@ function ejecutarScript(baseUrl) {
         HTTP_TIMEOUT_MS: '5000',
         MAX_LOOPS: '2',
         HOLD_RECOVERY_MAX_LOOPS: '4',
+        SHADOW_V2_MAX_LOOPS: '3',
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -96,6 +119,7 @@ async function main() {
     assert(paths.includes('/tareas/mia-outbox'), 'debe vaciar la cola dentro del mismo workflow');
     assert(paths.includes('/tareas/whatsapp-reconcile'), 'debe conciliar estados dentro del mismo workflow');
     assert(paths.includes('/cerebro/exploracion-diaria'), 'debe evaluar preguntas selectivas al final');
+    assert(paths.includes('/tareas/shadow-v2'), 'debe ejecutar shadow-v2 al final');
     const mutatingPaths = new Set([
       '/alertas/clasificar',
       '/alertas/resumir',
@@ -109,6 +133,7 @@ async function main() {
       '/cerebro/exploracion-diaria',
       '/alertas/generar-resumen-free',
       '/alertas/enviar-resumen-free',
+      '/tareas/shadow-v2',
     ]);
     for (const request of requests.filter((item) => mutatingPaths.has(item.pathname))) {
       assert.strictEqual(request.method, 'POST', `${request.pathname} debe usar POST`);
@@ -132,6 +157,7 @@ async function main() {
     const reconcileIndex = paths.indexOf('/tareas/whatsapp-reconcile');
     const explorationIndex = paths.indexOf('/cerebro/exploracion-diaria');
     const lastOutboxIndex = paths.lastIndexOf('/tareas/mia-outbox');
+    const shadowIndex = paths.indexOf('/tareas/shadow-v2');
     assert(
       paths.indexOf('/tareas/scrapers-diario') < paths.indexOf('/alertas/clasificar') &&
         paths.indexOf('/alertas/clasificar') < paths.indexOf('/tareas/hold-evidence-recovery') &&
@@ -140,8 +166,14 @@ async function main() {
         paths.indexOf('/alertas/enviar-digest') < firstOutboxIndex &&
         firstOutboxIndex < reconcileIndex &&
         reconcileIndex < explorationIndex &&
-        explorationIndex < lastOutboxIndex,
+        explorationIndex < lastOutboxIndex &&
+        lastOutboxIndex < shadowIndex,
       'debe respetar el orden completo del pipeline',
+    );
+    assert.strictEqual(
+      paths.filter((pathname) => pathname === '/tareas/shadow-v2').length,
+      2,
+      'shadow-v2 debe reanudar lotes hasta completar la fecha',
     );
 
     const repair = requests.find((request) => request.pathname === '/alertas/reparar-pendientes-ia');

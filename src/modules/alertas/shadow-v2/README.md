@@ -11,7 +11,9 @@ No hay votacion, segunda opinion, reparacion semantica, scores, embeddings ni me
 - `shadow_v2_digest_runs`;
 - `shadow_v2_digest_items`.
 
-No registra rutas HTTP, no forma parte de `run_digest_workflow.js`, no envia mensajes y queda apagado salvo que se invoque el script independiente con `SHADOW_V2_ENABLED=true`.
+No envia mensajes. El workflow diario lo ejecuta al final por `/tareas/shadow-v2`, una ruta interna protegida por `CRON_TOKEN`, con lotes reanudables y `RUN_SHADOW_V2=false` como apagado de emergencia. Un fallo shadow no bloquea el digest productivo.
+
+El runner independiente se conserva para pruebas manuales y queda apagado salvo que se invoque con `SHADOW_V2_ENABLED=true`.
 
 Ejemplo local limitado, una vez aplicada la migracion y con credenciales configuradas:
 

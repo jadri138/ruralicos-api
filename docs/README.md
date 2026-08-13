@@ -26,7 +26,7 @@
 
 | Documento | Estado | Tema |
 | --- | --- | --- |
-| [`../src/modules/alertas/shadow-v2/README.md`](../src/modules/alertas/shadow-v2/README.md) | Apagado; ejecución manual | Prefiltro, IA 1 global, cruce determinista e IA 2 personal |
+| [`../src/modules/alertas/shadow-v2/README.md`](../src/modules/alertas/shadow-v2/README.md) | Automático al final del cron; aislado | Prefiltro, IA 1 global, cruce determinista e IA 2 personal |
 | [`BLUEPRINT_SISTEMA_DECISION_ALERTAS_LLM.md`](BLUEPRINT_SISTEMA_DECISION_ALERTAS_LLM.md) | Propuesta, no implementado | Diseño integral desde una alerta ya creada hasta su decisión, envío y aprendizaje. Scrapers fuera de alcance |
 
 ## Validación

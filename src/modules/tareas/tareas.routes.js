@@ -16,6 +16,7 @@ const {
 const { digestIdDeOutboxItem } = require('../digest/digestOutbox');
 const { processDueEvidenceRecovery } = require('../digest/decisionEvidenceRecovery');
 const { conciliarEntregasUltraMsg } = require('../delivery/deliveryService');
+const { runAutomatedShadowV2Batch } = require('../alertas/shadow-v2/automation');
 
 const {
   FEGA_SCRAPE_PATH,
@@ -37,6 +38,37 @@ function getBaseUrl(req) {
 }
 
 module.exports = function tareasRoutes(app, supabase) {
+  app.post('/tareas/shadow-v2', async (req, res) => {
+    if (!checkCronToken(req, res)) return;
+    if (!boolValue(process.env.RUN_SHADOW_V2, true)) {
+      return res.status(503).json({ success: false, disabled: true, error: 'shadow-v2 automatico desactivado' });
+    }
+
+    try {
+      const workflowDate = /^\d{4}-\d{2}-\d{2}$/.test(req.query.fecha || req.body?.fecha || '')
+        ? String(req.query.fecha || req.body?.fecha)
+        : getFechaMadridISO();
+      const value = (name, fallback) => req.query[name] ?? req.body?.[name] ?? fallback;
+      const result = await runAutomatedShadowV2Batch({
+        supabase,
+        workflowDate,
+        limitOverrides: {
+          maxAlerts: value('max_alerts', 25),
+          maxUsers: value('max_users', 10),
+          maxCandidatesPerUser: value('max_candidates', 30),
+          maxTotalCalls: value('max_calls', 25),
+          maxOfficialCharsPerAlert: value('max_official_chars', 30000),
+          maxPersonalPromptChars: value('max_personal_prompt_chars', 60000),
+          maxSelected: value('max_selected', 5),
+        },
+      });
+      return res.status(200).json(result);
+    } catch (err) {
+      console.error('Error en /tareas/shadow-v2', err.message);
+      return res.status(500).json({ success: false, error: 'No se pudo ejecutar el lote shadow-v2' });
+    }
+  });
+
   app.post('/tareas/hold-evidence-recovery', async (req, res) => {
     if (!checkCronToken(req, res)) return;
 

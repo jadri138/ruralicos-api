@@ -45,8 +45,10 @@ sin evidencia no bloquea el resto del día ni provoca descargas nuevas.
 La API necesita además `PUBLIC_BASE_URL`, credenciales de Supabase, OpenAI y
 UltraMsg según `.env.example`.
 
-`shadow-v2` no forma parte de este cron. Su runner es manual, independiente y
-está apagado por defecto; consulta `src/modules/alertas/shadow-v2/README.md`.
+`shadow-v2` forma parte del final de este cron mediante un endpoint interno
+protegido. Procesa lotes reanudables, solo escribe en sus tres tablas y nunca
+envía mensajes. `RUN_SHADOW_V2=false` lo omite sin afectar al digest productivo;
+el runner local manual sigue requiriendo `SHADOW_V2_ENABLED=true`.
 
 Opcionales:
 
@@ -154,5 +156,6 @@ fuentes y avisa al administrador; no procesa alertas ni envía digests.
 - `BASE_URL/health` responde.
 - `CRON_TOKEN` coincide en la API y en Render.
 - Existe un único cron con `node scripts/run_digest_workflow.js`.
+- `RUN_SHADOW_V2` no está en `false` si se quiere ejecutar la sombra diaria.
 - El webhook de UltraMsg conserva el ID de proveedor y llegan ACK de prueba.
 - `PROVIDER_ACCEPTED` no se confunde con `DELIVERED`.

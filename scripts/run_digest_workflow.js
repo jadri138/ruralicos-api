@@ -19,6 +19,8 @@
  *   PREPARAR_DIGEST_MAX_LOOPS=200
  *   HOLD_RECOVERY_MAX_LOOPS=20
  *   OUTBOX_MAX_LOOPS=50
+ *   RUN_SHADOW_V2=true
+ *   SHADOW_V2_MAX_LOOPS=60
  *   STEP_DELAY_MS=800
  *   HTTP_RETRIES=3
  *   HTTP_RETRY_DELAY_MS=5000
@@ -36,6 +38,7 @@ const RUN_SCRAPERS = parseBool(process.env.RUN_SCRAPERS, true);
 const RUN_OFFICIAL_LISTS = parseBool(process.env.RUN_OFFICIAL_LISTS, true);
 const RUN_REPAIR = parseBool(process.env.RUN_REPAIR, true);
 const RUN_DAILY_EXPLORATION = parseBool(process.env.RUN_DAILY_EXPLORATION, true);
+const RUN_SHADOW_V2 = parseBool(process.env.RUN_SHADOW_V2, true);
 const PREPARAR_DIGEST_FORCE = parseBool(process.env.PREPARAR_DIGEST_FORCE, false);
 // Cada vuelta de clasificar/resumir/revisar consume un lote pequeño
 // (CLASIFICAR_BATCH_SIZE = 8 por defecto). Con ~700-800 alertas nuevas al día
@@ -46,6 +49,10 @@ const MAX_LOOPS = Number(process.env.MAX_LOOPS || 200);
 const PREPARAR_DIGEST_MAX_LOOPS = Number(process.env.PREPARAR_DIGEST_MAX_LOOPS || 200);
 const HOLD_RECOVERY_MAX_LOOPS = Number(process.env.HOLD_RECOVERY_MAX_LOOPS || 20);
 const OUTBOX_MAX_LOOPS = Number(process.env.OUTBOX_MAX_LOOPS || 50);
+const SHADOW_V2_MAX_LOOPS = Number(process.env.SHADOW_V2_MAX_LOOPS || 60);
+const SHADOW_V2_BATCH_SIZE = Number(process.env.SHADOW_V2_BATCH_SIZE || 25);
+const SHADOW_V2_MAX_CALLS_PER_BATCH = Number(process.env.SHADOW_V2_MAX_CALLS_PER_BATCH || 25);
+const SHADOW_V2_MAX_USERS_PER_BATCH = Number(process.env.SHADOW_V2_MAX_USERS_PER_BATCH || 10);
 const STEP_DELAY_MS = Number(process.env.STEP_DELAY_MS || 800);
 const HTTP_RETRIES = Number(process.env.HTTP_RETRIES || 3);
 const HTTP_RETRY_DELAY_MS = Number(process.env.HTTP_RETRY_DELAY_MS || 5000);
@@ -315,6 +322,68 @@ async function runOutboxStep({ limit = 100, maxLoops = OUTBOX_MAX_LOOPS } = {}) 
   );
 }
 
+async function runShadowV2Step({
+  maxLoops = SHADOW_V2_MAX_LOOPS,
+  batchSize = SHADOW_V2_BATCH_SIZE,
+  maxCalls = SHADOW_V2_MAX_CALLS_PER_BATCH,
+  maxUsers = SHADOW_V2_MAX_USERS_PER_BATCH,
+} = {}) {
+  const safeMaxLoops = Math.max(1, Math.trunc(Number(maxLoops) || 60));
+  const safeBatchSize = Math.max(1, Math.min(500, Math.trunc(Number(batchSize) || 25)));
+  const safeMaxCalls = Math.max(1, Math.min(750, Math.trunc(Number(maxCalls) || 25)));
+  const safeMaxUsers = Math.max(1, Math.min(250, Math.trunc(Number(maxUsers) || 10)));
+  const totals = { processed: 0, calls: 0, errors: 0 };
+  let workflowRunKey = null;
+  let lastBody = null;
+
+  for (let loops = 1; loops <= safeMaxLoops; loops++) {
+    const path = appendQuery(conFecha('/tareas/shadow-v2'), {
+      max_alerts: safeBatchSize,
+      max_users: safeMaxUsers,
+      max_calls: safeMaxCalls,
+    });
+    const body = await hit(path, { method: 'POST', maxRetries: 0 });
+    lastBody = body;
+    if (workflowRunKey && body?.workflow_run_key !== workflowRunKey) {
+      throw new Error('[shadow-v2] la run-key cambio durante el mismo workflow diario');
+    }
+    workflowRunKey = body?.workflow_run_key || workflowRunKey;
+    const processed = Math.max(0, Number(body?.processed || 0));
+    totals.processed += processed;
+    totals.calls += Math.max(0, Number(body?.calls || 0));
+    totals.errors += Math.max(0, Number(body?.errors || 0));
+    console.log(
+      `[shadow-v2] vuelta ${loops}: processed=${processed}, calls=${Number(body?.calls || 0)}, ` +
+      `errors=${Number(body?.errors || 0)}, done=${body?.done === true}, stopped=${body?.stopped || 'no'}`
+    );
+
+    if (body?.done === true) {
+      if (totals.errors > 0) {
+        console.warn(`[shadow-v2] completado con ${totals.errors} errores auditados; no afecta al digest productivo.`);
+      }
+      return { ...totals, loops, drained: true, workflowRunKey, lastBody };
+    }
+    if (processed === 0) {
+      throw new Error(`[shadow-v2] sin progreso antes de completar. Ultima respuesta: ${JSON.stringify(body)}`);
+    }
+    await sleep(STEP_DELAY_MS);
+  }
+
+  throw new Error(
+    `[shadow-v2] alcanzo SHADOW_V2_MAX_LOOPS=${safeMaxLoops}. ` +
+    `Se reanudara mañana con la misma fecha solo si se relanza explicitamente. Ultima respuesta: ${JSON.stringify(lastBody)}`
+  );
+}
+
+async function runOptionalShadowV2Step() {
+  try {
+    return await runShadowV2Step();
+  } catch (err) {
+    console.warn(`[shadow-v2] fase opcional incompleta: ${err.message}`);
+    return { ok: false, optional: true, incomplete: true, error: err.message };
+  }
+}
+
 async function main() {
   console.log('Iniciando workflow diario completo...', {
     baseUrl: BASE_URL,
@@ -323,6 +392,7 @@ async function main() {
     runOfficialLists: RUN_OFFICIAL_LISTS,
     runRepair: RUN_REPAIR,
     runDailyExploration: RUN_DAILY_EXPLORATION,
+    runShadowV2: RUN_SHADOW_V2,
   });
 
   const scrapers = RUN_SCRAPERS
@@ -387,6 +457,12 @@ async function main() {
   const entregarPreguntasExploracion = Number(exploracionDiaria?.encoladas || 0) > 0
     ? await runOutboxStep()
     : { skipped: true, reason: 'sin_preguntas_selectivas' };
+  // Shadow se ejecuta al final: nunca retrasa ni bloquea la preparacion o la
+  // entrega productiva. Su endpoint es idempotente por fecha y solo escribe en
+  // las tres tablas shadow-v2.
+  const shadowV2 = RUN_SHADOW_V2
+    ? await runOptionalShadowV2Step()
+    : { skipped: true, reason: 'RUN_SHADOW_V2=false' };
 
   console.log('Workflow completado', {
     scrapers: scrapers?.success ?? scrapers?.skipped ?? null,
@@ -415,6 +491,7 @@ async function main() {
     reconciliacionWhatsapp: reconciliacionWhatsapp?.success ?? reconciliacionWhatsapp?.ok ?? null,
     exploracionDiaria,
     entregarPreguntasExploracion,
+    shadowV2,
     generarFree: generarFree?.procesadas ?? null,
     enviarFree: enviarFree?.success ?? enviarFree?.ok ?? null,
   });

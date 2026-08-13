@@ -46,7 +46,11 @@ assert(!/subscription/.test(matcher), 'subscription no puede intervenir en el cr
 
 const workflow = fs.readFileSync(path.join(root, 'scripts', 'run_digest_workflow.js'), 'utf8');
 const routes = fs.readFileSync(path.join(root, 'src', 'routes.js'), 'utf8');
-assert(!/shadow-v2|shadow_v2|decision-v2|DECISION_V2/.test(workflow));
+const tareasRoutes = fs.readFileSync(path.join(root, 'src', 'modules', 'tareas', 'tareas.routes.js'), 'utf8');
+assert(workflow.includes('/tareas/shadow-v2'));
+assert(workflow.includes('RUN_SHADOW_V2'));
+assert(tareasRoutes.includes("app.post('/tareas/shadow-v2'"));
+assert(tareasRoutes.includes('if (!checkCronToken(req, res)) return'));
 assert(!/shadow-v2|decision-v2/.test(routes));
 
 const runner = fs.readFileSync(path.join(root, 'scripts', 'run_shadow_v2_workflow.js'), 'utf8');
@@ -63,4 +67,4 @@ for (const table of [
 
 assert(!fs.existsSync(path.join(root, 'src', 'modules', 'alertas', 'decision-v2', 'decisionEngine.js')));
 
-console.log('OK: aislamiento estatico, sin imports prohibidos, rutas, cron ni envios');
+console.log('OK: aislamiento estatico, cron protegido y sin imports prohibidos ni envios');

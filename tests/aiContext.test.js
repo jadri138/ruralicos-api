@@ -101,6 +101,7 @@ const orderedWorkflowTokens = [
   ['/alertas/enviar-digest', '/alertas/enviar-digest'],
   ['/alertas/generar-resumen-free', '/alertas/generar-resumen-free'],
   ['/alertas/enviar-resumen-free', '/alertas/enviar-resumen-free'],
+  ['/tareas/shadow-v2', 'const shadowV2 = RUN_SHADOW_V2'],
 ];
 
 const mainIndex = workflow.indexOf('async function main()');
