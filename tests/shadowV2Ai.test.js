@@ -214,6 +214,7 @@ async function main() {
   assert(projectedDigest.message.includes('👉 *Qué puedes hacer:* Solicitar'));
   assert(projectedDigest.message.includes('⏳ *Plazo:* 2026-09-30'));
   assert(projectedDigest.message.includes('Respóndeme *SÍ* o *NO*'));
+  assert(projectedDigest.message.includes('si tienes cualquier duda o quieres saber más, escríbeme'));
   assert(projectedDigest.message.endsWith('*Ruralicos* 🌱'));
   assert.strictEqual(projectDigest({ selected: [], message: '' }, {
     user: { first_name: 'Ana' },

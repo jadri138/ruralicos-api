@@ -24,7 +24,8 @@ function renderDigestMessage(ai2Result = {}, user = {}) {
   const hook = String(ai2Result.message || '').trim();
   const feedback = [
     '¿Te ha resultado útil este mensaje?',
-    'Respóndeme *SÍ* o *NO*. Así podré afinar mejor los próximos avisos.',
+    'Respóndeme *SÍ* o *NO*.',
+    'Y si tienes cualquier duda o quieres saber más, escríbeme. Estoy aquí para ayudarte.',
     '*Ruralicos* 🌱',
   ].join('\n');
   return [
