@@ -45,9 +45,10 @@ const AI2_INSTRUCTIONS = [
   'Compartir provincia, una palabra o un sector rural amplio no basta si no existe un encaje personal concreto.',
   'Cada reason debe nombrar el encaje concreto con una actividad, territorio o condicion de beneficiario del perfil.',
   'Selecciona como maximo cinco y puedes seleccionar ninguna. No inventes datos ni enumeres las descartadas.',
+  'Escribe cada title de forma breve, clara y orientada al beneficio real, sin copiar encabezados oficiales largos.',
   'Copia deadline exactamente de la ficha candidata; si la ficha tiene null, devuelve null y no calcules otra fecha.',
   'Si selected esta vacio, message debe ser una cadena vacia.',
-  'Ordena las seleccionadas por utilidad y urgencia, y redacta message exclusivamente con ellas.',
+  'Ordena las seleccionadas por utilidad y urgencia. message debe ser un gancho comercial de una sola frase, concreto y veraz, sin saludo, despedida ni pregunta.',
 ].join('\n');
 
 function compactCard(candidate) {

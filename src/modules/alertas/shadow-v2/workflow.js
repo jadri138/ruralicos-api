@@ -241,7 +241,7 @@ async function runAi2Phase({
         });
       }
       if (ai2.status === 'GENERATED' || ai2.status === 'EMPTY') {
-        projected = projectDigest(ai2.normalizedResponse);
+        projected = projectDigest(ai2.normalizedResponse, { user });
       }
     }
 

@@ -166,6 +166,8 @@ async function main() {
   assert.strictEqual(memory.state.digestRuns[0].candidate_overflow_count, 2);
   assert.strictEqual(memory.state.digestRuns[0].usage_json.calls, 1);
   assert(memory.state.digestRuns[0].usage_json.prompt_chars > 0);
+  assert(memory.state.digestRuns[0].digest_preview.startsWith('¡Hola, Ganadera! 👋'));
+  assert(memory.state.digestRuns[0].digest_preview.includes('Respóndeme *SÍ* o *NO*'));
   assert.strictEqual(memory.state.classifications[0].usage_json.calls, 1);
   assert(memory.state.classifications[0].usage_json.official_content_chars > 0);
 
