@@ -26,6 +26,12 @@ console.log('\n=== TESTS: preference canonical ===\n');
 test('canoniza aliases frecuentes de sectores, subsectores y tipos', () => {
   assert.strictEqual(canonicalSector('agrícola'), 'agricultura');
   assert.strictEqual(canonicalSector('ganadera'), 'ganaderia');
+  assert.strictEqual(canonicalSubsector('bovinas'), 'vacuno');
+  assert.strictEqual(canonicalSubsector('ovinas'), 'ovino');
+  assert.strictEqual(canonicalSubsector('caprinas'), 'caprino');
+  assert.strictEqual(canonicalSubsector('porcinas'), 'porcino');
+  assert.strictEqual(canonicalSubsector('apicolas'), 'apicultura');
+  assert.strictEqual(canonicalSubsector('equinas'), 'equinocultura');
   assert.strictEqual(canonicalSubsector('frutal'), 'frutales');
   assert.strictEqual(canonicalSubsector('medio ambiente'), 'medio_ambiente');
   assert.strictEqual(canonicalSubsector('regadío'), 'agua');

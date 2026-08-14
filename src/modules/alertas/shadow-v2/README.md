@@ -5,6 +5,8 @@ Motor shadow aislado con dos decisiones semanticas consecutivas:
 1. un prefiltro determinista binario deja pasar solo alertas con organismo o vocabulario rural explícito, e IA 1 (`gpt-5-nano`) las clasifica globalmente;
 2. un cruce determinista crea candidatas e IA 2 (`gpt-5.6-luna`) selecciona y redacta el digest personal.
 
+IA 1 limita la ficha a tres actividades directamente afectadas y solo conserva plazos exactos `YYYY-MM-DD`; un plazo relativo o incierto se guarda como `null` sin descartar la alerta. IA 2 reutiliza ese plazo sin recalcularlo y una seleccion vacia se normaliza como resultado `EMPTY`. El cruce reconoce variantes morfologicas basicas y la relacion entre una actividad padre y un subsector concreto, sin equiparar subsectores hermanos.
+
 No hay votacion, segunda opinion, reparacion semantica, scores, embeddings ni memoria. El modulo solo escribe en:
 
 - `shadow_v2_alert_classifications`;

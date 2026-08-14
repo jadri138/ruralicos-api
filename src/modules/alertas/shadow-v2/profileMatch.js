@@ -16,12 +16,58 @@ function exactIntersect(left, right) {
 
 function canonicalSignal(value) {
   return normalizeText(value)
+    .replace(/[_-]+/g, ' ')
     .replace(/\b(agricultor|agricultora|agricultores|agricultoras|agrario|agraria|agrarios|agrarias)\b/g, 'agricultura')
-    .replace(/\b(vacuno|vacuna|reses)\b/g, 'bovino')
-    .replace(/\b(oveja|ovejas)\b/g, 'ovino')
-    .replace(/\b(cabra|cabras)\b/g, 'caprino')
-    .replace(/\b(cerdo|cerdos)\b/g, 'porcino')
-    .replace(/\b(aves|ave)\b/g, 'avicola');
+    .replace(/\b(vacuno|reses|bovina|bovinos|bovinas)\b/g, 'bovino')
+    .replace(/\b(oveja|ovejas|ovina|ovinos|ovinas)\b/g, 'ovino')
+    .replace(/\b(cabra|cabras|caprina|caprinos|caprinas)\b/g, 'caprino')
+    .replace(/\b(cerdo|cerdos|porcina|porcinos|porcinas)\b/g, 'porcino')
+    .replace(/\b(aves|ave|avicultura)\b/g, 'avicola')
+    .replace(/\bcereales\b/g, 'cereal')
+    .replace(/\bhortalizas\b/g, 'hortaliza')
+    .replace(/\bfrutales\b/g, 'frutal')
+    .replace(/\bcitricos\b/g, 'citrico')
+    .replace(/\bleguminosas\b/g, 'leguminosa')
+    .replace(/\bforrajes\b/g, 'forraje')
+    .replace(/\btrufas\b/g, 'trufa')
+    .replace(/\bsemillas\b/g, 'semilla')
+    .replace(/\bviveros\b/g, 'vivero')
+    .replace(/\bfrutos secos\b/g, 'fruto seco')
+    .replace(/\bcultivos industriales\b/g, 'cultivo industrial')
+    .replace(/\bcultivos herbaceos\b/g, 'cultivo herbaceo');
+}
+
+const ACTIVITY_FAMILIES = Object.freeze({
+  agricultura: [
+    'trigo', 'cebada', 'cereal', 'maiz', 'arroz', 'hortaliza', 'patata',
+    'leguminosa', 'forraje', 'frutal', 'olivar', 'trufa', 'vinedo',
+    'almendro', 'citrico', 'fruto seco', 'cultivo industrial', 'cultivo herbaceo',
+    'hortofruticola', 'semilla', 'vivero', 'floricultura',
+  ],
+  ganaderia: [
+    'bovino', 'ovino', 'caprino', 'porcino', 'avicola', 'cunicultura',
+    'equinocultura', 'apicultura',
+  ],
+});
+
+function containsSignal(value, signal) {
+  return new RegExp(`(?:^|[^a-z0-9])${signal}(?:$|[^a-z0-9])`).test(value);
+}
+
+function isSpecificFamilyMember(value, members) {
+  return members.some((member) => containsSignal(value, member));
+}
+
+function compatibleByActivityFamily(left, right) {
+  return Object.entries(ACTIVITY_FAMILIES).some(([parent, members]) => {
+    const leftParent = containsSignal(left, parent);
+    const rightParent = containsSignal(right, parent);
+    const leftSpecific = isSpecificFamilyMember(left, members);
+    const rightSpecific = isSpecificFamilyMember(right, members);
+    const leftGeneric = leftParent && !leftSpecific;
+    const rightGeneric = rightParent && !rightSpecific;
+    return (leftGeneric && rightSpecific) || (rightGeneric && leftSpecific);
+  });
 }
 
 const GENERIC_SIGNAL_WORDS = new Set([
@@ -41,6 +87,7 @@ function signalsCompatible(left, right) {
     const a = canonicalSignal(leftValue);
     const b = canonicalSignal(rightValue);
     if (a === b || a.includes(b) || b.includes(a)) return true;
+    if (compatibleByActivityFamily(a, b)) return true;
     return exactIntersect(signalStems(a), signalStems(b));
   }));
 }
