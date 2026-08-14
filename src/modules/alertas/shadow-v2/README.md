@@ -7,6 +7,8 @@ Motor shadow aislado con dos decisiones semanticas consecutivas:
 
 IA 1 limita la ficha a tres actividades directamente afectadas y solo conserva plazos exactos `YYYY-MM-DD` ligados en la fuente a una accion de la persona destinataria; un plazo relativo, una vigencia o una fecha administrativa se guarda como `null` sin descartar la alerta. IA 2 reutiliza ese plazo sin recalcularlo y una seleccion vacia se normaliza como resultado `EMPTY`. El cruce reconoce variantes morfologicas basicas y la relacion entre una actividad padre y un subsector concreto, sin equiparar subsectores hermanos.
 
+El preview final saluda por el nombre disponible, presenta las seleccionadas con un tono comercial pero verificable y termina pidiendo una respuesta `SI` o `NO`. Este formato se aplica de forma determinista y no supone una llamada adicional a IA.
+
 No hay votacion, segunda opinion, reparacion semantica, scores, embeddings ni memoria. El modulo solo escribe en:
 
 - `shadow_v2_alert_classifications`;

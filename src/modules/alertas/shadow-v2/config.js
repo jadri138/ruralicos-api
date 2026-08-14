@@ -6,8 +6,8 @@ const VERSIONS = Object.freeze({
   ai1Contract: 'shadow-v2-ai1-3',
   ai1Prompt: 'shadow-v2-ai1-prompt-4',
   ai2Contract: 'shadow-v2-ai2-2',
-  ai2Prompt: 'shadow-v2-ai2-prompt-3',
-  render: 'shadow-v2-render-1',
+  ai2Prompt: 'shadow-v2-ai2-prompt-4',
+  render: 'shadow-v2-render-2',
 });
 
 const DEFAULT_LIMITS = Object.freeze({

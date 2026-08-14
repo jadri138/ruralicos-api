@@ -18,6 +18,7 @@ const {
   decideDigestWithAi2,
   normalizeAi2Result,
 } = require('../src/modules/alertas/shadow-v2/ai2');
+const { projectDigest } = require('../src/modules/alertas/shadow-v2/render');
 
 function fakeResponse(value, usage = { input_tokens: 10, output_tokens: 5, total_tokens: 15 }) {
   return Promise.resolve({
@@ -37,9 +38,10 @@ async function main() {
     'date'
   );
   assert.strictEqual(AI2_CONTRACT_VERSION, 'shadow-v2-ai2-2');
-  assert.strictEqual(AI2_PROMPT_VERSION, 'shadow-v2-ai2-prompt-3');
+  assert.strictEqual(AI2_PROMPT_VERSION, 'shadow-v2-ai2-prompt-4');
   assert(AI2_INSTRUCTIONS.includes('encaje personal concreto'));
   assert(AI2_INSTRUCTIONS.includes('Copia deadline exactamente'));
+  assert(AI2_INSTRUCTIONS.includes('gancho comercial de una sola frase'));
   assert.strictEqual(
     AI2_TEXT_FORMAT.schema.properties.selected.items.properties.deadline.anyOf[0].format,
     'date'
@@ -202,6 +204,20 @@ async function main() {
     maxSelected: 5,
   });
   assert.strictEqual(normalizedNullDeadline.selected[0].deadline, null);
+
+  const projectedDigest = projectDigest(normalizedDeadline, {
+    user: { first_name: 'Ana', name: 'Nombre alternativo' },
+  });
+  assert(projectedDigest.message.startsWith('¡Hola, Ana! 👋'));
+  assert(projectedDigest.message.includes('una novedad rural que merece la pena revisar'));
+  assert(projectedDigest.message.includes('*1. Ayuda ganadera*'));
+  assert(projectedDigest.message.includes('👉 *Qué puedes hacer:* Solicitar'));
+  assert(projectedDigest.message.includes('⏳ *Plazo:* 2026-09-30'));
+  assert(projectedDigest.message.includes('Respóndeme *SÍ* o *NO*'));
+  assert(projectedDigest.message.endsWith('*Ruralicos* 🌱'));
+  assert.strictEqual(projectDigest({ selected: [], message: '' }, {
+    user: { first_name: 'Ana' },
+  }).message, '');
 
   assert.throws(() => normalizeAi2Result({
     selected: Array.from({ length: 6 }, (_, index) => ({
