@@ -52,6 +52,7 @@ module.exports = function tareasRoutes(app, supabase) {
       const result = await runAutomatedShadowV2Batch({
         supabase,
         workflowDate,
+        workflowRunKey: value('run_key', null) || undefined,
         limitOverrides: {
           maxAlerts: value('max_alerts', 25),
           maxUsers: value('max_users', 10),
