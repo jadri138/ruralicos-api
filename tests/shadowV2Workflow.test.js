@@ -1,7 +1,7 @@
 const assert = require('assert');
 const corpus = require('./fixtures/shadow-v2/corpus.json');
 const { normalizeLimits } = require('../src/modules/alertas/shadow-v2/config');
-const { runShadowV2Workflow } = require('../src/modules/alertas/shadow-v2/workflow');
+const { hasExpiredDeadline, runShadowV2Workflow } = require('../src/modules/alertas/shadow-v2/workflow');
 const repository = require('../src/modules/alertas/shadow-v2/repository');
 
 function createMemoryRepo() {
@@ -107,6 +107,10 @@ function aiResultFor(card) {
 }
 
 async function main() {
+  assert.strictEqual(hasExpiredDeadline({ card: { deadline: '2026-08-11' } }, '2026-08-12'), true);
+  assert.strictEqual(hasExpiredDeadline({ card: { deadline: '2026-08-12' } }, '2026-08-12'), false);
+  assert.strictEqual(hasExpiredDeadline({ card: { deadline: null } }, '2026-08-12'), false);
+
   const memory = createMemoryRepo();
   let ai1Calls = 0;
   let ai2Calls = 0;

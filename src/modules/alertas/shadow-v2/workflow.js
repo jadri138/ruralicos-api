@@ -25,6 +25,11 @@ function assertWorkflowDate(workflowDate) {
   }
 }
 
+function hasExpiredDeadline(classification, workflowDate) {
+  const deadline = classification?.card?.deadline;
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(deadline || '')) && deadline < workflowDate;
+}
+
 function createCallBudget(maxTotalCalls) {
   let used = 0;
   return {
@@ -195,7 +200,8 @@ async function runAi2Phase({
   for (const [index, user] of users.entries()) {
     const sentAlertIds = [...(sentByUser.get(Number(user.id)) || new Set())];
     const candidates = classifications.filter((classification) => (
-      matchClassificationToProfile({ classification, user, sentAlertIds }).candidate
+      !hasExpiredDeadline(classification, workflowDate)
+      && matchClassificationToProfile({ classification, user, sentAlertIds }).candidate
     ));
     const ordered = orderCandidates(candidates, new Date(`${workflowDate}T12:00:00Z`));
     const deliveredCandidates = ordered.slice(0, limits.maxCandidatesPerUser);
@@ -333,6 +339,7 @@ async function runShadowV2Workflow({
 module.exports = {
   assertRunKey,
   assertWorkflowDate,
+  hasExpiredDeadline,
   createCallBudget,
   classificationRow,
   digestRunRow,

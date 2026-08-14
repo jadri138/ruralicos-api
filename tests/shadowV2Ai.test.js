@@ -28,7 +28,7 @@ function fakeResponse(value, usage = { input_tokens: 10, output_tokens: 5, total
 
 async function main() {
   assert.strictEqual(AI1_CONTRACT_VERSION, 'shadow-v2-ai1-2');
-  assert.strictEqual(AI1_PROMPT_VERSION, 'shadow-v2-ai1-prompt-3');
+  assert.strictEqual(AI1_PROMPT_VERSION, 'shadow-v2-ai1-prompt-4');
   assert(AI1_INSTRUCTIONS.includes('el asunto real de la publicacion es rural'));
   assert(AI1_INSTRUCTIONS.includes('YYYY-MM-DD'));
   assert.strictEqual(AI1_TEXT_FORMAT.schema.properties.activities.maxItems, 3);
@@ -57,6 +57,23 @@ async function main() {
   assert.deepStrictEqual(normalizedCard.activities, ['bovino', 'ovino', 'caprino']);
   assert.deepStrictEqual(normalizedCard.beneficiary_types, ['uno', 'dos', 'tres', 'cuatro', 'cinco']);
   assert.strictEqual(normalizedCard.deadline, null, 'un plazo relativo no invalida la ficha completa');
+
+  const deadlineCard = { ...validCard, deadline: '2026-09-01' };
+  assert.strictEqual(normalizeAi1Result(deadlineCard, {
+    officialContent: 'El plazo de presentacion de solicitudes finaliza el 1 de septiembre de 2026.',
+  }).deadline, '2026-09-01', 'conserva un plazo explicito de la persona beneficiaria');
+  assert.strictEqual(normalizeAi1Result(deadlineCard, {
+    officialContent: 'El plazo empieza desde la fecha de publicacion y las solicitudes se admiten hasta el 1 de septiembre de 2026.',
+  }).deadline, '2026-09-01', 'no confunde la referencia a la publicacion con la fecha limite explicita');
+  assert.strictEqual(normalizeAi1Result(deadlineCard, {
+    officialContent: 'El importe sera transferido al ICO en un solo pago antes del 1 de septiembre de 2026.',
+  }).deadline, null, 'descarta fechas administrativas entre organismos');
+  assert.strictEqual(normalizeAi1Result(deadlineCard, {
+    officialContent: 'Plazo de solicitud: hasta el dia anterior al inicio. Fechas: del 1 de septiembre de 2026 al 24 de septiembre de 2026.',
+  }).deadline, null, 'descarta el inicio de un curso usado como plazo');
+  assert.strictEqual(normalizeAi1Result(deadlineCard, {
+    officialContent: 'El plazo es de quince dias habiles desde la publicacion.',
+  }).deadline, null, 'descarta fechas calculadas que no aparecen en la fuente');
 
   let ai1Calls = 0;
   const validAi1 = await classifyAlertWithAi1({

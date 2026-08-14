@@ -61,7 +61,9 @@ const AI1_INSTRUCTIONS = [
   'Clasifica territorio, actividades, beneficiarios, tipo, accion y plazo usando exclusivamente el documento actual.',
   'activities contiene como maximo tres actividades directamente afectadas; no anadas sectores rurales amplios por contexto.',
   'Usa aid para ayudas abiertas, opportunity para cursos o participacion abierta, obligation para deberes vigentes e information solo si no hay una accion mas concreta.',
-  'deadline debe ser una fecha exacta YYYY-MM-DD respaldada por el documento. Si el plazo es relativo, depende de dias habiles o no puede calcularse con certeza, usa null.',
+  'deadline es exclusivamente la fecha limite para que la persona beneficiaria solicite, alegue, recurra, se inscriba o cumpla una obligacion.',
+  'Usa una fecha YYYY-MM-DD solo si aparece de forma explicita en el documento como ese plazo. No calcules plazos relativos ni dias habiles: usa null.',
+  'Nunca uses como deadline una transferencia o pago entre organismos, la vigencia o firma de un convenio, la publicacion o resolucion, ni el inicio o fin de un curso.',
   'Una concesion, adjudicacion o convocatoria ya resuelta o cerrada no es una oportunidad abierta.',
   'No inventes ni completes por intuicion. Si falta informacion usa arrays vacios, null o unknown.',
   'evidence debe contener fragmentos breves y literales que sostengan la decision.',
@@ -80,7 +82,53 @@ function isIsoDate(value) {
   return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ''));
 }
 
-function normalizeAi1Result(value) {
+function supportedDeadline(value, officialContent) {
+  if (!isIsoDate(value)) return null;
+  const deadline = String(value);
+  if (officialContent === undefined) return deadline;
+
+  const [year, month, day] = deadline.split('-');
+  const numericDay = String(Number(day));
+  const numericMonth = String(Number(month));
+  const monthName = [
+    'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+    'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre',
+  ][Number(month) - 1];
+  if (!monthName) return null;
+
+  const source = String(officialContent || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ');
+  const variants = [...new Set([
+    deadline,
+    `${day}/${month}/${year}`,
+    `${numericDay}/${numericMonth}/${year}`,
+    `${day}-${month}-${year}`,
+    `${numericDay}-${numericMonth}-${year}`,
+    `${numericDay} de ${monthName} de ${year}`,
+    `${numericDay} de ${monthName} ${year}`,
+    `${numericDay} ${monthName} ${year}`,
+  ])];
+  const actionSignal = /\b(plazo|fecha limite|solicitud(?:es)?|alegacion(?:es)?|recurso(?:s)?|recurrir|inscripcion(?:es)?|subsanacion|oferta(?:s)?|proposicion(?:es)?|debera(?:n)?|cumplir|comunicar|justificar|hasta|antes del)\b/;
+  const nonUserDate = /\b(transferid\w*|transferencia|pago al ico|abono al ico|vigencia del convenio|firma del convenio|suscripcion del convenio|inicio del curso|fin del curso|finalizacion del curso)\b|\bfechas?\s*:\s*del\b/;
+
+  return variants.some((variant) => {
+    let index = source.indexOf(variant);
+    while (index !== -1) {
+      const before = source.slice(Math.max(0, index - 180), index);
+      const after = source.slice(index + variant.length, index + variant.length + 140);
+      const context = `${before}${variant}${after}`;
+      const isDocumentDate = /\b(?:fecha de )?(?:publicacion|resolucion)\s*(?:de|del)?\s*:?\s*$|\b(?:resolucion|orden|anuncio)\s+de\s*$|\bpublicad[oa]\s+(?:el|con fecha)\s*$/.test(before);
+      if (actionSignal.test(context) && !nonUserDate.test(context) && !isDocumentDate) return true;
+      index = source.indexOf(variant, index + variant.length);
+    }
+    return false;
+  }) ? deadline : null;
+}
+
+function normalizeAi1Result(value, { officialContent } = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('ai1_invalid_object');
   }
@@ -100,7 +148,7 @@ function normalizeAi1Result(value) {
   if (!summary) throw new Error('ai1_missing_summary');
   if (evidence.length === 0) throw new Error('ai1_insufficient_evidence');
   if (value.actionable && !action) throw new Error('ai1_missing_action');
-  const deadline = isIsoDate(value.deadline) ? String(value.deadline) : null;
+  const deadline = supportedDeadline(value.deadline, officialContent);
 
   return {
     relevant: value.relevant,
@@ -156,7 +204,9 @@ async function classifyAlertWithAi1({
       skipAudit: true,
     });
     raw = typeof response === 'string' ? response : response?.text;
-    const normalized = normalizeAi1Result(parsearJSON(raw));
+    const normalized = normalizeAi1Result(parsearJSON(raw), {
+      officialContent: officialSnapshot?.official_content || '',
+    });
     return {
       status: 'SUCCESS',
       called: true,
