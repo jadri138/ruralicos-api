@@ -22,10 +22,11 @@ function renderDigestMessage(ai2Result = {}, user = {}) {
     ? 'Hoy he seleccionado para ti *una novedad rural que merece la pena revisar*.'
     : `Hoy he seleccionado para ti *${selected.length} novedades rurales que merecen la pena revisar*.`;
   const hook = String(ai2Result.message || '').trim();
+  const feedbackQuestion = selected.length === 1
+    ? '¿Qué te parece esta alerta?'
+    : '¿Qué te parecen estas alertas?';
   const feedback = [
-    '¿Te ha resultado útil este mensaje?',
-    'Respóndeme *SÍ* o *NO*.',
-    'Y si tienes cualquier duda o quieres saber más, escríbeme. Estoy aquí para ayudarte.',
+    `${feedbackQuestion} Responde brevemente para que el sistema aprenda tus intereses.`,
     '*Ruralicos* 🌱',
   ].join('\n');
   return [

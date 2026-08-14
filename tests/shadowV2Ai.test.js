@@ -213,9 +213,18 @@ async function main() {
   assert(projectedDigest.message.includes('*1. Ayuda ganadera*'));
   assert(projectedDigest.message.includes('👉 *Qué puedes hacer:* Solicitar'));
   assert(projectedDigest.message.includes('⏳ *Plazo:* 2026-09-30'));
-  assert(projectedDigest.message.includes('Respóndeme *SÍ* o *NO*'));
-  assert(projectedDigest.message.includes('si tienes cualquier duda o quieres saber más, escríbeme'));
+  assert(projectedDigest.message.includes(
+    '¿Qué te parece esta alerta? Responde brevemente para que el sistema aprenda tus intereses.'
+  ));
   assert(projectedDigest.message.endsWith('*Ruralicos* 🌱'));
+  const pluralDigest = projectDigest({
+    ...normalizedDeadline,
+    selected: [
+      ...normalizedDeadline.selected,
+      { ...normalizedDeadline.selected[0], alert_id: 202, title: 'Curso rural' },
+    ],
+  }, { user: { first_name: 'Ana' } });
+  assert(pluralDigest.message.includes('¿Qué te parecen estas alertas?'));
   assert.strictEqual(projectDigest({ selected: [], message: '' }, {
     user: { first_name: 'Ana' },
   }).message, '');
