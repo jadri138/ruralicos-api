@@ -1,6 +1,7 @@
 const assert = require('assert');
 const {
   dailyWorkflowRunKey,
+  resolveWorkflowRunKey,
   summarizeWorkflowResult,
   runAutomatedShadowV2Batch,
 } = require('../src/modules/alertas/shadow-v2/automation');
@@ -12,6 +13,8 @@ const {
   assert.strictEqual(key12a, key12b, 'la misma fecha debe reanudar la misma run-key');
   assert.notStrictEqual(key12a, key13, 'cada fecha debe tener una run-key distinta');
   assert(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(key12a));
+  assert.strictEqual(resolveWorkflowRunKey('2026-08-12'), key12a);
+  assert.throws(() => resolveWorkflowRunKey('2026-08-12', 'no-es-uuid'), /run_key/);
 
   const stopped = summarizeWorkflowResult({
     workflowRunKey: key12a,
@@ -49,6 +52,25 @@ const {
   assert.strictEqual(completed.done, true);
   assert.strictEqual(completed.processed, 6);
   assert.strictEqual(completed.ai2.generated, 1);
+
+  const replayKey = '04ac9326-5e7e-4696-a781-37b2b28f8ca3';
+  await runAutomatedShadowV2Batch({
+    supabase: { fake: true },
+    workflowDate: '2026-08-12',
+    workflowRunKey: replayKey,
+    logger: { info() {}, warn() {}, error() {} },
+    runWorkflow: async (options) => {
+      assert.strictEqual(options.workflowRunKey, replayKey);
+      return {
+        workflowRunKey: options.workflowRunKey,
+        workflowDate: options.workflowDate,
+        calls: 0,
+        stopped: null,
+        ai1: { found: 0, processed: 0, filtered: 0, classified: 0, errors: 0 },
+        ai2: { found: 0, processed: 0, generated: 0, empty: 0, noCandidates: 0, errors: 0 },
+      };
+    },
+  });
 
   console.log('OK: automatizacion shadow-v2 determinista, reanudable y resumida sin datos sensibles');
 })().catch((error) => {

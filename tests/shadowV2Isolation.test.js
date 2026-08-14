@@ -51,6 +51,7 @@ assert(workflow.includes('/tareas/shadow-v2'));
 assert(workflow.includes('RUN_SHADOW_V2'));
 assert(tareasRoutes.includes("app.post('/tareas/shadow-v2'"));
 assert(tareasRoutes.includes('if (!checkCronToken(req, res)) return'));
+assert(tareasRoutes.includes("value('run_key', null)"));
 assert(!/shadow-v2|decision-v2/.test(routes));
 
 const runner = fs.readFileSync(path.join(root, 'scripts', 'run_shadow_v2_workflow.js'), 'utf8');

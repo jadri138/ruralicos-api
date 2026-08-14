@@ -21,6 +21,15 @@ function dailyWorkflowRunKey(workflowDate) {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
+function resolveWorkflowRunKey(workflowDate, workflowRunKey) {
+  const value = workflowRunKey || dailyWorkflowRunKey(workflowDate);
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+    .test(String(value))) {
+    throw new Error('run_key debe ser un UUID valido');
+  }
+  return String(value);
+}
+
 function summarizeWorkflowResult(result) {
   const ai1 = result?.ai1 || null;
   const ai2 = result?.ai2 || null;
@@ -59,12 +68,13 @@ function summarizeWorkflowResult(result) {
 async function runAutomatedShadowV2Batch({
   supabase,
   workflowDate,
+  workflowRunKey: requestedWorkflowRunKey,
   limitOverrides = {},
   runWorkflow = runShadowV2Workflow,
   logger = console,
 } = {}) {
   assertDate(workflowDate);
-  const workflowRunKey = dailyWorkflowRunKey(workflowDate);
+  const workflowRunKey = resolveWorkflowRunKey(workflowDate, requestedWorkflowRunKey);
   const result = await runWorkflow({
     supabase,
     workflowDate,
@@ -78,6 +88,7 @@ async function runAutomatedShadowV2Batch({
 module.exports = {
   DAILY_RUN_NAMESPACE,
   dailyWorkflowRunKey,
+  resolveWorkflowRunKey,
   summarizeWorkflowResult,
   runAutomatedShadowV2Batch,
 };
