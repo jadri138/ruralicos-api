@@ -23,7 +23,12 @@ const AI2_TEXT_FORMAT = Object.freeze({
             title: { type: 'string' },
             summary: { type: 'string' },
             action: { type: 'string' },
-            deadline: { type: ['string', 'null'] },
+            deadline: {
+              anyOf: [
+                { type: 'string', format: 'date' },
+                { type: 'null' },
+              ],
+            },
           },
         },
       },
@@ -38,7 +43,10 @@ const AI2_INSTRUCTIONS = [
   'Selecciona solo las alertas que sean realmente utiles para esa persona por territorio, actividad y tipo de beneficiario.',
   'Debe poder solicitarlas, cumplirlas, recurrirlas, participar en ellas o estar directamente afectada.',
   'Compartir provincia, una palabra o un sector rural amplio no basta si no existe un encaje personal concreto.',
+  'Cada reason debe nombrar el encaje concreto con una actividad, territorio o condicion de beneficiario del perfil.',
   'Selecciona como maximo cinco y puedes seleccionar ninguna. No inventes datos ni enumeres las descartadas.',
+  'Copia deadline exactamente de la ficha candidata; si la ficha tiene null, devuelve null y no calcules otra fecha.',
+  'Si selected esta vacio, message debe ser una cadena vacia.',
   'Ordena las seleccionadas por utilidad y urgencia, y redacta message exclusivamente con ellas.',
 ].join('\n');
 
@@ -85,7 +93,11 @@ function stringValue(value, max, required, code) {
   return result;
 }
 
-function normalizeAi2Result(value, { candidateIds, maxSelected = 5 } = {}) {
+function normalizeAi2Result(value, {
+  candidateIds,
+  candidateDeadlines = null,
+  maxSelected = 5,
+} = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('ai2_invalid_object');
   }
@@ -100,10 +112,12 @@ function normalizeAi2Result(value, { candidateIds, maxSelected = 5 } = {}) {
     if (!Number.isSafeInteger(alertId) || !allowed.has(alertId)) throw new Error('ai2_unknown_alert_id');
     if (seen.has(alertId)) throw new Error('ai2_duplicate_alert_id');
     seen.add(alertId);
-    const deadline = item.deadline === null ? null : String(item.deadline || '');
-    if (deadline !== null && !/^\d{4}-\d{2}-\d{2}$/.test(deadline)) {
-      throw new Error('ai2_invalid_deadline');
-    }
+    const sourceDeadline = candidateDeadlines === null
+      ? item.deadline
+      : candidateDeadlines[alertId];
+    const deadline = /^\d{4}-\d{2}-\d{2}$/.test(String(sourceDeadline || ''))
+      ? String(sourceDeadline)
+      : null;
     return {
       alert_id: alertId,
       reason: stringValue(item.reason, 800, true, 'ai2_missing_reason'),
@@ -113,8 +127,9 @@ function normalizeAi2Result(value, { candidateIds, maxSelected = 5 } = {}) {
       deadline,
     };
   });
-  const message = stringValue(value.message, 12000, selected.length > 0, 'ai2_missing_message');
-  if (selected.length === 0 && message) throw new Error('ai2_message_without_selection');
+  const message = selected.length === 0
+    ? ''
+    : stringValue(value.message, 12000, true, 'ai2_missing_message');
   return { selected, message };
 }
 
@@ -154,6 +169,10 @@ async function decideDigestWithAi2({
     raw = typeof response === 'string' ? response : response?.text;
     const normalized = normalizeAi2Result(parsearJSON(raw), {
       candidateIds: candidates.map((candidate) => candidate.alert_id),
+      candidateDeadlines: Object.fromEntries(candidates.map((candidate) => {
+        const card = candidate.card || candidate;
+        return [Number(candidate.alert_id), card.deadline ?? null];
+      })),
       maxSelected,
     });
     return {

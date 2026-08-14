@@ -77,6 +77,15 @@ const pacInTitle = prefilterAlert(snapshot({
 }));
 assert.strictEqual(pacInTitle.passed, true, 'PAC en el título sí es una señal rural explícita');
 
+const feminineLivestock = prefilterAlert(snapshot({
+  id: 992,
+  title: 'Licencia de actividad clasificada',
+  organization: 'Ayuntamiento',
+  official_content: 'Se solicita licencia para una explotacion bovina de cebo con 513 plazas.',
+}));
+assert.strictEqual(feminineLivestock.passed, true, 'bovina debe reconocerse como senal rural');
+assert(feminineLivestock.detected_rural_terms.includes('bovina'));
+
 for (const organization of RURAL_ORGANIZATIONS) {
   const result = prefilterAlert(snapshot({
     id: 997,
@@ -129,6 +138,16 @@ assert.strictEqual(matchClassificationToProfile({
 }).candidate, true, 'vacuno y territorio compatibles deben generar candidata');
 assert.strictEqual(signalsCompatible(['ganadería bovina'], ['vacuno']), true);
 assert.strictEqual(signalsCompatible(['titular de explotación ganadera'], ['ganadero']), true);
+assert.strictEqual(signalsCompatible(['agricultura'], ['trigo']), true);
+assert.strictEqual(signalsCompatible(['agricultura'], ['frutales']), true);
+assert.strictEqual(signalsCompatible(['agricultura'], ['frutos_secos']), true);
+assert.strictEqual(signalsCompatible(['agricultura'], ['semillas']), true);
+assert.strictEqual(signalsCompatible(['ganaderia'], ['ovino']), true);
+assert.strictEqual(signalsCompatible(['ganaderia'], ['caprinas']), true);
+assert.strictEqual(signalsCompatible(['bovino'], ['porcino']), false, 'dos subtipos hermanos no son equivalentes');
+assert.strictEqual(signalsCompatible(['vacuna'], ['bovino']), false, 'vacuna no debe interpretarse como ganado vacuno');
+assert.strictEqual(signalsCompatible(['frutales'], ['cereal']), false, 'dos cultivos hermanos no son equivalentes');
+assert.strictEqual(signalsCompatible(['ganaderia bovina'], ['porcino']), false, 'un subtipo explicito no debe abrir toda la familia');
 
 assert.strictEqual(matchClassificationToProfile({
   classification: { ...irrigation, card: { ...irrigation.card, territories: { national: false, regions: ['Aragón'], provinces: [], municipalities: [] } } },
@@ -139,6 +158,14 @@ assert.strictEqual(matchClassificationToProfile({
   classification: irrigation,
   user: { preferences: { provincias: ['Huesca'], actividades: ['frutales'], tipos_beneficiario: ['agricultor'] } },
 }).candidate, true, 'frutales y territorio compatibles deben generar candidata');
+
+assert.strictEqual(matchClassificationToProfile({
+  classification: {
+    ...irrigation,
+    card: { ...irrigation.card, activities: ['agricultura'], beneficiary_types: [] },
+  },
+  user: { preferences: { provincias: ['Huesca'], subsectores: ['trigo', 'cebada'] } },
+}).candidate, true, 'la actividad padre agricultura debe encajar con subsectores agricolas concretos');
 
 const farmerWithoutLivestock = matchClassificationToProfile({
   classification: slurry,

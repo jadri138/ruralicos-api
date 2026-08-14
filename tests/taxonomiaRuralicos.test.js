@@ -198,6 +198,18 @@ test('detecta subsectores nuevos y los deja en forma canonica', () => {
   assert(forrajes.preferencias.subsectores.includes('forrajes'));
 });
 
+test('reconoce genero y plural en especies ganaderas sin crear categorias nuevas', () => {
+  const resultado = construirPreferenciasDesdeTexto(
+    'Tengo explotaciones bovinas, ovinas, caprinas y porcinas, ademas de colmenas apicolas.'
+  );
+
+  assert(resultado.preferencias.subsectores.includes('vacuno'));
+  assert(resultado.preferencias.subsectores.includes('ovino'));
+  assert(resultado.preferencias.subsectores.includes('caprino'));
+  assert(resultado.preferencias.subsectores.includes('porcino'));
+  assert(resultado.preferencias.subsectores.includes('apicultura'));
+});
+
 test('amplia vocabulario sin romper exclusiones existentes', () => {
   const resultado = extraerTaxonomiaDeTexto(
     'contrato de obras del ayuntamiento. ley general. pago de tasas. curso fluvial. vino de honor.'

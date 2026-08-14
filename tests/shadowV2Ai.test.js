@@ -3,6 +3,8 @@ const corpus = require('./fixtures/shadow-v2/corpus.json');
 const {
   AI1_MODEL,
   AI1_INSTRUCTIONS,
+  AI1_TEXT_FORMAT,
+  AI1_CONTRACT_VERSION,
   AI1_PROMPT_VERSION,
   classifyAlertWithAi1,
   normalizeAi1Result,
@@ -10,6 +12,8 @@ const {
 const {
   AI2_MODEL,
   AI2_INSTRUCTIONS,
+  AI2_TEXT_FORMAT,
+  AI2_CONTRACT_VERSION,
   AI2_PROMPT_VERSION,
   decideDigestWithAi2,
   normalizeAi2Result,
@@ -23,13 +27,36 @@ function fakeResponse(value, usage = { input_tokens: 10, output_tokens: 5, total
 }
 
 async function main() {
-  assert.strictEqual(AI1_PROMPT_VERSION, 'shadow-v2-ai1-prompt-2');
+  assert.strictEqual(AI1_CONTRACT_VERSION, 'shadow-v2-ai1-2');
+  assert.strictEqual(AI1_PROMPT_VERSION, 'shadow-v2-ai1-prompt-3');
   assert(AI1_INSTRUCTIONS.includes('el asunto real de la publicacion es rural'));
-  assert.strictEqual(AI2_PROMPT_VERSION, 'shadow-v2-ai2-prompt-2');
+  assert(AI1_INSTRUCTIONS.includes('YYYY-MM-DD'));
+  assert.strictEqual(AI1_TEXT_FORMAT.schema.properties.activities.maxItems, 3);
+  assert.strictEqual(
+    AI1_TEXT_FORMAT.schema.properties.deadline.anyOf[0].format,
+    'date'
+  );
+  assert.strictEqual(AI2_CONTRACT_VERSION, 'shadow-v2-ai2-2');
+  assert.strictEqual(AI2_PROMPT_VERSION, 'shadow-v2-ai2-prompt-3');
   assert(AI2_INSTRUCTIONS.includes('encaje personal concreto'));
+  assert(AI2_INSTRUCTIONS.includes('Copia deadline exactamente'));
+  assert.strictEqual(
+    AI2_TEXT_FORMAT.schema.properties.selected.items.properties.deadline.anyOf[0].format,
+    'date'
+  );
 
   const validCard = corpus.accepted_by_ai1[0].ai1;
   assert.deepStrictEqual(normalizeAi1Result(validCard), validCard);
+
+  const normalizedCard = normalizeAi1Result({
+    ...validCard,
+    activities: ['bovino', 'ovino', 'caprino', 'porcino'],
+    beneficiary_types: ['uno', 'dos', 'tres', 'cuatro', 'cinco', 'seis'],
+    deadline: '15 dias habiles desde la publicacion',
+  });
+  assert.deepStrictEqual(normalizedCard.activities, ['bovino', 'ovino', 'caprino']);
+  assert.deepStrictEqual(normalizedCard.beneficiary_types, ['uno', 'dos', 'tres', 'cuatro', 'cinco']);
+  assert.strictEqual(normalizedCard.deadline, null, 'un plazo relativo no invalida la ficha completa');
 
   let ai1Calls = 0;
   const validAi1 = await classifyAlertWithAi1({
@@ -114,9 +141,44 @@ async function main() {
     candidates,
     maxSelected: 5,
     maxPromptChars: 60000,
-    callAi: () => fakeResponse({ selected: [], message: '' }),
+    callAi: () => fakeResponse({ selected: [], message: 'No hay avisos adecuados para este perfil.' }),
   });
   assert.strictEqual(emptyAi2.status, 'EMPTY');
+  assert.strictEqual(emptyAi2.normalizedResponse.message, '');
+
+  const normalizedDeadline = normalizeAi2Result({
+    selected: [{
+      alert_id: 201,
+      reason: 'Actividad ganadera compatible.',
+      title: 'Ayuda ganadera',
+      summary: 'Resumen',
+      action: 'Solicitar',
+      deadline: 'quince dias desde la publicacion',
+    }],
+    message: 'Aviso util.',
+  }, {
+    candidateIds: [201],
+    candidateDeadlines: { 201: '2026-09-30' },
+    maxSelected: 5,
+  });
+  assert.strictEqual(normalizedDeadline.selected[0].deadline, '2026-09-30');
+
+  const normalizedNullDeadline = normalizeAi2Result({
+    selected: [{
+      alert_id: 201,
+      reason: 'Actividad ganadera compatible.',
+      title: 'Ayuda ganadera',
+      summary: 'Resumen',
+      action: 'Solicitar',
+      deadline: '2026-09-30',
+    }],
+    message: 'Aviso util.',
+  }, {
+    candidateIds: [201],
+    candidateDeadlines: { 201: null },
+    maxSelected: 5,
+  });
+  assert.strictEqual(normalizedNullDeadline.selected[0].deadline, null);
 
   assert.throws(() => normalizeAi2Result({
     selected: Array.from({ length: 6 }, (_, index) => ({

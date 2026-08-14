@@ -36,11 +36,16 @@ const AI1_TEXT_FORMAT = Object.freeze({
           municipalities: { type: 'array', items: { type: 'string' } },
         },
       },
-      activities: { type: 'array', items: { type: 'string' } },
-      beneficiary_types: { type: 'array', items: { type: 'string' } },
+      activities: { type: 'array', maxItems: 3, items: { type: 'string' } },
+      beneficiary_types: { type: 'array', maxItems: 5, items: { type: 'string' } },
       content_type: { type: 'string', enum: CONTENT_TYPES },
       action: { type: 'string' },
-      deadline: { type: ['string', 'null'] },
+      deadline: {
+        anyOf: [
+          { type: 'string', format: 'date' },
+          { type: 'null' },
+        ],
+      },
       summary: { type: 'string' },
       evidence: { type: 'array', items: { type: 'string' } },
     },
@@ -54,6 +59,9 @@ const AI1_INSTRUCTIONS = [
   'relevant=true solo si el asunto real de la publicacion es rural; una palabra aislada o el nombre de un organismo no bastan.',
   'actionable=true solo si todavia se puede solicitar, cumplir, recurrir, participar o actuar, o existe una afectacion concreta vigente.',
   'Clasifica territorio, actividades, beneficiarios, tipo, accion y plazo usando exclusivamente el documento actual.',
+  'activities contiene como maximo tres actividades directamente afectadas; no anadas sectores rurales amplios por contexto.',
+  'Usa aid para ayudas abiertas, opportunity para cursos o participacion abierta, obligation para deberes vigentes e information solo si no hay una accion mas concreta.',
+  'deadline debe ser una fecha exacta YYYY-MM-DD respaldada por el documento. Si el plazo es relativo, depende de dias habiles o no puede calcularse con certeza, usa null.',
   'Una concesion, adjudicacion o convocatoria ya resuelta o cerrada no es una oportunidad abierta.',
   'No inventes ni completes por intuicion. Si falta informacion usa arrays vacios, null o unknown.',
   'evidence debe contener fragmentos breves y literales que sostengan la decision.',
@@ -92,7 +100,7 @@ function normalizeAi1Result(value) {
   if (!summary) throw new Error('ai1_missing_summary');
   if (evidence.length === 0) throw new Error('ai1_insufficient_evidence');
   if (value.actionable && !action) throw new Error('ai1_missing_action');
-  if (value.deadline !== null && !isIsoDate(value.deadline)) throw new Error('ai1_invalid_deadline');
+  const deadline = isIsoDate(value.deadline) ? String(value.deadline) : null;
 
   return {
     relevant: value.relevant,
@@ -104,11 +112,11 @@ function normalizeAi1Result(value) {
       provinces: cleanStringArray(value.territories.provinces),
       municipalities: cleanStringArray(value.territories.municipalities),
     },
-    activities: cleanStringArray(value.activities),
-    beneficiary_types: cleanStringArray(value.beneficiary_types),
+    activities: cleanStringArray(value.activities, 3),
+    beneficiary_types: cleanStringArray(value.beneficiary_types, 5),
     content_type: value.content_type,
     action,
-    deadline: value.deadline,
+    deadline,
     summary,
     evidence,
   };
