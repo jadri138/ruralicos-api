@@ -27,7 +27,7 @@ function fakeResponse(value, usage = { input_tokens: 10, output_tokens: 5, total
 }
 
 async function main() {
-  assert.strictEqual(AI1_CONTRACT_VERSION, 'shadow-v2-ai1-2');
+  assert.strictEqual(AI1_CONTRACT_VERSION, 'shadow-v2-ai1-3');
   assert.strictEqual(AI1_PROMPT_VERSION, 'shadow-v2-ai1-prompt-4');
   assert(AI1_INSTRUCTIONS.includes('el asunto real de la publicacion es rural'));
   assert(AI1_INSTRUCTIONS.includes('YYYY-MM-DD'));
@@ -74,6 +74,12 @@ async function main() {
   assert.strictEqual(normalizeAi1Result(deadlineCard, {
     officialContent: 'El plazo es de quince dias habiles desde la publicacion.',
   }).deadline, null, 'descarta fechas calculadas que no aparecen en la fuente');
+  assert.strictEqual(normalizeAi1Result({ ...validCard, deadline: '2026-12-31' }, {
+    officialContent: 'La resolucion sera de aplicacion hasta el 31 de diciembre de 2026. Contra ella se podra interponer recurso de alzada.',
+  }).deadline, null, 'descarta el fin de vigencia aunque despues se mencione un recurso');
+  assert.strictEqual(normalizeAi1Result({ ...validCard, deadline: '2026-08-24' }, {
+    officialContent: 'La sustitucion temporal se producira desde el 14 de agosto hasta el 24 de agosto de 2026.',
+  }).deadline, null, 'descarta el fin de una sustitucion administrativa');
 
   let ai1Calls = 0;
   const validAi1 = await classifyAlertWithAi1({

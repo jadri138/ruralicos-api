@@ -111,7 +111,7 @@ function supportedDeadline(value, officialContent) {
     `${numericDay} de ${monthName} ${year}`,
     `${numericDay} ${monthName} ${year}`,
   ])];
-  const actionSignal = /\b(plazo|fecha limite|solicitud(?:es)?|alegacion(?:es)?|recurso(?:s)?|recurrir|inscripcion(?:es)?|subsanacion|oferta(?:s)?|proposicion(?:es)?|debera(?:n)?|cumplir|comunicar|justificar|hasta|antes del)\b/;
+  const actionSignal = /\b(plazo|fecha limite|solicitud(?:es)?|alegacion(?:es)?|recurso(?:s)?|recurrir|inscripcion(?:es)?|subsanacion|oferta(?:s)?|proposicion(?:es)?|cumplir|cumplimiento|comunicar|comunicacion|justificar|justificacion)\b/;
   const nonUserDate = /\b(transferid\w*|transferencia|pago al ico|abono al ico|vigencia del convenio|firma del convenio|suscripcion del convenio|inicio del curso|fin del curso|finalizacion del curso)\b|\bfechas?\s*:\s*del\b/;
 
   return variants.some((variant) => {
@@ -121,7 +121,7 @@ function supportedDeadline(value, officialContent) {
       const after = source.slice(index + variant.length, index + variant.length + 140);
       const context = `${before}${variant}${after}`;
       const isDocumentDate = /\b(?:fecha de )?(?:publicacion|resolucion)\s*(?:de|del)?\s*:?\s*$|\b(?:resolucion|orden|anuncio)\s+de\s*$|\bpublicad[oa]\s+(?:el|con fecha)\s*$/.test(before);
-      if (actionSignal.test(context) && !nonUserDate.test(context) && !isDocumentDate) return true;
+      if (actionSignal.test(before) && !nonUserDate.test(context) && !isDocumentDate) return true;
       index = source.indexOf(variant, index + variant.length);
     }
     return false;
