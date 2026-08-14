@@ -50,9 +50,12 @@ const PREPARAR_DIGEST_MAX_LOOPS = Number(process.env.PREPARAR_DIGEST_MAX_LOOPS |
 const HOLD_RECOVERY_MAX_LOOPS = Number(process.env.HOLD_RECOVERY_MAX_LOOPS || 20);
 const OUTBOX_MAX_LOOPS = Number(process.env.OUTBOX_MAX_LOOPS || 50);
 const SHADOW_V2_MAX_LOOPS = Number(process.env.SHADOW_V2_MAX_LOOPS || 60);
-const SHADOW_V2_BATCH_SIZE = Number(process.env.SHADOW_V2_BATCH_SIZE || 25);
-const SHADOW_V2_MAX_CALLS_PER_BATCH = Number(process.env.SHADOW_V2_MAX_CALLS_PER_BATCH || 25);
-const SHADOW_V2_MAX_USERS_PER_BATCH = Number(process.env.SHADOW_V2_MAX_USERS_PER_BATCH || 10);
+// Valores contrastados con replays reales de 553-741 alertas y 82 perfiles.
+// Mantienen cada request por debajo de los cortes habituales del proxy y dejan
+// que la run idempotente avance en mas vueltas pequenas.
+const SHADOW_V2_BATCH_SIZE = Number(process.env.SHADOW_V2_BATCH_SIZE || 50);
+const SHADOW_V2_MAX_CALLS_PER_BATCH = Number(process.env.SHADOW_V2_MAX_CALLS_PER_BATCH || 10);
+const SHADOW_V2_MAX_USERS_PER_BATCH = Number(process.env.SHADOW_V2_MAX_USERS_PER_BATCH || 5);
 const STEP_DELAY_MS = Number(process.env.STEP_DELAY_MS || 800);
 const HTTP_RETRIES = Number(process.env.HTTP_RETRIES || 3);
 const HTTP_RETRY_DELAY_MS = Number(process.env.HTTP_RETRY_DELAY_MS || 5000);
@@ -329,9 +332,9 @@ async function runShadowV2Step({
   maxUsers = SHADOW_V2_MAX_USERS_PER_BATCH,
 } = {}) {
   const safeMaxLoops = Math.max(1, Math.trunc(Number(maxLoops) || 60));
-  const safeBatchSize = Math.max(1, Math.min(500, Math.trunc(Number(batchSize) || 25)));
-  const safeMaxCalls = Math.max(1, Math.min(750, Math.trunc(Number(maxCalls) || 25)));
-  const safeMaxUsers = Math.max(1, Math.min(250, Math.trunc(Number(maxUsers) || 10)));
+  const safeBatchSize = Math.max(1, Math.min(500, Math.trunc(Number(batchSize) || 50)));
+  const safeMaxCalls = Math.max(1, Math.min(750, Math.trunc(Number(maxCalls) || 10)));
+  const safeMaxUsers = Math.max(1, Math.min(250, Math.trunc(Number(maxUsers) || 5)));
   const totals = { processed: 0, calls: 0, errors: 0 };
   let workflowRunKey = null;
   let lastBody = null;
@@ -342,7 +345,9 @@ async function runShadowV2Step({
       max_users: safeMaxUsers,
       max_calls: safeMaxCalls,
     });
-    const body = await hit(path, { method: 'POST', maxRetries: 0 });
+    // La ruta es idempotente por fecha/run-key. Reintentar 5xx o errores de red
+    // reanuda lo ya persistido en vez de duplicarlo.
+    const body = await hit(path, { method: 'POST' });
     lastBody = body;
     if (workflowRunKey && body?.workflow_run_key !== workflowRunKey) {
       throw new Error('[shadow-v2] la run-key cambio durante el mismo workflow diario');

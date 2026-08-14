@@ -27,7 +27,7 @@ function respuestaPara(pathname, attempt) {
   }
   if (pathname === '/cerebro/exploracion-diaria') return { ok: true, encoladas: 1 };
   if (pathname === '/tareas/shadow-v2') {
-    if (attempt === 1) {
+    if (attempt <= 2) {
       return {
         success: true,
         done: false,
@@ -61,7 +61,8 @@ function ejecutarScript(baseUrl) {
         BASE_URL: baseUrl,
         CRON_TOKEN: 'test-cron-token',
         STEP_DELAY_MS: '0',
-        HTTP_RETRIES: '0',
+        HTTP_RETRIES: '1',
+        HTTP_RETRY_DELAY_MS: '0',
         HTTP_TIMEOUT_MS: '5000',
         MAX_LOOPS: '2',
         HOLD_RECOVERY_MAX_LOOPS: '4',
@@ -99,6 +100,11 @@ async function main() {
       pathname,
       cronToken: req.headers['x-cron-token'],
     });
+    if (pathname === '/tareas/shadow-v2' && attempt === 1) {
+      res.writeHead(500, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ success: false, error: 'fallo transitorio simulado' }));
+      return;
+    }
     const body = respuestaPara(pathname, attempt);
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end(JSON.stringify(body));
@@ -172,8 +178,8 @@ async function main() {
     );
     assert.strictEqual(
       paths.filter((pathname) => pathname === '/tareas/shadow-v2').length,
-      2,
-      'shadow-v2 debe reanudar lotes hasta completar la fecha',
+      3,
+      'shadow-v2 debe reintentar un 500 y reanudar lotes hasta completar la fecha',
     );
 
     const repair = requests.find((request) => request.pathname === '/alertas/reparar-pendientes-ia');

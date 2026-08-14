@@ -105,7 +105,12 @@ test('ejecuta shadow-v2 al final de forma reanudable y no bloqueante', () => {
   assert(shadowCallIndex > lastOutboxIndex, 'shadow-v2 debe ejecutarse despues de toda la entrega');
   assert(script.includes("const RUN_SHADOW_V2 = parseBool(process.env.RUN_SHADOW_V2, true)"));
   assert(script.includes("'/tareas/shadow-v2'"));
-  assert(script.includes("method: 'POST', maxRetries: 0"));
+  assert(script.includes("const SHADOW_V2_BATCH_SIZE = Number(process.env.SHADOW_V2_BATCH_SIZE || 50)"));
+  assert(script.includes("const SHADOW_V2_MAX_CALLS_PER_BATCH = Number(process.env.SHADOW_V2_MAX_CALLS_PER_BATCH || 10)"));
+  assert(script.includes("const SHADOW_V2_MAX_USERS_PER_BATCH = Number(process.env.SHADOW_V2_MAX_USERS_PER_BATCH || 5)"));
+  const shadowHelper = script.slice(shadowHelperIndex, script.indexOf('async function runOptionalShadowV2Step'));
+  assert(shadowHelper.includes("await hit(path, { method: 'POST' })"));
+  assert(!shadowHelper.includes("maxRetries: 0"), 'shadow-v2 debe reintentar porque su ruta es idempotente');
   assert(script.includes('runOptionalShadowV2Step'), 'un fallo shadow no debe tumbar el digest productivo');
   assert(script.includes('body?.done === true'), 'debe continuar hasta completar alertas y usuarios');
   assert(script.includes('body?.workflow_run_key !== workflowRunKey'), 'debe conservar la misma run-key al reanudar');
