@@ -20,11 +20,11 @@ const AI2_TEXT_FORMAT = Object.freeze({
           properties: {
             alert_id: { type: 'integer' },
             reason: { type: 'string' },
-            title: { type: 'string' },
+            title: { type: 'string', maxLength: 120 },
           },
         },
       },
-      message: { type: 'string' },
+      message: { type: 'string', maxLength: 240 },
     },
   },
 });
@@ -39,6 +39,8 @@ const AI2_INSTRUCTIONS = [
   'Selecciona como maximo cinco y puedes seleccionar ninguna. No inventes datos ni enumeres las descartadas.',
   'Escribe cada title de forma breve, clara y orientada al beneficio real, sin copiar encabezados oficiales largos.',
   'En title y message habla siempre de tu y nunca de usted; manten el mismo tono cercano en todo el digest.',
+  'No atribuyas a la persona una concesion, expediente, parcela o instalacion concreta si el perfil no demuestra que sea suya; usa un titulo neutral.',
+  'Si varias candidatas son cursos o tramites casi iguales, elige solo la mejor y evita un digest repetitivo.',
   'No devuelvas resumen, accion, plazo ni URL: el servidor los proyecta desde la ficha verificada de IA 1.',
   'Si selected esta vacio, message debe ser una cadena vacia.',
   'Ordena las seleccionadas por utilidad y urgencia. message debe ser un gancho comercial de una sola frase, concreto y veraz, sin saludo, despedida ni pregunta.',
@@ -108,12 +110,12 @@ function normalizeAi2Result(value, {
     return {
       alert_id: alertId,
       reason: stringValue(item.reason, 800, true, 'ai2_missing_reason'),
-      title: stringValue(item.title, 500, true, 'ai2_missing_title'),
+      title: stringValue(item.title, 120, true, 'ai2_missing_title'),
     };
   });
   const message = selected.length === 0
     ? ''
-    : stringValue(value.message, 12000, true, 'ai2_missing_message');
+    : stringValue(value.message, 240, true, 'ai2_missing_message');
   return { selected, message };
 }
 

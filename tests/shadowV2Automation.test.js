@@ -50,7 +50,7 @@ const {
           empty: 0,
           noCandidates: 0,
           errors: 0,
-          sendGateVersion: 'shadow-v2-send-gate-1',
+          sendGateVersion: 'shadow-v2-send-gate-2',
           sendGateAllowed: 1,
           sendGateBlocked: 0,
           sendGateReasons: {},

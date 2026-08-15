@@ -2,11 +2,11 @@ const AI1_MODEL = 'gpt-5-nano';
 const AI2_MODEL = 'gpt-5.6-luna';
 
 const VERSIONS = Object.freeze({
-  engine: 'shadow-v2-2',
+  engine: 'shadow-v2-3',
   ai1Contract: 'shadow-v2-ai1-3',
-  ai1Prompt: 'shadow-v2-ai1-prompt-5',
-  ai2Contract: 'shadow-v2-ai2-3',
-  ai2Prompt: 'shadow-v2-ai2-prompt-6',
+  ai1Prompt: 'shadow-v2-ai1-prompt-6',
+  ai2Contract: 'shadow-v2-ai2-4',
+  ai2Prompt: 'shadow-v2-ai2-prompt-7',
   render: 'shadow-v2-render-6',
 });
 
