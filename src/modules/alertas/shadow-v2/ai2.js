@@ -40,6 +40,7 @@ const AI2_INSTRUCTIONS = [
   'Escribe cada title de forma breve, clara y orientada al beneficio real, sin copiar encabezados oficiales largos.',
   'En title y message habla siempre de tu y nunca de usted; manten el mismo tono cercano en todo el digest.',
   'No atribuyas a la persona una concesion, expediente, parcela o instalacion concreta si el perfil no demuestra que sea suya; usa un titulo neutral.',
+  'En informaciones publicas sobre concesiones ajenas no escribas tu concesion ni tus derechos; titula la accion abierta, por ejemplo presentar alegaciones.',
   'Si varias candidatas son cursos o tramites casi iguales, elige solo la mejor y evita un digest repetitivo.',
   'No devuelvas resumen, accion, plazo ni URL: el servidor los proyecta desde la ficha verificada de IA 1.',
   'Si selected esta vacio, message debe ser una cadena vacia.',
