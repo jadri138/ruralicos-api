@@ -1,10 +1,14 @@
 function renderSelectedItem(item, position) {
+  const officialUrl = /^https?:\/\/\S+$/i.test(String(item.official_url || '').trim())
+    ? String(item.official_url).trim()
+    : '';
   const lines = [
     `*${position}. ${item.title}*`,
     item.summary,
     `👉 *Qué puedes hacer:* ${item.action}`,
   ];
   if (item.deadline) lines.push(`⏳ *Plazo:* ${item.deadline}`);
+  if (officialUrl) lines.push(`🔗 *Fuente oficial:* ${officialUrl}`);
   return lines.join('\n');
 }
 
@@ -38,10 +42,15 @@ function renderDigestMessage(ai2Result = {}, user = {}) {
   ].filter(Boolean).join('\n\n');
 }
 
-function projectDigest(ai2Result = {}, { user = {} } = {}) {
-  const selected = ai2Result.selected || [];
+function projectDigest(ai2Result = {}, { user = {}, candidates = [] } = {}) {
+  const candidatesById = new Map(candidates.map((candidate) => [Number(candidate.alert_id), candidate]));
+  const selected = (ai2Result.selected || []).map((item) => ({
+    ...item,
+    official_url: candidatesById.get(Number(item.alert_id))?.official_snapshot?.official_url || null,
+  }));
+  const enrichedResult = { ...ai2Result, selected };
   return {
-    message: renderDigestMessage(ai2Result, user),
+    message: renderDigestMessage(enrichedResult, user),
     items: selected.map((item, index) => ({
       ...item,
       position: index + 1,
