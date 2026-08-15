@@ -28,28 +28,32 @@ function fakeResponse(value, usage = { input_tokens: 10, output_tokens: 5, total
 }
 
 async function main() {
-  assert.strictEqual(AI1_CONTRACT_VERSION, 'shadow-v2-ai1-3');
-  assert.strictEqual(AI1_PROMPT_VERSION, 'shadow-v2-ai1-prompt-6');
+  assert.strictEqual(AI1_CONTRACT_VERSION, 'shadow-v2-ai1-4');
+  assert.strictEqual(AI1_PROMPT_VERSION, 'shadow-v2-ai1-prompt-7');
   assert(AI1_INSTRUCTIONS.includes('el asunto real de la publicacion es rural'));
   assert(AI1_INSTRUCTIONS.includes('Un puesto de empleo publico'));
   assert(AI1_INSTRUCTIONS.includes('usa actionable=false'));
   assert(AI1_INSTRUCTIONS.includes('No escribas dudas'));
   assert(AI1_INSTRUCTIONS.includes('YYYY-MM-DD'));
   assert(AI1_INSTRUCTIONS.includes('un maximo de 450 caracteres'));
+  assert(AI1_INSTRUCTIONS.includes('una o dos frases breves'));
   assert(AI1_INSTRUCTIONS.includes('no uses barras'));
   assert.strictEqual(AI1_TEXT_FORMAT.schema.properties.activities.maxItems, 3);
+  assert.strictEqual(AI1_TEXT_FORMAT.schema.properties.action.maxLength, 240);
+  assert.strictEqual(AI1_TEXT_FORMAT.schema.properties.summary.maxLength, 450);
   assert.strictEqual(
     AI1_TEXT_FORMAT.schema.properties.deadline.anyOf[0].format,
     'date'
   );
   assert.strictEqual(AI2_CONTRACT_VERSION, 'shadow-v2-ai2-4');
-  assert.strictEqual(AI2_PROMPT_VERSION, 'shadow-v2-ai2-prompt-7');
+  assert.strictEqual(AI2_PROMPT_VERSION, 'shadow-v2-ai2-prompt-8');
   assert(AI2_INSTRUCTIONS.includes('encaje personal concreto'));
   assert(AI2_INSTRUCTIONS.includes('gancho comercial de una sola frase'));
   assert(AI2_INSTRUCTIONS.includes('habla siempre de tu y nunca de usted'));
   assert(AI2_INSTRUCTIONS.includes('el servidor los proyecta desde la ficha verificada'));
   assert(AI2_INSTRUCTIONS.includes('evita un digest repetitivo'));
   assert(AI2_INSTRUCTIONS.includes('si el perfil no demuestra que sea suya'));
+  assert(AI2_INSTRUCTIONS.includes('no escribas tu concesion ni tus derechos'));
   assert.deepStrictEqual(
     AI2_TEXT_FORMAT.schema.properties.selected.items.required,
     ['alert_id', 'reason', 'title']
