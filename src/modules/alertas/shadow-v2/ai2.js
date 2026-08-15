@@ -16,19 +16,11 @@ const AI2_TEXT_FORMAT = Object.freeze({
         items: {
           type: 'object',
           additionalProperties: false,
-          required: ['alert_id', 'reason', 'title', 'summary', 'action', 'deadline'],
+          required: ['alert_id', 'reason', 'title'],
           properties: {
             alert_id: { type: 'integer' },
             reason: { type: 'string' },
             title: { type: 'string' },
-            summary: { type: 'string' },
-            action: { type: 'string' },
-            deadline: {
-              anyOf: [
-                { type: 'string', format: 'date' },
-                { type: 'null' },
-              ],
-            },
           },
         },
       },
@@ -46,9 +38,8 @@ const AI2_INSTRUCTIONS = [
   'Cada reason debe nombrar el encaje concreto con una actividad, territorio o condicion de beneficiario del perfil.',
   'Selecciona como maximo cinco y puedes seleccionar ninguna. No inventes datos ni enumeres las descartadas.',
   'Escribe cada title de forma breve, clara y orientada al beneficio real, sin copiar encabezados oficiales largos.',
-  'En title, summary, action y message habla siempre de tu y nunca de usted; manten el mismo tono cercano en todo el digest.',
-  'action debe ser una instruccion concreta como revisa, solicita, contrata, presenta o inscribete. Evita acciones vagas como conocer, informarse o participar si la ficha permite ser mas precisa.',
-  'Copia deadline exactamente de la ficha candidata; si la ficha tiene null, devuelve null y no calcules otra fecha.',
+  'En title y message habla siempre de tu y nunca de usted; manten el mismo tono cercano en todo el digest.',
+  'No devuelvas resumen, accion, plazo ni URL: el servidor los proyecta desde la ficha verificada de IA 1.',
   'Si selected esta vacio, message debe ser una cadena vacia.',
   'Ordena las seleccionadas por utilidad y urgencia. message debe ser un gancho comercial de una sola frase, concreto y veraz, sin saludo, despedida ni pregunta.',
 ].join('\n');
@@ -98,7 +89,6 @@ function stringValue(value, max, required, code) {
 
 function normalizeAi2Result(value, {
   candidateIds,
-  candidateDeadlines = null,
   maxSelected = 5,
 } = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -115,19 +105,10 @@ function normalizeAi2Result(value, {
     if (!Number.isSafeInteger(alertId) || !allowed.has(alertId)) throw new Error('ai2_unknown_alert_id');
     if (seen.has(alertId)) throw new Error('ai2_duplicate_alert_id');
     seen.add(alertId);
-    const sourceDeadline = candidateDeadlines === null
-      ? item.deadline
-      : candidateDeadlines[alertId];
-    const deadline = /^\d{4}-\d{2}-\d{2}$/.test(String(sourceDeadline || ''))
-      ? String(sourceDeadline)
-      : null;
     return {
       alert_id: alertId,
       reason: stringValue(item.reason, 800, true, 'ai2_missing_reason'),
       title: stringValue(item.title, 500, true, 'ai2_missing_title'),
-      summary: stringValue(item.summary, 1200, true, 'ai2_missing_summary'),
-      action: stringValue(item.action, 600, true, 'ai2_missing_action'),
-      deadline,
     };
   });
   const message = selected.length === 0
@@ -172,10 +153,6 @@ async function decideDigestWithAi2({
     raw = typeof response === 'string' ? response : response?.text;
     const normalized = normalizeAi2Result(parsearJSON(raw), {
       candidateIds: candidates.map((candidate) => candidate.alert_id),
-      candidateDeadlines: Object.fromEntries(candidates.map((candidate) => {
-        const card = candidate.card || candidate;
-        return [Number(candidate.alert_id), card.deadline ?? null];
-      })),
       maxSelected,
     });
     return {

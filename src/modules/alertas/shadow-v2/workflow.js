@@ -4,6 +4,7 @@ const { classifyAlertWithAi1 } = require('./ai1');
 const { matchClassificationToProfile, orderCandidates } = require('./profileMatch');
 const { buildAi2Prompt, decideDigestWithAi2 } = require('./ai2');
 const { projectDigest } = require('./render');
+const { SEND_GATE_VERSION, evaluateSendGate } = require('./sendGate');
 const {
   AI1_MODEL,
   AI2_MODEL,
@@ -45,6 +46,13 @@ function createCallBudget(maxTotalCalls) {
 
 function classificationRow({ workflowRunKey, workflowDate, snapshot, prefilter, ai1 }) {
   const ai1Called = Boolean(ai1) && ai1.called !== false;
+  const sendGate = ai1?.status === 'SUCCESS'
+    ? evaluateSendGate({
+      officialSnapshot: snapshot,
+      card: ai1.normalizedResponse,
+      workflowDate,
+    })
+    : null;
   return {
     workflow_run_key: workflowRunKey,
     workflow_date: workflowDate,
@@ -52,7 +60,12 @@ function classificationRow({ workflowRunKey, workflowDate, snapshot, prefilter, 
     official_snapshot: snapshot,
     prefilter_result: prefilter,
     ai1_called: ai1Called,
-    classification: ai1?.normalizedResponse || null,
+    // `normalized_response` conserva exactamente la salida validada de IA 1.
+    // `classification` anade la decision determinista sin contaminar el
+    // contrato del modelo ni necesitar otra tabla shadow.
+    classification: ai1?.normalizedResponse
+      ? { ...ai1.normalizedResponse, send_gate: sendGate }
+      : null,
     model: ai1 ? AI1_MODEL : null,
     engine_version: VERSIONS.engine,
     contract_version: VERSIONS.ai1Contract,
@@ -180,7 +193,26 @@ async function runAi2Phase({
   repo,
   logger,
 } = {}) {
-  const classifications = await repo.loadSuccessfulClassifications(supabase, workflowRunKey);
+  const classifications = (await repo.loadSuccessfulClassifications(supabase, workflowRunKey))
+    .map((classification) => ({
+      ...classification,
+      send_gate: classification.send_gate?.version === SEND_GATE_VERSION
+        ? classification.send_gate
+        : evaluateSendGate({
+          officialSnapshot: classification.official_snapshot,
+          card: classification.card,
+          workflowDate,
+        }),
+    }));
+  const sendableClassifications = classifications.filter((classification) =>
+    classification.send_gate.allowed
+  );
+  const sendGateReasons = {};
+  for (const classification of classifications.filter((item) => !item.send_gate.allowed)) {
+    for (const reason of classification.send_gate.reasons || []) {
+      sendGateReasons[reason] = (sendGateReasons[reason] || 0) + 1;
+    }
+  }
   const existingUserIds = await repo.loadExistingDigestUserIds(supabase, workflowRunKey, workflowDate);
   const allUsers = await repo.loadUsers(supabase);
   const pendingUsers = allUsers.filter((user) => !existingUserIds.has(Number(user.id)));
@@ -195,11 +227,15 @@ async function runAi2Phase({
     empty: 0,
     noCandidates: 0,
     errors: 0,
+    sendGateVersion: SEND_GATE_VERSION,
+    sendGateAllowed: sendableClassifications.length,
+    sendGateBlocked: classifications.length - sendableClassifications.length,
+    sendGateReasons,
   };
 
   for (const [index, user] of users.entries()) {
     const sentAlertIds = [...(sentByUser.get(Number(user.id)) || new Set())];
-    const candidates = classifications.filter((classification) => (
+    const candidates = sendableClassifications.filter((classification) => (
       !hasExpiredDeadline(classification, workflowDate)
       && matchClassificationToProfile({ classification, user, sentAlertIds }).candidate
     ));

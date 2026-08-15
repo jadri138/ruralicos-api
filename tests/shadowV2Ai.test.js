@@ -40,16 +40,15 @@ async function main() {
     AI1_TEXT_FORMAT.schema.properties.deadline.anyOf[0].format,
     'date'
   );
-  assert.strictEqual(AI2_CONTRACT_VERSION, 'shadow-v2-ai2-2');
-  assert.strictEqual(AI2_PROMPT_VERSION, 'shadow-v2-ai2-prompt-5');
+  assert.strictEqual(AI2_CONTRACT_VERSION, 'shadow-v2-ai2-3');
+  assert.strictEqual(AI2_PROMPT_VERSION, 'shadow-v2-ai2-prompt-6');
   assert(AI2_INSTRUCTIONS.includes('encaje personal concreto'));
-  assert(AI2_INSTRUCTIONS.includes('Copia deadline exactamente'));
   assert(AI2_INSTRUCTIONS.includes('gancho comercial de una sola frase'));
   assert(AI2_INSTRUCTIONS.includes('habla siempre de tu y nunca de usted'));
-  assert(AI2_INSTRUCTIONS.includes('Evita acciones vagas'));
-  assert.strictEqual(
-    AI2_TEXT_FORMAT.schema.properties.selected.items.properties.deadline.anyOf[0].format,
-    'date'
+  assert(AI2_INSTRUCTIONS.includes('el servidor los proyecta desde la ficha verificada'));
+  assert.deepStrictEqual(
+    AI2_TEXT_FORMAT.schema.properties.selected.items.required,
+    ['alert_id', 'reason', 'title']
   );
 
   const validCard = corpus.accepted_by_ai1[0].ai1;
@@ -139,9 +138,6 @@ async function main() {
       alert_id: candidate.alert_id,
       reason: 'El perfil acredita actividad y territorio compatibles.',
       title: candidate.official_snapshot.title,
-      summary: candidate.card.summary,
-      action: candidate.card.action,
-      deadline: candidate.card.deadline,
     })),
     message: 'Dos avisos útiles y accionables para tu actividad.',
   };
@@ -176,51 +172,44 @@ async function main() {
   assert.strictEqual(emptyAi2.status, 'EMPTY');
   assert.strictEqual(emptyAi2.normalizedResponse.message, '');
 
-  const normalizedDeadline = normalizeAi2Result({
+  const normalizedSelection = normalizeAi2Result({
     selected: [{
       alert_id: 201,
       reason: 'Actividad ganadera compatible.',
       title: 'Ayuda ganadera',
-      summary: 'Resumen',
-      action: 'Solicitar',
+      summary: 'Resumen inventado que el servidor no debe usar',
+      action: 'Accion inventada',
       deadline: 'quince dias desde la publicacion',
     }],
     message: 'Aviso util.',
   }, {
     candidateIds: [201],
-    candidateDeadlines: { 201: '2026-09-30' },
     maxSelected: 5,
   });
-  assert.strictEqual(normalizedDeadline.selected[0].deadline, '2026-09-30');
-
-  const normalizedNullDeadline = normalizeAi2Result({
-    selected: [{
-      alert_id: 201,
-      reason: 'Actividad ganadera compatible.',
-      title: 'Ayuda ganadera',
-      summary: 'Resumen',
-      action: 'Solicitar',
-      deadline: '2026-09-30',
-    }],
-    message: 'Aviso util.',
-  }, {
-    candidateIds: [201],
-    candidateDeadlines: { 201: null },
-    maxSelected: 5,
+  assert.deepStrictEqual(normalizedSelection.selected[0], {
+    alert_id: 201,
+    reason: 'Actividad ganadera compatible.',
+    title: 'Ayuda ganadera',
   });
-  assert.strictEqual(normalizedNullDeadline.selected[0].deadline, null);
 
-  const projectedDigest = projectDigest(normalizedDeadline, {
+  const projectedDigest = projectDigest(normalizedSelection, {
     user: { first_name: 'Ana', name: 'Nombre alternativo' },
     candidates: [{
       alert_id: 201,
+      card: {
+        summary: 'Resumen verificado por IA 1.',
+        action: 'Solicitar la ayuda oficial.',
+        deadline: '2026-09-30',
+      },
       official_snapshot: { official_url: 'https://example.test/201' },
     }],
   });
   assert(projectedDigest.message.startsWith('¡Hola, Ana! 👋'));
   assert(projectedDigest.message.includes('una novedad rural que merece la pena revisar'));
   assert(projectedDigest.message.includes('*1. Ayuda ganadera*'));
-  assert(projectedDigest.message.includes('👉 *Qué puedes hacer:* Solicitar'));
+  assert(projectedDigest.message.includes('Resumen verificado por IA 1.'));
+  assert(!projectedDigest.message.includes('Resumen inventado'));
+  assert(projectedDigest.message.includes('👉 *Qué puedes hacer:* Solicitar la ayuda oficial.'));
   assert(projectedDigest.message.includes('⏳ *Plazo:* 2026-09-30'));
   assert(projectedDigest.message.includes('🔗 *Fuente oficial:* https://example.test/201'));
   assert(projectedDigest.items[0].rendered_block.includes('https://example.test/201'));
@@ -229,10 +218,10 @@ async function main() {
   ));
   assert(projectedDigest.message.endsWith('*Ruralicos* 🌱'));
   const pluralDigest = projectDigest({
-    ...normalizedDeadline,
+    ...normalizedSelection,
     selected: [
-      ...normalizedDeadline.selected,
-      { ...normalizedDeadline.selected[0], alert_id: 202, title: 'Curso rural' },
+      ...normalizedSelection.selected,
+      { ...normalizedSelection.selected[0], alert_id: 202, title: 'Curso rural' },
     ],
   }, { user: { first_name: 'Ana' } });
   assert(pluralDigest.message.includes('¿Qué te parecen estas alertas?'));
@@ -245,9 +234,6 @@ async function main() {
       alert_id: index + 1,
       reason: 'razón',
       title: 'título',
-      summary: 'resumen',
-      action: 'acción',
-      deadline: null,
     })),
     message: 'mensaje',
   }, { candidateIds: [1, 2, 3, 4, 5, 6], maxSelected: 5 }), /ai2_too_many_selected/);

@@ -61,6 +61,10 @@ function summarizeWorkflowResult(result) {
       no_candidates: Number(ai2.noCandidates || 0),
       errors: Number(ai2.errors || 0),
       remaining: Number(ai2.remaining || 0),
+      send_gate_version: ai2.sendGateVersion || null,
+      send_gate_allowed: Number(ai2.sendGateAllowed || 0),
+      send_gate_blocked: Number(ai2.sendGateBlocked || 0),
+      send_gate_reasons: ai2.sendGateReasons || {},
     } : null,
   };
 }
