@@ -43,7 +43,18 @@ const {
         calls: 1,
         stopped: null,
         ai1: { found: 5, processed: 5, filtered: 4, classified: 1, errors: 0 },
-        ai2: { found: 1, processed: 1, generated: 1, empty: 0, noCandidates: 0, errors: 0 },
+        ai2: {
+          found: 1,
+          processed: 1,
+          generated: 1,
+          empty: 0,
+          noCandidates: 0,
+          errors: 0,
+          sendGateVersion: 'shadow-v2-send-gate-1',
+          sendGateAllowed: 1,
+          sendGateBlocked: 0,
+          sendGateReasons: {},
+        },
       };
     },
   });
@@ -52,6 +63,8 @@ const {
   assert.strictEqual(completed.done, true);
   assert.strictEqual(completed.processed, 6);
   assert.strictEqual(completed.ai2.generated, 1);
+  assert.strictEqual(completed.ai2.send_gate_allowed, 1);
+  assert.strictEqual(completed.ai2.send_gate_blocked, 0);
 
   const replayKey = '04ac9326-5e7e-4696-a781-37b2b28f8ca3';
   await runAutomatedShadowV2Batch({

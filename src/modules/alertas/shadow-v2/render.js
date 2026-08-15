@@ -44,10 +44,17 @@ function renderDigestMessage(ai2Result = {}, user = {}) {
 
 function projectDigest(ai2Result = {}, { user = {}, candidates = [] } = {}) {
   const candidatesById = new Map(candidates.map((candidate) => [Number(candidate.alert_id), candidate]));
-  const selected = (ai2Result.selected || []).map((item) => ({
-    ...item,
-    official_url: candidatesById.get(Number(item.alert_id))?.official_snapshot?.official_url || null,
-  }));
+  const selected = (ai2Result.selected || []).map((item) => {
+    const candidate = candidatesById.get(Number(item.alert_id)) || {};
+    const card = candidate.card || {};
+    return {
+      ...item,
+      summary: card.summary || '',
+      action: card.action || '',
+      deadline: card.deadline || null,
+      official_url: candidate.official_snapshot?.official_url || null,
+    };
+  });
   const enrichedResult = { ...ai2Result, selected };
   return {
     message: renderDigestMessage(enrichedResult, user),

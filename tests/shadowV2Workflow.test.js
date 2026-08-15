@@ -72,7 +72,12 @@ function createMemoryRepo() {
       async loadSuccessfulClassifications(_db, runKey) {
         return state.classifications
           .filter((row) => row.workflow_run_key === runKey && row.status === 'SUCCESS')
-          .map((row) => ({ alert_id: row.alert_id, official_snapshot: row.official_snapshot, card: row.normalized_response }));
+          .map((row) => ({
+            alert_id: row.alert_id,
+            official_snapshot: row.official_snapshot,
+            card: row.normalized_response,
+            send_gate: row.classification?.send_gate || null,
+          }));
       },
       async loadExistingDigestUserIds(_db, runKey) {
         return new Set(state.digestRuns.filter((row) => row.workflow_run_key === runKey).map((row) => row.user_id));
@@ -133,9 +138,6 @@ async function main() {
         alert_id: candidate.alert_id,
         reason: 'Puede solicitarlo o está directamente afectada según perfil y ficha.',
         title: candidate.official_snapshot.title,
-        summary: candidate.card.summary,
-        action: candidate.card.action,
-        deadline: candidate.card.deadline,
       }));
       return {
         status: selected.length > 0 ? 'GENERATED' : 'EMPTY',
@@ -156,6 +158,8 @@ async function main() {
   assert.strictEqual(ai1Calls, 3);
   assert.strictEqual(ai2Calls, 1, 'el historial evita la única candidata del segundo usuario');
   assert.strictEqual(memory.state.classifications.length, 3);
+  assert.strictEqual(memory.state.classifications[0].classification.send_gate.allowed, true);
+  assert.strictEqual(first.ai2.sendGateBlocked, 0);
   assert.strictEqual(memory.state.digestRuns.length, 2);
   assert.strictEqual(memory.state.digestItems.length, 1);
   assert.strictEqual(memory.state.digestRuns[1].status, 'NO_CANDIDATES');

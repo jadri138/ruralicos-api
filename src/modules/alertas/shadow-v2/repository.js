@@ -139,7 +139,7 @@ async function insertClassification(supabase, row) {
 
 async function loadSuccessfulClassifications(supabase, workflowRunKey) {
   const result = await supabase.from(TABLES.classifications)
-    .select('alert_id, official_snapshot, normalized_response')
+    .select('alert_id, official_snapshot, classification, normalized_response')
     .eq('workflow_run_key', workflowRunKey).eq('status', 'SUCCESS').eq('ai1_called', true)
     .order('alert_id', { ascending: true });
   assertNoError(result.error, 'No se pudieron cargar fichas IA 1');
@@ -147,6 +147,7 @@ async function loadSuccessfulClassifications(supabase, workflowRunKey) {
     alert_id: Number(row.alert_id),
     official_snapshot: row.official_snapshot,
     card: row.normalized_response,
+    send_gate: row.classification?.send_gate || null,
   }));
 }
 
