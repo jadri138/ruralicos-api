@@ -68,6 +68,8 @@ const AI1_INSTRUCTIONS = [
   'Usa una fecha YYYY-MM-DD solo si aparece de forma explicita en el documento como ese plazo. No calcules plazos relativos ni dias habiles: usa null.',
   'Nunca uses como deadline una transferencia o pago entre organismos, la vigencia o firma de un convenio, la publicacion o resolucion, ni el inicio o fin de un curso.',
   'Una concesion, adjudicacion o convocatoria ya resuelta o cerrada no es una oportunidad abierta.',
+  'Escribe summary en espanol claro, con un maximo de 450 caracteres y solo los hechos utiles para decidir.',
+  'Escribe action en espanol, en infinitivo y como una unica accion concreta de la persona; no uses barras, alternativas vagas ni anglicismos.',
   'No inventes ni completes por intuicion. Si falta informacion usa arrays vacios, null o unknown.',
   'evidence debe contener fragmentos breves y literales que sostengan la decision.',
 ].join('\n');
@@ -131,7 +133,7 @@ function supportedDeadline(value, officialContent) {
   }) ? deadline : null;
 }
 
-function normalizeAi1Result(value, { officialContent } = {}) {
+function normalizeAi1Result(value, { officialContent, officialDate } = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('ai1_invalid_object');
   }
@@ -145,13 +147,14 @@ function normalizeAi1Result(value, { officialContent } = {}) {
   }
   if (typeof value.territories.national !== 'boolean') throw new Error('ai1_invalid_national');
 
-  const action = cleanString(value.action, 500);
-  const summary = cleanString(value.summary, 1200);
+  const action = cleanString(value.action, 240);
+  const summary = cleanString(value.summary, 450);
   const evidence = cleanStringArray(value.evidence, 10, 500);
   if (!summary) throw new Error('ai1_missing_summary');
   if (evidence.length === 0) throw new Error('ai1_insufficient_evidence');
   if (value.actionable && !action) throw new Error('ai1_missing_action');
-  const deadline = supportedDeadline(value.deadline, officialContent);
+  const supported = supportedDeadline(value.deadline, officialContent);
+  const deadline = isIsoDate(officialDate) && supported === officialDate ? null : supported;
 
   return {
     relevant: value.relevant,
@@ -209,6 +212,7 @@ async function classifyAlertWithAi1({
     raw = typeof response === 'string' ? response : response?.text;
     const normalized = normalizeAi1Result(parsearJSON(raw), {
       officialContent: officialSnapshot?.official_content || '',
+      officialDate: officialSnapshot?.date,
     });
     return {
       status: 'SUCCESS',

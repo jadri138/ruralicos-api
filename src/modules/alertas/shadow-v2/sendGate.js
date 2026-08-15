@@ -1,12 +1,13 @@
-const SEND_GATE_VERSION = 'shadow-v2-send-gate-1';
+const SEND_GATE_VERSION = 'shadow-v2-send-gate-2';
 
 const CLOSED_DOCUMENT_PATTERNS = Object.freeze([
   ['administrative_agreement', /\bconvenio(?:\s+de\s+colaboracion)?\b/],
   ['granted_authorization', /\b(?:se\s+)?(?:otorg\w*|conced\w*)\b.{0,100}\bautorizacion(?:es)?\b|\bautorizacion(?:es)?\b.{0,80}\b(?:otorgad\w*|concedid\w*)\b/],
   ['resolved_procedure', /\bresuelve\s+favorablemente\b|\bresolucion\s+favorable\b/],
+  ['completed_environmental_assessment', /\bse\s+formula\s+(?:la\s+)?declaracion\s+de\s+impacto\s+ambiental\b|\bse\s+hace\s+publico\s+(?:el\s+)?informe\s+(?:de\s+)?impacto\s+ambiental\b/],
   ['completed_award', /\bconcesion\s+definitiva\b|\bpor\s+la\s+que\s+se\s+conced\w*\b.{0,60}\bayudas?\b|\b(?:relacion|listado)\s+(?:definitiv[oa]\s+)?de\s+(?:personas\s+)?beneficiari/],
   ['individual_proceeding', /\b(?:procedimientos?|expedientes?)\s+(?:administrativos?\s+)?sancionadores?\b|\bnotificacion(?:es)?\s+individual(?:es)?\b/],
-  ['public_employment', /\bempleo\s+publico\b|\bbolsa\s+de\s+empleo\b|\bprocesos?\s+selectivos?\b|\bplazas?\b.{0,80}\b(?:funcionari|personal\s+laboral)\b/],
+  ['public_employment', /\bempleo\s+publico\b|\bbolsa\s+de\s+empleo\b|\bprocesos?\s+selectivos?\b|\bplantillas?\s+de\s+personal\b|\bplazas?\b.{0,80}\b(?:funcionari|personal\s+laboral)\b/],
 ]);
 
 const ACTION_RULES = Object.freeze([
@@ -97,7 +98,8 @@ function supportedAction(card = {}, sourceText = '') {
 
 function evaluateSendGate({ officialSnapshot = {}, card = {}, workflowDate = null } = {}) {
   const reasons = [];
-  const outcomeReason = closedDocumentReason(officialSnapshot.title);
+  const outcomeReason = closedDocumentReason(officialSnapshot.title)
+    || closedDocumentReason(String(card.summary || '').slice(0, 180));
   const evidence = literalEvidence(card, officialSnapshot.official_content);
   const actionSupport = supportedAction(card, officialSnapshot.official_content);
   const officialUrl = String(officialSnapshot.official_url || '').trim();

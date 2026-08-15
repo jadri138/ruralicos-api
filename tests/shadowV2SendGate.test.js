@@ -28,7 +28,7 @@ function card(overrides = {}) {
   };
 }
 
-assert.strictEqual(SEND_GATE_VERSION, 'shadow-v2-send-gate-1');
+assert.strictEqual(SEND_GATE_VERSION, 'shadow-v2-send-gate-2');
 
 for (const item of corpus.accepted_by_ai1) {
   const result = evaluateSendGate({
@@ -59,6 +59,20 @@ const convenio = evaluateSendGate({
 assert.strictEqual(convenio.allowed, false);
 assert(convenio.reasons.includes('administrative_agreement'));
 assert(convenio.reasons.includes('user_action_not_supported'));
+
+const convenioWithGenericTitle = evaluateSendGate({
+  officialSnapshot: snapshot({
+    title: 'Diario oficial de 14 de agosto de 2026',
+    official_content: 'Convenio de colaboracion para gestionar subvenciones mediante entidades financieras.',
+  }),
+  card: card({
+    summary: 'Convenio de colaboracion para gestionar subvenciones rurales.',
+    action: 'solicitar la subvencion',
+    evidence: ['Convenio de colaboracion para gestionar subvenciones'],
+  }),
+});
+assert.strictEqual(convenioWithGenericTitle.allowed, false);
+assert(convenioWithGenericTitle.reasons.includes('administrative_agreement'));
 
 const grantedAuthorization = evaluateSendGate({
   officialSnapshot: snapshot({
@@ -103,6 +117,32 @@ const resolved = evaluateSendGate({
 });
 assert.strictEqual(resolved.allowed, false);
 assert(resolved.reasons.includes('resolved_procedure'));
+
+const completedEnvironmentalAssessment = evaluateSendGate({
+  officialSnapshot: snapshot({
+    title: 'Resolucion por la que se formula declaracion de impacto ambiental de un parque eolico',
+    official_content: 'Se formula declaracion de impacto ambiental del proyecto.',
+  }),
+  card: card({
+    action: 'participar en la evaluacion ambiental',
+    evidence: ['Se formula declaracion de impacto ambiental'],
+  }),
+});
+assert.strictEqual(completedEnvironmentalAssessment.allowed, false);
+assert(completedEnvironmentalAssessment.reasons.includes('completed_environmental_assessment'));
+
+const publicEmployment = evaluateSendGate({
+  officialSnapshot: snapshot({
+    title: 'Aprobacion inicial de la modificacion de la plantilla de personal',
+    official_content: 'La plantilla de personal se somete a informacion publica para presentar alegaciones.',
+  }),
+  card: card({
+    action: 'presentar alegaciones',
+    evidence: ['se somete a informacion publica para presentar alegaciones'],
+  }),
+});
+assert.strictEqual(publicEmployment.allowed, false);
+assert(publicEmployment.reasons.includes('public_employment'));
 
 const course = evaluateSendGate({
   officialSnapshot: snapshot({
