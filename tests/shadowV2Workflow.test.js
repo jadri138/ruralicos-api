@@ -170,6 +170,7 @@ async function main() {
   assert(memory.state.digestRuns[0].digest_preview.includes(
     '¿Qué te parece esta alerta? Responde brevemente para que el sistema aprenda tus intereses.'
   ));
+  assert(memory.state.digestRuns[0].digest_preview.includes('🔗 *Fuente oficial:* https://example.test/201'));
   assert.strictEqual(memory.state.classifications[0].usage_json.calls, 1);
   assert(memory.state.classifications[0].usage_json.official_content_chars > 0);
 

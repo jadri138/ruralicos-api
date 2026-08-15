@@ -46,6 +46,8 @@ const AI2_INSTRUCTIONS = [
   'Cada reason debe nombrar el encaje concreto con una actividad, territorio o condicion de beneficiario del perfil.',
   'Selecciona como maximo cinco y puedes seleccionar ninguna. No inventes datos ni enumeres las descartadas.',
   'Escribe cada title de forma breve, clara y orientada al beneficio real, sin copiar encabezados oficiales largos.',
+  'En title, summary, action y message habla siempre de tu y nunca de usted; manten el mismo tono cercano en todo el digest.',
+  'action debe ser una instruccion concreta como revisa, solicita, contrata, presenta o inscribete. Evita acciones vagas como conocer, informarse o participar si la ficha permite ser mas precisa.',
   'Copia deadline exactamente de la ficha candidata; si la ficha tiene null, devuelve null y no calcules otra fecha.',
   'Si selected esta vacio, message debe ser una cadena vacia.',
   'Ordena las seleccionadas por utilidad y urgencia. message debe ser un gancho comercial de una sola frase, concreto y veraz, sin saludo, despedida ni pregunta.',

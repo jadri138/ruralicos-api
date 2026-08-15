@@ -29,8 +29,11 @@ function fakeResponse(value, usage = { input_tokens: 10, output_tokens: 5, total
 
 async function main() {
   assert.strictEqual(AI1_CONTRACT_VERSION, 'shadow-v2-ai1-3');
-  assert.strictEqual(AI1_PROMPT_VERSION, 'shadow-v2-ai1-prompt-4');
+  assert.strictEqual(AI1_PROMPT_VERSION, 'shadow-v2-ai1-prompt-5');
   assert(AI1_INSTRUCTIONS.includes('el asunto real de la publicacion es rural'));
+  assert(AI1_INSTRUCTIONS.includes('Un puesto de empleo publico'));
+  assert(AI1_INSTRUCTIONS.includes('usa actionable=false'));
+  assert(AI1_INSTRUCTIONS.includes('No escribas dudas'));
   assert(AI1_INSTRUCTIONS.includes('YYYY-MM-DD'));
   assert.strictEqual(AI1_TEXT_FORMAT.schema.properties.activities.maxItems, 3);
   assert.strictEqual(
@@ -38,10 +41,12 @@ async function main() {
     'date'
   );
   assert.strictEqual(AI2_CONTRACT_VERSION, 'shadow-v2-ai2-2');
-  assert.strictEqual(AI2_PROMPT_VERSION, 'shadow-v2-ai2-prompt-4');
+  assert.strictEqual(AI2_PROMPT_VERSION, 'shadow-v2-ai2-prompt-5');
   assert(AI2_INSTRUCTIONS.includes('encaje personal concreto'));
   assert(AI2_INSTRUCTIONS.includes('Copia deadline exactamente'));
   assert(AI2_INSTRUCTIONS.includes('gancho comercial de una sola frase'));
+  assert(AI2_INSTRUCTIONS.includes('habla siempre de tu y nunca de usted'));
+  assert(AI2_INSTRUCTIONS.includes('Evita acciones vagas'));
   assert.strictEqual(
     AI2_TEXT_FORMAT.schema.properties.selected.items.properties.deadline.anyOf[0].format,
     'date'
@@ -207,12 +212,18 @@ async function main() {
 
   const projectedDigest = projectDigest(normalizedDeadline, {
     user: { first_name: 'Ana', name: 'Nombre alternativo' },
+    candidates: [{
+      alert_id: 201,
+      official_snapshot: { official_url: 'https://example.test/201' },
+    }],
   });
   assert(projectedDigest.message.startsWith('¡Hola, Ana! 👋'));
   assert(projectedDigest.message.includes('una novedad rural que merece la pena revisar'));
   assert(projectedDigest.message.includes('*1. Ayuda ganadera*'));
   assert(projectedDigest.message.includes('👉 *Qué puedes hacer:* Solicitar'));
   assert(projectedDigest.message.includes('⏳ *Plazo:* 2026-09-30'));
+  assert(projectedDigest.message.includes('🔗 *Fuente oficial:* https://example.test/201'));
+  assert(projectedDigest.items[0].rendered_block.includes('https://example.test/201'));
   assert(projectedDigest.message.includes(
     '¿Qué te parece esta alerta? Responde brevemente para que el sistema aprenda tus intereses.'
   ));

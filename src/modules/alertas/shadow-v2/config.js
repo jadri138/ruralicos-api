@@ -4,10 +4,10 @@ const AI2_MODEL = 'gpt-5.6-luna';
 const VERSIONS = Object.freeze({
   engine: 'shadow-v2-1',
   ai1Contract: 'shadow-v2-ai1-3',
-  ai1Prompt: 'shadow-v2-ai1-prompt-4',
+  ai1Prompt: 'shadow-v2-ai1-prompt-5',
   ai2Contract: 'shadow-v2-ai2-2',
-  ai2Prompt: 'shadow-v2-ai2-prompt-4',
-  render: 'shadow-v2-render-4',
+  ai2Prompt: 'shadow-v2-ai2-prompt-5',
+  render: 'shadow-v2-render-5',
 });
 
 const DEFAULT_LIMITS = Object.freeze({
