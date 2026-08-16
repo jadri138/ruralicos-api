@@ -16,8 +16,67 @@
 //   - Complementarios (nº 6 dígitos tipo 200101): ignorados aquí
 
 const axios = require('axios');
+const { isRetryableHttpError } = require('../../../../platform/httpClient');
+const { agenteResiliente } = require('../../../../platform/dnsResiliente');
 
 const BOJA_API = 'https://datos.juntadeandalucia.es/api/v0/boja';
+
+function enteroAcotado(value, fallback, min, max) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed)
+    ? Math.min(max, Math.max(min, Math.trunc(parsed)))
+    : fallback;
+}
+
+function esFinDeSemanaYYYYMMDD(fechaYYYYMMDD) {
+  const match = String(fechaYYYYMMDD || '').match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (!match) return false;
+
+  const fecha = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12));
+  if (fecha.getUTCFullYear() !== Number(match[1])
+    || fecha.getUTCMonth() !== Number(match[2]) - 1
+    || fecha.getUTCDate() !== Number(match[3])) return false;
+
+  return fecha.getUTCDay() === 0 || fecha.getUTCDay() === 6;
+}
+
+async function solicitarJsonBoja(url, options = {}) {
+  const env = options.env || process.env;
+  const request = options.request || axios.get;
+  const sleep = options.sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+  const attempts = enteroAcotado(env.BOJA_HTTP_ATTEMPTS, 2, 1, 3);
+  const timeoutMs = enteroAcotado(env.BOJA_HTTP_TIMEOUT_MS, 7000, 1000, 12000);
+  const retryBackoffMs = enteroAcotado(env.BOJA_RETRY_BACKOFF_MS, 300, 0, 3000);
+  const deadlineMs = options.deadlineMs || (Date.now() + timeoutMs);
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      const remainingMs = deadlineMs - Date.now();
+      if (remainingMs <= 0) {
+        throw Object.assign(new Error('presupuesto total BOJA agotado'), { code: 'ETIMEDOUT' });
+      }
+
+      return await request(url, {
+        timeout: Math.min(timeoutMs, remainingMs),
+        httpsAgent: agenteResiliente,
+        headers: {
+          Accept: 'application/json',
+          'User-Agent': 'Ruralicos/1.0 (+https://ruralicos.es)',
+        },
+      });
+    } catch (error) {
+      lastError = error;
+      if (attempt >= attempts || !isRetryableHttpError(error)) throw error;
+
+      const delay = retryBackoffMs * attempt;
+      if (deadlineMs - Date.now() <= delay) break;
+      await sleep(delay);
+    }
+  }
+
+  throw lastError;
+}
 
 // ─────────────────────────────────────────────
 // Helpers
@@ -39,15 +98,12 @@ function stripHtml(html) {
 // Se filtran boletines ordinarios (nº ≤ 4 dígitos) para excluir
 // complementarios (6 dígitos) y extraordinarios (3 dígitos tipo 501…).
 // ─────────────────────────────────────────────
-async function obtenerNumerosBoletin(fechaDDMMYYYY) {
+async function obtenerNumerosBoletin(fechaDDMMYYYY, options = {}) {
   const year = fechaDDMMYYYY.slice(6); // YYYY al final de DD/MM/YYYY
   const url  = `${BOJA_API}/get/calendar?year=${year}`;
   console.log('[BOJA] Calendario →', url);
 
-  const { data } = await axios.get(url, {
-    timeout: 20000,
-    headers: { Accept: 'application/json' },
-  });
+  const { data } = await solicitarJsonBoja(url, options);
 
   // Puede devolver arrays de [número, "DD/MM/YYYY"] o [número, fecha, ...]
   const rows = data.rows || [];
@@ -60,14 +116,11 @@ async function obtenerNumerosBoletin(fechaDDMMYYYY) {
 // Paso 2: obtener todas las disposiciones de un boletín.
 // Devuelve el array de hits tal como los devuelve la API.
 // ─────────────────────────────────────────────
-async function obtenerHitsBoletín(year, numBoletin) {
+async function obtenerHitsBoletín(year, numBoletin, options = {}) {
   const url = `${BOJA_API}/get/bulletin?year=${year}&number=${numBoletin}`;
   console.log('[BOJA] Boletín →', url);
 
-  const { data } = await axios.get(url, {
-    timeout: 30000,
-    headers: { Accept: 'application/json' },
-  });
+  const { data } = await solicitarJsonBoja(url, options);
 
   const hits = Array.isArray(data.results) ? data.results : [];
   console.log(`[BOJA] Boletín nº${numBoletin}: ${hits.length} disposiciones (total_hits: ${data.total_hits ?? hits.length})`);
@@ -78,7 +131,15 @@ async function obtenerHitsBoletín(year, numBoletin) {
 // Función principal
 // Devuelve array de disposiciones con texto completo para una fecha (YYYYMMDD).
 // ─────────────────────────────────────────────
-async function obtenerDocumentosBojaPorFecha(fechaYYYYMMDD) {
+async function obtenerDocumentosBojaPorFecha(fechaYYYYMMDD, options = {}) {
+  // El scraper cubre boletines ordinarios, que el BOJA publica de lunes a
+  // viernes. Evita convertir una caída del portal durante el fin de semana en
+  // un falso fallo de cobertura.
+  if (esFinDeSemanaYYYYMMDD(fechaYYYYMMDD)) {
+    console.log(`[BOJA] ${fechaYYYYMMDD} es fin de semana; no se consulta el calendario ordinario`);
+    return [];
+  }
+
   const año = fechaYYYYMMDD.slice(0, 4);
   const mes = fechaYYYYMMDD.slice(4, 6);
   const dia = fechaYYYYMMDD.slice(6, 8);
@@ -86,7 +147,12 @@ async function obtenerDocumentosBojaPorFecha(fechaYYYYMMDD) {
   const fechaDDMMYYYY = `${dia}/${mes}/${año}`;        // DD/MM/YYYY (formato del calendario)
 
   // Buscar boletines ordinarios publicados hoy
-  const numeros = await obtenerNumerosBoletin(fechaDDMMYYYY);
+  const env = options.env || process.env;
+  const totalBudgetMs = enteroAcotado(env.BOJA_TOTAL_BUDGET_MS, 15000, 5000, 19000);
+  const deadlineMs = Date.now() + totalBudgetMs;
+  const requestOptions = { ...options, env, deadlineMs };
+
+  const numeros = await obtenerNumerosBoletin(fechaDDMMYYYY, requestOptions);
   if (!numeros.length) {
     console.log(`[BOJA] No hay boletín ordinario para ${fechaYYYYMMDD}`);
     return [];
@@ -95,7 +161,7 @@ async function obtenerDocumentosBojaPorFecha(fechaYYYYMMDD) {
   // Procesar todos los boletines del día (normalmente solo 1; excepcionalmente 2)
   const todasLasDisposiciones = [];
   for (const num of numeros) {
-    const hits = await obtenerHitsBoletín(año, num);
+    const hits = await obtenerHitsBoletín(año, num, requestOptions);
     todasLasDisposiciones.push(...hits.map(d => ({ ...d, _numBoletin: num })));
   }
 
@@ -135,4 +201,13 @@ async function obtenerDocumentosBojaPorFecha(fechaYYYYMMDD) {
   });
 }
 
-module.exports = { getFechaHoyYYYYMMDD, obtenerDocumentosBojaPorFecha };
+module.exports = {
+  getFechaHoyYYYYMMDD,
+  obtenerDocumentosBojaPorFecha,
+  __testing: {
+    esFinDeSemanaYYYYMMDD,
+    obtenerHitsBoletín,
+    obtenerNumerosBoletin,
+    solicitarJsonBoja,
+  },
+};

@@ -58,6 +58,19 @@ async function expectRejectCode(promise, code) {
   process.env.BOPZ_RETRY_BACKOFF_MS = '1';
   process.env.BOPZ_MAX_DOCUMENTS = String(scenarios.expected.max_documents);
 
+  let sundayRequests = 0;
+  const sunday = await obtenerDocumentosBopzConTexto('2026-08-16', {
+    getHtml: async () => {
+      sundayRequests += 1;
+      throw new Error('no debería consultar el portal');
+    },
+  });
+  assert.strictEqual(sunday.length, 0);
+  assert.strictEqual(sundayRequests, 0);
+  assert.strictEqual(sunday.scrape_diagnostics.state, 'no_publication');
+  assert.strictEqual(sunday.scrape_diagnostics.reason, 'non_publishing_sunday');
+  assert.strictEqual(sunday.scrape_diagnostics.source_coverage_complete, true);
+
   let primaryAttempts = 0;
   axios.get = async (url) => {
     if (url === `${scenarios.endpoints[0]}/BOPZ/`) {

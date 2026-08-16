@@ -25,6 +25,9 @@ Un único scraper contiene tres adaptadores:
 
 - BOPZ Zaragoza: prueba los dos dominios oficiales dentro de un presupuesto
   único de 14 segundos (deja margen para persistir antes del timeout HTTP).
+  Los domingos devuelve `no_publication` sin consultar el portal, ya que el
+  BOPZ publica de lunes a sábado. Una caída de ambos dominios de lunes a
+  sábado continúa siendo un error de cobertura y nunca se disfraza de día vacío.
   Distingue falta real de publicación, timeout, caída,
   cambio de HTML y recuperación parcial; además expone
   `source_coverage_complete=false` cuando no puede garantizar cobertura. Los

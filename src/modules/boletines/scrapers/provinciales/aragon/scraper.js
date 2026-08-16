@@ -226,7 +226,32 @@ function esPaginaBopzSinPublicacion(html) {
   return /\b(?:no hay|no existe|sin) boletin\b|\bboletin (?:no publicado|pendiente de publicacion)\b|\bdia (?:festivo|sin publicacion)\b/.test(texto);
 }
 
+function esDomingoISO(fechaISO) {
+  const match = String(fechaISO || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return false;
+
+  const fecha = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12));
+  if (fecha.getUTCFullYear() !== Number(match[1])
+    || fecha.getUTCMonth() !== Number(match[2]) - 1
+    || fecha.getUTCDate() !== Number(match[3])) return false;
+
+  return fecha.getUTCDay() === 0;
+}
+
 async function obtenerDocumentosBopzConTexto(fechaISO, options = {}) {
+  // El BOPZ publica también los sábados, pero no los domingos. No consultar
+  // un portal caído en un día sin edición evita falsos errores operativos sin
+  // ocultar los fallos reales de cobertura de lunes a sábado.
+  if (esDomingoISO(fechaISO)) {
+    return adjuntarDiagnosticoScrape([], {
+      state: BOPZ_STATE.NO_PUBLICATION,
+      reason: 'non_publishing_sunday',
+      endpoints_considered: [],
+      endpoint_errors: [],
+      source_coverage_complete: true,
+    });
+  }
+
   let html = '';
   let baseUrl = '';
   let candidatosDetectados = [];
@@ -714,6 +739,7 @@ module.exports = {
     adjuntarDiagnosticoScrape,
     bopzBases,
     clasificarErrorBopz,
+    esDomingoISO,
     esPaginaBopzSinPublicacion,
     fechaTextoAISO,
     extraerBopzSumario,
