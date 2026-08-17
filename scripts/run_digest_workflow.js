@@ -14,7 +14,7 @@
  *   RUN_OFFICIAL_LISTS=true
  *   RUN_REPAIR=true
  *   RUN_DAILY_EXPLORATION=true
- *   DIGEST_ENGINE=v1             (usa v2 para promover y enviar shadow-v2)
+ *   DIGEST_ENGINE=v2             (usa v1 solo como rollback)
  *   PREPARAR_DIGEST_FORCE=true   (reevalua intentos ya cerrados hoy)
  *   MAX_LOOPS=200
  *   PREPARAR_DIGEST_MAX_LOOPS=200

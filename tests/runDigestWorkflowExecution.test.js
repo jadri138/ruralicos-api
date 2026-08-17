@@ -124,7 +124,7 @@ async function main() {
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   try {
     const { port } = server.address();
-    const result = await ejecutarScript(`http://127.0.0.1:${port}`);
+    const result = await ejecutarScript(`http://127.0.0.1:${port}`, { DIGEST_ENGINE: 'v1' });
     assert.strictEqual(result.code, 0, result.stderr || result.stdout);
 
     const paths = requests.map((request) => request.pathname);

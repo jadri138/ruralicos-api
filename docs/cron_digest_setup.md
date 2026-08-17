@@ -47,15 +47,15 @@ sin evidencia no bloquea el resto del día ni provoca descargas nuevas.
 La API necesita además `PUBLIC_BASE_URL`, credenciales de Supabase, OpenAI y
 UltraMsg según `.env.example`.
 
-`DIGEST_ENGINE=v1` mantiene el comportamiento anterior y ejecuta shadow-v2 al
-final como auditoría opcional. `DIGEST_ENGINE=v2` sustituye la preparación V1:
+Por defecto se usa V2. `DIGEST_ENGINE=v1` mantiene el comportamiento anterior y
+ejecuta shadow-v2 al final como auditoría opcional. `DIGEST_ENGINE=v2` sustituye la preparación V1:
 completa shadow-v2, revalida los items, los promueve con idempotencia y usa la
 misma `mia_outbox`. No hay un segundo emisor. El runner local manual sigue
 requiriendo `SHADOW_V2_ENABLED=true` y nunca promueve ni envía.
 
 Opcionales:
 
-- `DIGEST_ENGINE=v1` (`v2` activa el motor nuevo; volver a `v1` es el rollback)
+- `DIGEST_ENGINE=v2` (`v1` conserva el motor anterior como rollback)
 - `FECHA=AAAA-MM-DD`, solo para un relanzamiento controlado.
 - `RUN_SCRAPERS=true`
 - `RUN_OFFICIAL_LISTS=true`

@@ -117,7 +117,7 @@ function memoryRepository({
 }
 
 async function main() {
-  assert.strictEqual(resolveDigestEngine(undefined), 'v1');
+  assert.strictEqual(resolveDigestEngine(undefined), 'v2');
   assert.strictEqual(resolveDigestEngine(' V2 '), 'v2');
   assert.throws(() => resolveDigestEngine('shadow'), /DIGEST_ENGINE invalido/);
 
