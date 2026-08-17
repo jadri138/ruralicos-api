@@ -2,7 +2,7 @@ const AI1_MODEL = 'gpt-5-nano';
 const AI2_MODEL = 'gpt-5.6-luna';
 
 const VERSIONS = Object.freeze({
-  engine: 'shadow-v2-4',
+  engine: 'shadow-v2-5',
   ai1Contract: 'shadow-v2-ai1-4',
   ai1Prompt: 'shadow-v2-ai1-prompt-7',
   ai2Contract: 'shadow-v2-ai2-4',
@@ -322,6 +322,9 @@ const RURAL_TERMS_BY_TOPIC = Object.freeze({
     'plan de gestion de purines', 'contrato de integracion ganadera',
   ],
   fauna_y_entorno_productivo: [
+    'caza', 'actividad cinegetica', 'aprovechamiento cinegetico',
+    'gestion cinegetica', 'area privada de caza', 'areas privadas de caza',
+    'coto de caza', 'cotos de caza',
     'dano de fauna en cultivos', 'danos de fauna en cultivos',
     'dano de fauna al ganado', 'danos de fauna al ganado',
     'ataque de lobo al ganado', 'ataques de lobo al ganado',

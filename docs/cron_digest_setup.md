@@ -19,8 +19,10 @@ El script ejecuta una vez, en este orden:
 5. Deduplicación.
 6. Embeddings y ciclo MIA opcionales.
 7. Recuperación acotada de `HOLD_FOR_EVIDENCE` sobre material ya guardado.
-8. Preparación y validación del digest usuario a usuario.
-9. Preparación y encolado de digests de pago.
+8. Decisión de digests de pago según `DIGEST_ENGINE`:
+   - `v1`: preparación y validación legacy usuario a usuario;
+   - `v2`: ejecución completa de shadow-v2 y promoción fail-closed a tablas productivas.
+9. Encolado de los digests aprobados por el motor elegido.
 10. Generación y encolado del resumen gratuito.
 11. Drenado de la única cola `mia_outbox`.
 12. Conciliación de ACK pendientes con UltraMsg.
@@ -45,13 +47,15 @@ sin evidencia no bloquea el resto del día ni provoca descargas nuevas.
 La API necesita además `PUBLIC_BASE_URL`, credenciales de Supabase, OpenAI y
 UltraMsg según `.env.example`.
 
-`shadow-v2` forma parte del final de este cron mediante un endpoint interno
-protegido. Procesa lotes reanudables, solo escribe en sus tres tablas y nunca
-envía mensajes. `RUN_SHADOW_V2=false` lo omite sin afectar al digest productivo;
-el runner local manual sigue requiriendo `SHADOW_V2_ENABLED=true`.
+`DIGEST_ENGINE=v1` mantiene el comportamiento anterior y ejecuta shadow-v2 al
+final como auditoría opcional. `DIGEST_ENGINE=v2` sustituye la preparación V1:
+completa shadow-v2, revalida los items, los promueve con idempotencia y usa la
+misma `mia_outbox`. No hay un segundo emisor. El runner local manual sigue
+requiriendo `SHADOW_V2_ENABLED=true` y nunca promueve ni envía.
 
 Opcionales:
 
+- `DIGEST_ENGINE=v1` (`v2` activa el motor nuevo; volver a `v1` es el rollback)
 - `FECHA=AAAA-MM-DD`, solo para un relanzamiento controlado.
 - `RUN_SCRAPERS=true`
 - `RUN_OFFICIAL_LISTS=true`
@@ -156,6 +160,6 @@ fuentes y avisa al administrador; no procesa alertas ni envía digests.
 - `BASE_URL/health` responde.
 - `CRON_TOKEN` coincide en la API y en Render.
 - Existe un único cron con `node scripts/run_digest_workflow.js`.
-- `RUN_SHADOW_V2` no está en `false` si se quiere ejecutar la sombra diaria.
+- `DIGEST_ENGINE` vale exactamente `v1` o `v2`.
 - El webhook de UltraMsg conserva el ID de proveedor y llegan ACK de prueba.
 - `PROVIDER_ACCEPTED` no se confunde con `DELIVERED`.

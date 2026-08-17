@@ -17,7 +17,10 @@ Una única tarea diaria ejecuta `node scripts/run_digest_workflow.js`:
   → /cerebro/embeddings/inicializar             [opcional]
   → /cerebro/ciclo-diario?explorar=false        [opcional]
   → /tareas/hold-evidence-recovery              [acotado]
-  → /alertas/preparar-digest                    [lotes por usuario]
+  → motor de digest:
+      v1 → /alertas/preparar-digest             [lotes por usuario]
+      v2 → /tareas/shadow-v2
+         → /tareas/promover-digest-v2            [fail-closed e idempotente]
   → /alertas/enviar-digest
   → /alertas/generar-resumen-free
   → /alertas/enviar-resumen-free
@@ -25,12 +28,12 @@ Una única tarea diaria ejecuta `node scripts/run_digest_workflow.js`:
   → /tareas/whatsapp-reconcile                  [opcional]
   → /cerebro/exploracion-diaria                 [opcional y selectiva]
   → /tareas/mia-outbox                          [solo si encoló preguntas]
-  → /tareas/shadow-v2                           [opcional, aislado y reanudable]
+  → /tareas/shadow-v2                           [solo V1: auditoría opcional]
 ```
 
 Si clasificación, resumen, revisión o preparación no progresan, el script falla antes del envío. MIA y listados son complementarios y pueden producir `warning` sin tumbar el digest.
 
-Los endpoints individuales son fases o herramientas manuales, no crons adicionales. Shadow-v2 se ejecuta al final y un fallo suyo no bloquea el digest productivo.
+Los endpoints individuales son fases o herramientas manuales, no crons adicionales. Con `DIGEST_ENGINE=v1`, shadow-v2 se ejecuta al final y no bloquea. Con `DIGEST_ENGINE=v2`, debe completar y promover antes de que `/alertas/enviar-digest` pueda encolar nada.
 
 ## 2. Tarea → código → prueba
 

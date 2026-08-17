@@ -50,6 +50,7 @@ const tareasRoutes = fs.readFileSync(path.join(root, 'src', 'modules', 'tareas',
 assert(workflow.includes('/tareas/shadow-v2'));
 assert(workflow.includes('RUN_SHADOW_V2'));
 assert(tareasRoutes.includes("app.post('/tareas/shadow-v2'"));
+assert(tareasRoutes.includes("app.post('/tareas/promover-digest-v2'"));
 assert(tareasRoutes.includes('if (!checkCronToken(req, res)) return'));
 assert(tareasRoutes.includes("value('run_key', null)"));
 assert(!/shadow-v2|decision-v2/.test(routes));
@@ -67,5 +68,11 @@ for (const table of [
 ]) assert(repoSource.includes(table));
 
 assert(!fs.existsSync(path.join(root, 'src', 'modules', 'alertas', 'decision-v2', 'decisionEngine.js')));
+
+const promotionPath = path.join(root, 'src', 'modules', 'digest', 'digestV2Promotion.js');
+assert(fs.existsSync(promotionPath), 'la promocion productiva debe vivir fuera del nucleo shadow aislado');
+const promotion = fs.readFileSync(promotionPath, 'utf8');
+assert(promotion.includes("from('digests')"));
+assert(!/enviarWhatsApp|enviarDigestPro|ultramsg/i.test(promotion), 'la promocion no puede crear un segundo transporte');
 
 console.log('OK: aislamiento estatico, cron protegido y sin imports prohibidos ni envios');

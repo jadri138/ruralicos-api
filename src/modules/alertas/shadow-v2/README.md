@@ -16,7 +16,7 @@ No hay votacion, segunda opinion, reparacion semantica, scores, embeddings ni me
 - `shadow_v2_digest_runs`;
 - `shadow_v2_digest_items`.
 
-No envia mensajes. El workflow diario lo ejecuta al final por `/tareas/shadow-v2`, una ruta interna protegida por `CRON_TOKEN`, con lotes reanudables y `RUN_SHADOW_V2=false` como apagado de emergencia. Un fallo shadow no bloquea el digest productivo.
+El nucleo no envia mensajes. Con `DIGEST_ENGINE=v1`, el workflow diario lo ejecuta al final por `/tareas/shadow-v2` como auditoria opcional, reanudable y no bloqueante. Con `DIGEST_ENGINE=v2`, la ejecucion pasa a ser obligatoria: el adaptador productivo externo `digestV2Promotion.js` revalida cada item, crea `digests` y `digest_items` trazables y solo entonces permite que la cola comun los envie. Cambiar de nuevo a `DIGEST_ENGINE=v1` conserva un rollback inmediato sin borrar datos.
 
 El runner independiente se conserva para pruebas manuales y queda apagado salvo que se invoque con `SHADOW_V2_ENABLED=true`.
 

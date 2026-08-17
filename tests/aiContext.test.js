@@ -101,7 +101,6 @@ const orderedWorkflowTokens = [
   ['/alertas/enviar-digest', '/alertas/enviar-digest'],
   ['/alertas/generar-resumen-free', '/alertas/generar-resumen-free'],
   ['/alertas/enviar-resumen-free', '/alertas/enviar-resumen-free'],
-  ['/tareas/shadow-v2', 'const shadowV2 = RUN_SHADOW_V2'],
 ];
 
 const mainIndex = workflow.indexOf('async function main()');
@@ -111,5 +110,14 @@ for (const [endpoint, token] of orderedWorkflowTokens) {
   assert.ok(currentIndex > previousIndex, `Orden del workflow inesperado en ${endpoint}`);
   previousIndex = currentIndex;
 }
+
+const v2ShadowIndex = workflow.indexOf('shadowV2 = await runShadowV2Step()', mainIndex);
+const promoteV2Index = workflow.indexOf('/tareas/promover-digest-v2', v2ShadowIndex);
+const enqueueIndex = workflow.indexOf('/alertas/enviar-digest', promoteV2Index);
+assert.ok(v2ShadowIndex > 0 && promoteV2Index > v2ShadowIndex && enqueueIndex > promoteV2Index,
+  'V2 debe completar shadow, promover y solo despues encolar');
+
+const v1AuditIndex = workflow.indexOf("if (DIGEST_ENGINE === 'v1')", enqueueIndex);
+assert.ok(v1AuditIndex > enqueueIndex, 'V1 debe conservar shadow como auditoria posterior');
 
 console.log('✓ Contexto para IA coherente con el workflow y las rutas vigentes');

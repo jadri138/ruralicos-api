@@ -14,6 +14,7 @@ const {
   generarOutboxHealthMIA,
 } = require('../mia/outbox');
 const { digestIdDeOutboxItem } = require('../digest/digestOutbox');
+const { promoteShadowV2Digests } = require('../digest/digestV2Promotion');
 const { processDueEvidenceRecovery } = require('../digest/decisionEvidenceRecovery');
 const { conciliarEntregasUltraMsg } = require('../delivery/deliveryService');
 const { runAutomatedShadowV2Batch } = require('../alertas/shadow-v2/automation');
@@ -40,9 +41,6 @@ function getBaseUrl(req) {
 module.exports = function tareasRoutes(app, supabase) {
   app.post('/tareas/shadow-v2', async (req, res) => {
     if (!checkCronToken(req, res)) return;
-    if (!boolValue(process.env.RUN_SHADOW_V2, true)) {
-      return res.status(503).json({ success: false, disabled: true, error: 'shadow-v2 automatico desactivado' });
-    }
 
     try {
       const workflowDate = /^\d{4}-\d{2}-\d{2}$/.test(req.query.fecha || req.body?.fecha || '')
@@ -67,6 +65,30 @@ module.exports = function tareasRoutes(app, supabase) {
     } catch (err) {
       console.error('Error en /tareas/shadow-v2', err.message);
       return res.status(500).json({ success: false, error: 'No se pudo ejecutar el lote shadow-v2' });
+    }
+  });
+
+  app.post('/tareas/promover-digest-v2', async (req, res) => {
+    if (!checkCronToken(req, res)) return;
+
+    try {
+      const workflowDate = /^\d{4}-\d{2}-\d{2}$/.test(req.query.fecha || req.body?.fecha || '')
+        ? String(req.query.fecha || req.body?.fecha)
+        : getFechaMadridISO();
+      const workflowRunKey = String(req.query.run_key || req.body?.run_key || '');
+      const result = await promoteShadowV2Digests({
+        supabase,
+        workflowDate,
+        workflowRunKey,
+      });
+      return res.status(200).json(result);
+    } catch (err) {
+      console.error('Error en /tareas/promover-digest-v2', err.message);
+      return res.status(500).json({
+        success: false,
+        error: 'No se pudieron promover los digests V2',
+        failed_runs: Number(err.summary?.errors?.length || 0),
+      });
     }
   });
 

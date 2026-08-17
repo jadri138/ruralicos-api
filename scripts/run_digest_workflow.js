@@ -14,6 +14,7 @@
  *   RUN_OFFICIAL_LISTS=true
  *   RUN_REPAIR=true
  *   RUN_DAILY_EXPLORATION=true
+ *   DIGEST_ENGINE=v1             (usa v2 para promover y enviar shadow-v2)
  *   PREPARAR_DIGEST_FORCE=true   (reevalua intentos ya cerrados hoy)
  *   MAX_LOOPS=200
  *   PREPARAR_DIGEST_MAX_LOOPS=200
@@ -29,6 +30,8 @@
 
 require('dotenv').config();
 
+const { resolveDigestEngine } = require('../src/modules/digest/digestEngine');
+
 const BASE_URL = (process.env.BASE_URL || '').replace(/\/+$/, '');
 const CRON_TOKEN = process.env.CRON_TOKEN || '';
 const FECHA = /^\d{4}-\d{2}-\d{2}$/.test(process.env.FECHA || '')
@@ -39,6 +42,7 @@ const RUN_OFFICIAL_LISTS = parseBool(process.env.RUN_OFFICIAL_LISTS, true);
 const RUN_REPAIR = parseBool(process.env.RUN_REPAIR, true);
 const RUN_DAILY_EXPLORATION = parseBool(process.env.RUN_DAILY_EXPLORATION, true);
 const RUN_SHADOW_V2 = parseBool(process.env.RUN_SHADOW_V2, true);
+const DIGEST_ENGINE = resolveDigestEngine();
 const PREPARAR_DIGEST_FORCE = parseBool(process.env.PREPARAR_DIGEST_FORCE, false);
 // Cada vuelta de clasificar/resumir/revisar consume un lote pequeño
 // (CLASIFICAR_BATCH_SIZE = 8 por defecto). Con ~700-800 alertas nuevas al día
@@ -398,6 +402,7 @@ async function main() {
     runRepair: RUN_REPAIR,
     runDailyExploration: RUN_DAILY_EXPLORATION,
     runShadowV2: RUN_SHADOW_V2,
+    digestEngine: DIGEST_ENGINE,
   });
 
   const scrapers = RUN_SCRAPERS
@@ -424,22 +429,49 @@ async function main() {
   // Sirve para reintentar el mismo día tras corregir algo sin tener que
   // desplegar una versión de decisión nueva. No puede reenviar: las personas
   // con un digest ya enviado quedan fuera igualmente.
-  const rutaPrepararDigest = conFecha('/alertas/preparar-digest');
-  const prepararDigest = await runBatchedStep(
-    'preparar-digest',
-    PREPARAR_DIGEST_FORCE
-      ? appendQuery(rutaPrepararDigest, { force: 'true' })
-      : rutaPrepararDigest,
-    { method: 'POST' },
-    PREPARAR_DIGEST_MAX_LOOPS
-  );
-  const digestsPreparados = Number(prepararDigest.metrics.digests_generados || 0);
-  const rescatesPreparados = Number(prepararDigest.metrics.rescates_generados || 0);
-  if (prepararDigest.totalProgress > 0 && digestsPreparados + rescatesPreparados === 0) {
-    console.warn('[digest-silence] Se evaluaron usuarios pero no se creo ningun digest', {
-      usuarios_evaluados: prepararDigest.totalProgress,
-      ...prepararDigest.metrics,
-    });
+  let prepararDigest;
+  let shadowV2;
+  let promoverDigestV2 = { skipped: true, reason: 'DIGEST_ENGINE=v1' };
+  if (DIGEST_ENGINE === 'v2') {
+    // En modo productivo V2, shadow deja de ser opcional. Solo se promueve una
+    // ejecucion completa y cualquier fallo detiene el workflow antes de la cola.
+    shadowV2 = await runShadowV2Step();
+    promoverDigestV2 = await runSingleStep(
+      'promover-digest-v2',
+      appendQuery(conFecha('/tareas/promover-digest-v2'), {
+        run_key: shadowV2.workflowRunKey,
+      }),
+      { method: 'POST' }
+    );
+    prepararDigest = {
+      skipped: true,
+      reason: 'DIGEST_ENGINE=v2',
+      totalProgress: Number(promoverDigestV2.paid_runs || 0),
+      metrics: {
+        digests_generados: Number(promoverDigestV2.promoted || 0)
+          + Number(promoverDigestV2.already_promoted || 0),
+        usuarios_sin_alertas: Number(promoverDigestV2.no_send || 0),
+        errors: Number(promoverDigestV2.errors?.length || 0),
+      },
+    };
+  } else {
+    const rutaPrepararDigest = conFecha('/alertas/preparar-digest');
+    prepararDigest = await runBatchedStep(
+      'preparar-digest',
+      PREPARAR_DIGEST_FORCE
+        ? appendQuery(rutaPrepararDigest, { force: 'true' })
+        : rutaPrepararDigest,
+      { method: 'POST' },
+      PREPARAR_DIGEST_MAX_LOOPS
+    );
+    const digestsPreparados = Number(prepararDigest.metrics.digests_generados || 0);
+    const rescatesPreparados = Number(prepararDigest.metrics.rescates_generados || 0);
+    if (prepararDigest.totalProgress > 0 && digestsPreparados + rescatesPreparados === 0) {
+      console.warn('[digest-silence] Se evaluaron usuarios pero no se creo ningun digest', {
+        usuarios_evaluados: prepararDigest.totalProgress,
+        ...prepararDigest.metrics,
+      });
+    }
   }
   const enviarDigest = await runSingleStep('enviar-digest', conFecha('/alertas/enviar-digest'), { method: 'POST' });
   // FREE también se limita a preparar y encolar. Digest, FREE y las preguntas
@@ -462,14 +494,16 @@ async function main() {
   const entregarPreguntasExploracion = Number(exploracionDiaria?.encoladas || 0) > 0
     ? await runOutboxStep()
     : { skipped: true, reason: 'sin_preguntas_selectivas' };
-  // Shadow se ejecuta al final: nunca retrasa ni bloquea la preparacion o la
-  // entrega productiva. Su endpoint es idempotente por fecha y solo escribe en
-  // las tres tablas shadow-v2.
-  const shadowV2 = RUN_SHADOW_V2
-    ? await runOptionalShadowV2Step()
-    : { skipped: true, reason: 'RUN_SHADOW_V2=false' };
+  // V1 conserva shadow al final como auditoria opcional. En V2 ya se ejecuto
+  // antes de promover, encolar y enviar el digest productivo.
+  if (DIGEST_ENGINE === 'v1') {
+    shadowV2 = RUN_SHADOW_V2
+      ? await runOptionalShadowV2Step()
+      : { skipped: true, reason: 'RUN_SHADOW_V2=false' };
+  }
 
   console.log('Workflow completado', {
+    digestEngine: DIGEST_ENGINE,
     scrapers: scrapers?.success ?? scrapers?.skipped ?? null,
     cotejoListados: cotejoListados?.success ?? cotejoListados?.skipped ?? null,
     repararPendientes: repararPendientes?.success ?? repararPendientes?.skipped ?? null,
@@ -488,6 +522,7 @@ async function main() {
       usuarios_evaluados: prepararDigest?.totalProgress ?? null,
       ...prepararDigest.metrics,
     },
+    promoverDigestV2,
     encolarDigest: {
       encolados: enviarDigest?.encolados ?? 0,
       ya_encolados: enviarDigest?.ya_encolados ?? 0,

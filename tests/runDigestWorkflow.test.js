@@ -97,14 +97,21 @@ test('permite fijar fecha para pasos diarios', () => {
   assert(script.includes("conFecha('/alertas/preparar-digest')"), 'preparar digest debe aceptar fecha');
 });
 
-test('ejecuta shadow-v2 al final de forma reanudable y no bloqueante', () => {
+test('ejecuta shadow-v2 como auditoria en V1 y como fase obligatoria antes de promover en V2', () => {
   const shadowHelperIndex = script.indexOf('async function runShadowV2Step');
-  const shadowCallIndex = script.indexOf('const shadowV2 = RUN_SHADOW_V2');
+  const v1ShadowIndex = script.indexOf("if (DIGEST_ENGINE === 'v1')");
+  const v2ShadowIndex = script.indexOf('shadowV2 = await runShadowV2Step()');
+  const promoteIndex = script.indexOf("'/tareas/promover-digest-v2'");
+  const sendIndex = script.indexOf("const enviarDigest = await runSingleStep('enviar-digest'");
   const lastOutboxIndex = script.indexOf('const entregarPreguntasExploracion');
   assert(shadowHelperIndex > 0, 'debe existir el drenaje por lotes de shadow-v2');
-  assert(shadowCallIndex > lastOutboxIndex, 'shadow-v2 debe ejecutarse despues de toda la entrega');
+  assert(v1ShadowIndex > lastOutboxIndex, 'en V1 shadow debe seguir despues de toda la entrega');
+  assert(v2ShadowIndex > 0 && v2ShadowIndex < promoteIndex, 'en V2 shadow debe completar antes de promover');
+  assert(promoteIndex < sendIndex, 'la promocion debe ocurrir antes de encolar el digest');
+  assert(script.includes('const DIGEST_ENGINE = resolveDigestEngine()'));
   assert(script.includes("const RUN_SHADOW_V2 = parseBool(process.env.RUN_SHADOW_V2, true)"));
   assert(script.includes("'/tareas/shadow-v2'"));
+  assert(script.includes("'/tareas/promover-digest-v2'"));
   assert(script.includes("const SHADOW_V2_BATCH_SIZE = Number(process.env.SHADOW_V2_BATCH_SIZE || 50)"));
   assert(script.includes("const SHADOW_V2_MAX_CALLS_PER_BATCH = Number(process.env.SHADOW_V2_MAX_CALLS_PER_BATCH || 10)"));
   assert(script.includes("const SHADOW_V2_MAX_USERS_PER_BATCH = Number(process.env.SHADOW_V2_MAX_USERS_PER_BATCH || 5)"));
@@ -138,7 +145,7 @@ test('permite completar la preparacion segura usuario a usuario', () => {
     'preparar digest necesita mas vueltas que el resto de fases'
   );
   assert(
-    script.includes('PREPARAR_DIGEST_MAX_LOOPS\n  );'),
+    /PREPARAR_DIGEST_MAX_LOOPS\s*\n\s*\);/.test(script),
     'la preparacion debe usar su limite especifico'
   );
 });

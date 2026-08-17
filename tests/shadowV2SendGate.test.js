@@ -28,7 +28,7 @@ function card(overrides = {}) {
   };
 }
 
-assert.strictEqual(SEND_GATE_VERSION, 'shadow-v2-send-gate-2');
+assert.strictEqual(SEND_GATE_VERSION, 'shadow-v2-send-gate-3');
 
 for (const item of corpus.accepted_by_ai1) {
   const result = evaluateSendGate({
@@ -130,6 +130,45 @@ const completedEnvironmentalAssessment = evaluateSendGate({
 });
 assert.strictEqual(completedEnvironmentalAssessment.allowed, false);
 assert(completedEnvironmentalAssessment.reasons.includes('completed_environmental_assessment'));
+
+const provisionalAward = evaluateSendGate({
+  officialSnapshot: snapshot({
+    title: 'Resolucion provisional de concesion de ayudas a la apicultura',
+    official_content: 'Se publica la relacion provisional de solicitudes y personas beneficiarias.',
+  }),
+  card: card({
+    action: 'solicitar la ayuda apicola',
+    evidence: ['relacion provisional de solicitudes y personas beneficiarias'],
+  }),
+});
+assert.strictEqual(provisionalAward.allowed, false);
+assert(provisionalAward.reasons.includes('provisional_award'));
+
+const resolvedAuthorizationModification = evaluateSendGate({
+  officialSnapshot: snapshot({
+    title: 'Resolucion por la que se modifica la autorizacion ambiental integrada de una explotacion porcina',
+    official_content: 'Se publica la resolucion que modifica la autorizacion ambiental integrada ya concedida.',
+  }),
+  card: card({
+    action: 'presentar alegaciones a la modificacion',
+    evidence: ['modifica la autorizacion ambiental integrada ya concedida'],
+  }),
+});
+assert.strictEqual(resolvedAuthorizationModification.allowed, false);
+assert(resolvedAuthorizationModification.reasons.includes('resolved_authorization_modification'));
+
+const completedDopChange = evaluateSendGate({
+  officialSnapshot: snapshot({
+    title: 'Resolucion por la que se aprueba la modificacion del pliego de condiciones de la DOP La Mancha',
+    official_content: 'Se aprueba la modificacion del pliego de condiciones tras finalizar la informacion publica.',
+  }),
+  card: card({
+    action: 'participar en la modificacion del pliego',
+    evidence: ['Se aprueba la modificacion del pliego de condiciones'],
+  }),
+});
+assert.strictEqual(completedDopChange.allowed, false);
+assert(completedDopChange.reasons.includes('completed_specification_change'));
 
 const publicEmployment = evaluateSendGate({
   officialSnapshot: snapshot({

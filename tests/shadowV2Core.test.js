@@ -86,6 +86,15 @@ const feminineLivestock = prefilterAlert(snapshot({
 assert.strictEqual(feminineLivestock.passed, true, 'bovina debe reconocerse como senal rural');
 assert(feminineLivestock.detected_rural_terms.includes('bovina'));
 
+const huntingPublicInfo = prefilterAlert(snapshot({
+  id: 991,
+  title: 'Informacion publica sobre modificacion de areas privadas de caza',
+  organization: 'Administracion autonomica',
+  official_content: 'Se modifican varias areas privadas de caza y se abre informacion publica.',
+}));
+assert.strictEqual(huntingPublicInfo.passed, true, 'las areas privadas de caza son una senal rural explicita');
+assert(huntingPublicInfo.detected_rural_terms.includes('areas privadas de caza'));
+
 for (const organization of RURAL_ORGANIZATIONS) {
   const result = prefilterAlert(snapshot({
     id: 997,

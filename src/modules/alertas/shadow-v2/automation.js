@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 const { runShadowV2Workflow } = require('./workflow');
 
-const DAILY_RUN_NAMESPACE = 'ruralicos:shadow-v2:daily:v1';
+const DAILY_RUN_NAMESPACE = 'ruralicos:shadow-v2:daily:v2';
 
 function assertDate(value) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))) {

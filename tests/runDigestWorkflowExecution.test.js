@@ -48,11 +48,21 @@ function respuestaPara(pathname, attempt) {
       errors: 0,
     };
   }
+  if (pathname === '/tareas/promover-digest-v2') {
+    return {
+      success: true,
+      paid_runs: 2,
+      promoted: 1,
+      already_promoted: 0,
+      no_send: 1,
+      errors: [],
+    };
+  }
   if (pathname === '/alertas/generar-resumen-free') return { success: true, procesadas: 0 };
   return { success: true, ok: true };
 }
 
-function ejecutarScript(baseUrl) {
+function ejecutarScript(baseUrl, envOverrides = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [scriptPath], {
       cwd: path.dirname(scriptPath),
@@ -67,6 +77,7 @@ function ejecutarScript(baseUrl) {
         MAX_LOOPS: '2',
         HOLD_RECOVERY_MAX_LOOPS: '4',
         SHADOW_V2_MAX_LOOPS: '3',
+        ...envOverrides,
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -185,7 +196,36 @@ async function main() {
     const repair = requests.find((request) => request.pathname === '/alertas/reparar-pendientes-ia');
     assert.strictEqual(repair.method, 'POST', 'la reparacion debe conservar el metodo POST');
     assert(requests.every((request) => request.cronToken === 'test-cron-token'), 'todas las llamadas llevan token');
-    console.log('OK: el cron ejecuta el workflow completo en orden');
+    console.log('OK: el cron V1 ejecuta el workflow completo en orden');
+
+    requests.length = 0;
+    attempts.clear();
+    const v2Result = await ejecutarScript(`http://127.0.0.1:${port}`, { DIGEST_ENGINE: 'v2' });
+    assert.strictEqual(v2Result.code, 0, v2Result.stderr || v2Result.stdout);
+    const v2Paths = requests.map((request) => request.pathname);
+    assert(!v2Paths.includes('/alertas/preparar-digest'), 'V2 no debe preparar ni generar digests con V1');
+    assert(v2Paths.includes('/tareas/shadow-v2'), 'V2 debe ejecutar su motor completo');
+    assert(v2Paths.includes('/tareas/promover-digest-v2'), 'V2 debe promover solo despues de completar shadow');
+    assert(v2Paths.includes('/alertas/enviar-digest'), 'V2 reutiliza la unica cola productiva');
+    const v2ShadowLast = v2Paths.lastIndexOf('/tareas/shadow-v2');
+    const v2Promote = v2Paths.indexOf('/tareas/promover-digest-v2');
+    const v2Enqueue = v2Paths.indexOf('/alertas/enviar-digest');
+    const v2Outbox = v2Paths.indexOf('/tareas/mia-outbox');
+    assert(
+      v2ShadowLast < v2Promote && v2Promote < v2Enqueue && v2Enqueue < v2Outbox,
+      'V2 debe completar, promover, encolar y entregar en ese orden',
+    );
+    assert.strictEqual(
+      v2Paths.filter((pathname) => pathname === '/tareas/shadow-v2').length,
+      3,
+      'V2 productiva conserva reintento HTTP e idempotencia por run-key',
+    );
+    assert.strictEqual(
+      v2Paths.filter((pathname) => pathname === '/tareas/promover-digest-v2').length,
+      1,
+      'la promocion completa se ejecuta una sola vez',
+    );
+    console.log('OK: el cron V2 sustituye la preparacion V1 sin crear un segundo emisor');
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
