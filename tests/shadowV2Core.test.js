@@ -10,7 +10,16 @@ const {
   orderCandidates,
   signalsCompatible,
 } = require('../src/modules/alertas/shadow-v2/profileMatch');
-const { officialSnapshot } = require('../src/modules/alertas/shadow-v2/repository');
+const { buildLearnedProfiles, officialSnapshot } = require('../src/modules/alertas/shadow-v2/repository');
+
+const learnedProfiles = buildLearnedProfiles([
+  { user_id: 7, tag: 'subsector:bovino', score: 2, positivos: 2, negativos: 0 },
+  { user_id: 7, tag: 'tipo:cursos_formacion', score: -1, positivos: 0, negativos: 2 },
+  { user_id: 8, tag: 'tipo:ayudas_subvenciones', score: 0, positivos: 1, negativos: 1 },
+], [7, 8]);
+assert.deepStrictEqual(learnedProfiles.get(7).interests.map((item) => item.tag), ['subsector:bovino']);
+assert.deepStrictEqual(learnedProfiles.get(7).dislikes.map((item) => item.tag), ['tipo:cursos_formacion']);
+assert.deepStrictEqual(learnedProfiles.get(8), { interests: [], dislikes: [] });
 
 function snapshot(item) {
   return {

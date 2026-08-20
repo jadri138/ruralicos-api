@@ -18,6 +18,8 @@ No hay votacion, segunda opinion, reparacion semantica, scores, embeddings ni me
 
 El nucleo no envia mensajes. Con `DIGEST_ENGINE=v1`, el workflow diario lo ejecuta al final por `/tareas/shadow-v2` como auditoria opcional, reanudable y no bloqueante. Con `DIGEST_ENGINE=v2`, la ejecucion pasa a ser obligatoria: el adaptador productivo externo `digestV2Promotion.js` revalida cada item, crea `digests` y `digest_items` trazables y solo entonces permite que la cola comun los envie. Cambiar de nuevo a `DIGEST_ENGINE=v1` conserva un rollback inmediato sin borrar datos.
 
+IA 2 recibe tambien un resumen pequeno de intereses y rechazos aprendidos por MIA. Estas senales solo ordenan candidatas que ya superaron los bloqueos objetivos; no pueden abrir territorio, actividad ni beneficiarios incompatibles.
+
 El runner independiente se conserva para pruebas manuales y queda apagado salvo que se invoque con `SHADOW_V2_ENABLED=true`.
 
 Ejemplo local limitado, una vez aplicada la migracion y con credenciales configuradas:

@@ -59,7 +59,7 @@ function generatedRun(overrides = {}) {
     user_id: 7,
     profile_snapshot: { subscription: 'agricultor', organization_id: 4 },
     candidate_cards: [candidate()],
-    engine_version: 'shadow-v2-7',
+    engine_version: 'shadow-v2-8',
     digest_preview: 'Hola Ana\n\nUna oportunidad para ti.\n\nhttps://example.test/501',
     normalized_response: {
       selected: [{
@@ -145,7 +145,7 @@ async function main() {
     userId: run.user_id,
     fecha: WORKFLOW_DATE,
     alertas: productAlerts,
-    origen: 'shadow-v2-7',
+    origen: 'shadow-v2-8',
     organizationId: 4,
   });
   assert.strictEqual(productRows.length, 1);
@@ -154,7 +154,7 @@ async function main() {
     true,
     'la autoridad final de outbox debe aceptar items promovidos por V2'
   );
-  assert.strictEqual(productRows[0].tags_json.shadow_decision.engine_version, 'shadow-v2-7');
+  assert.strictEqual(productRows[0].tags_json.shadow_decision.engine_version, 'shadow-v2-8');
   assert.strictEqual(productRows[0].selection_decision.level, 'priority');
 
   const relatedRun = generatedRun({

@@ -252,7 +252,19 @@ async function runAi2Phase({
   const existingUserIds = await repo.loadExistingDigestUserIds(supabase, workflowRunKey, workflowDate);
   const allUsers = await repo.loadUsers(supabase);
   const pendingUsers = allUsers.filter((user) => !existingUserIds.has(Number(user.id)));
-  const users = pendingUsers.slice(0, limits.maxUsers);
+  const baseUsers = pendingUsers.slice(0, limits.maxUsers);
+  let learnedProfiles = new Map();
+  if (typeof repo.loadLearnedProfiles === 'function') {
+    try {
+      learnedProfiles = await repo.loadLearnedProfiles(supabase, baseUsers.map((user) => user.id));
+    } catch (error) {
+      logger.warn(`[shadow-v2] Aprendizaje MIA no disponible; se continua sin el: ${error.message}`);
+    }
+  }
+  const users = baseUsers.map((user) => ({
+    ...user,
+    learned_preferences: learnedProfiles.get(Number(user.id)) || { interests: [], dislikes: [] },
+  }));
   const sentByUser = await repo.loadSentHistory(supabase, users.map((user) => user.id));
   const summary = {
     found: allUsers.length,

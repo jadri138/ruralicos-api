@@ -46,7 +46,7 @@ async function main() {
     'date'
   );
   assert.strictEqual(AI2_CONTRACT_VERSION, 'shadow-v2-ai2-6');
-  assert.strictEqual(AI2_PROMPT_VERSION, 'shadow-v2-ai2-prompt-10');
+  assert.strictEqual(AI2_PROMPT_VERSION, 'shadow-v2-ai2-prompt-11');
   assert(AI2_INSTRUCTIONS.includes('encaje personal concreto'));
   assert(AI2_INSTRUCTIONS.includes('gancho comercial de una sola frase'));
   assert(AI2_INSTRUCTIONS.includes('habla siempre de tu y nunca de usted'));
@@ -57,6 +57,7 @@ async function main() {
   assert(AI2_INSTRUCTIONS.includes('el servidor usa el titulo oficial'));
   assert(AI2_INSTRUCTIONS.includes('que su perfil no demuestre'));
   assert(AI2_INSTRUCTIONS.includes('nunca a candidatas descartadas'));
+  assert(AI2_INSTRUCTIONS.includes('sirven solo para ordenar'));
   assert.strictEqual(AI2_TEXT_FORMAT.schema.properties.selected.minItems, 1);
   assert.deepStrictEqual(
     AI2_TEXT_FORMAT.schema.properties.selected.items.required,
@@ -159,7 +160,15 @@ async function main() {
   };
   let ai2Calls = 0;
   const validAi2 = await decideDigestWithAi2({
-    user: { id: 7, name: 'Persona fixture', preferences: { provincias: ['Asturias'], actividades: ['bovino'] } },
+    user: {
+      id: 7,
+      name: 'Persona fixture',
+      preferences: { provincias: ['Asturias'], actividades: ['bovino'] },
+      learned_preferences: {
+        interests: [{ tag: 'subsector:bovino', score: 2 }],
+        dislikes: [{ tag: 'tipo:cursos_formacion', score: -1 }],
+      },
+    },
     candidates,
     sentAlertIds: [],
     maxSelected: 5,
@@ -170,6 +179,8 @@ async function main() {
       assert.strictEqual(options.retries, 0);
       assert.strictEqual(options.skipAudit, true);
       assert(!prompt.includes('subscription'));
+      assert(prompt.includes('subsector:bovino'));
+      assert(prompt.includes('tipo:cursos_formacion'));
       return fakeResponse(selectedPayload);
     },
   });

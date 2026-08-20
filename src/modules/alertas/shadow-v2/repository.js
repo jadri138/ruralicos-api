@@ -69,6 +69,41 @@ function chunks(values = [], size = 100) {
   return result;
 }
 
+function buildLearnedProfiles(rows = [], userIds = []) {
+  const grouped = new Map(userIds.map((id) => [Number(id), []]));
+  for (const row of rows || []) {
+    const userId = Number(row.user_id);
+    const score = Number(row.score || 0);
+    if (!grouped.has(userId) || !String(row.tag || '').trim() || !Number.isFinite(score) || score === 0) continue;
+    grouped.get(userId).push({
+      tag: String(row.tag).trim(),
+      score,
+      positivos: Number(row.positivos || 0),
+      negativos: Number(row.negativos || 0),
+    });
+  }
+
+  return new Map([...grouped.entries()].map(([userId, items]) => [userId, {
+    interests: items.filter((item) => item.score > 0)
+      .sort((a, b) => b.score - a.score).slice(0, 8),
+    dislikes: items.filter((item) => item.score < 0)
+      .sort((a, b) => a.score - b.score).slice(0, 8),
+  }]));
+}
+
+async function loadLearnedProfiles(supabase, userIds = []) {
+  const rows = [];
+  for (const group of chunks(userIds.map(Number).filter(Number.isSafeInteger), 100)) {
+    if (group.length === 0) continue;
+    const result = await supabase.from('user_interest_profile')
+      .select('user_id, tag, score, positivos, negativos')
+      .in('user_id', group);
+    assertNoError(result.error, 'No se pudo cargar el aprendizaje de MIA para shadow-v2');
+    rows.push(...(result.data || []));
+  }
+  return buildLearnedProfiles(rows, userIds);
+}
+
 function documentQuality(document = {}) {
   const contentLength = String(document.texto_raw || '').trim().length;
   const url = document.url_pdf || document.url_html || document.url;
@@ -265,6 +300,7 @@ module.exports = {
   USER_SELECT,
   RAW_DOCUMENT_SELECT,
   chunks,
+  buildLearnedProfiles,
   officialSnapshot,
   loadExistingClassificationIds,
   loadAlerts,
@@ -273,6 +309,7 @@ module.exports = {
   loadSuccessfulClassifications,
   loadExistingDigestUserIds,
   loadUsers,
+  loadLearnedProfiles,
   loadSentHistory,
   recordLimitEvent,
   insertDigestRun,
