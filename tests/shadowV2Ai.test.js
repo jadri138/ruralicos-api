@@ -45,18 +45,20 @@ async function main() {
     AI1_TEXT_FORMAT.schema.properties.deadline.anyOf[0].format,
     'date'
   );
-  assert.strictEqual(AI2_CONTRACT_VERSION, 'shadow-v2-ai2-4');
-  assert.strictEqual(AI2_PROMPT_VERSION, 'shadow-v2-ai2-prompt-8');
+  assert.strictEqual(AI2_CONTRACT_VERSION, 'shadow-v2-ai2-5');
+  assert.strictEqual(AI2_PROMPT_VERSION, 'shadow-v2-ai2-prompt-9');
   assert(AI2_INSTRUCTIONS.includes('encaje personal concreto'));
   assert(AI2_INSTRUCTIONS.includes('gancho comercial de una sola frase'));
   assert(AI2_INSTRUCTIONS.includes('habla siempre de tu y nunca de usted'));
   assert(AI2_INSTRUCTIONS.includes('el servidor los proyecta desde la ficha verificada'));
   assert(AI2_INSTRUCTIONS.includes('evita un digest repetitivo'));
-  assert(AI2_INSTRUCTIONS.includes('si el perfil no demuestra que sea suya'));
-  assert(AI2_INSTRUCTIONS.includes('no escribas tu concesion ni tus derechos'));
+  assert(AI2_INSTRUCTIONS.includes('debes seleccionar al menos una'));
+  assert(AI2_INSTRUCTIONS.includes('nunca puede haber mas de dos'));
+  assert(AI2_INSTRUCTIONS.includes('el servidor usa el titulo oficial'));
+  assert.strictEqual(AI2_TEXT_FORMAT.schema.properties.selected.minItems, 1);
   assert.deepStrictEqual(
     AI2_TEXT_FORMAT.schema.properties.selected.items.required,
-    ['alert_id', 'reason', 'title']
+    ['alert_id', 'reason', 'level']
   );
 
   const validCard = corpus.accepted_by_ai1[0].ai1;
@@ -146,10 +148,10 @@ async function main() {
     official_snapshot: { title: item.title, official_url: `https://example.test/${item.id}` },
   }));
   const selectedPayload = {
-    selected: candidates.map((candidate) => ({
+    selected: candidates.map((candidate, index) => ({
       alert_id: candidate.alert_id,
       reason: 'El perfil acredita actividad y territorio compatibles.',
-      title: candidate.official_snapshot.title,
+      level: index === 0 ? 'priority' : 'related',
     })),
     message: 'Dos avisos útiles y accionables para tu actividad.',
   };
@@ -173,6 +175,17 @@ async function main() {
   assert.strictEqual(ai2Calls, 1);
   assert.strictEqual(validAi2.status, 'GENERATED');
   assert.strictEqual(validAi2.normalizedResponse.selected.length, 2);
+  const mixedDigest = projectDigest(validAi2.normalizedResponse, {
+    user: { first_name: 'Ana' },
+    candidates,
+  });
+  const priorityIndex = mixedDigest.message.indexOf(`*1. ${candidates[0].official_snapshot.title}*`);
+  const relatedHeadingIndex = mixedDigest.message.indexOf(
+    'Otras novedades que también pueden interesarte'
+  );
+  const relatedIndex = mixedDigest.message.indexOf(`*2. ${candidates[1].official_snapshot.title}*`);
+  assert(priorityIndex >= 0 && priorityIndex < relatedHeadingIndex);
+  assert(relatedHeadingIndex < relatedIndex, 'priority debe aparecer antes de la seccion related');
 
   const emptyAi2 = await decideDigestWithAi2({
     user: { id: 8, preferences: {} },
@@ -181,28 +194,34 @@ async function main() {
     maxPromptChars: 60000,
     callAi: () => fakeResponse({ selected: [], message: 'No hay avisos adecuados para este perfil.' }),
   });
-  assert.strictEqual(emptyAi2.status, 'EMPTY');
-  assert.strictEqual(emptyAi2.normalizedResponse.message, '');
+  assert.strictEqual(emptyAi2.status, 'ERROR');
+  assert.strictEqual(emptyAi2.normalizedResponse, null);
+  assert.strictEqual(emptyAi2.error.code, 'ai2_empty_selection');
 
   const normalizedSelection = normalizeAi2Result({
     selected: [{
       alert_id: 201,
       reason: 'Actividad ganadera compatible.',
-      title: 'Ayuda ganadera',
+      level: 'related',
+      title: candidates[1].official_snapshot.title,
       summary: 'Resumen inventado que el servidor no debe usar',
       action: 'Accion inventada',
       deadline: 'quince dias desde la publicacion',
     }],
     message: 'Aviso util.',
   }, {
-    candidateIds: [201],
+    candidates: [{
+      alert_id: 201,
+      official_snapshot: { title: 'Ayuda ganadera' },
+    }],
     maxSelected: 5,
   });
   assert.deepStrictEqual(normalizedSelection.selected[0], {
     alert_id: 201,
     reason: 'Actividad ganadera compatible.',
+    level: 'related',
     title: 'Ayuda ganadera',
-  });
+  }, 'el titulo de otra candidata se ignora y se vincula al snapshot oficial por alert_id');
 
   const projectedDigest = projectDigest(normalizedSelection, {
     user: { first_name: 'Ana', name: 'Nombre alternativo' },
@@ -213,11 +232,13 @@ async function main() {
         action: 'Solicitar la ayuda oficial.',
         deadline: '2026-09-30',
       },
-      official_snapshot: { official_url: 'https://example.test/201' },
+      official_snapshot: { title: 'Ayuda ganadera', official_url: 'https://example.test/201' },
     }],
   });
   assert(projectedDigest.message.startsWith('¡Hola, Ana! 👋'));
   assert(projectedDigest.message.includes('una novedad rural que merece la pena revisar'));
+  assert(projectedDigest.message.includes('Otras novedades que también pueden interesarte'));
+  assert(!/urgent|prioritari/i.test(projectedDigest.message));
   assert(projectedDigest.message.includes('*1. Ayuda ganadera*'));
   assert(projectedDigest.message.includes('Resumen verificado por IA 1.'));
   assert(!projectedDigest.message.includes('Resumen inventado'));
@@ -233,10 +254,26 @@ async function main() {
     ...normalizedSelection,
     selected: [
       ...normalizedSelection.selected,
-      { ...normalizedSelection.selected[0], alert_id: 202, title: 'Curso rural' },
+      { ...normalizedSelection.selected[0], alert_id: 202, title: 'Titulo contaminado' },
     ],
-  }, { user: { first_name: 'Ana' } });
+  }, {
+    user: { first_name: 'Ana' },
+    candidates: [
+      {
+        alert_id: 201,
+        card: {},
+        official_snapshot: { title: 'Ayuda ganadera' },
+      },
+      {
+        alert_id: 202,
+        card: {},
+        official_snapshot: { title: 'Curso rural' },
+      },
+    ],
+  });
   assert(pluralDigest.message.includes('¿Qué te parecen estas alertas?'));
+  assert(pluralDigest.message.includes('*2. Curso rural*'));
+  assert(!pluralDigest.message.includes('Titulo contaminado'));
   assert.strictEqual(projectDigest({ selected: [], message: '' }, {
     user: { first_name: 'Ana' },
   }).message, '');
@@ -245,10 +282,31 @@ async function main() {
     selected: Array.from({ length: 6 }, (_, index) => ({
       alert_id: index + 1,
       reason: 'razón',
-      title: 'título',
+      level: 'related',
     })),
     message: 'mensaje',
-  }, { candidateIds: [1, 2, 3, 4, 5, 6], maxSelected: 5 }), /ai2_too_many_selected/);
+  }, {
+    candidates: Array.from({ length: 6 }, (_, index) => ({
+      alert_id: index + 1,
+      official_snapshot: { title: `Alerta ${index + 1}` },
+    })),
+    maxSelected: 5,
+  }), /ai2_too_many_selected/);
+
+  assert.throws(() => normalizeAi2Result({
+    selected: [1, 2, 3].map((alertId) => ({
+      alert_id: alertId,
+      reason: 'Encaje verificado.',
+      level: 'priority',
+    })),
+    message: 'Tres novedades.',
+  }, {
+    candidates: [1, 2, 3].map((alertId) => ({
+      alert_id: alertId,
+      official_snapshot: { title: `Alerta ${alertId}` },
+    })),
+    maxSelected: 5,
+  }), /ai2_too_many_priority/);
 
   let invalidAi2Calls = 0;
   const invalidAi2 = await decideDigestWithAi2({

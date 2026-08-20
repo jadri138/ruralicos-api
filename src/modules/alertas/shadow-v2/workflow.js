@@ -2,7 +2,7 @@ const crypto = require('crypto');
 const { prefilterAlert } = require('./prefilter');
 const { classifyAlertWithAi1 } = require('./ai1');
 const { matchClassificationToProfile, orderCandidates } = require('./profileMatch');
-const { buildAi2Prompt, decideDigestWithAi2 } = require('./ai2');
+const { buildAi2Prompt, decideDigestWithAi2, normalizeAi2Result } = require('./ai2');
 const { projectDigest } = require('./render');
 const { SEND_GATE_VERSION, evaluateSendGate } = require('./sendGate');
 const {
@@ -183,6 +183,42 @@ function digestRunRow({
   };
 }
 
+function validateAi2Outcome(ai2, candidates, maxSelected) {
+  if (!ai2 || ai2.status === 'ERROR') return ai2;
+  if (ai2.status !== 'GENERATED') {
+    const empty = ai2.status === 'EMPTY';
+    return {
+      ...ai2,
+      status: 'ERROR',
+      normalizedResponse: null,
+      error: empty
+        ? { code: 'ai2_empty_selection', message: 'IA 2 no puede descartar todas las candidatas' }
+        : { code: 'ai2_invalid_status', message: `Estado IA 2 invalido: ${ai2.status}` },
+    };
+  }
+  try {
+    return {
+      ...ai2,
+      status: 'GENERATED',
+      normalizedResponse: normalizeAi2Result(ai2.normalizedResponse, {
+        candidates,
+        maxSelected,
+      }),
+      error: null,
+    };
+  } catch (error) {
+    return {
+      ...ai2,
+      status: 'ERROR',
+      normalizedResponse: null,
+      error: {
+        code: String(error?.message || 'ai2_error').slice(0, 120),
+        message: String(error?.message || error).slice(0, 1000),
+      },
+    };
+  }
+}
+
 async function runAi2Phase({
   supabase,
   workflowRunKey,
@@ -275,8 +311,9 @@ async function runAi2Phase({
           maxSelected: limits.maxSelected,
           maxPromptChars: limits.maxPersonalPromptChars,
         });
+        ai2 = validateAi2Outcome(ai2, deliveredCandidates, limits.maxSelected);
       }
-      if (ai2.status === 'GENERATED' || ai2.status === 'EMPTY') {
+      if (ai2.status === 'GENERATED') {
         projected = projectDigest(ai2.normalizedResponse, { user, candidates: deliveredCandidates });
       }
     }
@@ -379,6 +416,7 @@ module.exports = {
   createCallBudget,
   classificationRow,
   digestRunRow,
+  validateAi2Outcome,
   runAi1Phase,
   runAi2Phase,
   runShadowV2Workflow,

@@ -1,3 +1,7 @@
+const { AI2_LEVELS, verifiedCandidateTitle } = require('./ai2');
+
+const RELATED_SECTION_TITLE = 'Otras novedades que también pueden interesarte';
+
 function renderSelectedItem(item, position) {
   const officialUrl = /^https?:\/\/\S+$/i.test(String(item.official_url || '').trim())
     ? String(item.official_url).trim()
@@ -20,6 +24,10 @@ function recipientFirstName(user = {}) {
 function renderDigestMessage(ai2Result = {}, user = {}) {
   const selected = ai2Result.selected || [];
   if (selected.length === 0) return '';
+  const invalidLevel = selected.find((item) => !AI2_LEVELS.includes(item.level));
+  if (invalidLevel) throw new Error('digest_item_level_invalid');
+  const priority = selected.filter((item) => item.level === 'priority');
+  const related = selected.filter((item) => item.level === 'related');
   const firstName = recipientFirstName(user);
   const greeting = firstName ? `¡Hola, ${firstName}! 👋` : '¡Hola! 👋';
   const opportunityLine = selected.length === 1
@@ -33,11 +41,18 @@ function renderDigestMessage(ai2Result = {}, user = {}) {
     `${feedbackQuestion} Responde brevemente para que el sistema aprenda tus intereses.`,
     '*Ruralicos* 🌱',
   ].join('\n');
+  const renderedItems = priority.map((item, index) => renderSelectedItem(item, index + 1));
+  if (related.length > 0) {
+    renderedItems.push(`*${RELATED_SECTION_TITLE}*`);
+    renderedItems.push(...related.map((item, index) => (
+      renderSelectedItem(item, priority.length + index + 1)
+    )));
+  }
   return [
     greeting,
     opportunityLine,
     hook,
-    ...selected.map((item, index) => renderSelectedItem(item, index + 1)),
+    ...renderedItems,
     feedback,
   ].filter(Boolean).join('\n\n');
 }
@@ -45,10 +60,12 @@ function renderDigestMessage(ai2Result = {}, user = {}) {
 function projectDigest(ai2Result = {}, { user = {}, candidates = [] } = {}) {
   const candidatesById = new Map(candidates.map((candidate) => [Number(candidate.alert_id), candidate]));
   const selected = (ai2Result.selected || []).map((item) => {
-    const candidate = candidatesById.get(Number(item.alert_id)) || {};
+    const candidate = candidatesById.get(Number(item.alert_id));
+    if (!candidate) throw new Error('selected_candidate_missing');
     const card = candidate.card || {};
     return {
       ...item,
+      title: verifiedCandidateTitle(candidate),
       summary: card.summary || '',
       action: card.action || '',
       deadline: card.deadline || null,
@@ -67,6 +84,7 @@ function projectDigest(ai2Result = {}, { user = {}, candidates = [] } = {}) {
 }
 
 module.exports = {
+  RELATED_SECTION_TITLE,
   recipientFirstName,
   renderSelectedItem,
   renderDigestMessage,

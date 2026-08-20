@@ -137,7 +137,7 @@ async function main() {
       const selected = candidates.map((candidate) => ({
         alert_id: candidate.alert_id,
         reason: 'Puede solicitarlo o está directamente afectada según perfil y ficha.',
-        title: candidate.official_snapshot.title,
+        level: 'priority',
       }));
       return {
         status: selected.length > 0 ? 'GENERATED' : 'EMPTY',
@@ -169,6 +169,12 @@ async function main() {
   assert.strictEqual(memory.state.digestRuns[0].candidate_cards.length, 1);
   assert.strictEqual(memory.state.digestRuns[0].candidate_overflow_count, 2);
   assert.strictEqual(memory.state.digestRuns[0].usage_json.calls, 1);
+  assert.strictEqual(memory.state.digestRuns[0].normalized_response.selected[0].level, 'priority');
+  assert.strictEqual(
+    memory.state.digestItems[0].title_used,
+    memory.state.digestRuns[0].candidate_cards[0].official_snapshot.title,
+    'el titulo persistido debe proceder de la candidata seleccionada'
+  );
   assert(memory.state.digestRuns[0].usage_json.prompt_chars > 0);
   assert(memory.state.digestRuns[0].digest_preview.startsWith('¡Hola, Ganadera! 👋'));
   assert(memory.state.digestRuns[0].digest_preview.includes(
@@ -184,6 +190,57 @@ async function main() {
   assert.strictEqual(ai2Calls, 1, 'misma run key no repite usuarios');
   assert.strictEqual(memory.state.classifications.length, 3);
   assert.strictEqual(memory.state.digestRuns.length, 2);
+
+  const emptyMemory = createMemoryRepo();
+  let emptyAi2Calls = 0;
+  await runShadowV2Workflow({
+    ...options,
+    workflowRunKey: '33333333-3333-4333-8333-333333333333',
+    repo: emptyMemory.repo,
+    callAi1: async ({ officialSnapshot }) => aiResultFor(
+      emptyMemory.cards.get(officialSnapshot.alert_id)
+    ),
+    callAi2: async () => {
+      emptyAi2Calls += 1;
+      return {
+        status: 'EMPTY',
+        called: true,
+        model: 'gpt-5.6-luna',
+        prompt: 'prompt IA 2',
+        rawResponse: '{"selected":[],"message":""}',
+        normalizedResponse: { selected: [], message: '' },
+        usage: null,
+        durationMs: 1,
+        error: null,
+      };
+    },
+  });
+  assert.strictEqual(emptyAi2Calls, 1);
+  assert.strictEqual(emptyMemory.state.digestRuns[0].status, 'ERROR');
+  assert.strictEqual(emptyMemory.state.digestRuns[0].error_code, 'ai2_empty_selection');
+  assert.strictEqual(emptyMemory.state.digestRuns[1].status, 'NO_CANDIDATES');
+  assert.strictEqual(emptyMemory.state.digestItems.length, 0);
+
+  const blockedMemory = createMemoryRepo();
+  for (const [alertId, card] of blockedMemory.cards) {
+    blockedMemory.cards.set(alertId, { ...card, relevant: false });
+  }
+  let blockedAi2Calls = 0;
+  const blockedRun = await runShadowV2Workflow({
+    ...options,
+    workflowRunKey: '44444444-4444-4444-8444-444444444444',
+    repo: blockedMemory.repo,
+    callAi1: async ({ officialSnapshot }) => aiResultFor(
+      blockedMemory.cards.get(officialSnapshot.alert_id)
+    ),
+    callAi2: async () => {
+      blockedAi2Calls += 1;
+      throw new Error('IA 2 no debe recibir candidatas bloqueadas');
+    },
+  });
+  assert.strictEqual(blockedRun.ai2.sendGateBlocked, 3);
+  assert.strictEqual(blockedAi2Calls, 0);
+  assert(blockedMemory.state.digestRuns.every((run) => run.status === 'NO_CANDIDATES'));
 
   const limitedMemory = createMemoryRepo();
   let limitedCalls = 0;

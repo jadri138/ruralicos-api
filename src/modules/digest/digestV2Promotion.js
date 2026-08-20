@@ -1,4 +1,9 @@
 const { VERSIONS } = require('../alertas/shadow-v2/config');
+const {
+  AI2_LEVELS,
+  MAX_PRIORITY_SELECTED,
+  verifiedCandidateTitle,
+} = require('../alertas/shadow-v2/ai2');
 const { SEND_GATE_VERSION, evaluateSendGate } = require('../alertas/shadow-v2/sendGate');
 const { registrarDigestItemsMIA } = require('../mia/digestItems');
 const { registrarDigestAttempt } = require('../mia/digestAttempts');
@@ -70,19 +75,42 @@ function validateRunForPromotion(run = {}, items = [], workflowDate) {
   const ordered = normalizedItems(items);
   if (ordered.length === 0) reasons.push('digest_items_missing');
   if (ordered.length > 5) reasons.push('digest_items_overflow');
+  const normalizedResponse = objectValue(run.normalized_response);
+  const selections = Array.isArray(normalizedResponse.selected)
+    ? normalizedResponse.selected
+    : [];
+  if (selections.length !== ordered.length) reasons.push('normalized_selection_count_mismatch');
   const candidates = candidateMap(run);
   const seenAlerts = new Set();
   const diagnostics = [];
+  const validatedItems = [];
+  let priorityCount = 0;
+  let relatedSeen = false;
 
   ordered.forEach((item, index) => {
     const alertId = Number(item.alert_id);
     const candidate = candidates.get(alertId);
+    const selection = objectValue(selections[index]);
+    const level = String(selection.level || '');
     const expectedPosition = index + 1;
     const itemReasons = [];
     if (!Number.isSafeInteger(alertId) || alertId <= 0) itemReasons.push('invalid_alert_id');
     if (Number(item.final_position) !== expectedPosition) itemReasons.push('invalid_position');
     if (seenAlerts.has(alertId)) itemReasons.push('duplicate_alert');
     seenAlerts.add(alertId);
+    if (Number(selection.alert_id) !== alertId) itemReasons.push('normalized_alert_mismatch');
+    if (!AI2_LEVELS.includes(level)) {
+      itemReasons.push('invalid_level');
+    } else if (level === 'priority') {
+      priorityCount += 1;
+      if (relatedSeen) itemReasons.push('priority_order_invalid');
+      if (priorityCount > MAX_PRIORITY_SELECTED) itemReasons.push('priority_overflow');
+    } else {
+      relatedSeen = true;
+    }
+    if (String(selection.reason || '') !== String(item.personal_reason || '')) {
+      itemReasons.push('personal_reason_mismatch');
+    }
     if (!candidate) {
       itemReasons.push('candidate_missing');
     } else {
@@ -105,6 +133,15 @@ function validateRunForPromotion(run = {}, items = [], workflowDate) {
         itemReasons.push('action_projection_mismatch');
       if (String(item.deadline_used || '') !== String(card.deadline || ''))
         itemReasons.push('deadline_projection_mismatch');
+      try {
+        const expectedTitle = verifiedCandidateTitle(candidate);
+        if (String(item.title_used || '') !== expectedTitle)
+          itemReasons.push('title_projection_mismatch');
+        if (String(selection.title || '') !== expectedTitle)
+          itemReasons.push('normalized_title_mismatch');
+      } catch (_error) {
+        itemReasons.push('candidate_title_missing');
+      }
       if (!/^https?:\/\/\S+$/i.test(String(candidate.official_snapshot?.official_url || ''))) {
         itemReasons.push('official_url_missing');
       }
@@ -115,6 +152,7 @@ function validateRunForPromotion(run = {}, items = [], workflowDate) {
       alert_id: Number.isSafeInteger(alertId) ? alertId : null,
       reasons: [...new Set(itemReasons)],
     });
+    validatedItems.push({ ...item, level });
     reasons.push(...itemReasons.map((reason) => `item_${expectedPosition}_${reason}`));
   });
 
@@ -122,7 +160,7 @@ function validateRunForPromotion(run = {}, items = [], workflowDate) {
     allowed: reasons.length === 0,
     version: PRODUCTIVE_V2_GATE_VERSION,
     reasons: [...new Set(reasons)],
-    items: ordered,
+    items: validatedItems,
     diagnostics,
   };
 }
@@ -141,6 +179,7 @@ function buildProductAlert(item, candidate, run, gate) {
     motivo: String(item.personal_reason || '').slice(0, 240),
     riesgo: 'low',
     score: null,
+    level: item.level,
     engine: PRODUCTIVE_V2_ENGINE,
   };
   return {
@@ -156,6 +195,7 @@ function buildProductAlert(item, candidate, run, gate) {
       engine_version: PRODUCTIVE_V2_ENGINE,
       source_run_id: run.id,
       workflow_run_key: run.workflow_run_key,
+      level: item.level,
       send_gate: gate,
     },
     effective_send_gate: {
@@ -187,7 +227,7 @@ function buildProductAlerts(run, validation) {
 
 function buildDigestRow(run, message = run.digest_preview) {
   const body = String(message || '').trim();
-  const messageVersion = crearMessageVersion(body, 'shadow_v2_message_v1');
+  const messageVersion = crearMessageVersion(body, 'shadow_v2_message_v2');
   return {
     user_id: Number(run.user_id),
     fecha: run.workflow_date,
@@ -214,7 +254,7 @@ const promotionRepository = {
     const result = await supabase
       .from('shadow_v2_digest_runs')
       .select(
-        'id, workflow_run_key, workflow_date, user_id, profile_snapshot, candidate_cards, engine_version, digest_preview, status, error_code, error_message'
+        'id, workflow_run_key, workflow_date, user_id, profile_snapshot, candidate_cards, engine_version, digest_preview, normalized_response, status, error_code, error_message'
       )
       .eq('workflow_date', workflowDate)
       .eq('workflow_run_key', workflowRunKey)
@@ -379,7 +419,7 @@ async function promoteGeneratedRun({
     organizationId: baseRow.organization_id,
   });
   const approvedMessage = String(tracking?.mensaje || baseRow.mensaje).trim();
-  const messageVersion = crearMessageVersion(approvedMessage, 'shadow_v2_message_v1');
+  const messageVersion = crearMessageVersion(approvedMessage, 'shadow_v2_message_v2');
   await repo.approveDigest(supabase, existing.id, {
     mensaje: approvedMessage,
     alerta_ids: productAlerts.map((alert) => alert.id),

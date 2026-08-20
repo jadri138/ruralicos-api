@@ -1,6 +1,9 @@
 const { llamarIA, parsearJSON } = require('../../../platform/ia/llamarIA');
 const { AI2_MODEL, VERSIONS } = require('./config');
 
+const AI2_LEVELS = Object.freeze(['priority', 'related']);
+const MAX_PRIORITY_SELECTED = 2;
+
 const AI2_TEXT_FORMAT = Object.freeze({
   type: 'json_schema',
   name: 'shadow_v2_personal_digest',
@@ -12,15 +15,16 @@ const AI2_TEXT_FORMAT = Object.freeze({
     properties: {
       selected: {
         type: 'array',
+        minItems: 1,
         maxItems: 5,
         items: {
           type: 'object',
           additionalProperties: false,
-          required: ['alert_id', 'reason', 'title'],
+          required: ['alert_id', 'reason', 'level'],
           properties: {
             alert_id: { type: 'integer' },
             reason: { type: 'string' },
-            title: { type: 'string', maxLength: 120 },
+            level: { type: 'string', enum: AI2_LEVELS },
           },
         },
       },
@@ -36,14 +40,15 @@ const AI2_INSTRUCTIONS = [
   'Debe poder solicitarlas, cumplirlas, recurrirlas, participar en ellas o estar directamente afectada.',
   'Compartir provincia, una palabra o un sector rural amplio no basta si no existe un encaje personal concreto.',
   'Cada reason debe nombrar el encaje concreto con una actividad, territorio o condicion de beneficiario del perfil.',
-  'Selecciona como maximo cinco y puedes seleccionar ninguna. No inventes datos ni enumeres las descartadas.',
-  'Escribe cada title de forma breve, clara y orientada al beneficio real, sin copiar encabezados oficiales largos.',
-  'En title y message habla siempre de tu y nunca de usted; manten el mismo tono cercano en todo el digest.',
-  'No atribuyas a la persona una concesion, expediente, parcela o instalacion concreta si el perfil no demuestra que sea suya; usa un titulo neutral.',
-  'En informaciones publicas sobre concesiones ajenas no escribas tu concesion ni tus derechos; titula la accion abierta, por ejemplo presentar alegaciones.',
+  'Todas las candidatas ya han superado los bloqueos objetivos: si recibes una o mas, debes seleccionar al menos una.',
+  'Selecciona como maximo cinco, ordenadas por utilidad. No inventes datos ni enumeres las descartadas.',
+  'Asigna level=priority solo a las una o dos alertas mas utiles; las demas seleccionadas llevan level=related.',
+  'Puede no haber ninguna priority si todas son solo relacionadas, pero nunca puede haber mas de dos.',
+  'Ordena primero las priority y despues las related, manteniendo dentro de cada nivel el orden de utilidad.',
+  'No devuelvas title: el servidor usa el titulo oficial vinculado a cada alert_id.',
+  'En message habla siempre de tu y nunca de usted; manten el mismo tono cercano en todo el digest.',
   'Si varias candidatas son cursos o tramites casi iguales, elige solo la mejor y evita un digest repetitivo.',
   'No devuelvas resumen, accion, plazo ni URL: el servidor los proyecta desde la ficha verificada de IA 1.',
-  'Si selected esta vacio, message debe ser una cadena vacia.',
   'Ordena las seleccionadas por utilidad y urgencia. message debe ser un gancho comercial de una sola frase, concreto y veraz, sin saludo, despedida ni pregunta.',
 ].join('\n');
 
@@ -90,8 +95,17 @@ function stringValue(value, max, required, code) {
   return result;
 }
 
+function verifiedCandidateTitle(candidate = {}) {
+  return stringValue(
+    candidate.official_snapshot?.title,
+    120,
+    true,
+    'ai2_candidate_title_missing'
+  );
+}
+
 function normalizeAi2Result(value, {
-  candidateIds,
+  candidates = [],
   maxSelected = 5,
 } = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -100,23 +114,35 @@ function normalizeAi2Result(value, {
   if (!Array.isArray(value.selected) || typeof value.message !== 'string') {
     throw new Error('ai2_invalid_contract');
   }
+  if (value.selected.length === 0) throw new Error('ai2_empty_selection');
   if (value.selected.length > Math.min(5, maxSelected)) throw new Error('ai2_too_many_selected');
-  const allowed = new Set(candidateIds.map(Number));
+  const allowed = new Map(candidates.map((candidate) => [Number(candidate.alert_id), candidate]));
   const seen = new Set();
+  let priorityCount = 0;
+  let relatedSeen = false;
   const selected = value.selected.map((item) => {
     const alertId = Number(item?.alert_id);
-    if (!Number.isSafeInteger(alertId) || !allowed.has(alertId)) throw new Error('ai2_unknown_alert_id');
+    const candidate = allowed.get(alertId);
+    if (!Number.isSafeInteger(alertId) || !candidate) throw new Error('ai2_unknown_alert_id');
     if (seen.has(alertId)) throw new Error('ai2_duplicate_alert_id');
     seen.add(alertId);
+    const level = String(item?.level || '').trim();
+    if (!AI2_LEVELS.includes(level)) throw new Error('ai2_invalid_level');
+    if (level === 'priority') {
+      priorityCount += 1;
+      if (relatedSeen) throw new Error('ai2_priority_order_invalid');
+      if (priorityCount > MAX_PRIORITY_SELECTED) throw new Error('ai2_too_many_priority');
+    } else {
+      relatedSeen = true;
+    }
     return {
       alert_id: alertId,
       reason: stringValue(item.reason, 800, true, 'ai2_missing_reason'),
-      title: stringValue(item.title, 120, true, 'ai2_missing_title'),
+      level,
+      title: verifiedCandidateTitle(candidate),
     };
   });
-  const message = selected.length === 0
-    ? ''
-    : stringValue(value.message, 240, true, 'ai2_missing_message');
+  const message = stringValue(value.message, 240, true, 'ai2_missing_message');
   return { selected, message };
 }
 
@@ -155,11 +181,11 @@ async function decideDigestWithAi2({
     });
     raw = typeof response === 'string' ? response : response?.text;
     const normalized = normalizeAi2Result(parsearJSON(raw), {
-      candidateIds: candidates.map((candidate) => candidate.alert_id),
+      candidates,
       maxSelected,
     });
     return {
-      status: normalized.selected.length > 0 ? 'GENERATED' : 'EMPTY',
+      status: 'GENERATED',
       called: true,
       model: AI2_MODEL,
       prompt,
@@ -189,12 +215,15 @@ async function decideDigestWithAi2({
 
 module.exports = {
   AI2_MODEL,
+  AI2_LEVELS,
+  MAX_PRIORITY_SELECTED,
   AI2_TEXT_FORMAT,
   AI2_INSTRUCTIONS,
   AI2_CONTRACT_VERSION: VERSIONS.ai2Contract,
   AI2_PROMPT_VERSION: VERSIONS.ai2Prompt,
   compactCard,
   buildAi2Prompt,
+  verifiedCandidateTitle,
   normalizeAi2Result,
   decideDigestWithAi2,
 };

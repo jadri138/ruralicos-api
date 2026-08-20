@@ -15,11 +15,13 @@ const { resolveDigestEngine } = require('../src/modules/digest/digestEngine');
 const WORKFLOW_DATE = '2026-08-18';
 const WORKFLOW_RUN_KEY = '11111111-1111-5111-8111-111111111111';
 const RUN_ID = '22222222-2222-4222-8222-222222222222';
+const OFFICIAL_TITLE = 'Convocatoria de ayudas para explotaciones agrarias';
+const PERSONAL_REASON = 'Encaja con tu explotacion agricola en Aragon.';
 
 function candidate(overrides = {}) {
   const officialSnapshot = {
     alert_id: 501,
-    title: 'Convocatoria de ayudas para explotaciones agrarias',
+    title: OFFICIAL_TITLE,
     source: 'BOA',
     official_url: 'https://example.test/501',
     official_content:
@@ -57,8 +59,17 @@ function generatedRun(overrides = {}) {
     user_id: 7,
     profile_snapshot: { subscription: 'agricultor', organization_id: 4 },
     candidate_cards: [candidate()],
-    engine_version: 'shadow-v2-5',
+    engine_version: 'shadow-v2-6',
     digest_preview: 'Hola Ana\n\nUna oportunidad para ti.\n\nhttps://example.test/501',
+    normalized_response: {
+      selected: [{
+        alert_id: 501,
+        reason: PERSONAL_REASON,
+        level: 'priority',
+        title: OFFICIAL_TITLE,
+      }],
+      message: 'Una oportunidad para ti.',
+    },
     status: 'GENERATED',
     error_code: null,
     error_message: null,
@@ -74,12 +85,12 @@ function selectedItem(overrides = {}) {
     alert_id: 501,
     final_position: 1,
     classification_snapshot: card,
-    personal_reason: 'Encaja con tu explotacion agricola en Aragon.',
-    title_used: 'Ayuda para tu explotacion',
+    personal_reason: PERSONAL_REASON,
+    title_used: OFFICIAL_TITLE,
     summary_used: card.summary,
     action_used: card.action,
     deadline_used: card.deadline,
-    rendered_block: 'Ayuda para tu explotacion\nSolicita la ayuda.',
+    rendered_block: `${OFFICIAL_TITLE}\nSolicita la ayuda.`,
     ...overrides,
   };
 }
@@ -125,6 +136,7 @@ async function main() {
   const item = selectedItem();
   const validation = validateRunForPromotion(run, [item], WORKFLOW_DATE);
   assert.strictEqual(validation.allowed, true, validation.reasons.join(', '));
+  assert.strictEqual(validation.items[0].level, 'priority');
   assert.strictEqual(run.candidate_cards[0].send_gate.version, SEND_GATE_VERSION);
 
   const productAlerts = buildProductAlerts(run, validation);
@@ -133,7 +145,7 @@ async function main() {
     userId: run.user_id,
     fecha: WORKFLOW_DATE,
     alertas: productAlerts,
-    origen: 'shadow-v2-5',
+    origen: 'shadow-v2-6',
     organizationId: 4,
   });
   assert.strictEqual(productRows.length, 1);
@@ -142,7 +154,52 @@ async function main() {
     true,
     'la autoridad final de outbox debe aceptar items promovidos por V2'
   );
-  assert.strictEqual(productRows[0].tags_json.shadow_decision.engine_version, 'shadow-v2-5');
+  assert.strictEqual(productRows[0].tags_json.shadow_decision.engine_version, 'shadow-v2-6');
+  assert.strictEqual(productRows[0].selection_decision.level, 'priority');
+
+  const relatedRun = generatedRun({
+    normalized_response: {
+      selected: [{
+        alert_id: 501,
+        reason: PERSONAL_REASON,
+        level: 'related',
+        title: OFFICIAL_TITLE,
+      }],
+      message: 'Una novedad relacionada con tu actividad.',
+    },
+  });
+  const relatedValidation = validateRunForPromotion(
+    relatedRun,
+    [selectedItem()],
+    WORKFLOW_DATE
+  );
+  assert.strictEqual(relatedValidation.allowed, true, relatedValidation.reasons.join(', '));
+  assert.strictEqual(
+    buildProductAlerts(relatedRun, relatedValidation)[0].decision_digest.level,
+    'related'
+  );
+
+  const invalidLevel = validateRunForPromotion(generatedRun({
+    normalized_response: {
+      selected: [{
+        alert_id: 501,
+        reason: PERSONAL_REASON,
+        level: 'urgent',
+        title: OFFICIAL_TITLE,
+      }],
+      message: 'Una oportunidad para ti.',
+    },
+  }), [selectedItem()], WORKFLOW_DATE);
+  assert.strictEqual(invalidLevel.allowed, false);
+  assert(invalidLevel.reasons.includes('item_1_invalid_level'));
+
+  const contaminatedTitle = validateRunForPromotion(
+    generatedRun(),
+    [selectedItem({ title_used: 'Titulo procedente de otra alerta' })],
+    WORKFLOW_DATE
+  );
+  assert.strictEqual(contaminatedTitle.allowed, false);
+  assert(contaminatedTitle.reasons.includes('item_1_title_projection_mismatch'));
 
   const closedCandidate = candidate({
     official_snapshot: {
