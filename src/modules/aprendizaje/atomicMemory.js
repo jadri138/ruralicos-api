@@ -350,6 +350,7 @@ async function guardarMemoriasAtomicas(supabase, memories = []) {
         expires_at: row.expires_at || existing.expires_at,
         metadata_json: { ...(existing.metadata_json || {}), ...(row.metadata_json || {}) },
         duplicate_count: Number(existing.duplicate_count || 0) + 1,
+        incorporado_a_embedding: false,
         last_seen_at: now,
         updated_at: now,
         decision_version: row.decision_version,

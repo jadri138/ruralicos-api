@@ -133,6 +133,7 @@ assert(negativeRows[0].feedback_category === 'wrong_location', 'Clasifica feedba
 const memoryRows = construirMemoriaLegacyRows({
   user,
   digest,
+  inboundId: 72,
   alertasOrdenadas,
   texto: 'me interesa la 1',
   decision: decisionFeedback,
@@ -142,6 +143,7 @@ assert(memoryRows.length === 1, 'Construye memoria atómica para el feedback de 
 assert(memoryRows.some((row) => row.tipo === 'feedback_positivo'), 'Incluye memoria de feedback positivo');
 assert(memoryRows.every((row) => row.memory_key), 'Incluye clave idempotente en cada memoria');
 assert(memoryRows.every((row) => row.organization_id === 12), 'Propaga organization_id a memorias atómicas');
+assert(memoryRows.every((row) => row.inbound_id === 72), 'Conserva el inbound que originó el aprendizaje');
 
 const nuancedRows = construirMemoriaLegacyRows({
   user,

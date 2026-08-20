@@ -699,7 +699,15 @@ function construirRespuestaConAlertasMIA({
   organizationContext = null,
 } = {}) {
   const branding = obtenerMiaBranding(organizationContext);
-  const top = items[0] || null;
+  const minimoTerminos = terminos.length > 0
+    ? Math.min(2, Math.ceil(terminos.length * 0.5))
+    : 0;
+  const itemsConEncajeObjetivo = (items || []).filter((item) => {
+    const matchingTerms = new Set(item.matching_terms || []).size;
+    const matchingRegions = new Set(item.matching_regions || []).size;
+    return matchingTerms >= minimoTerminos || (minimoTerminos === 0 && matchingRegions > 0);
+  });
+  const top = itemsConEncajeObjetivo[0] || null;
   if (!top || Number(top.score || 0) < 4) {
     return {
       answered: false,
@@ -707,7 +715,7 @@ function construirRespuestaConAlertasMIA({
       confidence: 0.2,
       evidence_level: 'sin_evidencia',
       reply: `Lo revisa ${branding.agent_label} y te contestamos cuando haya una respuesta clara.`,
-      matches: items.slice(0, 3),
+      matches: [],
     };
   }
 
@@ -715,7 +723,7 @@ function construirRespuestaConAlertasMIA({
   const preguntaSensible = ['pago', 'fecha_resolucion', 'plazo'].includes(tipoPregunta);
   const tieneFechas = (top.fechas_detectadas || []).length > 0 || Boolean(top.fecha);
   const needsAgent = preguntaSensible || evidenceLevel === 'baja';
-  const matches = items.slice(0, 3);
+  const matches = itemsConEncajeObjetivo.slice(0, 3);
   const lineas = [];
 
   if (preguntaSensible) {

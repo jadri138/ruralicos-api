@@ -3,6 +3,7 @@ const {
   esRespuestaCortaDeFeedbackMIA,
   esRespuestaOrigenCaptacionMIA,
   esMensajeTrivialMIA,
+  interpretarValoracionGlobalDigestMIA,
   limpiarRespuestaMIA,
 } = require('../src/modules/mia/decisionCore');
 
@@ -22,6 +23,12 @@ function assert(condition, message) {
 console.log('\n=== TESTS: mia decision core ===\n');
 
 assert(esMensajeTrivialMIA('gracias') === true, 'Detecta mensajes triviales');
+assert(esMensajeTrivialMIA('ok gracias') === true, 'Detecta cortesias compuestas como triviales');
+assert(esMensajeTrivialMIA('Muy bien, gracias') === true, 'No aprende de una cortesia natural');
+assert(interpretarValoracionGlobalDigestMIA('Flojas') === -1, 'Interpreta una valoracion global negativa del digest');
+assert(interpretarValoracionGlobalDigestMIA('Muy bien, gracias') === 1, 'Interpreta una valoracion global positiva del digest');
+assert(interpretarValoracionGlobalDigestMIA('ok gracias') === null, 'No confunde una cortesia neutra con feedback');
+assert(interpretarValoracionGlobalDigestMIA('Buenas') === null, 'No confunde un saludo con feedback positivo');
 assert(esMensajeTrivialMIA('Quiero recibir avisos sobre PAC') === false, 'No marca preferencias reales como triviales');
 assert(esRespuestaCortaDeFeedbackMIA('1') === true, 'Detecta voto corto numerico');
 assert(esRespuestaCortaDeFeedbackMIA('+1') === true, 'Detecta voto corto positivo');
@@ -70,6 +77,62 @@ const decisionPreferencias = construirDecisionDesdeInterpretacion({
 assert(decisionPreferencias.intent === 'actualizar_preferencias', 'Clasifica preferencias futuras separadas del feedback');
 assert(decisionPreferencias.feedback_actions.length === 0, 'Preferencias futuras no crean acciones de feedback');
 assert(decisionPreferencias.memory_actions.length === 2, 'Preferencias futuras crean acciones de memoria');
+
+const decisionPreguntaContaminada = construirDecisionDesdeInterpretacion({
+  texto: 'Que ayudas incluye la solicitud unica PAC 2026?',
+  digest: null,
+  alertasDelDigest: [],
+  interpretacion: {
+    feedbacks: [],
+    memoria: [{ tipo: 'interes_detectado', contenido: 'Le interesa la gestion del agua', peso_inicial: 0.8 }],
+    requiere_respuesta: true,
+    respuesta: 'Lo reviso.',
+    intencion: 'conversacion',
+    resumen_para_log: 'Preferencia detectada por IA',
+  },
+});
+assert(decisionPreguntaContaminada.intent === 'pregunta_usuario', 'Una pregunta prevalece sobre una preferencia inferida');
+assert(decisionPreguntaContaminada.memory_actions.length === 0, 'Descarta memoria no demostrada en una pregunta');
+assert(
+  decisionPreguntaContaminada.risk_flags.includes('memory_actions_dropped_unverified'),
+  'Audita el descarte de memoria no demostrada'
+);
+
+const decisionComentarioContaminado = construirDecisionDesdeInterpretacion({
+  texto: 'Flojas',
+  digest: null,
+  alertasDelDigest: [],
+  interpretacion: {
+    feedbacks: [],
+    memoria: [{ tipo: 'interes_detectado', contenido: 'Le interesa la gestion del agua', peso_inicial: 0.8 }],
+    requiere_respuesta: false,
+    respuesta: '',
+    intencion: 'conversacion',
+    resumen_para_log: 'Preferencia detectada por IA',
+  },
+});
+assert(decisionComentarioContaminado.intent !== 'actualizar_preferencias', 'Un comentario ambiguo no actualiza preferencias');
+assert(decisionComentarioContaminado.memory_actions.length === 0, 'Un comentario ambiguo no guarda memoria tematica');
+
+const decisionPreferenciaCondicional = construirDecisionDesdeInterpretacion({
+  texto: 'Formacion solo me interesa del Gobierno de Aragon o del Ministerio de Agricultura',
+  digest: null,
+  alertasDelDigest: [],
+  interpretacion: {
+    feedbacks: [],
+    memoria: [{
+      tipo: 'interes_detectado',
+      contenido: 'Solo quiere formacion del Gobierno de Aragon o del Ministerio de Agricultura',
+      peso_inicial: 0.9,
+    }],
+    requiere_respuesta: false,
+    respuesta: '',
+    intencion: 'conversacion',
+    resumen_para_log: 'Preferencia de fuentes de formacion',
+  },
+});
+assert(decisionPreferenciaCondicional.intent === 'actualizar_preferencias', 'Conserva una preferencia condicional explicita');
+assert(decisionPreferenciaCondicional.memory_actions.length === 1, 'Guarda el matiz declarado por el usuario');
 
 const decisionSinDigest = construirDecisionDesdeInterpretacion({
   texto: 'me interesa la 1',

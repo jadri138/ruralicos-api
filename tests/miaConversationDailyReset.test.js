@@ -10,6 +10,8 @@ const {
   fechaMadridConversacionMIA,
   getExpiracionFinDiaMadridISO,
   extraerItemsReferenciadosInequivocamente,
+  cargarContextoRecienteMIA,
+  construirConsultaContextualMIA,
 } = __testing;
 
 let passed = 0;
@@ -144,6 +146,22 @@ assert(
   'No confunde una fecha con el numero de una alerta'
 );
 
+const consultaSeguimiento = construirConsultaContextualMIA('Extremadura', [{
+  id: 5,
+  texto: 'Sabes cuando pagan la ayuda para fertilizantes?',
+  intent: 'pregunta_usuario',
+}]);
+assert(
+  consultaSeguimiento.usada && /fertilizantes[\s\S]*Extremadura/i.test(consultaSeguimiento.texto),
+  'Une una aclaracion corta con la pregunta reciente'
+);
+assert(
+  construirConsultaContextualMIA('Quiero recibir alertas sobre PAC', [{
+    texto: 'Sabes cuando pagan?', intent: 'pregunta_usuario',
+  }]).usada === false,
+  'No arrastra contexto a una preferencia nueva'
+);
+
 (async () => {
   const supabaseConversaciones = crearSupabaseMock({
     user_conversations: [
@@ -186,6 +204,22 @@ assert(
       call.patch.estado === 'expirada'
     ),
     'Expira conversaciones activas de dias anteriores'
+  );
+
+  const contexto = await cargarContextoRecienteMIA(crearSupabaseMock({
+    mia_inbound_messages: [{
+      id: 50,
+      user_id: 141,
+      sender_kind: 'user',
+      status: 'processed',
+      text_body: 'Sabes cuando pagan la ayuda para fertilizantes?',
+      decision_json: { intent: 'pregunta_usuario' },
+      created_at: '2026-06-05T08:45:00.000Z',
+    }],
+  }), 141, { now: '2026-06-05T09:00:00.000Z' });
+  assert(
+    contexto.length === 1 && contexto[0].intent === 'pregunta_usuario',
+    'Carga contexto reciente del mismo usuario'
   );
 
   const supabaseDigest = crearSupabaseMock({
@@ -259,6 +293,30 @@ assert(
   assert(
     desdeConversacionFallida.digest === null && desdeConversacionFallida.alertasOrdenadas.length === 0,
     'No aprende feedback de un digest que fallo antes de entregarse'
+  );
+
+  const supabaseAceptado = crearSupabaseMock({
+    digests: [{
+      id: 23,
+      user_id: 141,
+      fecha: '2026-06-05',
+      alerta_ids: [103],
+      delivery_status: 'PROVIDER_ACCEPTED',
+      organization_id: null,
+    }],
+    digest_items: [{ digest_id: 23, item_numero: 1, alerta_id: 103 }],
+    alertas: [{ id: 103, titulo: 'Ayuda aceptada por proveedor', organization_id: null }],
+  });
+  const desdeAceptado = await cargarDigestYAlertas(
+    supabaseAceptado,
+    141,
+    null,
+    null,
+    { fechaHoy: '2026-06-05', mensajeUsuario: 'La primera me interesa' }
+  );
+  assert(
+    desdeAceptado.digest?.id === 23 && desdeAceptado.alertasOrdenadas.length === 1,
+    'Un inbound puede usar como contexto el digest aceptado por el proveedor'
   );
 
   const supabaseTardio = crearSupabaseMock({

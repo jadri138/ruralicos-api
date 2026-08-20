@@ -2,6 +2,7 @@ const {
   limpiarRespuestaMIA,
   limpiarTerminosInternosMIA,
   formatearRespuestaWhatsAppMIA,
+  hacerReferenciasVisiblesMIA,
   evaluarRespuestaMIA,
   contienePatronProhibido,
 } = require('../src/modules/mia/replyGuard');
@@ -50,9 +51,17 @@ const whatsapp = formatearRespuestaWhatsAppMIA('No hay novedades en el digest.',
   senderName: 'Ruralicos',
   supportLabel: 'un agente de Ruralicos',
 });
-assert(whatsapp.text.startsWith('*Ruralicos*'), 'Anade cabecera de marca en negrita');
-assert(whatsapp.text.includes('_Respuesta autom'), 'Anade descargo en cursiva');
+assert(whatsapp.text.startsWith('*Ruralicos · MIA*'), 'Identifica de forma breve a MIA y Ruralicos');
+assert(!whatsapp.text.includes('_Respuesta autom'), 'No repite un descargo generico en cada respuesta');
 assert(!/\bdigest\b/i.test(whatsapp.text), 'No deja digest en la respuesta final');
+
+const referenciasVisibles = hacerReferenciasVisiblesMIA('He encontrado una referencia [E1].', [{
+  ref: 'E1',
+  titulo: 'Ayuda agraria',
+  url: 'https://example.com/ayuda',
+}]);
+assert(!referenciasVisibles.text.includes('[E1]'), 'No muestra etiquetas internas de evidencia');
+assert(referenciasVisibles.text.includes('Fuente oficial: https://example.com/ayuda'), 'Muestra la fuente oficial al usuario');
 
 const audit = evaluarRespuestaMIA('MIA ha encontrado referencias relacionadas.', {
   decision: {
@@ -82,11 +91,16 @@ const outbox = construirOutboxDesdeDecision({
       texto: 'Hola Jose Luis Gomez Lorente\nMIA ha encontrado una referencia [E1].',
     },
     policy: { outcome: 'auto_answer', requires_agent: false },
-    knowledge_context: { answered: true },
+    knowledge_context: {
+      answered: true,
+      grounded_evidences: [{ ref: 'E1', titulo: 'Ayuda agraria', url: 'https://example.com/ayuda' }],
+    },
   },
 });
-assert(outbox.body.startsWith('*Ruralicos*'), 'Outbox aplica cabecera final antes de enviar');
-assert(outbox.body.includes('_Respuesta autom'), 'Outbox aplica descargo antes de enviar');
+assert(outbox.body.startsWith('*Ruralicos · MIA*'), 'Outbox aplica cabecera breve antes de enviar');
+assert(!outbox.body.includes('_Respuesta autom'), 'Outbox no anade texto generico repetitivo');
+assert(!outbox.body.includes('[E1]'), 'Outbox elimina referencias internas');
+assert(outbox.body.includes('Fuente oficial: https://example.com/ayuda'), 'Outbox conserva una fuente verificable');
 assert(outbox.body.includes('He encontrado'), 'Outbox conserva el cuerpo limpio de respuesta');
 assert(!outbox.body.includes('MIA ha encontrado'), 'Outbox evita autorreferencias poco naturales');
 assert(outbox.metadata_json.reply_guard.flags.includes('removed_personal_greeting'), 'Outbox guarda flags del guard');

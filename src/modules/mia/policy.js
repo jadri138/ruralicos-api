@@ -1,4 +1,4 @@
-const POLICY_VERSION = 'mia_policy_v1';
+const POLICY_VERSION = 'mia_policy_v2';
 const { obtenerMiaBranding } = require('./organizationContext');
 
 const FEEDBACK_CLARIFICATION_REPLY = 'No he podido asociar tu respuesta a una alerta concreta. Puedes responder con el numero de la alerta, por ejemplo 1, 2 o ninguna.';
@@ -399,7 +399,7 @@ function evaluarPoliticaDecisionMIA({
         reasons: ['question_too_vague'],
         requiresAgent: false,
         shouldReply: true,
-        shouldStoreMemory: true,
+        shouldStoreMemory: hasMemory,
         shouldFeedback: false,
         confidence: Math.min(Number(decision.confidence || 0.5), 0.55),
       });
@@ -418,7 +418,7 @@ function evaluarPoliticaDecisionMIA({
       reasons: [partial ? 'knowledge_requires_review' : 'answer_requires_agent'],
       requiresAgent: true,
       shouldReply: true,
-      shouldStoreMemory: true,
+      shouldStoreMemory: hasMemory,
       shouldFeedback: false,
       priority: knowledge.evidence_level === 'baja' ? 'media' : 'normal',
       confidence: decision.confidence,
@@ -445,7 +445,7 @@ function evaluarPoliticaDecisionMIA({
         reasons: [feedbackShort ? 'short_feedback_without_digest_context' : 'unknown_question'],
         requiresAgent: false,
         shouldReply: true,
-        shouldStoreMemory: hasMemory || questionish,
+        shouldStoreMemory: hasMemory,
         shouldFeedback: false,
         confidence: Math.min(Number(decision.confidence || 0.5), 0.55),
       });

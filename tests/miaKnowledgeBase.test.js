@@ -105,6 +105,21 @@ assert(respuestaSimple.answered === true, 'Construye respuesta con evidencias in
 assert(respuestaSimple.needs_agent === false, 'No escala una respuesta simple con buena evidencia');
 assert(respuestaSimple.reply.includes('Ayudas para maquinaria'), 'Incluye alerta relevante en la respuesta');
 
+const respuestaIrrelevante = construirRespuestaConAlertasMIA({
+  texto: 'Hay ayudas para comprar fertilizante en Extremadura?',
+  terminos: ['ayudas', 'comprar', 'fertilizante'],
+  regiones: ['extremadura'],
+  items: [{
+    ...alerta,
+    titulo: 'Precios publicos de residencia y comedor',
+    score: 12,
+    matching_terms: ['ayudas'],
+    matching_regions: [],
+  }],
+});
+assert(respuestaIrrelevante.answered === false, 'No responde con una coincidencia semantica sin encaje objetivo suficiente');
+assert(respuestaIrrelevante.matches.length === 0, 'No expone como evidencia una referencia descartada');
+
 const respuestaConMarca = construirRespuestaConAlertasMIA({
   texto: 'Hay ayudas para tractores?',
   terminos: ['tractores', 'maquinaria'],

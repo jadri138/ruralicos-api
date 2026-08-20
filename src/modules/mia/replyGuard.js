@@ -63,6 +63,31 @@ function limpiarTerminosInternosMIA(texto) {
   };
 }
 
+function hacerReferenciasVisiblesMIA(texto, evidencias = []) {
+  const byRef = new Map((Array.isArray(evidencias) ? evidencias : []).map((item) => [
+    String(item?.ref || '').toUpperCase(),
+    item,
+  ]));
+  const usadas = [];
+  const text = String(texto || '').replace(/\[(E\d+)\]/gi, (_match, rawRef) => {
+    const ref = String(rawRef || '').toUpperCase();
+    const evidencia = byRef.get(ref);
+    if (evidencia && !usadas.some((item) => item.ref === ref)) usadas.push({ ref, ...evidencia });
+    return '';
+  }).replace(/[ \t]+([.,;:])/g, '$1').replace(/ {2,}/g, ' ').trim();
+
+  if (usadas.length === 0) return { text, changed: text !== String(texto || '').trim() };
+  const fuentes = usadas.map((item) => (
+    item.url
+      ? `Fuente oficial: ${item.url}`
+      : `Referencia: ${limpiarMarkdownLinea(item.titulo || item.ref, 180)}`
+  ));
+  return {
+    text: [text, ...fuentes].filter(Boolean).join('\n'),
+    changed: true,
+  };
+}
+
 function limpiarMarkdownLinea(texto, max = 100) {
   return String(texto || '')
     .replace(/[*_`~\r\n]+/g, ' ')
@@ -75,20 +100,17 @@ function formatearRespuestaWhatsAppMIA(texto, {
   maxChars = 4000,
   assistantName = 'MIA',
   senderName = 'Ruralicos',
-  supportLabel = null,
 } = {}) {
   const flags = [];
   const assistant = limpiarMarkdownLinea(assistantName, 40) || 'MIA';
   const sender = limpiarMarkdownLinea(senderName, 80) || 'Ruralicos';
-  const support = limpiarMarkdownLinea(supportLabel || `un agente de ${sender}`, 120) || `un agente de ${sender}`;
   const original = String(texto || '').trim();
   if (!original) return { text: '', flags: ['empty_reply'], changed: false };
 
   const internal = limpiarTerminosInternosMIA(original);
   if (internal.changed) flags.push(...internal.flags);
 
-  const header = `*${sender}*`;
-  const disclaimer = `_Respuesta autom\u00e1tica con la informaci\u00f3n disponible. Si hace falta confirmarlo, lo revisar\u00e1 ${support}._`;
+  const header = `*${sender} · ${assistant}*`;
   const escapedAssistant = assistant.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const escapedSender = sender.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const alreadyWrapped = new RegExp(`^\\*\\s*(?:${escapedSender}|${escapedAssistant}\\s+de\\s+${escapedSender})\\b`, 'i').test(internal.text);
@@ -97,13 +119,13 @@ function formatearRespuestaWhatsAppMIA(texto, {
   if (alreadyWrapped) {
     flags.push('already_wrapped');
   } else {
-    const reserved = header.length + disclaimer.length + 4;
+    const reserved = header.length + 2;
     const limit = Math.max(200, Number(maxChars || 4000) - reserved);
     if (body.length > limit) {
       flags.push('truncated_reply');
       body = body.slice(0, limit).trim();
     }
-    body = `${header}\n${disclaimer}\n\n${body}`.trim();
+    body = `${header}\n\n${body}`.trim();
   }
 
   if (body.length > maxChars) {
@@ -224,6 +246,7 @@ module.exports = {
   limpiarRespuestaMIA,
   limpiarTerminosInternosMIA,
   formatearRespuestaWhatsAppMIA,
+  hacerReferenciasVisiblesMIA,
   evaluarRespuestaMIA,
   contienePatronProhibido,
 };

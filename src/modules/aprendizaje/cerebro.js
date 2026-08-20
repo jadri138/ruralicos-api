@@ -92,9 +92,19 @@ function esMensajePreferenciaFutura(mensajeUsuario) {
 
   const pideRecibir =
     /\b(me gustaria|quisiera|quiero|me interesaria|podriais|podeis|mandadme|enviadme|avisadme|avisame|avisenme)\b[^.!?]{0,80}\b(recibir|avisos?|avisarais|avisarme|avisarnos|alertas?|notificaciones?|mensajes?|informacion)\b/.test(texto) ||
-    /\b(recibir|mandadme|enviadme|avisadme|avisame|avisenme|avisarais|avisarme|avisarnos)\b[^.!?]{0,80}\b(avisos?|alertas?|notificaciones?|informacion)\b/.test(texto);
+    /\b(recibir|mandadme|enviadme|avisadme|avisame|avisenme|avisarais|avisarme|avisarnos)\b[^.!?]{0,80}\b(avisos?|alertas?|notificaciones?|informacion)\b/.test(texto) ||
+    /\b(?:me\s+)?puedes\s+avisar\b/.test(texto);
+  const exclusion = /\b(no me interesa|no quiero|no me envies|no me mandeis|dejad de|evitar)\b/.test(texto);
+  const condicion = /\b(solo|solamente|unicamente)\s+(?:me\s+)?interesa\b|\bme interesa\s+(?:solo|solamente|unicamente)\b/.test(texto);
 
-  return pideRecibir && /\b(sobre|de|del|para)\b/.test(texto);
+  return (pideRecibir && /\b(sobre|de|del|para)\b/.test(texto)) || exclusion || condicion;
+}
+
+function parecePreguntaUsuario(mensajeUsuario) {
+  const texto = normalizarTextoCerebro(mensajeUsuario);
+  if (!texto) return false;
+  return /[?¿]/.test(String(mensajeUsuario || '')) ||
+    /\b(cuando|donde|como|que|cual|cuanto|por que|sabes|sabeis|puedes|podrias|me puedes|hay|existe|sale|pagan|ingresan|plazo|resolucion)\b/.test(texto);
 }
 
 function tieneReferenciaDirectaADigest(mensajeUsuario) {
@@ -110,7 +120,30 @@ function tieneReferenciaDirectaADigest(mensajeUsuario) {
 
 function reforzarInterpretacionConReglasLocales(interpretacion, mensajeUsuario, alertasDelDigest = []) {
   const totalItems = Array.isArray(alertasDelDigest) ? alertasDelDigest.length : 0;
-  if (totalItems <= 0) return interpretacion;
+  const preferenciaFutura = esMensajePreferenciaFutura(mensajeUsuario);
+  if (parecePreguntaUsuario(mensajeUsuario) && !preferenciaFutura) {
+    return normalizarInterpretacion({
+      ...interpretacion,
+      feedbacks: [],
+      memoria: [],
+      intencion: 'pregunta',
+      resumen_para_log: `${interpretacion.resumen_para_log || ''} Pregunta protegida: no se infieren preferencias.`.trim(),
+    });
+  }
+
+  if (totalItems <= 0) {
+    return normalizarInterpretacion({
+      ...interpretacion,
+      feedbacks: [],
+      memoria: preferenciaFutura ? interpretacion.memoria : [],
+      intencion: preferenciaFutura && (interpretacion.memoria || []).length > 0
+        ? 'conversacion'
+        : interpretacion.intencion,
+      resumen_para_log: preferenciaFutura
+        ? interpretacion.resumen_para_log
+        : `${interpretacion.resumen_para_log || ''} Sin digest ni preferencia explicita: memoria descartada.`.trim(),
+    });
+  }
 
   if (esComentarioTramiteOEspera(mensajeUsuario)) {
     const texto = normalizarTextoCerebro(mensajeUsuario);
@@ -174,7 +207,7 @@ function reforzarInterpretacionConReglasLocales(interpretacion, mensajeUsuario, 
     ? ' Reglas locales reforzaron desintereses suaves.'
     : '';
 
-  if (esMensajePreferenciaFutura(mensajeUsuario) && !tieneReferenciaDirectaADigest(mensajeUsuario)) {
+  if (preferenciaFutura && !tieneReferenciaDirectaADigest(mensajeUsuario)) {
     return normalizarInterpretacion({
       ...interpretacion,
       feedbacks: [],
@@ -232,7 +265,17 @@ async function interpretacionFallback({ mensajeUsuario, alertasDelDigest }) {
   });
 }
 
-async function interpretarMensaje({ mensajeUsuario, usuario, conversacionActiva, alertasDelDigest }) {
+function formatearContextoReciente(contextoReciente = []) {
+  const mensajes = (Array.isArray(contextoReciente) ? contextoReciente : [])
+    .map((item) => String(item?.texto || item?.text_body || item || '').replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .slice(-3);
+  return mensajes.length > 0
+    ? mensajes.map((texto, index) => `${index + 1}. ${texto}`).join('\n')
+    : 'No hay mensajes recientes relacionados.';
+}
+
+async function interpretarMensaje({ mensajeUsuario, usuario, conversacionActiva, alertasDelDigest, contextoReciente = [] }) {
   const contextoUsuario = usuario?.contexto_narrativo || usuario?.preferencias_extra || 'Usuario nuevo sin historial.';
   const prompt = `
 Eres el cerebro de Ruralicos, una plataforma espanola de alertas agricolas personalizadas.
@@ -248,6 +291,9 @@ ${conversacionActiva
     ? `Tipo: ${conversacionActiva.tipo || 'desconocido'}\nContexto: ${JSON.stringify(conversacionActiva.contexto_json || {})}`
     : 'No hay conversacion activa.'}
 
+MENSAJES RECIENTES DEL MISMO USUARIO
+${formatearContextoReciente(contextoReciente)}
+
 ALERTAS DEL DIGEST
 ${formatearAlertas(alertasDelDigest)}
 
@@ -256,25 +302,12 @@ MENSAJE DEL USUARIO
 
 Devuelve exactamente JSON valido:
 {
-  "feedbacks": [
-    {
-      "item_numero": 1,
-      "valor": 1,
-      "confianza": "alta",
-      "razon": "dice explicitamente que le interesa"
-    }
-  ],
-  "memoria": [
-    {
-      "tipo": "interes_detectado",
-      "contenido": "Le interesa la gestion del agua",
-      "peso_inicial": 0.8
-    }
-  ],
+  "feedbacks": [],
+  "memoria": [],
   "requiere_respuesta": false,
   "respuesta": "",
-  "intencion": "feedback",
-  "resumen_para_log": "Feedback positivo item 1"
+  "intencion": "otro",
+  "resumen_para_log": "Mensaje sin acciones"
 }
 
 Reglas:
@@ -282,6 +315,8 @@ Reglas:
 - En una respuesta con "si, pero...", guarda por separado lo que le interesa y lo que no. No conviertas una excepcion concreta en rechazo de todo el tema.
 - Cuando la conversacion activa sea pregunta_exploracion, trata la respuesta como memoria de preferencias. No crees feedback del digest salvo que valore explicitamente un item numerado o una alerta concreta.
 - Si no expresa una preferencia clara, no inventes memoria. Puede responder con sus propias palabras y no tiene obligacion de decidir en ese momento.
+- Una pregunta no es una preferencia. Si pide informacion, usa intencion "pregunta" y no guardes memoria; el mensaje ya queda registrado para auditoria.
+- No copies contenido de ejemplos ni del perfil como memoria nueva. Toda memoria debe estar demostrada literalmente por el mensaje actual o por una respuesta a pregunta_exploracion.
 - feedbacks solo sobre items del digest.
 - valor: 1 interesa, -1 no interesa, 0 neutro.
 - confianza: alta, media o baja.
@@ -365,6 +400,7 @@ module.exports = {
   __testing: {
     reforzarInterpretacionConReglasLocales,
     esMensajePreferenciaFutura,
+    parecePreguntaUsuario,
     tieneReferenciaDirectaADigest,
   },
 };

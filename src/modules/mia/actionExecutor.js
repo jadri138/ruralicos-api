@@ -88,6 +88,7 @@ function construirMemoriaLegacyRows({
   alertasOrdenadas = [],
   texto,
   decision = {},
+  inboundId = null,
   organizationId = null,
 }) {
   const alertasPorItem = new Map(
@@ -107,6 +108,7 @@ function construirMemoriaLegacyRows({
         userId: user.id,
         alerta,
         digestId: digest?.id || null,
+        inboundId,
         organizationId: orgId,
         decisionVersion: decision.version || null,
         confidence: decision.confidence ?? 1,
@@ -130,6 +132,7 @@ function construirMemoriaLegacyRows({
         : alerta.titulo || feedback.razon || `Feedback item ${feedback.item_numero}`,
       alertaId: esQuejaDeFrecuencia ? null : alerta.id,
       digestId: digest?.id || null,
+      inboundId,
       organizationId: orgId,
       scopeType: esQuejaDeFrecuencia ? 'frequency' : 'alert',
       scopeValue: esQuejaDeFrecuencia ? 'volumen' : String(alerta.id),
@@ -162,6 +165,7 @@ function construirMemoriaLegacyRows({
         tipo: 'pregunta_usuario',
         contenido,
         digestId: digest?.id || null,
+        inboundId,
         organizationId: orgId,
         scopeType: 'topic',
         scopeValue: 'pregunta_usuario',
@@ -183,12 +187,21 @@ async function ejecutarAccionesMIA(supabase, {
   alertasOrdenadas = [],
   texto,
   decision = {},
+  inboundId = null,
   organizationId = null,
   aplicarFeedbackAlPerfil,
 }) {
   const orgId = organizationId || user?.organization_id || digest?.organization_id || null;
   const feedbackRows = construirFeedbackRows({ user, digest, alertasOrdenadas, texto, decision, organizationId: orgId });
-  const memoryRows = construirMemoriaLegacyRows({ user, digest, alertasOrdenadas, texto, decision, organizationId: orgId });
+  const memoryRows = construirMemoriaLegacyRows({
+    user,
+    digest,
+    alertasOrdenadas,
+    texto,
+    decision,
+    inboundId,
+    organizationId: orgId,
+  });
   const requestedButSimilar = esYaSolicitadaPeroSimilares(texto);
 
   if (feedbackRows.length > 0) {

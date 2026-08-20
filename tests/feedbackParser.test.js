@@ -169,5 +169,54 @@ assert(
   'Refuerzo local anula feedback erroneo de espera de respuesta'
 );
 
+const preguntaContaminada = cerebroTesting.reforzarInterpretacionConReglasLocales(
+  {
+    feedbacks: [],
+    memoria: [{ tipo: 'interes_detectado', contenido: 'Le interesa la gestion del agua', peso_inicial: 0.8 }],
+    requiere_respuesta: true,
+    respuesta: 'Lo reviso.',
+    intencion: 'conversacion',
+    resumen_para_log: 'Preferencia inferida',
+  },
+  'Que ayudas incluye la solicitud unica PAC 2026?',
+  []
+);
+assert(
+  preguntaContaminada.intencion === 'pregunta' && preguntaContaminada.memoria.length === 0,
+  'Las reglas locales eliminan memoria contaminada de una pregunta sin digest'
+);
+
+const ambiguaSinDigest = cerebroTesting.reforzarInterpretacionConReglasLocales(
+  {
+    feedbacks: [],
+    memoria: [{ tipo: 'interes_detectado', contenido: 'Le interesa la gestion del agua', peso_inicial: 0.8 }],
+    requiere_respuesta: false,
+    respuesta: '',
+    intencion: 'conversacion',
+    resumen_para_log: 'Preferencia inferida',
+  },
+  'Flojas',
+  []
+);
+assert(ambiguaSinDigest.memoria.length === 0, 'Sin digest ni preferencia explicita no aprende memoria');
+
+const preferenciaCondicional = cerebroTesting.reforzarInterpretacionConReglasLocales(
+  {
+    feedbacks: [],
+    memoria: [{
+      tipo: 'interes_detectado',
+      contenido: 'Solo quiere formacion del Gobierno de Aragon o del Ministerio de Agricultura',
+      peso_inicial: 0.9,
+    }],
+    requiere_respuesta: false,
+    respuesta: '',
+    intencion: 'conversacion',
+    resumen_para_log: 'Preferencia explicita',
+  },
+  'Formacion solo me interesa del Gobierno de Aragon o del Ministerio de Agricultura',
+  []
+);
+assert(preferenciaCondicional.memoria.length === 1, 'Conserva una preferencia condicional explicita sin digest');
+
 console.log(`\nResultados: ${passed} aprobados, ${failed} fallidos`);
 process.exit(failed > 0 ? 1 : 0);

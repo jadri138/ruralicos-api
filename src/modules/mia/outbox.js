@@ -6,6 +6,7 @@ const {
   limpiarRespuestaMIA,
   evaluarRespuestaMIA,
   formatearRespuestaWhatsAppMIA,
+  hacerReferenciasVisiblesMIA,
 } = require('./replyGuard');
 const { conOrganizationId, obtenerMiaBranding } = require('./organizationContext');
 const {
@@ -220,7 +221,11 @@ function construirOutboxDesdeDecision({
     supportLabel: branding.support_label,
   });
   if (!guarded.text) return null;
-  const formatted = formatearRespuestaWhatsAppMIA(guarded.text, {
+  const visibleReferences = hacerReferenciasVisiblesMIA(
+    guarded.text,
+    decision.knowledge_context?.grounded_evidences || []
+  );
+  const formatted = formatearRespuestaWhatsAppMIA(visibleReferences.text, {
     maxChars: 4000,
     assistantName: branding.assistant_name,
     senderName: branding.reply_sender,
@@ -233,7 +238,7 @@ function construirOutboxDesdeDecision({
     supportLabel: branding.support_label,
   });
 
-  const messageVersion = crearMessageVersion(formatted.text, 'mia_reply_v1');
+  const messageVersion = crearMessageVersion(formatted.text, 'mia_reply_v2');
   const identitySource = decisionId || inboundId || null;
   const idempotencyKey = crearIdempotencyKey({
     source: decisionId ? 'mia_decision' : inboundId ? 'mia_inbound' : 'mia_reply',
@@ -264,8 +269,13 @@ function construirOutboxDesdeDecision({
       organization_context: decision.organization_context || null,
       message_version: messageVersion,
       reply_guard: {
-        flags: [...new Set([...(guarded.flags || []), ...(formatted.flags || []), ...(evaluation.flags || [])])],
-        changed: guarded.changed || formatted.changed,
+        flags: [...new Set([
+          ...(guarded.flags || []),
+          ...(visibleReferences.changed ? ['rendered_evidence_references'] : []),
+          ...(formatted.flags || []),
+          ...(evaluation.flags || []),
+        ])],
+        changed: guarded.changed || visibleReferences.changed || formatted.changed,
       },
     },
   }, organizationId);

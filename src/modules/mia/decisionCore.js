@@ -4,7 +4,7 @@ const {
   analizarRespuestaExploracion,
 } = require('./exploration');
 
-const DECISION_VERSION = 'mia_decision_v1';
+const DECISION_VERSION = 'mia_decision_v2';
 
 const INTENTS = new Set([
   'feedback_digest',
@@ -52,7 +52,49 @@ function esMensajeTrivialMIA(texto) {
   if (!limpio) return true;
   if (esRespuestaCortaDeFeedbackMIA(limpio)) return false;
   if (limpio.length < 4) return true;
-  return /^(hola|buen[ao]s(?: dias| tardes| noches)?|ok|vale|gracias|muchas gracias|si|no|perfecto|recibido)[\s.!?]*$/.test(limpio);
+  const trivial = limpio.replace(/[,;:]+/g, ' ').replace(/\s+/g, ' ').trim();
+  return /^(hola|buen[ao]s(?: dias| tardes| noches)?|ok|vale|gracias|muchas gracias|si|no|perfecto|recibido|ok gracias|vale gracias|perfecto gracias|muy bien(?: gracias)?|de acuerdo(?: gracias)?)[\s.!?]*$/.test(trivial);
+}
+
+function parecePreguntaMIA(texto) {
+  const limpio = normalizarTexto(texto);
+  if (!limpio) return false;
+  return /[?¿]/.test(String(texto || '')) ||
+    /\b(cuando|donde|como|que|cual|cuanto|por que|sabes|sabeis|puedes|podrias|me puedes|hay|existe|sale|pagan|ingresan|plazo|resolucion)\b/.test(limpio);
+}
+
+function parecePreferenciaExplicitaMIA(texto) {
+  const limpio = normalizarTexto(texto);
+  if (!limpio) return false;
+  const futura = (
+    /\b(me gustaria|quisiera|quiero|me interesaria|mandadme|enviadme|avisadme|avisame|avisenme|recibir)\b[^.!?]{0,100}\b(avisos?|alertas?|notificaciones?|mensajes?|informacion)\b/.test(limpio) ||
+    /\b(avisos?|alertas?|notificaciones?|mensajes?|informacion)\b[^.!?]{0,100}\b(sobre|de|del|para)\b/.test(limpio)
+  );
+  const exclusion = /\b(no me interesa|no quiero|no me envies|no me mandeis|dejad de|evitar)\b/.test(limpio);
+  const condicion = /\b(solo|solamente|unicamente)\s+(?:me\s+)?interesa\b|\bme interesa\s+(?:solo|solamente|unicamente)\b/.test(limpio);
+  return futura || exclusion || condicion;
+}
+
+function interpretarValoracionGlobalDigestMIA(texto) {
+  const limpio = normalizarTexto(texto)
+    .replace(/[,;:]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (/^(muy bien(?: gracias)?|interesantes?|utiles?|genial)$/.test(limpio)) return 1;
+  if (/^(flojas?|mal|poco utiles?|no me sirven|ninguna me sirve)$/.test(limpio)) return -1;
+  return null;
+}
+
+function memoriaDemostradaPorMensaje(memory = {}, texto = '') {
+  const tipo = String(memory.tipo || '');
+  const limpio = normalizarTexto(texto);
+  if (['interes_detectado', 'desinteres_detectado', 'evento_estacional'].includes(tipo)) {
+    return parecePreferenciaExplicitaMIA(limpio);
+  }
+  if (tipo === 'dato_explotacion') {
+    return /\b(soy|tengo|gestiono|cultivo|crio|mi explotacion|mis parcelas?|mi finca)\b/.test(limpio);
+  }
+  return !['pregunta_usuario', 'mensaje_libre'].includes(tipo);
 }
 
 function esRespuestaCortaDeFeedbackMIA(texto) {
@@ -213,7 +255,14 @@ function inferirIntent({ texto, interpretacion = {}, digest, alertasDelDigest = 
     return 'feedback_digest';
   }
 
-  if (memorias.some((m) => ['interes_detectado', 'desinteres_detectado', 'dato_explotacion', 'evento_estacional'].includes(m.tipo))) {
+  if (parecePreguntaMIA(texto) && !parecePreferenciaExplicitaMIA(texto)) {
+    return 'pregunta_usuario';
+  }
+
+  if (
+    parecePreferenciaExplicitaMIA(texto) &&
+    memorias.some((m) => ['interes_detectado', 'desinteres_detectado', 'dato_explotacion', 'evento_estacional'].includes(m.tipo))
+  ) {
     return 'actualizar_preferencias';
   }
 
@@ -286,6 +335,13 @@ function construirDecisionDesdeInterpretacion({
   const intent = inferirIntent({ texto, interpretacion, digest, alertasDelDigest });
   const confidence = extraerConfianzaInterpretacion(interpretacion);
   const riskFlags = construirRiskFlags({ intent, interpretacion, digest, alertasDelDigest });
+  const puedeAprenderDelDigest = intent === 'feedback_digest';
+  const memoriasVerificadas = (interpretacion.memoria || []).filter((memoria) => (
+    puedeAprenderDelDigest || memoriaDemostradaPorMensaje(memoria, texto)
+  ));
+  if (memoriasVerificadas.length < (interpretacion.memoria || []).length) {
+    riskFlags.push('memory_actions_dropped_unverified');
+  }
 
   const decision = normalizarDecision({
     intent,
@@ -296,7 +352,7 @@ function construirDecisionDesdeInterpretacion({
       confianza: feedback.confianza || 'media',
       razon: feedback.razon || '',
     })),
-    memory_actions: (interpretacion.memoria || []).map((memoria) => ({
+    memory_actions: memoriasVerificadas.map((memoria) => ({
       tipo: memoria.tipo,
       contenido: memoria.contenido,
       peso_inicial: memoria.peso_inicial || 0.5,
@@ -312,7 +368,7 @@ function construirDecisionDesdeInterpretacion({
   return aplicarContratoAcciones(decision, { digest, alertasDelDigest });
 }
 
-async function decidirMensajeMIA({ mensajeUsuario, usuario, conversacionActiva, digest, alertasDelDigest }) {
+async function decidirMensajeMIA({ mensajeUsuario, usuario, conversacionActiva, digest, alertasDelDigest, contextoReciente = [] }) {
   const controlExploracion = analizarControlExploracion(mensajeUsuario, conversacionActiva);
   if (controlExploracion) {
     const memoria = {
@@ -362,6 +418,36 @@ async function decidirMensajeMIA({ mensajeUsuario, usuario, conversacionActiva, 
     }), { digest, alertasDelDigest });
   }
 
+  const valoracionGlobal = digest && (alertasDelDigest || []).length > 0
+    ? interpretarValoracionGlobalDigestMIA(mensajeUsuario)
+    : null;
+  if (valoracionGlobal !== null) {
+    const feedbackActions = alertasDelDigest.map((_alerta, index) => ({
+      item_numero: index + 1,
+      valor: valoracionGlobal,
+      confianza: 'media',
+      razon: valoracionGlobal > 0
+        ? 'Valoracion positiva global del resumen de alertas'
+        : 'Valoracion negativa global del resumen de alertas',
+    }));
+    return aplicarContratoAcciones(normalizarDecision({
+      intent: 'feedback_digest',
+      confidence: 0.85,
+      feedback_actions: feedbackActions,
+      memory_actions: [],
+      reply_action: null,
+      summary: `Valoracion global ${valoracionGlobal > 0 ? 'positiva' : 'negativa'} del digest.`,
+      legacy_interpretacion: {
+        feedbacks: feedbackActions,
+        memoria: [],
+        requiere_respuesta: false,
+        respuesta: '',
+        intencion: 'feedback',
+        resumen_para_log: 'Valoracion global interpretada localmente',
+      },
+    }), { digest, alertasDelDigest });
+  }
+
   if (esRespuestaOrigenCaptacionMIA(mensajeUsuario)) {
     return normalizarDecision({
       intent: 'mensaje_libre',
@@ -399,6 +485,7 @@ async function decidirMensajeMIA({ mensajeUsuario, usuario, conversacionActiva, 
     usuario,
     conversacionActiva,
     alertasDelDigest,
+    contextoReciente,
   });
 
   return construirDecisionDesdeInterpretacion({
@@ -420,4 +507,7 @@ module.exports = {
   esMensajeTrivialMIA,
   esRespuestaCortaDeFeedbackMIA,
   esRespuestaOrigenCaptacionMIA,
+  parecePreguntaMIA,
+  parecePreferenciaExplicitaMIA,
+  interpretarValoracionGlobalDigestMIA,
 };

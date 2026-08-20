@@ -60,6 +60,8 @@ const {
   buscarConversacionActiva,
   cargarDigestYAlertas,
   cargarUltimoDigestEntregadoReciente,
+  cargarContextoRecienteMIA,
+  construirConsultaContextualMIA,
   extraerItemsReferenciadosInequivocamente,
   buscarUsuarioPorTelefonoEntrante,
 } = require('./feedback.service');
@@ -351,7 +353,10 @@ function feedbackRoutes(app, supabase) {
 
       const perfilOperativoMIA = await cargarPerfilOperativoMIA(supabase, user.id, { user: userConOrganization });
       const usuarioMIA = aplicarPerfilOperativoAUsuario(userConOrganization, perfilOperativoMIA);
-      const conversacionActiva = await buscarConversacionActiva(supabase, user.id);
+      const [conversacionActiva, contextoReciente] = await Promise.all([
+        buscarConversacionActiva(supabase, user.id),
+        cargarContextoRecienteMIA(supabase, user.id),
+      ]);
       const { digest, alertasOrdenadas, lateAssociation } = await cargarDigestYAlertas(
         supabase,
         user.id,
@@ -366,16 +371,26 @@ function feedbackRoutes(app, supabase) {
         conversacionActiva,
         digest,
         alertasDelDigest: alertasOrdenadas,
+        contextoReciente,
       });
       decisionMIA = {
         ...decisionMIA,
         organization_context: organizationContext,
       };
 
+      const consultaContextual = construirConsultaContextualMIA(texto, contextoReciente);
+      if (consultaContextual.usada && decisionMIA.intent === 'unknown') {
+        decisionMIA = {
+          ...decisionMIA,
+          intent: 'pregunta_usuario',
+          risk_flags: [...new Set([...(decisionMIA.risk_flags || []), 'recent_context_used'])],
+        };
+      }
+
       if (['pregunta_usuario', 'unknown'].includes(decisionMIA.intent)) {
         try {
           const respuestaConocimiento = await resolverPreguntaConBaseConocimientoMIA(supabase, {
-            texto,
+            texto: consultaContextual.usada ? consultaContextual.texto : texto,
             limit: 5,
             organizationId,
             organizationContext,
@@ -402,7 +417,7 @@ function feedbackRoutes(app, supabase) {
           ...decisionMIA,
           organization_context: organizationContext,
         },
-        texto,
+        texto: consultaContextual.usada ? consultaContextual.texto : texto,
         usuario: usuarioMIA,
         perfilOperativo: perfilOperativoMIA,
         conversacionActiva,
@@ -425,6 +440,7 @@ function feedbackRoutes(app, supabase) {
         alertasOrdenadas,
         texto,
         decision: decisionMIA,
+        inboundId: inboundMIA?.id || null,
         organizationId,
         aplicarFeedbackAlPerfil,
       });
@@ -639,5 +655,7 @@ module.exports.__testing = {
   fechaMadridConversacionMIA,
   getExpiracionFinDiaMadridISO,
   cargarUltimoDigestEntregadoReciente,
+  cargarContextoRecienteMIA,
+  construirConsultaContextualMIA,
   extraerItemsReferenciadosInequivocamente,
 };

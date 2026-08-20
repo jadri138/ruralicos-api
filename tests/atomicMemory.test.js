@@ -206,6 +206,11 @@ async function main() {
   assert.strictEqual(secondSave.merged, 1);
   assert.strictEqual(supabase.rows.length, 1, 'Un replay no duplica la memoria');
   assert.strictEqual(supabase.rows[0].duplicate_count, 1);
+  assert.strictEqual(
+    supabase.rows[0].incorporado_a_embedding,
+    false,
+    'Una memoria fusionada vuelve a quedar pendiente de recalcular'
+  );
 
   const inboundMemory = construirMemoriaAtomica({
     userId: 10,

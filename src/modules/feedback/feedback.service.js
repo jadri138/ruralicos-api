@@ -9,6 +9,9 @@ const crypto = require('crypto');
 const { getFechaMadridISO, getRangoDiaMadridUTC } = require('../../shared/fechaMadrid');
 const { normalizePhone } = require('../../shared/phoneNormalizer');
 
+const DIGEST_STATUSES_USABLE_WITH_INBOUND = ['PROVIDER_ACCEPTED', 'DELIVERED', 'READ'];
+const DEFAULT_RECENT_CONTEXT_MINUTES = 45;
+
 
 
 
@@ -105,7 +108,9 @@ async function cargarUltimoDigestEntregadoReciente(supabase, userId, options = {
     .from('digests')
     .select('id, user_id, fecha, alerta_ids, organization_id, enviado_at, delivered_at, read_at, delivery_status, created_at')
     .eq('user_id', userId)
-    .in('delivery_status', ['DELIVERED', 'READ'])
+    // El inbound del propio usuario permite usar un digest aceptado como
+    // contexto, sin cambiar ni fingir su estado real de entrega.
+    .in('delivery_status', DIGEST_STATUSES_USABLE_WITH_INBOUND)
     .gte('fecha', fechaDesde)
     .lte('fecha', fechaHoy)
     .order('delivered_at', { ascending: false, nullsFirst: false })
@@ -240,7 +245,7 @@ async function cargarDigestYAlertas(supabase, userId, conversacionActiva, organi
       .select('id, user_id, fecha, alerta_ids, organization_id, delivered_at, read_at, delivery_status')
       .eq('id', digestId)
       .eq('user_id', userId)
-      .in('delivery_status', ['DELIVERED', 'READ'])
+      .in('delivery_status', DIGEST_STATUSES_USABLE_WITH_INBOUND)
       .maybeSingle();
     if (error) throw error;
     digest = data || null;
@@ -252,7 +257,7 @@ async function cargarDigestYAlertas(supabase, userId, conversacionActiva, organi
       .select('id, user_id, fecha, alerta_ids, organization_id, enviado_at, delivered_at, read_at, delivery_status, created_at')
       .eq('user_id', userId)
       .eq('fecha', fechaHoy)
-      .in('delivery_status', ['DELIVERED', 'READ'])
+      .in('delivery_status', DIGEST_STATUSES_USABLE_WITH_INBOUND)
       .order('delivered_at', { ascending: false, nullsFirst: false })
       .order('created_at', { ascending: false })
       .limit(1)
@@ -321,6 +326,66 @@ async function cargarDigestYAlertas(supabase, userId, conversacionActiva, organi
   };
 }
 
+function esSeguimientoConversacionalCorto(texto) {
+  const limpio = String(texto || '').replace(/\s+/g, ' ').trim();
+  if (!limpio || limpio.length > 180) return false;
+  return limpio.split(/\s+/).filter(Boolean).length <= 16;
+}
+
+function construirConsultaContextualMIA(texto, mensajesRecientes = []) {
+  const actual = String(texto || '').replace(/\s+/g, ' ').trim();
+  if (!esSeguimientoConversacionalCorto(actual)) return { texto: actual, usada: false };
+  const normalizado = normalizarReferenciaDigest(actual);
+  if (/\b(quiero|me gustaria|quisiera|avisadme|avisame|recibir|no me interesa|solo me interesa)\b/.test(normalizado)) {
+    return { texto: actual, usada: false };
+  }
+
+  const anteriores = (Array.isArray(mensajesRecientes) ? mensajesRecientes : [])
+    .filter((item) => item && String(item.texto || item.text_body || '').trim())
+    .filter((item) => ['pregunta_usuario', 'unknown'].includes(
+      String(item.intent || item.decision_json?.intent || '')
+    ));
+  const anterior = anteriores.at(-1);
+  if (!anterior) return { texto: actual, usada: false };
+
+  const pregunta = String(anterior.texto || anterior.text_body || '').replace(/\s+/g, ' ').trim();
+  if (!pregunta) return { texto: actual, usada: false };
+  return {
+    texto: `${pregunta}\nAclaracion del usuario: ${actual}`.slice(0, 1200),
+    usada: true,
+    inbound_id: anterior.id || null,
+  };
+}
+
+async function cargarContextoRecienteMIA(supabase, userId, options = {}) {
+  const now = options.now instanceof Date ? options.now : new Date(options.now || Date.now());
+  if (Number.isNaN(now.getTime())) return [];
+  const minutes = Math.max(5, Math.min(180, Number(options.windowMinutes || DEFAULT_RECENT_CONTEXT_MINUTES)));
+  const cutoff = new Date(now.getTime() - minutes * 60 * 1000).toISOString();
+
+  try {
+    const { data, error } = await supabase
+      .from('mia_inbound_messages')
+      .select('id, text_body, decision_json, created_at')
+      .eq('user_id', userId)
+      .eq('sender_kind', 'user')
+      .eq('status', 'processed')
+      .gte('created_at', cutoff)
+      .order('created_at', { ascending: false })
+      .limit(3);
+    if (error) throw error;
+    return (data || []).slice().reverse().map((item) => ({
+      id: item.id,
+      texto: String(item.text_body || '').trim(),
+      intent: item.decision_json?.intent || null,
+      created_at: item.created_at || null,
+    })).filter((item) => item.texto);
+  } catch (error) {
+    console.warn('[mia:conversation] No se pudo cargar contexto reciente:', error.message);
+    return [];
+  }
+}
+
 function candidatosTelefonoUsuario(telefono) {
   const normalizado = normalizePhone(telefono);
   const candidatos = new Set();
@@ -365,6 +430,9 @@ module.exports = {
   buscarConversacionActiva,
   cargarDigestYAlertas,
   cargarUltimoDigestEntregadoReciente,
+  cargarContextoRecienteMIA,
+  construirConsultaContextualMIA,
+  esSeguimientoConversacionalCorto,
   extraerItemsReferenciadosInequivocamente,
   candidatosTelefonoUsuario,
   buscarUsuarioPorTelefonoEntrante,
