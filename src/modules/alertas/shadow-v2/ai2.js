@@ -47,6 +47,8 @@ const AI2_INSTRUCTIONS = [
   'Ordena primero las priority y despues las related, manteniendo dentro de cada nivel el orden de utilidad.',
   'No devuelvas title: el servidor usa el titulo oficial vinculado a cada alert_id.',
   'En message habla siempre de tu y nunca de usted; manten el mismo tono cercano en todo el digest.',
+  'No atribuyas al usuario concesiones, expedientes, parcelas, instalaciones ni otras circunstancias que su perfil no demuestre.',
+  'message solo puede referirse a alertas incluidas en selected, nunca a candidatas descartadas.',
   'Si varias candidatas son cursos o tramites casi iguales, elige solo la mejor y evita un digest repetitivo.',
   'No devuelvas resumen, accion, plazo ni URL: el servidor los proyecta desde la ficha verificada de IA 1.',
   'Ordena las seleccionadas por utilidad y urgencia. message debe ser un gancho comercial de una sola frase, concreto y veraz, sin saludo, despedida ni pregunta.',
@@ -118,8 +120,6 @@ function normalizeAi2Result(value, {
   if (value.selected.length > Math.min(5, maxSelected)) throw new Error('ai2_too_many_selected');
   const allowed = new Map(candidates.map((candidate) => [Number(candidate.alert_id), candidate]));
   const seen = new Set();
-  let priorityCount = 0;
-  let relatedSeen = false;
   const selected = value.selected.map((item) => {
     const alertId = Number(item?.alert_id);
     const candidate = allowed.get(alertId);
@@ -128,13 +128,6 @@ function normalizeAi2Result(value, {
     seen.add(alertId);
     const level = String(item?.level || '').trim();
     if (!AI2_LEVELS.includes(level)) throw new Error('ai2_invalid_level');
-    if (level === 'priority') {
-      priorityCount += 1;
-      if (relatedSeen) throw new Error('ai2_priority_order_invalid');
-      if (priorityCount > MAX_PRIORITY_SELECTED) throw new Error('ai2_too_many_priority');
-    } else {
-      relatedSeen = true;
-    }
     return {
       alert_id: alertId,
       reason: stringValue(item.reason, 800, true, 'ai2_missing_reason'),
@@ -142,8 +135,20 @@ function normalizeAi2Result(value, {
       title: verifiedCandidateTitle(candidate),
     };
   });
+  let priorityCount = 0;
+  const normalizedLevels = selected.map((item) => {
+    if (item.level !== 'priority') return item;
+    priorityCount += 1;
+    return priorityCount <= MAX_PRIORITY_SELECTED
+      ? item
+      : { ...item, level: 'related' };
+  });
+  const orderedSelection = [
+    ...normalizedLevels.filter((item) => item.level === 'priority'),
+    ...normalizedLevels.filter((item) => item.level === 'related'),
+  ];
   const message = stringValue(value.message, 240, true, 'ai2_missing_message');
-  return { selected, message };
+  return { selected: orderedSelection, message };
 }
 
 async function decideDigestWithAi2({

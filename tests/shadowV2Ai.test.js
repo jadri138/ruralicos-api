@@ -45,8 +45,8 @@ async function main() {
     AI1_TEXT_FORMAT.schema.properties.deadline.anyOf[0].format,
     'date'
   );
-  assert.strictEqual(AI2_CONTRACT_VERSION, 'shadow-v2-ai2-5');
-  assert.strictEqual(AI2_PROMPT_VERSION, 'shadow-v2-ai2-prompt-9');
+  assert.strictEqual(AI2_CONTRACT_VERSION, 'shadow-v2-ai2-6');
+  assert.strictEqual(AI2_PROMPT_VERSION, 'shadow-v2-ai2-prompt-10');
   assert(AI2_INSTRUCTIONS.includes('encaje personal concreto'));
   assert(AI2_INSTRUCTIONS.includes('gancho comercial de una sola frase'));
   assert(AI2_INSTRUCTIONS.includes('habla siempre de tu y nunca de usted'));
@@ -55,6 +55,8 @@ async function main() {
   assert(AI2_INSTRUCTIONS.includes('debes seleccionar al menos una'));
   assert(AI2_INSTRUCTIONS.includes('nunca puede haber mas de dos'));
   assert(AI2_INSTRUCTIONS.includes('el servidor usa el titulo oficial'));
+  assert(AI2_INSTRUCTIONS.includes('que su perfil no demuestre'));
+  assert(AI2_INSTRUCTIONS.includes('nunca a candidatas descartadas'));
   assert.strictEqual(AI2_TEXT_FORMAT.schema.properties.selected.minItems, 1);
   assert.deepStrictEqual(
     AI2_TEXT_FORMAT.schema.properties.selected.items.required,
@@ -293,7 +295,7 @@ async function main() {
     maxSelected: 5,
   }), /ai2_too_many_selected/);
 
-  assert.throws(() => normalizeAi2Result({
+  const normalizedPriorityOverflow = normalizeAi2Result({
     selected: [1, 2, 3].map((alertId) => ({
       alert_id: alertId,
       reason: 'Encaje verificado.',
@@ -306,7 +308,32 @@ async function main() {
       official_snapshot: { title: `Alerta ${alertId}` },
     })),
     maxSelected: 5,
-  }), /ai2_too_many_priority/);
+  });
+  assert.deepStrictEqual(
+    normalizedPriorityOverflow.selected.map((item) => item.level),
+    ['priority', 'priority', 'related'],
+    'la tercera priority se degrada sin perder el digest'
+  );
+
+  const normalizedPriorityOrder = normalizeAi2Result({
+    selected: [
+      { alert_id: 1, reason: 'Encaje uno.', level: 'related' },
+      { alert_id: 2, reason: 'Encaje dos.', level: 'priority' },
+      { alert_id: 3, reason: 'Encaje tres.', level: 'related' },
+    ],
+    message: 'Tres novedades.',
+  }, {
+    candidates: [1, 2, 3].map((alertId) => ({
+      alert_id: alertId,
+      official_snapshot: { title: `Alerta ${alertId}` },
+    })),
+    maxSelected: 5,
+  });
+  assert.deepStrictEqual(
+    normalizedPriorityOrder.selected.map((item) => item.alert_id),
+    [2, 1, 3],
+    'las priority se colocan primero conservando el orden dentro de cada nivel'
+  );
 
   let invalidAi2Calls = 0;
   const invalidAi2 = await decideDigestWithAi2({
