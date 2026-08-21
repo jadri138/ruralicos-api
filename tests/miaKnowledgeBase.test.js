@@ -53,6 +53,24 @@ assert(
   ultimosSieteDias.desde === '2026-08-15' && ultimosSieteDias.hasta === '2026-08-21',
   'Calcula un rango inclusivo para los ultimos dias'
 );
+const anterioresAlDigest = extraerFiltroTemporalConsultaMIA(
+  'cuando salio la PAC?\nAclaracion del usuario: pero de otro dia. Buscar alertas anteriores a 2026-08-21.',
+  { now }
+);
+assert(
+  anterioresAlDigest.desde === null && anterioresAlDigest.hasta === '2026-08-20',
+  'Limita otro dia a las alertas anteriores al digest actual'
+);
+const ultimosMeses = extraerFiltroTemporalConsultaMIA('Que ayudas estan abiertas en los ultimos meses?', { now });
+assert(
+  ultimosMeses.desde === '2026-05-21' && ultimosMeses.hasta === '2026-08-21',
+  'Interpreta ultimos meses como una ventana sencilla de tres meses'
+);
+const terminosAyudas = extraerTerminosConsultaMIA('Que ayudas estan abiertas ahora mismo en los ultimos meses?');
+assert(
+  terminosAyudas.includes('ayudas') && !terminosAyudas.includes('estan') && !terminosAyudas.includes('abiertas'),
+  'Busca por ayudas y descarta palabras operativas sin valor tematico'
+);
 assert(extraerFuentesConsultaMIA('Ha salido en el BOA o el BOPZ?').join(',') === 'BOA,BOPZ', 'Detecta fuentes oficiales concretas');
 assert(
   extraerFuentesConsultaMIA('Que salio en el BOJA?\nAclaracion del usuario: Y en el BOA?').join(',') === 'BOA',
@@ -68,6 +86,14 @@ assert(extraerTerminosConsultaMIA('Que ha salido en el BOJA hoy?').length === 0,
 assert(esPreguntaDeFecha('Cuando sale la resolucion en Andalucia') === true, 'Detecta preguntas de fecha/resolucion');
 assert(esPreguntaDeFecha('Hay ayudas para tractores?') === false, 'No marca como fecha una pregunta general');
 assert(detectarTipoPreguntaMIA('Cuando llegan los pagos de las borrascas') === 'pago', 'Detecta preguntas de pago');
+assert(
+  detectarTipoPreguntaMIA('Cuando salio la PAC?') === 'fecha_publicacion',
+  'Distingue una fecha oficial ya publicada de una prediccion futura'
+);
+assert(
+  detectarTipoPreguntaMIA('Que ayudas estan abiertas ahora mismo?') === 'plazo',
+  'Trata la vigencia de ayudas como una consulta sensible de plazo'
+);
 assert(extraerFechasTexto('El plazo termina el 15 de junio de 2026 y el 2026-07-01').length === 2, 'Extrae fechas en formatos comunes');
 
 const alerta = {

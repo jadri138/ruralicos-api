@@ -6,6 +6,7 @@ const {
   decidirMensajeMIA,
   interpretarValoracionGlobalDigestMIA,
   esReferenciaAlDigestMIA,
+  debeBuscarFueraDelDigestMIA,
 } = require('../src/modules/mia/decisionCore');
 const { evaluarPoliticaDecisionMIA } = require('../src/modules/mia/policy');
 
@@ -142,6 +143,48 @@ async function main() {
   assert.strictEqual(focoRepregunta.contextoReciente[0].alerta_ids[0], 901);
   assert.deepStrictEqual(repreguntaLLM.knowledge_context.matches.map((item) => item.id), [901]);
   assert(repreguntaLLM.reply_action.texto.includes('35 plazas'));
+
+  const contextoCurso = [{
+    direccion: 'ruralicos',
+    texto: 'Es un curso online para obtener el certificado de bienestar animal.',
+    alerta_ids: [901],
+  }];
+  assert.strictEqual(
+    debeBuscarFueraDelDigestMIA({
+      texto: 'cuando salio la PAC?',
+      contextoReciente: contextoCurso,
+      alertas: alertasDobles,
+    }),
+    true,
+    'Una pregunta sobre otro tema sale del contexto del curso y busca en alertas'
+  );
+  assert.strictEqual(
+    debeBuscarFueraDelDigestMIA({
+      texto: 'pero de otro dia?',
+      contextoReciente: contextoCurso,
+      alertas: alertasDobles,
+    }),
+    true,
+    'Una peticion de otro dia sale del digest actual'
+  );
+  assert.strictEqual(
+    debeBuscarFueraDelDigestMIA({
+      texto: 'quitando esta alerta, que ayudas hay abiertas?',
+      contextoReciente: contextoCurso,
+      alertas: alertasDobles,
+    }),
+    true,
+    'Una exclusion explicita de la alerta activa fuerza la busqueda global'
+  );
+  assert.strictEqual(
+    debeBuscarFueraDelDigestMIA({
+      texto: 'cuando salio este curso?',
+      contextoReciente: contextoCurso,
+      alertas: alertasDobles,
+    }),
+    false,
+    'Una referencia explicita al curso conserva la respuesta exacta del digest'
+  );
 
   const referenciaAmbigua = await decidirMensajeMIA({
     mensajeUsuario: 'el curso de hoy',

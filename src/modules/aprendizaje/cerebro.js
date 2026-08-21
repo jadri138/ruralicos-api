@@ -102,7 +102,8 @@ function esMensajePreferenciaFutura(mensajeUsuario) {
   const pideRecibir =
     /\b(me gustaria|quisiera|quiero|me interesaria|podriais|podeis|mandadme|enviadme|avisadme|avisame|avisenme)\b[^.!?]{0,80}\b(recibir|avisos?|avisarais|avisarme|avisarnos|alertas?|notificaciones?|mensajes?|informacion)\b/.test(texto) ||
     /\b(recibir|mandadme|enviadme|avisadme|avisame|avisenme|avisarais|avisarme|avisarnos)\b[^.!?]{0,80}\b(avisos?|alertas?|notificaciones?|informacion)\b/.test(texto) ||
-    /\b(?:me\s+)?puedes\s+avisar\b/.test(texto);
+    /\b(?:me\s+)?puedes\s+avisar\b/.test(texto) ||
+    /\b(me gusta|prefiero|valoro)\s+que\s+me\s+(?:informes?|avises?|mandes?|envies?)\b/.test(texto);
   const exclusion = /\b(no me interesa|no quiero|no me envies|no me mandeis|dejad de|evitar)\b/.test(texto);
   const condicion = /\b(solo|solamente|unicamente)\s+(?:me\s+)?interesa\b|\bme interesa\s+(?:solo|solamente|unicamente)\b/.test(texto);
 

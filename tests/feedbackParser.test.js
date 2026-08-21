@@ -149,6 +149,26 @@ assert(
   'Una preferencia futura no vota negativamente el digest activo'
 );
 
+const futuraNatural = cerebroTesting.reforzarInterpretacionConReglasLocales(
+  {
+    feedbacks: [{ item_numero: 1, valor: 1, confianza: 'alta', razon: 'Interpretado como voto' }],
+    memoria: [],
+    requiere_respuesta: false,
+    respuesta: '',
+    intencion: 'feedback',
+    resumen_para_log: 'Feedback sobre el curso',
+  },
+  'Me gusta que me informes sobre cursos ganaderos',
+  [{ titulo: 'Curso de bienestar animal', sectores: ['ganaderia'], tipos_alerta: ['cursos_formacion'] }]
+);
+assert(
+  cerebroTesting.esMensajePreferenciaFutura('Me gusta que me informes sobre cursos ganaderos') &&
+    futuraNatural.feedbacks.length === 0 &&
+    futuraNatural.memoria.some((m) => m.tipo === 'interes_detectado' && /formacion/i.test(m.contenido)) &&
+    futuraNatural.memoria.some((m) => m.tipo === 'interes_detectado' && /ganaderia/i.test(m.contenido)),
+  'Aprende cursos ganaderos como preferencia futura sin votar la alerta actual'
+);
+
 const tramite1 = cerebroTesting.reforzarInterpretacionConReglasLocales(
   {
     feedbacks: [{ item_numero: 1, valor: -1, confianza: 'media', razon: 'La IA lo interpreto como rechazo del item' }],

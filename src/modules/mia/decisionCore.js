@@ -69,7 +69,8 @@ function parecePreferenciaExplicitaMIA(texto) {
   if (!limpio) return false;
   const futura = (
     /\b(me gustaria|quisiera|quiero|me interesaria|mandadme|enviadme|avisadme|avisame|avisenme|recibir)\b[^.!?]{0,100}\b(avisos?|alertas?|notificaciones?|mensajes?|informacion)\b/.test(limpio) ||
-    /\b(avisos?|alertas?|notificaciones?|mensajes?|informacion)\b[^.!?]{0,100}\b(sobre|de|del|para)\b/.test(limpio)
+    /\b(avisos?|alertas?|notificaciones?|mensajes?|informacion)\b[^.!?]{0,100}\b(sobre|de|del|para)\b/.test(limpio) ||
+    /\b(me gusta|prefiero|valoro)\s+que\s+me\s+(?:informes?|avises?|mandes?|envies?)\b/.test(limpio)
   );
   const exclusion = /\b(no me interesa|no quiero|no me envies|no me mandeis|dejad de|evitar)\b/.test(limpio);
   const condicion = /\b(solo|solamente|unicamente)\s+(?:me\s+)?interesa\b|\bme interesa\s+(?:solo|solamente|unicamente)\b/.test(limpio);
@@ -289,6 +290,44 @@ function buscarAlertaFocoConversacionMIA(contextoReciente = [], alertas = []) {
   return null;
 }
 
+function debeBuscarFueraDelDigestMIA({ texto, contextoReciente = [], alertas = [] } = {}) {
+  const limpio = normalizarTexto(texto).replace(/\s+/g, ' ').trim();
+  if (!limpio || pareceFeedbackSobreDigestMIA(limpio)) return false;
+
+  if (/\b(quitando|sin contar|aparte de|ademas de)\b[^.!?]{0,60}\b(esta|esa|la)\s+(alerta|ayuda|publicacion|curso)\b/.test(limpio)) {
+    return true;
+  }
+
+  const cambiaPeriodo = (
+    /\b(?:de\s+)?otros?\s+dias?\b/.test(limpio) ||
+    /\bultim(?:o|os|a|as)\s+(?:\d{1,2}\s+)?(?:dias?|semanas?|meses?)\b/.test(limpio) ||
+    /\b(?:dias?|semanas?|meses?)\s+anteriores\b|\bhistorico\b/.test(limpio)
+  );
+  if (cambiaPeriodo) return true;
+
+  const referenciaFocoExplicita = (
+    /\b(esta|esa)\s+(alerta|ayuda|publicacion)\b/.test(limpio) ||
+    /\b(este|ese)\s+(curso|anuncio|aviso|mensaje)\b/.test(limpio) ||
+    /\b(alerta|curso|anuncio|aviso|mensaje)\s+(?:de hoy|que me (?:has )?(?:mandado|enviado))\b/.test(limpio)
+  );
+  if (referenciaFocoExplicita) return false;
+
+  const consultaGlobalExplicita = (
+    /\b(ha salido algo|han salido|que ha salido|que ayudas? (?:hay|estan)|hay (?:alguna|otras?) ayudas?|novedades|buscar? en (?:las )?alertas)\b/.test(limpio) ||
+    /\b(ayudas?|subvenciones?)\b[^.!?]{0,60}\b(abiertas?|disponibles?|vigentes?|puedo pedir|pueda pedir)\b/.test(limpio)
+  );
+  if (consultaGlobalExplicita) return true;
+
+  const consultaHistorica = /\b(cuando salio|cuando se publico|salio|salieron|publicado|publicaron)\b/.test(limpio);
+  if (!consultaHistorica) return false;
+
+  const alertaFoco = buscarAlertaFocoConversacionMIA(contextoReciente, alertas);
+  if (!alertaFoco) return true;
+  const temasConsulta = tokenizarReferenciaDigest(limpio);
+  if (temasConsulta.length === 0) return false;
+  return !buscarAlertaReferenciadaDigestMIA(limpio, [alertaFoco]);
+}
+
 function esSeguimientoAlertaFocalMIA(texto, alertaFoco) {
   if (!alertaFoco || pareceFeedbackSobreDigestMIA(texto)) return false;
   if (parecePreguntaMIA(texto)) return true;
@@ -307,6 +346,8 @@ async function resolverConsultaDesdeDigestMIA({
 }) {
   const alertasDigest = Array.isArray(alertas) ? alertas : [];
   if (!digest || alertasDigest.length === 0 || pareceFeedbackSobreDigestMIA(texto)) return null;
+
+  if (debeBuscarFueraDelDigestMIA({ texto, contextoReciente, alertas: alertasDigest })) return null;
 
   const explicacion = esSolicitudExplicacionDigestMIA(texto);
   const referencia = esReferenciaAlDigestMIA(texto, contextoReciente);
@@ -846,5 +887,6 @@ module.exports = {
   construirRespuestaListadoDigestMIA,
   buscarAlertaReferenciadaDigestMIA,
   esReferenciaAlDigestMIA,
+  debeBuscarFueraDelDigestMIA,
   resolverConsultaDesdeDigestMIA,
 };

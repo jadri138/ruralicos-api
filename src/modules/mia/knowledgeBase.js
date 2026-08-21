@@ -81,6 +81,27 @@ const STOPWORDS = new Set([
   'ultimas',
   'semana',
   'mes',
+  'meses',
+  'ahora',
+  'mismo',
+  'abierta',
+  'abiertas',
+  'abierto',
+  'abiertos',
+  'disponible',
+  'disponibles',
+  'vigente',
+  'vigentes',
+  'puedo',
+  'pueda',
+  'pedir',
+  'refiero',
+  'estan',
+  'pero',
+  'anterior',
+  'anteriores',
+  'aclaracion',
+  'usuario',
   'enero',
   'febrero',
   'marzo',
@@ -97,6 +118,10 @@ const STOPWORDS = new Set([
 
 const TERMINOS_TEMA = new Set([
   'pac',
+  'ayuda',
+  'ayudas',
+  'subvencion',
+  'subvenciones',
   'tractor',
   'tractores',
   'maquinaria',
@@ -140,6 +165,10 @@ const VARIANTES_QUERY = {
   tractor: ['tractor', 'tractores'],
   tractores: ['tractores', 'tractor'],
   maquinaria: ['maquinaria', 'tractor', 'tractores'],
+  ayuda: ['ayuda', 'ayudas', 'subvencion', 'subvenci\u00f3n', 'subvenciones'],
+  ayudas: ['ayuda', 'ayudas', 'subvencion', 'subvenci\u00f3n', 'subvenciones'],
+  subvencion: ['subvencion', 'subvenci\u00f3n', 'subvenciones', 'ayuda', 'ayudas'],
+  subvenciones: ['subvencion', 'subvenci\u00f3n', 'subvenciones', 'ayuda', 'ayudas'],
   borrasca: ['borrasca', 'borrascas', 'dana'],
   borrascas: ['borrascas', 'borrasca', 'dana'],
   pac: ['pac'],
@@ -283,6 +312,23 @@ function sumarDiasFechaISO(fechaISO, dias) {
   return date.toISOString().slice(0, 10);
 }
 
+function sumarMesesFechaISO(fechaISO, meses) {
+  const [year, month, day] = String(fechaISO || '').split('-').map(Number);
+  const base = crearFechaISO(year, month, day);
+  if (!base) return null;
+  const primerDiaDestino = new Date(Date.UTC(year, month - 1 + Number(meses || 0), 1));
+  const ultimoDiaDestino = new Date(Date.UTC(
+    primerDiaDestino.getUTCFullYear(),
+    primerDiaDestino.getUTCMonth() + 1,
+    0
+  )).getUTCDate();
+  return crearFechaISO(
+    primerDiaDestino.getUTCFullYear(),
+    primerDiaDestino.getUTCMonth() + 1,
+    Math.min(day, ultimoDiaDestino)
+  );
+}
+
 function extraerAclaracionContextualMIA(texto) {
   const normalizado = normalizarTexto(texto).replace(/\s+/g, ' ').trim();
   const marker = 'aclaracion del usuario:';
@@ -297,7 +343,7 @@ function extraerAclaracionContextualMIA(texto) {
 function contieneReferenciaTemporalMIA(texto) {
   const mesesPattern = MESES.join('|');
   return new RegExp(
-    `\\b(?:20\\d{2}-\\d{1,2}-\\d{1,2}|\\d{1,2}/\\d{1,2}/20\\d{2}|\\d{1,2}\\s+de\\s+(?:${mesesPattern})|hoy|ayer|anteayer|(?:dia|del|el)\\s+\\d{1,2}|ultim(?:o|os|a|as)\\s+\\d{1,2}\\s+dias?|esta semana|este mes)\\b`
+    `\\b(?:20\\d{2}-\\d{1,2}-\\d{1,2}|\\d{1,2}/\\d{1,2}/20\\d{2}|\\d{1,2}\\s+de\\s+(?:${mesesPattern})|hoy|ayer|anteayer|(?:dia|del|el)\\s+\\d{1,2}|ultim(?:o|os|a|as)\\s+(?:\\d{1,2}\\s+)?(?:dias?|meses?)|esta semana|este mes|anteriores?\\s+a\\s+20\\d{2}-\\d{1,2}-\\d{1,2})\\b`
   ).test(String(texto || ''));
 }
 
@@ -309,6 +355,15 @@ function extraerFiltroTemporalConsultaMIA(texto, { now = new Date() } = {}) {
   const hoy = getFechaMadridISO(now);
   const [hoyYear, hoyMonth, hoyDay] = hoy.split('-').map(Number);
   let fecha = null;
+
+  const anterioresA = normalizado.match(/\b(?:anteriores?\s+a|antes\s+de)\s+(20\d{2})-(\d{1,2})-(\d{1,2})\b/);
+  if (anterioresA) {
+    const limite = crearFechaISO(anterioresA[1], anterioresA[2], anterioresA[3]);
+    if (limite) {
+      const hasta = sumarDiasFechaISO(limite, -1);
+      return { kind: 'before', desde: null, hasta, label: `anteriores a ${limite}` };
+    }
+  }
 
   const iso = normalizado.match(/\b(20\d{2})-(\d{1,2})-(\d{1,2})\b/);
   if (iso) fecha = crearFechaISO(iso[1], iso[2], iso[3]);
@@ -348,6 +403,17 @@ function extraerFiltroTemporalConsultaMIA(texto, { now = new Date() } = {}) {
       desde: sumarDiasFechaISO(hoy, -(total - 1)),
       hasta: hoy,
       label: `ultimos ${total} dias`,
+    };
+  }
+
+  const ultimosMeses = normalizado.match(/\bultim(?:o|os|a|as)\s+(?:(\d{1,2})\s+)?meses?\b/);
+  if (ultimosMeses) {
+    const total = Math.max(1, Math.min(12, Number(ultimosMeses[1] || 3)));
+    return {
+      kind: 'last_months',
+      desde: sumarMesesFechaISO(hoy, -total),
+      hasta: hoy,
+      label: `ultimos ${total} meses`,
     };
   }
 
@@ -396,10 +462,13 @@ function detectarTipoPreguntaMIA(texto) {
   if (/\b(pago|pagos|cobrar|cobro|abono|abona|ingreso|ingresan|llegara|llega)\b/.test(normalizado)) {
     return 'pago';
   }
+  if (/\b(cuando salio|cuando se publico|que fecha se publico)\b/.test(normalizado)) {
+    return 'fecha_publicacion';
+  }
   if (/\b(cuando|fecha|resolucion|sale|saldra|publican|publicacion)\b/.test(normalizado)) {
     return 'fecha_resolucion';
   }
-  if (/\b(plazo|solicitar|solicitud|presentar|hasta cuando)\b/.test(normalizado)) {
+  if (/\b(plazo|solicitar|solicitud|presentar|hasta cuando|abiertas?|vigentes?|puedo pedir|pueda pedir)\b/.test(normalizado)) {
     return 'plazo';
   }
   if (/\b(requisitos|beneficiarios|puedo|pueden|quien|quienes)\b/.test(normalizado)) {

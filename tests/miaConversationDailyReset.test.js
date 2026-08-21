@@ -164,6 +164,28 @@ assert(
   }]).usada === false,
   'No arrastra contexto a una preferencia nueva'
 );
+const consultaOtroDia = construirConsultaContextualMIA('pero de otro dia?', [{
+  id: 6,
+  texto: 'cuando salio la PAC?',
+  intent: 'pregunta_usuario',
+}], { digestFecha: '2026-08-21' });
+assert(
+  consultaOtroDia.usada &&
+    /PAC[\s\S]*anteriores a 2026-08-21/i.test(consultaOtroDia.texto),
+  'Busca antes del digest cuando el usuario pide el mismo tema de otro dia'
+);
+assert(
+  construirConsultaContextualMIA('que ayudas estan abiertas en los ultimos meses?', [{
+    texto: 'cuando salio la PAC?', intent: 'pregunta_usuario',
+  }]).usada === false,
+  'No contamina una busqueda historica autosuficiente con la pregunta anterior'
+);
+assert(
+  construirConsultaContextualMIA('me gusta que me informes sobre cursos ganaderos', [{
+    texto: 'cuando salio la PAC?', intent: 'pregunta_usuario',
+  }]).usada === false,
+  'No arrastra contexto historico a una preferencia expresada de forma natural'
+);
 assert(
   construirConsultaContextualMIA('Extremadura', [
     { texto: 'Sabes cuando pagan?', intent: 'pregunta_usuario', direccion: 'usuario' },

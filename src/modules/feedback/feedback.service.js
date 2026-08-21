@@ -347,13 +347,22 @@ function esSeguimientoConversacionalCorto(texto) {
   return limpio.split(/\s+/).filter(Boolean).length <= 16;
 }
 
-function construirConsultaContextualMIA(texto, mensajesRecientes = []) {
+function construirConsultaContextualMIA(texto, mensajesRecientes = [], { digestFecha = null } = {}) {
   const actual = String(texto || '').replace(/\s+/g, ' ').trim();
   if (!esSeguimientoConversacionalCorto(actual)) return { texto: actual, usada: false };
   const normalizado = normalizarReferenciaDigest(actual);
-  if (/\b(quiero|me gustaria|quisiera|avisadme|avisame|recibir|no me interesa|solo me interesa)\b/.test(normalizado)) {
+  if (
+    /\b(quiero|me gustaria|quisiera|avisadme|avisame|recibir|no me interesa|solo me interesa)\b/.test(normalizado) ||
+    /\b(me gusta|prefiero|valoro)\s+que\s+me\s+(?:informes?|avises?|mandes?|envies?)\b/.test(normalizado)
+  ) {
     return { texto: actual, usada: false };
   }
+  const consultaAutosuficiente = (
+    /\b(quitando|sin contar|aparte de|ademas de)\b[^.!?]{0,60}\b(esta|esa|la)\s+(alerta|ayuda|publicacion|curso)\b/.test(normalizado) ||
+    /\b(pac|ayudas?|subvenciones?|cursos?|formacion|ganaderia|agricultura|tractores?|maquinaria|regadio)\b[^.!?]{0,80}\b(hoy|ayer|anteayer|ultim(?:o|os|a|as)|abiertas?|disponibles?|vigentes?)\b/.test(normalizado) ||
+    /\b(cuando salio|ha salido algo|que ayudas? (?:hay|estan))\b[^.!?]{0,80}\b(pac|ayudas?|subvenciones?|cursos?|formacion|ganaderia|agricultura|tractores?|maquinaria|regadio)\b/.test(normalizado)
+  );
+  if (consultaAutosuficiente) return { texto: actual, usada: false };
 
   const anteriores = (Array.isArray(mensajesRecientes) ? mensajesRecientes : [])
     .filter((item) => item && String(item.texto || item.text_body || '').trim())
@@ -366,8 +375,13 @@ function construirConsultaContextualMIA(texto, mensajesRecientes = []) {
 
   const pregunta = String(anterior.texto || anterior.text_body || '').replace(/\s+/g, ' ').trim();
   if (!pregunta) return { texto: actual, usada: false };
+  const buscarAntesDelDigest = /^\s*(?:pero\s+)?(?:de\s+)?otros?\s+dias?[?!.\s]*$/i.test(actual)
+    && /^\d{4}-\d{2}-\d{2}$/.test(String(digestFecha || ''));
+  const aclaracion = buscarAntesDelDigest
+    ? `${actual}. Buscar alertas anteriores a ${digestFecha}.`
+    : actual;
   return {
-    texto: `${pregunta}\nAclaracion del usuario: ${actual}`.slice(0, 1200),
+    texto: `${pregunta}\nAclaracion del usuario: ${aclaracion}`.slice(0, 1200),
     usada: true,
     inbound_id: anterior.id || null,
   };

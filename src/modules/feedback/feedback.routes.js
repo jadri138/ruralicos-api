@@ -23,6 +23,7 @@ const {
   decidirMensajeMIA,
   esRespuestaOrigenCaptacionMIA,
   esReferenciaAlDigestMIA,
+  debeBuscarFueraDelDigestMIA,
 } = require('../mia/decisionCore');
 
 const { registrarMemoriaEstructuradaMIA } = require('../mia/structuredMemory');
@@ -397,7 +398,9 @@ function feedbackRoutes(app, supabase) {
         organization_context: organizationContext,
       };
 
-      const consultaContextual = construirConsultaContextualMIA(texto, contextoReciente);
+      const consultaContextual = construirConsultaContextualMIA(texto, contextoReciente, {
+        digestFecha: digest?.fecha || null,
+      });
       if (consultaContextual.usada && decisionMIA.intent === 'unknown') {
         decisionMIA = {
           ...decisionMIA,
@@ -405,7 +408,12 @@ function feedbackRoutes(app, supabase) {
           risk_flags: [...new Set([...(decisionMIA.risk_flags || []), 'recent_context_used'])],
         };
       }
-      const seguimientoDelDigest = Boolean(digest?.id && alertasOrdenadas.length > 0) && (
+      const consultaFueraDelDigest = debeBuscarFueraDelDigestMIA({
+        texto,
+        contextoReciente,
+        alertas: alertasOrdenadas,
+      });
+      const seguimientoDelDigest = !consultaFueraDelDigest && Boolean(digest?.id && alertasOrdenadas.length > 0) && (
         esReferenciaAlDigestMIA(texto, contextoReciente) || consultaContextual.usada
       );
       if (
