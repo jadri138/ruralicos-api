@@ -11,8 +11,9 @@ webhook UltraMsg
   → webhookEvent: deduplicación
   → inbound: normalización y persistencia
   → feedbackClassifier / decisionCore
+  → conversationAgent: conversación completa + perfil + digest
+  → herramientas de solo lectura buscar_alertas / leer_alerta
   → policy: acción permitida, confirmación o bloqueo
-  → groundedAnswer / knowledgeBase
   → replyGuard + answerAudit
   → actionExecutor
   → outbox
@@ -28,7 +29,7 @@ Si una parte falla, se conserva el caso y la trazabilidad; no se ejecuta silenci
 | Entrada | `webhookEvent.js`, `inbound.js`, `feedbackClassifier.js` |
 | Decisión | `decisionCore.js`, `policy.js`, `decisionStore.js`, `expertRelevance.js` |
 | Contexto | `userProfile.js`, `organizationContext.js`, `structuredMemory.js`, `../aprendizaje/atomicMemory.js` |
-| Conocimiento | `knowledgeBase.js`, `knowledgeIngest.js`, `groundedAnswer.js` |
+| Conocimiento | `conversationAgent.js`, `knowledgeBase.js`, `knowledgeIngest.js`, `groundedAnswer.js` |
 | Alertas/digest | `alertQuality.js`, `alertReview.js`, `digestItems.js`, `digestAttempts.js`, `digestCandidateDecisions.js` |
 | Ejecución | `actionExecutor.js`, `outbox.js`, `replyGuard.js` |
 | Calidad | `answerAudit.js`, `qualityReport.js`, `evalHarness.js`, `replay.js`, `recommendationHealth.js` |
@@ -57,7 +58,7 @@ Cada decisión tiene intención, confianza, evidencia, acción propuesta y razó
 - respuesta ante ambigüedad;
 - cuándo crear un caso operativo.
 
-`actionExecutor.js` solo ejecuta acciones enumeradas. El modelo no recibe acceso libre a la base de datos ni a WhatsApp.
+`actionExecutor.js` solo ejecuta acciones enumeradas. Para responder preguntas, el modelo recibe la conversación asociada al digest actual y solo puede invocar dos herramientas cerradas: buscar alertas y leer una alerta concreta. No recibe SQL, credenciales, escritura en base de datos ni acceso a WhatsApp.
 
 ## Memoria
 
@@ -101,7 +102,7 @@ no deja la respuesta bloqueada ni duplica la memoria.
 
 ## Conocimiento y respuestas
 
-`knowledgeBase` combina documentos autorizados, alertas y contexto. `groundedAnswer` exige respaldo; `replyGuard` elimina riesgos antes de enviar. Si no hay evidencia suficiente, la respuesta debe reconocerlo y remitir al documento oficial.
+`conversationAgent` interpreta la pregunta actual dentro de toda la conversación del digest, usa las alertas ya enviadas como evidencia y consulta otras alertas cuando hace falta. `knowledgeBase` ejecuta la búsqueda objetiva; `replyGuard` elimina riesgos antes de enviar. Una ausencia solo se puede afirmar después de una búsqueda vacía verificable. Si no hay evidencia suficiente, la respuesta lo reconoce y abre revisión cuando corresponde.
 
 ## Calidad sin revisión manual constante
 

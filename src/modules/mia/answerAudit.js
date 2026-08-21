@@ -192,7 +192,13 @@ function construirAnswerAuditMIA({
   const autoAnswers = evaluations.filter((item) => item.outcome === 'auto_answer').length;
   const handoffs = evaluations.filter((item) => item.needs_agent || item.outcome.includes('handoff')).length;
   const answered = evaluations.filter((item) => item.answered).length;
-  const grounded = evaluations.filter((item) => item.answer_source === 'ai_grounded').length;
+  const groundedSources = new Set([
+    'ai_grounded',
+    'mia_tool_agent',
+    'mia_tool_agent_no_results',
+    'mia_conversation_agent_digest',
+  ]);
+  const grounded = evaluations.filter((item) => groundedSources.has(item.answer_source)).length;
   const replyGuardFlags = evaluations.filter((item) => item.reply_flags.length > 0).length;
   const evidenceProblemFlags = new Set([
     'auto_answer_without_evidence_payload',

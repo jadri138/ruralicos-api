@@ -61,7 +61,7 @@ function parecePreguntaMIA(texto) {
   const limpio = normalizarTexto(texto);
   if (!limpio) return false;
   return /[?¿]/.test(String(texto || '')) ||
-    /\b(cuando|donde|como|que|cual|cuanto|por que|sabes|sabeis|puedes|podrias|me puedes|hay|existe|sale|pagan|ingresan|plazo|resolucion)\b/.test(limpio);
+    /\b(cuando|donde|como|que|cual|cuanto|por que|sabes|sabeis|puedes|podrias|me puedes|hay|existe|sale|pagan|ingresan|plazo|resolucion|explicame|explicar|explica|cuentame)\b/.test(limpio);
 }
 
 function parecePreferenciaExplicitaMIA(texto) {
@@ -725,8 +725,6 @@ async function decidirMensajeMIA({
   digest,
   alertasDelDigest,
   contextoReciente = [],
-  organizationContext = null,
-  responderAlertaFn = generarRespuestaAlertaDigestMIA,
 }) {
   const controlExploracion = analizarControlExploracion(mensajeUsuario, conversacionActiva);
   if (controlExploracion) {
@@ -778,17 +776,6 @@ async function decidirMensajeMIA({
   }
 
   const alertasDigest = Array.isArray(alertasDelDigest) ? alertasDelDigest : [];
-  const decisionDesdeDigest = await resolverConsultaDesdeDigestMIA({
-    texto: mensajeUsuario,
-    digest,
-    alertas: alertasDigest,
-    contextoReciente,
-    usuario,
-    organizationContext,
-    responderAlertaFn,
-  });
-  if (decisionDesdeDigest) return decisionDesdeDigest;
-
   const valoracionGlobal = digest && alertasDigest.length > 0
     ? interpretarValoracionGlobalDigestMIA(mensajeUsuario, { totalItems: alertasDigest.length })
     : null;
@@ -847,6 +834,23 @@ async function decidirMensajeMIA({
         respuesta: '',
         intencion: 'otro',
         resumen_para_log: 'Mensaje trivial sin acciones',
+      },
+    });
+  }
+
+  if (parecePreguntaMIA(mensajeUsuario) && !parecePreferenciaExplicitaMIA(mensajeUsuario)) {
+    return normalizarDecision({
+      intent: 'pregunta_usuario',
+      confidence: 0.95,
+      reply_action: null,
+      summary: 'Pregunta preparada para el agente conversacional con herramientas.',
+      legacy_interpretacion: {
+        feedbacks: [],
+        memoria: [],
+        requiere_respuesta: false,
+        respuesta: '',
+        intencion: 'pregunta',
+        resumen_para_log: 'Pregunta derivada al agente conversacional con herramientas',
       },
     });
   }

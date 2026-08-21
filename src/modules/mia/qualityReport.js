@@ -119,7 +119,7 @@ function construirRecomendacionesMIA(metrics = {}, rates = {}, breakdown = {}) {
       priority: 'media',
       area: 'answering',
       title: 'Activar redaccion grounded si procede',
-      detail: 'Hay respuestas desde base Ruralicos, pero ninguna marcada como ai_grounded. Puede estar usando fallback por falta de OPENAI_API_KEY o guardrails.',
+      detail: 'Hay respuestas desde la base de Ruralicos, pero ninguna fundamentada por el modelo. Puede estar usando fallback por falta de OPENAI_API_KEY o por las protecciones de evidencia.',
     });
   }
 
@@ -236,7 +236,12 @@ function construirQualityReportMIA({
     auto_answered: autoAnswered,
     knowledge_answered: knowledgeAnswered,
     knowledge_needs_agent: knowledgeNeedsAgent,
-    ai_grounded_answers: answerSources.ai_grounded || 0,
+    ai_grounded_answers: [
+      'ai_grounded',
+      'mia_tool_agent',
+      'mia_tool_agent_no_results',
+      'mia_conversation_agent_digest',
+    ].reduce((total, source) => total + Number(answerSources[source] || 0), 0),
     actions_total: actionsTotal,
     actions_failed: actionsByStatus.failed || 0,
     handoff_actions: actionsByType.handoff_agent || 0,

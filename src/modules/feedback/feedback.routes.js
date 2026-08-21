@@ -22,8 +22,6 @@ const { registrarInboundMIA, actualizarInboundMIA } = require('../mia/inbound');
 const {
   decidirMensajeMIA,
   esRespuestaOrigenCaptacionMIA,
-  esReferenciaAlDigestMIA,
-  debeBuscarFueraDelDigestMIA,
 } = require('../mia/decisionCore');
 
 const { registrarMemoriaEstructuradaMIA } = require('../mia/structuredMemory');
@@ -33,9 +31,9 @@ const {
   abrirConversacionAgenteMIA,
 } = require('../mia/actionExecutor');
 const {
-  resolverPreguntaConBaseConocimientoMIA,
-  aplicarRespuestaConocimientoADecision,
-} = require('../mia/knowledgeBase');
+  resolverConversacionMIAConHerramientas,
+  aplicarRespuestaAgenteADecision,
+} = require('../mia/conversationAgent');
 const {
   registrarDecisionYAccionesMIA,
   actualizarDecisionResultadoMIA,
@@ -67,16 +65,14 @@ const {
   cargarUltimoDigestEntregadoReciente,
   cargarConversacionDigestMIA,
   cargarContextoRecienteMIA,
-  construirConsultaContextualMIA,
   debeCerrarConversacionMIA,
   extraerItemsReferenciadosInequivocamente,
   buscarUsuarioPorTelefonoEntrante,
 } = require('./feedback.service');
 
-function debeConsultarBaseConocimientoMIA(decision = {}) {
+function debeUsarAgenteConversacionalMIA(decision = {}) {
   if (!['pregunta_usuario', 'unknown'].includes(decision.intent)) return false;
-  const answerSource = String(decision.knowledge_context?.answer_source || '');
-  return decision.knowledge_context?.handled !== true && !answerSource.startsWith('digest_context');
+  return decision.knowledge_context?.handled !== true;
 }
 
 function feedbackRoutes(app, supabase) {
@@ -398,65 +394,29 @@ function feedbackRoutes(app, supabase) {
         organization_context: organizationContext,
       };
 
-      const consultaContextual = construirConsultaContextualMIA(texto, contextoReciente, {
-        digestFecha: digest?.fecha || null,
-      });
-      if (consultaContextual.usada && decisionMIA.intent === 'unknown') {
-        decisionMIA = {
-          ...decisionMIA,
-          intent: 'pregunta_usuario',
-          risk_flags: [...new Set([...(decisionMIA.risk_flags || []), 'recent_context_used'])],
-        };
-      }
-      const consultaFueraDelDigest = debeBuscarFueraDelDigestMIA({
-        texto,
-        contextoReciente,
-        alertas: alertasOrdenadas,
-      });
-      const seguimientoDelDigest = !consultaFueraDelDigest && Boolean(digest?.id && alertasOrdenadas.length > 0) && (
-        esReferenciaAlDigestMIA(texto, contextoReciente) || consultaContextual.usada
-      );
-      if (
-        seguimientoDelDigest &&
-        ['pregunta_usuario', 'unknown'].includes(decisionMIA.intent) &&
-        decisionMIA.knowledge_context?.handled !== true
-      ) {
-        decisionMIA = {
-          ...decisionMIA,
-          knowledge_context: {
-            handled: true,
-            answered: Boolean(decisionMIA.reply_action?.texto),
-            needs_agent: !decisionMIA.reply_action?.texto,
-            evidence_level: 'media',
-            tipo_pregunta: 'seguimiento_digest',
-            answer_source: 'digest_context_conversation',
-            digest_id: digest.id,
-            matches: alertasOrdenadas.map((alerta) => ({
-              id: alerta.id || null,
-              titulo: alerta.titulo || null,
-            })),
-          },
-        };
-      }
-
-      if (debeConsultarBaseConocimientoMIA(decisionMIA)) {
+      if (debeUsarAgenteConversacionalMIA(decisionMIA)) {
         try {
-          const respuestaConocimiento = await resolverPreguntaConBaseConocimientoMIA(supabase, {
-            texto: consultaContextual.usada ? consultaContextual.texto : texto,
-            limit: 5,
+          const respuestaAgente = await resolverConversacionMIAConHerramientas(supabase, {
+            texto,
+            contextoReciente,
+            digest,
+            alertasDigest: alertasOrdenadas,
+            usuario: usuarioMIA,
             organizationId,
             organizationContext,
           });
-          decisionMIA = aplicarRespuestaConocimientoADecision({
+          decisionMIA = aplicarRespuestaAgenteADecision({
             ...decisionMIA,
             organization_context: organizationContext,
-          }, respuestaConocimiento);
+          }, respuestaAgente);
         } catch (error) {
-          console.warn(`[mia:knowledge] No se pudo consultar la base ${organizationContext.reply_sender || 'Ruralicos'}:`, error.message);
+          console.warn(`[mia:agent] No se pudo completar la conversacion con herramientas de ${organizationContext.reply_sender || 'Ruralicos'}:`, error.message);
           decisionMIA = {
             ...decisionMIA,
-            risk_flags: [...new Set([...(decisionMIA.risk_flags || []), 'knowledge_lookup_failed'])],
+            reply_action: null,
+            risk_flags: [...new Set([...(decisionMIA.risk_flags || []), 'conversation_agent_failed'])],
             knowledge_context: {
+              handled: false,
               answered: false,
               needs_agent: true,
               error: error.message,
@@ -471,7 +431,7 @@ function feedbackRoutes(app, supabase) {
           ...decisionMIA,
           organization_context: organizationContext,
         },
-        texto: consultaContextual.usada ? consultaContextual.texto : texto,
+        texto,
         usuario: usuarioMIA,
         perfilOperativo: perfilOperativoMIA,
         conversacionActiva,
@@ -712,8 +672,7 @@ module.exports.__testing = {
   cargarUltimoDigestEntregadoReciente,
   cargarConversacionDigestMIA,
   cargarContextoRecienteMIA,
-  construirConsultaContextualMIA,
   debeCerrarConversacionMIA,
-  debeConsultarBaseConocimientoMIA,
+  debeUsarAgenteConversacionalMIA,
   extraerItemsReferenciadosInequivocamente,
 };

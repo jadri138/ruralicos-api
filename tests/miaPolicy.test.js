@@ -69,6 +69,43 @@ const busquedaVacia = evaluarPoliticaDecisionMIA({
 assert(busquedaVacia.policy.outcome === 'auto_answer', 'Permite contestar una busqueda objetiva sin resultados');
 assert(busquedaVacia.policy.requires_agent === false, 'No crea revision humana para una busqueda vacia verificada');
 
+const busquedaVaciaAgente = evaluarPoliticaDecisionMIA({
+  texto: 'Y sobre el 13?',
+  decision: {
+    intent: 'pregunta_usuario',
+    confidence: 0.9,
+    risk_flags: ['conversation_agent_answered'],
+    feedback_actions: [],
+    memory_actions: [],
+    reply_action: { canal: 'whatsapp', texto: 'No he encontrado alertas de la PAC publicadas el 13.' },
+    knowledge_context: {
+      answered: true,
+      needs_agent: false,
+      evidence_level: 'alta',
+      tipo_pregunta: 'fecha_publicacion',
+      answer_source: 'mia_tool_agent_no_results',
+      search_completed: true,
+      retrieval: { scope: 'alertas', search_completed: true },
+      matches: [],
+    },
+  },
+});
+assert(busquedaVaciaAgente.policy.outcome === 'auto_answer', 'Acepta la busqueda vacia verificada del agente conversacional');
+
+const falloAgenteEnSeguimiento = evaluarPoliticaDecisionMIA({
+  texto: 'Y sobre el 13?',
+  decision: {
+    intent: 'pregunta_usuario',
+    confidence: 0.9,
+    risk_flags: ['conversation_agent_failed'],
+    feedback_actions: [],
+    memory_actions: [],
+    reply_action: null,
+    knowledge_context: { answered: false, needs_agent: true },
+  },
+});
+assert(falloAgenteEnSeguimiento.policy.requires_agent === true, 'Un fallo del agente no silencia una repregunta corta');
+
 const autoBloqueadaSinEvidencia = evaluarPoliticaDecisionMIA({
   texto: 'Hay ayudas para tractores?',
   decision: {

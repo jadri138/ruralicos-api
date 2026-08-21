@@ -118,7 +118,7 @@ function esBusquedaAlertasVaciaVerificada(decision = {}) {
   const matches = Array.isArray(knowledge.matches) ? knowledge.matches : [];
   return knowledge.answered === true
     && knowledge.search_completed === true
-    && knowledge.answer_source === 'alerts_search_no_results'
+    && ['alerts_search_no_results', 'mia_tool_agent_no_results'].includes(knowledge.answer_source)
     && knowledge.retrieval?.scope === 'alertas'
     && matches.length === 0;
 }
@@ -132,19 +132,22 @@ function tieneContextoOperativoMIA({
   const feedbackShort = esFeedbackCorto(texto);
   const hasFeedback = (decision.feedback_actions || []).length > 0;
   const hasLinkedDigest = Boolean(digest && (alertasDelDigest || []).length > 0);
-  const answeredFromDigest = String(decision.knowledge_context?.answer_source || '')
-    .startsWith('digest_context');
-  const lookupFailedWithDigest = (decision.risk_flags || []).includes('knowledge_lookup_failed')
-    && decision.intent === 'pregunta_usuario';
+  const answerSource = String(decision.knowledge_context?.answer_source || '');
+  const answeredFromDigest = answerSource.startsWith('digest_context')
+    || answerSource === 'mia_conversation_agent_digest';
+  const knowledgeLookupFailed = (decision.risk_flags || []).some((flag) => (
+    ['knowledge_lookup_failed', 'conversation_agent_failed'].includes(flag)
+  )) && decision.intent === 'pregunta_usuario';
 
   if (pareceServicioRuralicos(texto)) return true;
   if (pareceDominioRural(texto)) return true;
   if (parecePreferenciaFutura(texto)) return true;
+  if (knowledgeLookupFailed) return true;
   if (decision.knowledge_context?.search_completed === true) return true;
   if (tieneMemoriaOperativa(decision)) return true;
   if (decision.intent === 'feedback_digest' || hasFeedback) return true;
   if (feedbackShort && digest && (alertasDelDigest || []).length > 0) return true;
-  if (hasLinkedDigest && (answeredFromDigest || lookupFailedWithDigest)) return true;
+  if (hasLinkedDigest && answeredFromDigest) return true;
 
   return false;
 }
@@ -409,7 +412,10 @@ function evaluarPoliticaDecisionMIA({
     }
 
     if (
-      String(knowledge.answer_source || '').startsWith('digest_context') &&
+      (
+        String(knowledge.answer_source || '').startsWith('digest_context')
+        || knowledge.answer_source === 'mia_conversation_agent_digest'
+      ) &&
       knowledge.answered &&
       hasReply
     ) {
@@ -451,7 +457,8 @@ function evaluarPoliticaDecisionMIA({
       riskFlags = unique([...riskFlags, ...autoPermission.reasons.map((reason) => `auto_blocked_${reason}`)]);
     }
 
-    if (preguntaDemasiadoVaga(texto, perfilOperativo)) {
+    if (!(decision.risk_flags || []).includes('conversation_agent_failed')
+      && preguntaDemasiadoVaga(texto, perfilOperativo)) {
       next = conReply(next, textos.clarification);
       const policy = construirPolicy({
         outcome: 'ask_clarification',

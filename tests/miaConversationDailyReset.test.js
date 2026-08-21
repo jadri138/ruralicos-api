@@ -12,9 +12,8 @@ const {
   extraerItemsReferenciadosInequivocamente,
   cargarConversacionDigestMIA,
   cargarContextoRecienteMIA,
-  construirConsultaContextualMIA,
   debeCerrarConversacionMIA,
-  debeConsultarBaseConocimientoMIA,
+  debeUsarAgenteConversacionalMIA,
 } = __testing;
 
 let passed = 0;
@@ -149,49 +148,12 @@ assert(
   'No confunde una fecha con el numero de una alerta'
 );
 
-const consultaSeguimiento = construirConsultaContextualMIA('Extremadura', [{
-  id: 5,
-  texto: 'Sabes cuando pagan la ayuda para fertilizantes?',
-  intent: 'pregunta_usuario',
-}]);
 assert(
-  consultaSeguimiento.usada && /fertilizantes[\s\S]*Extremadura/i.test(consultaSeguimiento.texto),
-  'Une una aclaracion corta con la pregunta reciente'
-);
-assert(
-  construirConsultaContextualMIA('Quiero recibir alertas sobre PAC', [{
-    texto: 'Sabes cuando pagan?', intent: 'pregunta_usuario',
-  }]).usada === false,
-  'No arrastra contexto a una preferencia nueva'
-);
-const consultaOtroDia = construirConsultaContextualMIA('pero de otro dia?', [{
-  id: 6,
-  texto: 'cuando salio la PAC?',
-  intent: 'pregunta_usuario',
-}], { digestFecha: '2026-08-21' });
-assert(
-  consultaOtroDia.usada &&
-    /PAC[\s\S]*anteriores a 2026-08-21/i.test(consultaOtroDia.texto),
-  'Busca antes del digest cuando el usuario pide el mismo tema de otro dia'
-);
-assert(
-  construirConsultaContextualMIA('que ayudas estan abiertas en los ultimos meses?', [{
-    texto: 'cuando salio la PAC?', intent: 'pregunta_usuario',
-  }]).usada === false,
-  'No contamina una busqueda historica autosuficiente con la pregunta anterior'
-);
-assert(
-  construirConsultaContextualMIA('me gusta que me informes sobre cursos ganaderos', [{
-    texto: 'cuando salio la PAC?', intent: 'pregunta_usuario',
-  }]).usada === false,
-  'No arrastra contexto historico a una preferencia expresada de forma natural'
-);
-assert(
-  construirConsultaContextualMIA('Extremadura', [
-    { texto: 'Sabes cuando pagan?', intent: 'pregunta_usuario', direccion: 'usuario' },
-    { texto: 'La alerta 1 me interesa', intent: 'feedback_digest', direccion: 'usuario' },
-  ]).usada === false,
-  'No recupera una pregunta antigua si hubo otra intervencion del usuario despues'
+  debeUsarAgenteConversacionalMIA({
+    intent: 'pregunta_usuario',
+    knowledge_context: { handled: false },
+  }) === true,
+  'Envia las preguntas no resueltas al unico agente conversacional'
 );
 
 assert(
@@ -219,11 +181,11 @@ assert(
   'Mantiene abierta la conversacion del digest aunque ya haya respondido'
 );
 assert(
-  debeConsultarBaseConocimientoMIA({
+  debeUsarAgenteConversacionalMIA({
     intent: 'pregunta_usuario',
-    knowledge_context: { handled: true, answer_source: 'digest_context_clarification' },
+    knowledge_context: { handled: true, answer_source: 'mia_tool_agent' },
   }) === false,
-  'No permite que la busqueda global pise una respuesta o aclaracion del digest'
+  'No ejecuta dos veces el agente si la pregunta ya quedo resuelta'
 );
 assert(
   debeCerrarConversacionMIA({

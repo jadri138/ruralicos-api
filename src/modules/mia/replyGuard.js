@@ -222,7 +222,8 @@ function evaluarRespuestaMIA(texto, { decision = {}, senderName = null, supportL
 
   const autoAnswer = outcome === 'auto_answer' || decision.auto_answered === true;
   const hasEvidenceMarker = /\[E\d+\]/.test(cleaned.text) || /https?:\/\//i.test(cleaned.text);
-  const verifiedEmptySearch = knowledge.answer_source === 'alerts_search_no_results'
+  const verifiedEmptySearch = ['alerts_search_no_results', 'mia_tool_agent_no_results']
+    .includes(knowledge.answer_source)
     && knowledge.search_completed === true
     && knowledge.retrieval?.scope === 'alertas';
   if (autoAnswer && knowledge.answered && !hasEvidenceMarker && !verifiedEmptySearch) {

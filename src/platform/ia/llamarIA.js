@@ -125,6 +125,13 @@ async function llamarIA(prompt, instructions, model = OPENAI_MODELS.economy, opt
   const body = { model, input: prompt, instructions };
   if (options?.textFormat) body.text = { format: options.textFormat };
   if (options?.maxOutputTokens) body.max_output_tokens = options.maxOutputTokens;
+  if (Array.isArray(options?.tools) && options.tools.length > 0) body.tools = options.tools;
+  if (options?.toolChoice !== undefined) body.tool_choice = options.toolChoice;
+  if (options?.parallelToolCalls !== undefined) {
+    body.parallel_tool_calls = Boolean(options.parallelToolCalls);
+  }
+  if (options?.previousResponseId) body.previous_response_id = options.previousResponseId;
+  if (options?.store !== undefined) body.store = Boolean(options.store);
   if (options?.reasoning) {
     body.reasoning = options.reasoning;
   } else {
@@ -230,6 +237,27 @@ async function llamarIA(prompt, instructions, model = OPENAI_MODELS.economy, opt
         continue;
       }
       break;
+    }
+
+    if (options?.returnRawResponse === true) {
+      if (options?.skipAudit !== true) registrarIARun({
+        task,
+        model,
+        status: 'ok',
+        http_status: aiRes.status,
+        attempts: attempt,
+        duration_ms: Date.now() - startedAt,
+        input_tokens: hasUsage ? accumulatedUsage.input_tokens : null,
+        output_tokens: hasUsage ? accumulatedUsage.output_tokens : null,
+        total_tokens: hasUsage ? accumulatedUsage.total_tokens : null,
+        reasoning_tokens: hasUsage ? accumulatedUsage.reasoning_tokens : null,
+        response_id: aiJson?.id ?? null,
+        response_status: aiJson?.status ?? null,
+        incomplete_reason: aiJson?.incomplete_details?.reason ?? null,
+        error_msg: null,
+      });
+
+      return aiJson;
     }
 
     const contenido = extraerTextoRespuesta(aiJson);
@@ -400,6 +428,7 @@ function extraerPrimerJSON(texto) {
 module.exports = {
   llamarIA,
   parsearJSON,
+  extraerTextoRespuesta,
   __testing: {
     esReintentableIA,
     extraerTextoRespuesta,

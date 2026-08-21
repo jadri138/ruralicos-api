@@ -248,6 +248,42 @@ async function main() {
     assert.deepStrictEqual(body.reasoning, { effort: 'low' });
   });
 
+  await test('expone respuestas con llamadas a herramientas sin exigir texto', async () => {
+    const toolResponse = {
+      id: 'resp_tools_1',
+      status: 'completed',
+      output: [{
+        type: 'function_call',
+        call_id: 'call_1',
+        name: 'buscar_alertas',
+        arguments: '{"keywords":["pac"]}',
+      }],
+      usage: { input_tokens: 40, output_tokens: 10, total_tokens: 50 },
+    };
+    const { fetchImpl, llamadas } = fakeFetch([{
+      ok: true,
+      status: 200,
+      json: async () => toolResponse,
+    }]);
+    const result = await llamarIA('pregunta', 'instrucciones', 'gpt-5.6-luna', {
+      ...OPTS_RAPIDAS,
+      fetchImpl,
+      returnRawResponse: true,
+      tools: [{ type: 'function', name: 'buscar_alertas', parameters: {}, strict: true }],
+      toolChoice: 'auto',
+      parallelToolCalls: false,
+      previousResponseId: 'resp_previous',
+      store: true,
+    });
+    assert.strictEqual(result, toolResponse);
+    const body = JSON.parse(llamadas[0].opts.body);
+    assert.strictEqual(body.previous_response_id, 'resp_previous');
+    assert.strictEqual(body.tool_choice, 'auto');
+    assert.strictEqual(body.parallel_tool_calls, false);
+    assert.strictEqual(body.store, true);
+    assert.strictEqual(body.tools[0].name, 'buscar_alertas');
+  });
+
   await test('esReintentableIA clasifica bien los casos', () => {
     assert.strictEqual(esReintentableIA({ status: 429, body: 'rate limit' }), true);
     assert.strictEqual(esReintentableIA({ status: 503 }), true);
