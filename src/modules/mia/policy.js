@@ -113,6 +113,16 @@ function tieneMemoriaOperativa(decision = {}) {
   );
 }
 
+function esBusquedaAlertasVaciaVerificada(decision = {}) {
+  const knowledge = decision.knowledge_context || {};
+  const matches = Array.isArray(knowledge.matches) ? knowledge.matches : [];
+  return knowledge.answered === true
+    && knowledge.search_completed === true
+    && knowledge.answer_source === 'alerts_search_no_results'
+    && knowledge.retrieval?.scope === 'alertas'
+    && matches.length === 0;
+}
+
 function tieneContextoOperativoMIA({
   texto = '',
   decision = {},
@@ -130,6 +140,7 @@ function tieneContextoOperativoMIA({
   if (pareceServicioRuralicos(texto)) return true;
   if (pareceDominioRural(texto)) return true;
   if (parecePreferenciaFutura(texto)) return true;
+  if (decision.knowledge_context?.search_completed === true) return true;
   if (tieneMemoriaOperativa(decision)) return true;
   if (decision.intent === 'feedback_digest' || hasFeedback) return true;
   if (feedbackShort && digest && (alertasDelDigest || []).length > 0) return true;
@@ -178,6 +189,7 @@ function tipoPreguntaSensible(tipo = '') {
 }
 
 function respuestaTieneEvidenciaTrazable(decision = {}) {
+  if (esBusquedaAlertasVaciaVerificada(decision)) return true;
   const knowledge = decision.knowledge_context || {};
   const replyText = String(decision.reply_action?.texto || '');
   const matches = Array.isArray(knowledge.matches) ? knowledge.matches : [];
@@ -198,6 +210,7 @@ function evaluarPermisoAutoRespuestaMIA({
   const knowledge = decision.knowledge_context || {};
   const reasons = [];
   const confidence = Number(decision.confidence || 0);
+  const busquedaVaciaVerificada = esBusquedaAlertasVaciaVerificada(decision);
 
   if (!knowledge.answered) reasons.push('knowledge_not_answered');
   if (knowledge.needs_agent) reasons.push('knowledge_requires_agent');
@@ -205,7 +218,9 @@ function evaluarPermisoAutoRespuestaMIA({
   if (confidence < 0.72) reasons.push('confidence_below_auto_threshold');
   if (tipoPreguntaSensible(knowledge.tipo_pregunta)) reasons.push('sensitive_question_requires_review');
   if (!respuestaTieneEvidenciaTrazable(decision)) reasons.push('missing_traceable_evidence');
-  if (preguntaDemasiadoVaga(texto, perfilOperativo)) reasons.push('question_too_vague_for_auto_answer');
+  if (!busquedaVaciaVerificada && preguntaDemasiadoVaga(texto, perfilOperativo)) {
+    reasons.push('question_too_vague_for_auto_answer');
+  }
 
   return {
     allowed: reasons.length === 0,

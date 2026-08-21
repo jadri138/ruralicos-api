@@ -74,7 +74,7 @@ function formatearAlertas(alertas = []) {
   return alertas.map((a, i) => {
     const resumenFinal = String(a.resumen_final || '').trim();
     const resumenDigest = resumenFinal.match(/(?:^|\n)\s*RESUMEN_DIGEST:\s*([^\n]+)/i)?.[1];
-    const resumen = String(resumenDigest || a.resumen || resumenFinal || '')
+    const resumen = String(a.resumen_usado || resumenDigest || a.resumen || resumenFinal || '')
       .replace(/\s+/g, ' ')
       .trim()
       .slice(0, 600);

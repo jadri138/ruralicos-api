@@ -1,4 +1,5 @@
 const { interpretarMensaje } = require('../aprendizaje/cerebro');
+const { generarRespuestaAlertaDigestMIA } = require('./groundedAnswer');
 const {
   analizarControlExploracion,
   analizarRespuestaExploracion,
@@ -220,6 +221,8 @@ function esReferenciaAlDigestMIA(texto, contextoReciente = []) {
   const ultimaRespuesta = (Array.isArray(contextoReciente) ? contextoReciente : [])
     .filter((item) => item?.direccion === 'ruralicos' && String(item.texto || '').trim())
     .at(-1);
+  const answerSource = String(ultimaRespuesta?.answer_source || '');
+  if (answerSource && !answerSource.startsWith('digest_context')) return false;
   const esperabaEleccion = /\b(te refieres|dime el numero|dime el tema|cual de|alerta|curso|ayuda)\b/.test(
     normalizarTexto(ultimaRespuesta?.texto)
   );
@@ -231,15 +234,20 @@ function construirDecisionContextoDigestMIA({
   alertas,
   respuesta,
   answerSource,
+  answerGuardrails = [],
+  answerError = null,
   answered,
   matches,
   summary,
 }) {
+  const riskFlags = answered ? ['answered_from_digest_context'] : [];
+  if (answerSource === 'digest_context_ai') riskFlags.push('answered_by_llm_from_digest_alert');
+  if (answerError) riskFlags.push('digest_answer_ai_failed');
   const decision = normalizarDecision({
     intent: 'pregunta_usuario',
     confidence: answered ? 0.99 : 0.9,
     reply_action: { canal: 'whatsapp', texto: respuesta },
-    risk_flags: answered ? ['answered_from_digest_context'] : [],
+    risk_flags: riskFlags,
     summary,
     legacy_interpretacion: {
       feedbacks: [],
@@ -259,6 +267,8 @@ function construirDecisionContextoDigestMIA({
       evidence_level: 'alta',
       tipo_pregunta: answered ? 'explicacion_digest' : 'aclaracion_digest',
       answer_source: answerSource,
+      answer_guardrails: answerGuardrails,
+      answer_error: answerError,
       digest_id: digest?.id || null,
       matches: (matches || []).map((alerta) => ({
         id: alerta?.id || null,
@@ -268,27 +278,74 @@ function construirDecisionContextoDigestMIA({
   }, { digest, alertasDelDigest: alertas });
 }
 
-function resolverConsultaDesdeDigestMIA({ texto, digest, alertas = [], contextoReciente = [] }) {
+function buscarAlertaFocoConversacionMIA(contextoReciente = [], alertas = []) {
+  const porId = new Map((Array.isArray(alertas) ? alertas : []).map((alerta) => [Number(alerta?.id), alerta]));
+  for (const mensaje of (Array.isArray(contextoReciente) ? contextoReciente : []).slice().reverse()) {
+    const ids = [...new Set((Array.isArray(mensaje?.alerta_ids) ? mensaje.alerta_ids : [])
+      .map(Number)
+      .filter((id) => porId.has(id)))];
+    if (ids.length === 1) return porId.get(ids[0]);
+  }
+  return null;
+}
+
+function esSeguimientoAlertaFocalMIA(texto, alertaFoco) {
+  if (!alertaFoco || pareceFeedbackSobreDigestMIA(texto)) return false;
+  if (parecePreguntaMIA(texto)) return true;
+  const limpio = normalizarTexto(texto);
+  return /\b(precio|cuesta|plazo|fecha|requisitos|solicitud|inscripcion|apuntar|apuntarme|plazas|duracion|horario|lugar|telefono|correo|obligatorio|certificado|carne|temario)\b/.test(limpio);
+}
+
+async function resolverConsultaDesdeDigestMIA({
+  texto,
+  digest,
+  alertas = [],
+  contextoReciente = [],
+  usuario = null,
+  organizationContext = null,
+  responderAlertaFn = generarRespuestaAlertaDigestMIA,
+}) {
   const alertasDigest = Array.isArray(alertas) ? alertas : [];
   if (!digest || alertasDigest.length === 0 || pareceFeedbackSobreDigestMIA(texto)) return null;
 
   const explicacion = esSolicitudExplicacionDigestMIA(texto);
   const referencia = esReferenciaAlDigestMIA(texto, contextoReciente);
-  if (!explicacion && !referencia) return null;
+  const alertaFoco = buscarAlertaFocoConversacionMIA(contextoReciente, alertasDigest);
+  const seguimientoFocal = esSeguimientoAlertaFocalMIA(texto, alertaFoco);
+  if (!explicacion && !referencia && !seguimientoFocal) return null;
 
   const coincidencia = buscarAlertaReferenciadaDigestMIA(texto, alertasDigest);
-  if (coincidencia) {
-    const alerta = alertasDigest[coincidencia.index];
-    const respuesta = construirRespuestaExplicacionDigestMIA(alerta);
+  const alertaSeleccionada = coincidencia
+    ? alertasDigest[coincidencia.index]
+    : (seguimientoFocal || (explicacion && alertaFoco) ? alertaFoco : null);
+  if (alertaSeleccionada) {
+    let generada = null;
+    try {
+      generada = await responderAlertaFn({
+        texto,
+        alerta: alertaSeleccionada,
+        digest,
+        contextoReciente,
+        usuario,
+        organizationContext,
+      });
+    } catch (error) {
+      generada = { answer_error: error.message };
+    }
+    const respuesta = generada?.reply || construirRespuestaExplicacionDigestMIA(alertaSeleccionada);
     if (!respuesta) return null;
     return construirDecisionContextoDigestMIA({
       digest,
       alertas: alertasDigest,
       respuesta,
-      answerSource: 'digest_context',
+      answerSource: generada?.answer_source || 'digest_context',
+      answerGuardrails: generada?.answer_guardrails || ['exact_digest_alert', 'deterministic_fallback'],
+      answerError: generada?.answer_error || null,
       answered: true,
-      matches: [alerta],
-      summary: 'Pregunta resuelta desde una alerta concreta del digest.',
+      matches: [alertaSeleccionada],
+      summary: generada?.answer_source === 'digest_context_ai'
+        ? 'Pregunta resuelta por MIA desde el contenido oficial de una alerta concreta del digest.'
+        : 'Pregunta resuelta desde una alerta concreta del digest.',
     });
   }
 
@@ -620,7 +677,16 @@ function construirDecisionDesdeInterpretacion({
   return aplicarContratoAcciones(decision, { digest, alertasDelDigest });
 }
 
-async function decidirMensajeMIA({ mensajeUsuario, usuario, conversacionActiva, digest, alertasDelDigest, contextoReciente = [] }) {
+async function decidirMensajeMIA({
+  mensajeUsuario,
+  usuario,
+  conversacionActiva,
+  digest,
+  alertasDelDigest,
+  contextoReciente = [],
+  organizationContext = null,
+  responderAlertaFn = generarRespuestaAlertaDigestMIA,
+}) {
   const controlExploracion = analizarControlExploracion(mensajeUsuario, conversacionActiva);
   if (controlExploracion) {
     const memoria = {
@@ -671,11 +737,14 @@ async function decidirMensajeMIA({ mensajeUsuario, usuario, conversacionActiva, 
   }
 
   const alertasDigest = Array.isArray(alertasDelDigest) ? alertasDelDigest : [];
-  const decisionDesdeDigest = resolverConsultaDesdeDigestMIA({
+  const decisionDesdeDigest = await resolverConsultaDesdeDigestMIA({
     texto: mensajeUsuario,
     digest,
     alertas: alertasDigest,
     contextoReciente,
+    usuario,
+    organizationContext,
+    responderAlertaFn,
   });
   if (decisionDesdeDigest) return decisionDesdeDigest;
 

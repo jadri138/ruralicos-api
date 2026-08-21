@@ -249,7 +249,7 @@ async function cargarDigestYAlertas(supabase, userId, conversacionActiva, organi
   if (digestId) {
     const { data, error } = await supabase
       .from('digests')
-      .select('id, user_id, fecha, alerta_ids, organization_id, delivered_at, read_at, delivery_status')
+      .select('id, user_id, fecha, mensaje, alerta_ids, organization_id, delivered_at, read_at, delivery_status')
       .eq('id', digestId)
       .eq('user_id', userId)
       .in('delivery_status', DIGEST_STATUSES_USABLE_WITH_INBOUND)
@@ -261,7 +261,7 @@ async function cargarDigestYAlertas(supabase, userId, conversacionActiva, organi
   if (!digest) {
     const { data, error } = await supabase
       .from('digests')
-      .select('id, user_id, fecha, alerta_ids, organization_id, enviado_at, delivered_at, read_at, delivery_status, created_at')
+      .select('id, user_id, fecha, mensaje, alerta_ids, organization_id, enviado_at, delivered_at, read_at, delivery_status, created_at')
       .eq('user_id', userId)
       .eq('fecha', fechaHoy)
       .in('delivery_status', DIGEST_STATUSES_USABLE_WITH_INBOUND)
@@ -312,12 +312,20 @@ async function cargarDigestYAlertas(supabase, userId, conversacionActiva, organi
 
   const { data: alertas, error: errAlertas } = await supabase
     .from('alertas')
-    .select('id, titulo, resumen, resumen_final, provincias, sectores, subsectores, tipos_alerta, fuente, organization_id')
+    .select('id, titulo, resumen, resumen_final, contenido, url, fecha, region, provincias, sectores, subsectores, tipos_alerta, fuente, organization_id')
     .in('id', alertaIds);
 
   if (errAlertas) throw errAlertas;
 
-  const alertasPorId = new Map((alertas || []).map((alerta) => [Number(alerta.id), alerta]));
+  const digestItemsPorAlerta = new Map((digestItems || []).map((item) => [Number(item.alerta_id), item]));
+  const alertasPorId = new Map((alertas || []).map((alerta) => {
+    const item = digestItemsPorAlerta.get(Number(alerta.id)) || {};
+    return [Number(alerta.id), {
+      ...alerta,
+      item_numero: Number(item.item_numero) || null,
+      resumen_usado: item.resumen_usado || null,
+    }];
+  }));
   const alertasVisibles = filtrarAlertasPorOrganization(
     alertaIds.map((id) => alertasPorId.get(id)).filter(Boolean),
     organizationId
@@ -409,6 +417,17 @@ function limitarConversacionDigestMIA(items = [], options = {}) {
   return seleccionados;
 }
 
+function extraerAlertaIdsContextoMIA(metadata = {}) {
+  const knowledge = metadata?.knowledge_context || {};
+  const candidatos = [
+    ...(Array.isArray(knowledge.matches) ? knowledge.matches.map((item) => item?.id) : []),
+    ...(Array.isArray(knowledge.linked_alert_ids) ? knowledge.linked_alert_ids : []),
+  ];
+  return [...new Set(candidatos
+    .map(Number)
+    .filter((id) => Number.isSafeInteger(id) && id > 0))];
+}
+
 async function cargarConversacionDigestMIA(supabase, {
   userId,
   digestId,
@@ -449,6 +468,8 @@ async function cargarConversacionDigestMIA(supabase, {
       direccion: 'usuario',
       texto: String(item.text_body || '').trim(),
       intent: item.decision_json?.intent || null,
+      alerta_ids: extraerAlertaIdsContextoMIA(item.decision_json),
+      answer_source: item.decision_json?.knowledge_context?.answer_source || null,
       created_at: item.created_at || null,
     }));
     const outbound = (outboxResult.data || []).map((item) => ({
@@ -456,6 +477,8 @@ async function cargarConversacionDigestMIA(supabase, {
       direccion: 'ruralicos',
       texto: String(item.body || '').trim(),
       intent: item.metadata_json?.intent || null,
+      alerta_ids: extraerAlertaIdsContextoMIA(item.metadata_json),
+      answer_source: item.metadata_json?.knowledge_context?.answer_source || null,
       created_at: item.sent_at || item.created_at || null,
     }));
     const conversacion = [...inbound, ...outbound]
@@ -494,6 +517,8 @@ async function cargarContextoRecienteMIA(supabase, userId, options = {}) {
       id: item.id,
       texto: String(item.text_body || '').trim(),
       intent: item.decision_json?.intent || null,
+      alerta_ids: extraerAlertaIdsContextoMIA(item.decision_json),
+      answer_source: item.decision_json?.knowledge_context?.answer_source || null,
       created_at: item.created_at || null,
     })).filter((item) => item.texto);
   } catch (error) {

@@ -45,6 +45,30 @@ assert(!autoAnswer.risk_flags.includes('digest_missing'), 'Quita digest_missing 
 assert(necesitaCasoAgenteMIA(autoAnswer) === false, 'Action executor respeta policy sin agente');
 assert(!construirAccionesDesdeDecision({ decision: autoAnswer, userId: 1 }).some((a) => a.action_type === 'handoff_agent'), 'Decision store no crea handoff si policy lo desactiva');
 
+const busquedaVacia = evaluarPoliticaDecisionMIA({
+  texto: 'Que alertas salieron ayer?',
+  decision: {
+    intent: 'pregunta_usuario',
+    confidence: 0.92,
+    risk_flags: ['auto_answered_from_knowledge_base'],
+    feedback_actions: [],
+    memory_actions: [],
+    reply_action: { canal: 'whatsapp', texto: 'No he encontrado alertas publicadas del 2026-08-20.' },
+    knowledge_context: {
+      answered: true,
+      needs_agent: false,
+      evidence_level: 'alta',
+      tipo_pregunta: 'general',
+      answer_source: 'alerts_search_no_results',
+      search_completed: true,
+      retrieval: { scope: 'alertas', search_completed: true },
+      matches: [],
+    },
+  },
+});
+assert(busquedaVacia.policy.outcome === 'auto_answer', 'Permite contestar una busqueda objetiva sin resultados');
+assert(busquedaVacia.policy.requires_agent === false, 'No crea revision humana para una busqueda vacia verificada');
+
 const autoBloqueadaSinEvidencia = evaluarPoliticaDecisionMIA({
   texto: 'Hay ayudas para tractores?',
   decision: {

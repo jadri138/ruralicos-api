@@ -72,6 +72,21 @@ const audit = evaluarRespuestaMIA('MIA ha encontrado referencias relacionadas.',
 });
 assert(audit.flags.includes('auto_answer_without_visible_evidence'), 'Audita auto-respuesta sin evidencia visible');
 
+const emptySearchAudit = evaluarRespuestaMIA('No he encontrado alertas publicadas ayer.', {
+  decision: {
+    auto_answered: true,
+    policy: { outcome: 'auto_answer', requires_agent: false },
+    knowledge_context: {
+      answered: true,
+      tipo_pregunta: 'general',
+      answer_source: 'alerts_search_no_results',
+      search_completed: true,
+      retrieval: { scope: 'alertas', search_completed: true },
+    },
+  },
+});
+assert(!emptySearchAudit.flags.includes('auto_answer_without_visible_evidence'), 'No exige un enlace cuando la busqueda comprobada no devuelve alertas');
+
 const sensitive = evaluarRespuestaMIA('Te garantizo que pagan el 15 de junio [E1].', {
   decision: {
     policy: { outcome: 'auto_answer', requires_agent: false },

@@ -4,6 +4,7 @@ const {
   validarRespuestaGroundedMIA,
   construirRespuestaFallbackGroundedMIA,
   generarRespuestaGroundedMIA,
+  generarRespuestaAlertaDigestMIA,
 } = require('../src/modules/mia/groundedAnswer');
 
 let passed = 0;
@@ -99,6 +100,60 @@ assert(fallbackCooperativa.reply.includes('tecnico de Cooperativa Los Olivos'), 
   assert(aiMala.answer_source === 'deterministic_after_guardrail', 'Cae a fallback si la IA inventa o personaliza mal');
   assert(!/Jaime|granja/i.test(aiMala.reply), 'Fallback no arrastra texto peligroso de la IA');
   assert(aiMala.reply.includes('agente de Ruralicos'), 'Fallback sensible mantiene escalado a agente');
+
+  let llamadaDigest = null;
+  const respuestaDigest = await generarRespuestaAlertaDigestMIA({
+    texto: 'Explicame de que va y como me apunto',
+    alerta: {
+      id: 30749,
+      item_numero: 1,
+      titulo: 'Curso de bienestar animal en explotaciones ganaderas',
+      fuente: 'BOA',
+      fecha: '2026-08-21',
+      region: 'Aragon',
+      url: 'https://example.com/boa-curso',
+      resumen_usado: 'Curso teleformado con 35 plazas.',
+      contenido: 'Curso de 20 horas del 15 de septiembre al 15 de octubre. Solicitudes dirigidas a Agropecuaria Arcoiris. Maximo 35 asistentes.',
+    },
+    digest: { id: 2916, mensaje: 'Hoy te enviamos el curso de bienestar animal.' },
+    contextoReciente: [{ direccion: 'usuario', texto: 'Me interesa el curso', alerta_ids: [30749] }],
+    usuario: { contexto_narrativo: 'Perfil ganadero en Aragon.' },
+    forceAI: true,
+    llamarIAFn: async (prompt, instructions, model, options) => {
+      llamadaDigest = { prompt, instructions, model, options };
+      return 'Es un curso online de 20 horas, del 15 de septiembre al 15 de octubre. Hay 35 plazas y debes solicitarlo a Agropecuaria Arcoiris.';
+    },
+  });
+  assert(respuestaDigest.answer_source === 'digest_context_ai', 'Usa el LLM para explicar la alerta exacta del digest');
+  assert(respuestaDigest.reply.includes('20 horas') && respuestaDigest.reply.includes('35 plazas'), 'Conserva los datos utiles de la explicacion');
+  assert(llamadaDigest.prompt.includes('publicacion_oficial') && llamadaDigest.prompt.includes('Maximo 35 asistentes'), 'Entrega al LLM el contenido oficial completo de la alerta');
+  assert(llamadaDigest.prompt.includes('Me interesa el curso'), 'Entrega al LLM la conversacion asociada al digest');
+  assert(llamadaDigest.options.task === 'mia_digest_answer', 'Registra la llamada con una tarea especifica y auditable');
+
+  const digestSinInventar = await generarRespuestaAlertaDigestMIA({
+    texto: 'Cuanto cuesta?',
+    alerta: {
+      id: 30749,
+      titulo: 'Curso de bienestar animal',
+      resumen_usado: 'Curso teleformado con 35 plazas.',
+      contenido: 'La publicacion no incluye informacion sobre el precio.',
+    },
+    forceAI: true,
+    llamarIAFn: async () => 'La publicacion no especifica el precio.',
+  });
+  assert(digestSinInventar.reply.includes('no especifica el precio'), 'Permite reconocer con claridad cuando un dato no consta');
+
+  const respuestaEspecies = await generarRespuestaAlertaDigestMIA({
+    texto: 'Sirve para vacas y ovejas?',
+    alerta: {
+      id: 30749,
+      titulo: 'Curso de bienestar animal',
+      contenido: 'Incluye un modulo especifico para especies ganaderas concretas.',
+    },
+    forceAI: true,
+    llamarIAFn: async () => 'Incluye contenidos aplicables a vacas y ovejas, pero la publicacion no limita el curso a una especie concreta.',
+  });
+  assert(/vacas y ovejas/i.test(respuestaEspecies.reply), 'No elimina especies ganaderas mencionadas de forma legitima');
 
   console.log(`\nResultados: ${passed} aprobados, ${failed} fallidos`);
   process.exit(failed > 0 ? 1 : 0);

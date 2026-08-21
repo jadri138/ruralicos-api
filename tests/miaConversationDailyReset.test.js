@@ -286,7 +286,10 @@ assert(
         sender_kind: 'user',
         status: 'processed',
         text_body: 'El curso de bienestar animal',
-        decision_json: { intent: 'pregunta_usuario' },
+        decision_json: {
+          intent: 'pregunta_usuario',
+          knowledge_context: { matches: [{ id: 101 }] },
+        },
         created_at: '2026-06-05T08:07:00.000Z',
       },
       {
@@ -315,7 +318,10 @@ assert(
         user_id: 141,
         digest_id: 2,
         body: 'Dime a cual de los dos cursos te refieres',
-        metadata_json: { intent: 'pregunta_usuario' },
+        metadata_json: {
+          intent: 'pregunta_usuario',
+          knowledge_context: { matches: [{ id: 101 }], answer_source: 'ai_grounded' },
+        },
         delivery_status: 'READ',
         created_at: '2026-06-05T08:06:00.000Z',
         sent_at: '2026-06-05T08:06:30.000Z',
@@ -338,6 +344,14 @@ assert(
   assert(
     conversacionDigest.every((item) => !item.texto.includes('otro digest') && !item.texto.includes('no llego')),
     'Aisla el digest actual y excluye salidas que el usuario no recibio'
+  );
+  assert(
+    conversacionDigest.filter((item) => item.alerta_ids?.length).every((item) => item.alerta_ids[0] === 101),
+    'Conserva la alerta concreta que MIA estaba explicando para resolver repreguntas'
+  );
+  assert(
+    conversacionDigest.find((item) => item.id === 71)?.answer_source === 'ai_grounded',
+    'Conserva el origen de la respuesta para no confundir una busqueda global con el digest'
   );
 
   const contexto = await cargarContextoRecienteMIA(crearSupabaseMock({
@@ -380,13 +394,21 @@ assert(
       },
     ],
     digest_items: [
-      { digest_id: 21, item_numero: 1, alerta_id: 101 },
+      {
+        digest_id: 21,
+        item_numero: 1,
+        alerta_id: 101,
+        resumen_usado: 'Convocatoria PAC con plazo abierto.',
+        motivo_seleccion: 'Encaja con agricultura.',
+      },
     ],
     alertas: [
       {
         id: 101,
         titulo: 'Ayuda PAC actual',
         resumen: 'Convocatoria vigente',
+        contenido: 'Texto oficial completo de la convocatoria PAC.',
+        url: 'https://example.com/pac',
         provincias: ['nacional'],
         sectores: ['agricultura'],
         subsectores: ['pac'],
@@ -400,6 +422,12 @@ assert(
   const digestHoy = await cargarDigestYAlertas(supabaseDigest, 141, null, null, { fechaHoy: '2026-06-05' });
   assert(digestHoy.digest?.id === 21, 'Carga solo el digest entregado del dia actual');
   assert(digestHoy.alertasOrdenadas.length === 1 && digestHoy.alertasOrdenadas[0].id === 101, 'Ordena alertas del digest actual');
+  assert(
+    digestHoy.alertasOrdenadas[0].contenido.includes('Texto oficial completo')
+      && digestHoy.alertasOrdenadas[0].resumen_usado.includes('plazo abierto')
+      && digestHoy.alertasOrdenadas[0].item_numero === 1,
+    'Entrega a MIA el contenido oficial y el texto exacto usado en el digest'
+  );
   assert(
     supabaseDigest.calls.some((call) => call.table === 'digests' && call.op === 'eq' && call.column === 'fecha' && call.value === '2026-06-05'),
     'Filtra digests por fecha de hoy'

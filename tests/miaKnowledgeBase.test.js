@@ -1,6 +1,10 @@
 const {
   extraerTerminosConsultaMIA,
   extraerRegionesConsultaMIA,
+  extraerFiltroTemporalConsultaMIA,
+  extraerFuentesConsultaMIA,
+  detectarConsultaHistoricaAlertasMIA,
+  extraerFiltrosConsultaMIA,
   detectarTipoPreguntaMIA,
   esPreguntaDeFecha,
   extraerFechasTexto,
@@ -31,6 +35,28 @@ assert(terminos.includes('tractores'), 'Conserva termino tractores');
 assert(!terminos.includes('gustaria'), 'Elimina palabras de baja senal');
 assert(extraerRegionesConsultaMIA('Cuando sale la resolucion en Andalucia').includes('andalucia'), 'Detecta region Andalucia');
 
+const now = new Date('2026-08-21T10:00:00.000Z');
+assert(
+  extraerFiltroTemporalConsultaMIA('Que salio ayer sobre la PAC?', { now }).desde === '2026-08-20',
+  'Convierte ayer en una fecha objetiva de Madrid'
+);
+assert(
+  extraerFiltroTemporalConsultaMIA('Y sobre el 13?', { now }).desde === '2026-08-13',
+  'Interpreta el dia del mes en una repregunta corta'
+);
+const ultimosSieteDias = extraerFiltroTemporalConsultaMIA('Novedades de los ultimos 7 dias', { now });
+assert(
+  ultimosSieteDias.desde === '2026-08-15' && ultimosSieteDias.hasta === '2026-08-21',
+  'Calcula un rango inclusivo para los ultimos dias'
+);
+assert(extraerFuentesConsultaMIA('Ha salido en el BOA o el BOPZ?').join(',') === 'BOA,BOPZ', 'Detecta fuentes oficiales concretas');
+assert(detectarConsultaHistoricaAlertasMIA('Ha salido algo sobre la PAC?') === true, 'Detecta una consulta historica de alertas');
+const filtrosHistoricos = extraerFiltrosConsultaMIA('Ha salido algo de la PAC ayer?', { now });
+assert(filtrosHistoricos.alerts_only === true, 'Restringe las consultas historicas a la tabla de alertas');
+assert(filtrosHistoricos.temporal.desde === '2026-08-20', 'Conserva el filtro temporal de una consulta historica');
+assert(extraerTerminosConsultaMIA('Que alertas salieron el 13 de agosto de 2026?').length === 0, 'No convierte la fecha o el verbo de busqueda en filtros de texto');
+assert(extraerTerminosConsultaMIA('Que ha salido en el BOJA hoy?').length === 0, 'No exige que la sigla del boletin aparezca tambien en el titulo');
+
 assert(esPreguntaDeFecha('Cuando sale la resolucion en Andalucia') === true, 'Detecta preguntas de fecha/resolucion');
 assert(esPreguntaDeFecha('Hay ayudas para tractores?') === false, 'No marca como fecha una pregunta general');
 assert(detectarTipoPreguntaMIA('Cuando llegan los pagos de las borrascas') === 'pago', 'Detecta preguntas de pago');
@@ -45,6 +71,10 @@ const alerta = {
 };
 
 assert(puntuarAlerta(alerta, ['tractores', 'maquinaria']) >= 8, 'Puntua alto coincidencias en titulo');
+assert(
+  puntuarAlerta({ titulo: 'Actas previas a la ocupacion de terrenos' }, ['pac']) < 4,
+  'No confunde PAC con una subcadena dentro de ocupacion'
+);
 
 const rankingHibrido = combinarYRankearAlertasMIA({
   lexicalItems: [{
@@ -119,6 +149,22 @@ const respuestaIrrelevante = construirRespuestaConAlertasMIA({
 });
 assert(respuestaIrrelevante.answered === false, 'No responde con una coincidencia semantica sin encaje objetivo suficiente');
 assert(respuestaIrrelevante.matches.length === 0, 'No expone como evidencia una referencia descartada');
+
+const respuestaSinResultados = construirRespuestaConAlertasMIA({
+  texto: 'Que alertas salieron ayer?',
+  terminos: [],
+  filtros: {
+    alerts_only: true,
+    fuentes: [],
+    temporal: { kind: 'day', desde: '2026-08-20', hasta: '2026-08-20', label: '2026-08-20' },
+  },
+  retrieval: { scope: 'alertas', search_completed: true },
+  items: [],
+});
+assert(respuestaSinResultados.answered === true, 'Responde una busqueda de alertas completada aunque no haya resultados');
+assert(respuestaSinResultados.needs_agent === false, 'No escala una ausencia de resultados comprobada');
+assert(respuestaSinResultados.answer_source === 'alerts_search_no_results', 'Distingue una busqueda vacia de una respuesta sin evidencia');
+assert(respuestaSinResultados.reply.includes('2026-08-20'), 'Explica el periodo objetivo que se busco');
 
 const respuestaConMarca = construirRespuestaConAlertasMIA({
   texto: 'Hay ayudas para tractores?',

@@ -3,6 +3,7 @@ const {
   generarEmbedding,
 } = require('../../platform/ia/embeddings');
 const { generarRespuestaGroundedMIA } = require('./groundedAnswer');
+const { getFechaMadridISO } = require('../../shared/fechaMadrid');
 const {
   normalizarOrganizationId,
   alertaVisibleParaOrganization,
@@ -55,6 +56,43 @@ const STOPWORDS = new Set([
   'llegara',
   'llegan',
   'llega',
+  'hoy',
+  'ayer',
+  'anteayer',
+  'dia',
+  'dias',
+  'otro',
+  'otra',
+  'algo',
+  'salido',
+  'salieron',
+  'publicado',
+  'publicaron',
+  'buscar',
+  'busca',
+  'novedad',
+  'novedades',
+  'primera',
+  'primer',
+  'segunda',
+  'ultimo',
+  'ultimos',
+  'ultima',
+  'ultimas',
+  'semana',
+  'mes',
+  'enero',
+  'febrero',
+  'marzo',
+  'abril',
+  'mayo',
+  'junio',
+  'julio',
+  'agosto',
+  'septiembre',
+  'octubre',
+  'noviembre',
+  'diciembre',
 ]);
 
 const TERMINOS_TEMA = new Set([
@@ -121,6 +159,36 @@ const REGION_TERMS = new Map([
   ['cataluna', ['cataluna', 'catalunya']],
 ]);
 
+const FUENTES_ALERTAS = new Map([
+  ['boe', 'BOE'],
+  ['boa', 'BOA'],
+  ['boja', 'BOJA'],
+  ['bopa', 'BOPA'],
+  ['bopz', 'BOPZ'],
+  ['boph', 'BOPH'],
+  ['bopte', 'BOPTE'],
+  ['bopt', 'BOPT'],
+  ['bopv', 'BOPV'],
+  ['bocm', 'BOCM'],
+  ['bocyl', 'BOCYL'],
+  ['bocant', 'BOCANT'],
+  ['bocan', 'BOCAN'],
+  ['doe', 'DOE'],
+  ['docm', 'DOCM'],
+  ['dog', 'DOG'],
+  ['dogc', 'DOGC'],
+  ['dogv', 'DOGV'],
+  ['boc', 'BOC'],
+  ['bon', 'BON'],
+  ['bor', 'BOR'],
+  ['borm', 'BORM'],
+  ['boib', 'BOIB'],
+  ['bog', 'BOG'],
+  ['bome', 'BOME'],
+  ['botha', 'BOTHA'],
+  ['fega', 'FEGA'],
+]);
+
 const MESES = [
   'enero',
   'febrero',
@@ -167,6 +235,8 @@ function extraerTerminosConsultaMIA(texto, max = 8) {
 
   const terminos = [];
   for (const term of crudos) {
+    if (/^\d+$/.test(term)) continue;
+    if (FUENTES_ALERTAS.has(term)) continue;
     if (term.length < 4 && term !== 'pac') continue;
     if (STOPWORDS.has(term) && !TERMINOS_TEMA.has(term)) continue;
     if (!terminos.includes(term)) terminos.push(term);
@@ -191,6 +261,110 @@ function extraerRegionesConsultaMIA(texto) {
   }
 
   return [...new Set(regiones)];
+}
+
+function crearFechaISO(year, month, day) {
+  const date = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
+  if (
+    Number.isNaN(date.getTime())
+    || date.getUTCFullYear() !== Number(year)
+    || date.getUTCMonth() !== Number(month) - 1
+    || date.getUTCDate() !== Number(day)
+  ) return null;
+  return date.toISOString().slice(0, 10);
+}
+
+function sumarDiasFechaISO(fechaISO, dias) {
+  const [year, month, day] = String(fechaISO || '').split('-').map(Number);
+  const base = crearFechaISO(year, month, day);
+  if (!base) return null;
+  const date = new Date(`${base}T12:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + Number(dias || 0));
+  return date.toISOString().slice(0, 10);
+}
+
+function extraerFiltroTemporalConsultaMIA(texto, { now = new Date() } = {}) {
+  const normalizado = normalizarTexto(texto).replace(/\s+/g, ' ').trim();
+  const hoy = getFechaMadridISO(now);
+  const [hoyYear, hoyMonth, hoyDay] = hoy.split('-').map(Number);
+  let fecha = null;
+
+  const iso = normalizado.match(/\b(20\d{2})-(\d{1,2})-(\d{1,2})\b/);
+  if (iso) fecha = crearFechaISO(iso[1], iso[2], iso[3]);
+
+  if (!fecha) {
+    const numerica = normalizado.match(/\b(\d{1,2})\/(\d{1,2})\/(20\d{2})\b/);
+    if (numerica) fecha = crearFechaISO(numerica[3], numerica[2], numerica[1]);
+  }
+
+  if (!fecha) {
+    const mesesPattern = MESES.join('|');
+    const literal = normalizado.match(new RegExp(`\\b(\\d{1,2})\\s+de\\s+(${mesesPattern})(?:\\s+de\\s+(20\\d{2}))?\\b`));
+    if (literal) {
+      fecha = crearFechaISO(literal[3] || hoyYear, MESES.indexOf(literal[2]) + 1, literal[1]);
+    }
+  }
+
+  if (!fecha && /\banteayer\b/.test(normalizado)) fecha = sumarDiasFechaISO(hoy, -2);
+  if (!fecha && /\bayer\b/.test(normalizado)) fecha = sumarDiasFechaISO(hoy, -1);
+  if (!fecha && /\bhoy\b/.test(normalizado)) fecha = hoy;
+
+  if (!fecha && /\b(?:dia|del|el)\s+(\d{1,2})\b/.test(normalizado)) {
+    const day = Number(normalizado.match(/\b(?:dia|del|el)\s+(\d{1,2})\b/)?.[1]);
+    fecha = crearFechaISO(hoyYear, hoyMonth, day);
+    if (fecha && day > hoyDay) {
+      fecha = crearFechaISO(hoyMonth === 1 ? hoyYear - 1 : hoyYear, hoyMonth === 1 ? 12 : hoyMonth - 1, day);
+    }
+  }
+
+  if (fecha) return { kind: 'day', desde: fecha, hasta: fecha, label: fecha };
+
+  const ultimos = normalizado.match(/\bultim(?:o|os|a|as)\s+(\d{1,2})\s+dias?\b/);
+  if (ultimos) {
+    const total = Math.max(1, Math.min(90, Number(ultimos[1])));
+    return {
+      kind: 'last_days',
+      desde: sumarDiasFechaISO(hoy, -(total - 1)),
+      hasta: hoy,
+      label: `ultimos ${total} dias`,
+    };
+  }
+
+  if (/\besta semana\b/.test(normalizado)) {
+    const weekday = new Date(`${hoy}T12:00:00.000Z`).getUTCDay();
+    const desde = sumarDiasFechaISO(hoy, -((weekday + 6) % 7));
+    return { kind: 'week', desde, hasta: hoy, label: 'esta semana' };
+  }
+
+  if (/\beste mes\b/.test(normalizado)) {
+    const desde = crearFechaISO(hoyYear, hoyMonth, 1);
+    return { kind: 'month', desde, hasta: hoy, label: 'este mes' };
+  }
+
+  return null;
+}
+
+function extraerFuentesConsultaMIA(texto) {
+  const normalizado = normalizarTexto(texto);
+  return [...new Set([...FUENTES_ALERTAS.entries()]
+    .filter(([alias]) => new RegExp(`\\b${alias}\\b`).test(normalizado))
+    .map(([, fuente]) => fuente))];
+}
+
+function detectarConsultaHistoricaAlertasMIA(texto) {
+  const normalizado = normalizarTexto(texto);
+  return /\b(ha salido|han salido|salio|salieron|publicado|publicaron|novedades|alertas? (?:de|sobre)|avisos? (?:de|sobre)|busca en (?:las )?alertas)\b/.test(normalizado);
+}
+
+function extraerFiltrosConsultaMIA(texto, options = {}) {
+  const temporal = extraerFiltroTemporalConsultaMIA(texto, options);
+  const fuentes = extraerFuentesConsultaMIA(texto);
+  const alertsOnly = detectarConsultaHistoricaAlertasMIA(texto) || Boolean(temporal || fuentes.length);
+  return {
+    temporal,
+    fuentes,
+    alerts_only: alertsOnly,
+  };
 }
 
 function detectarTipoPreguntaMIA(texto) {
@@ -234,6 +408,16 @@ function textoAlerta(alerta = {}) {
   ].filter(Boolean).join(' ');
 }
 
+function contieneTerminoNormalizado(texto, termino) {
+  const value = normalizarTexto(texto);
+  const term = normalizarTexto(termino).trim();
+  if (!term) return false;
+  const escaped = term
+    .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    .replace(/\s+/g, '\\s+');
+  return new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`).test(value);
+}
+
 function extraerFechasTexto(texto, max = 4) {
   const value = String(texto || '').replace(/\s+/g, ' ');
   const encontrados = [];
@@ -274,7 +458,7 @@ function regionesEncontradas(alerta = {}, regiones = []) {
   const texto = normalizarTexto(textoAlerta(alerta));
   return regiones.filter((region) => {
     const aliases = REGION_TERMS.get(region) || [region];
-    return aliases.some((alias) => texto.includes(alias));
+    return aliases.some((alias) => contieneTerminoNormalizado(texto, alias));
   });
 }
 
@@ -282,6 +466,7 @@ function calcularDetalleScore(alerta = {}, contexto = {}) {
   const terminos = contexto.terminos || [];
   const regiones = contexto.regiones || [];
   const tipoPregunta = contexto.tipoPregunta || 'general';
+  const filtros = contexto.filtros || {};
   const titulo = normalizarTexto(alerta.titulo || '');
   const resumen = normalizarTexto(`${alerta.resumen_final || ''} ${alerta.resumen || ''}`);
   const resto = normalizarTexto(textoAlerta(alerta));
@@ -290,9 +475,9 @@ function calcularDetalleScore(alerta = {}, contexto = {}) {
   const matchingTerms = [];
   for (const term of terminos) {
     const variants = variantesTermino(term).map(normalizarTexto);
-    const hitTitulo = variants.some((variant) => titulo.includes(variant));
-    const hitResumen = variants.some((variant) => resumen.includes(variant));
-    const hitResto = variants.some((variant) => resto.includes(variant));
+    const hitTitulo = variants.some((variant) => contieneTerminoNormalizado(titulo, variant));
+    const hitResumen = variants.some((variant) => contieneTerminoNormalizado(resumen, variant));
+    const hitResto = variants.some((variant) => contieneTerminoNormalizado(resto, variant));
     if (hitTitulo || hitResumen || hitResto) matchingTerms.push(term);
     if (hitTitulo) score += 4;
     if (hitResumen) score += 2;
@@ -301,6 +486,9 @@ function calcularDetalleScore(alerta = {}, contexto = {}) {
 
   const matchingRegions = regionesEncontradas(alerta, regiones);
   if (regiones.length > 0) score += matchingRegions.length > 0 ? 5 : -4;
+
+  if (filtros.temporal) score += 5;
+  if ((filtros.fuentes || []).length > 0) score += 4;
 
   if (tipoPregunta === 'pago' && /\b(pago|pagos|abono|abonar|ingreso|indemnizacion|compensacion)\b/.test(resto)) score += 3;
   if (tipoPregunta === 'plazo' && /\b(plazo|solicitud|presentacion|hasta|convocatoria)\b/.test(resto)) score += 3;
@@ -482,9 +670,40 @@ function normalizarCandidatoManualMIA(row = {}) {
   };
 }
 
+function fechaAlertaISO(alerta = {}) {
+  const match = String(alerta.fecha || '').match(/^\d{4}-\d{2}-\d{2}/);
+  return match?.[0] || null;
+}
+
+function cumpleFiltrosObjetivosAlertaMIA(alerta = {}, filtros = {}, regiones = []) {
+  if (filtros.alerts_only && alerta.source_type === 'manual') return false;
+
+  const fecha = fechaAlertaISO(alerta);
+  if (filtros.temporal?.desde && (!fecha || fecha < filtros.temporal.desde)) return false;
+  if (filtros.temporal?.hasta && (!fecha || fecha > filtros.temporal.hasta)) return false;
+
+  const fuentes = Array.isArray(filtros.fuentes) ? filtros.fuentes : [];
+  if (fuentes.length > 0 && !fuentes.includes(String(alerta.fuente || '').toUpperCase())) return false;
+
+  if (regiones.length > 0 && regionesEncontradas(alerta, regiones).length === 0) return false;
+  return true;
+}
+
+function aplicarFiltrosQueryMIA(query, filtros = {}) {
+  let next = query;
+  if (filtros.temporal?.desde) next = next.gte('fecha', filtros.temporal.desde);
+  if (filtros.temporal?.hasta) next = next.lte('fecha', filtros.temporal.hasta);
+
+  const fuentes = Array.isArray(filtros.fuentes) ? filtros.fuentes : [];
+  if (fuentes.length === 1) next = next.eq('fuente', fuentes[0]);
+  if (fuentes.length > 1) next = next.in('fuente', fuentes);
+  return next;
+}
+
 async function buscarAlertasLexicasMIA(supabase, {
   terminos = [],
   regiones = [],
+  filtros = {},
   limit = 80,
   organizationId = null,
 } = {}) {
@@ -496,19 +715,29 @@ async function buscarAlertasLexicasMIA(supabase, {
     .filter(Boolean)
     .slice(0, 12);
 
-  if (terminosBusqueda.length === 0) return [];
+  const tieneFiltrosConsultables = Boolean(filtros.temporal || (filtros.fuentes || []).length);
+  if (terminosBusqueda.length === 0 && !tieneFiltrosConsultables) return [];
 
   const perTermLimit = Math.max(15, Math.ceil(limit / Math.max(1, terminosBusqueda.length)));
-  const queries = terminosBusqueda.map(async (term) => {
-    const pattern = `%${term}%`;
+  const consultas = terminosBusqueda.length > 0 ? terminosBusqueda : [null];
+  const queries = consultas.map(async (term) => {
     let query = supabase
       .from('alertas')
       .select('id, titulo, resumen, resumen_final, url, fecha, region, fuente, provincias, sectores, subsectores, tipos_alerta, estado_ia, duplicado_de, organization_id, created_at')
-      .or(`titulo.ilike.${pattern},resumen_final.ilike.${pattern},resumen.ilike.${pattern},contenido.ilike.${pattern},region.ilike.${pattern}`)
       .order('created_at', { ascending: false })
-      .limit(perTermLimit);
+      .limit(term ? perTermLimit : limit);
+
+    if (term) {
+      if (term === 'pac') {
+        query = query.or('titulo.fts.pac,resumen_final.fts.pac,resumen.fts.pac,contenido.fts.pac');
+      } else {
+        const pattern = `%${term}%`;
+        query = query.or(`titulo.ilike.${pattern},resumen_final.ilike.${pattern},resumen.ilike.${pattern},contenido.ilike.${pattern},region.ilike.${pattern}`);
+      }
+    }
 
     query = query.eq('estado_ia', 'listo').is('duplicado_de', null);
+    query = aplicarFiltrosQueryMIA(query, filtros);
     const orgId = normalizarOrganizationId(organizationId);
     query = orgId
       ? query.or(`organization_id.is.null,organization_id.eq.${orgId}`)
@@ -519,7 +748,9 @@ async function buscarAlertasLexicasMIA(supabase, {
     return data || [];
   });
 
-  return (await Promise.all(queries)).flat();
+  return (await Promise.all(queries))
+    .flat()
+    .filter((alerta) => cumpleFiltrosObjetivosAlertaMIA(alerta, filtros, regiones));
 }
 
 async function filtrarItemsSemanticosPorOrganizationMIA(supabase, items = [], organizationId = null) {
@@ -637,32 +868,64 @@ async function buscarAlertasRelacionadasMIA(supabase, {
   limit = 5,
   usarMockEmbedding = false,
   organizationId = null,
+  now = new Date(),
 } = {}) {
   const terminos = extraerTerminosConsultaMIA(texto);
   const regiones = extraerRegionesConsultaMIA(texto);
   const tipoPregunta = detectarTipoPreguntaMIA(texto);
-  if (terminos.length === 0 && regiones.length === 0) {
+  const filtros = extraerFiltrosConsultaMIA(texto, { now });
+  const tieneFiltroObjetivo = Boolean(filtros.temporal || filtros.fuentes.length);
+  if (terminos.length === 0 && regiones.length === 0 && !tieneFiltroObjetivo) {
     return {
       terminos,
       regiones,
       tipo_pregunta: tipoPregunta,
-      retrieval: { mode: 'none', lexical_count: 0, semantic_count: 0, semantic_available: false },
+      filtros,
+      retrieval: {
+        mode: 'none',
+        scope: filtros.alerts_only ? 'alertas' : 'knowledge',
+        search_completed: false,
+        lexical_count: 0,
+        semantic_count: 0,
+        semantic_available: false,
+      },
       items: [],
       organization_id: normalizarOrganizationId(organizationId),
     };
   }
 
-  const contexto = { terminos, regiones, tipoPregunta };
+  const contexto = { terminos, regiones, tipoPregunta, filtros };
+  const puedeBuscarSemantica = terminos.length > 0 || regiones.length > 0;
+  const omitido = (reason) => ({
+    ok: true,
+    available: false,
+    skipped: true,
+    reason,
+    items: [],
+  });
   const [lexicalItems, semanticResult, manualResult] = await Promise.all([
-    buscarAlertasLexicasMIA(supabase, { terminos, regiones, limit: 100, organizationId }),
-    buscarAlertasSemanticasMIA(supabase, { texto, limit: 50, usarMock: usarMockEmbedding, organizationId }),
-    buscarManualesSemanticosMIA(supabase, { texto, limit: 30, usarMock: usarMockEmbedding, organizationId }),
+    buscarAlertasLexicasMIA(supabase, {
+      terminos,
+      regiones,
+      filtros,
+      limit: 100,
+      organizationId,
+    }),
+    puedeBuscarSemantica
+      ? buscarAlertasSemanticasMIA(supabase, { texto, limit: 50, usarMock: usarMockEmbedding, organizationId })
+      : Promise.resolve(omitido('objective_filters_only')),
+    !filtros.alerts_only && puedeBuscarSemantica
+      ? buscarManualesSemanticosMIA(supabase, { texto, limit: 30, usarMock: usarMockEmbedding, organizationId })
+      : Promise.resolve(omitido(filtros.alerts_only ? 'alerts_only' : 'objective_filters_only')),
   ]);
+
+  const semanticItems = (semanticResult.items || [])
+    .filter((alerta) => cumpleFiltrosObjetivosAlertaMIA(alerta, filtros, regiones));
 
   const items = combinarYRankearAlertasMIA({
     lexicalItems,
     semanticItems: [
-      ...(semanticResult.items || []),
+      ...semanticItems,
       ...(manualResult.items || []),
     ],
     contexto,
@@ -673,10 +936,15 @@ async function buscarAlertasRelacionadasMIA(supabase, {
     terminos,
     regiones,
     tipo_pregunta: tipoPregunta,
+    filtros,
     retrieval: {
-      mode: (semanticResult.available || manualResult.available) ? 'hybrid' : 'lexical',
+      mode: filtros.alerts_only
+        ? (semanticResult.available ? 'alerts_hybrid' : 'alerts_lexical')
+        : ((semanticResult.available || manualResult.available) ? 'hybrid' : 'lexical'),
+      scope: filtros.alerts_only ? 'alertas' : 'knowledge',
+      search_completed: true,
       lexical_count: lexicalItems.length,
-      semantic_count: (semanticResult.items || []).length,
+      semantic_count: semanticItems.length,
       manual_count: (manualResult.items || []).length,
       semantic_available: semanticResult.available === true || manualResult.available === true,
       semantic_reason: semanticResult.reason || null,
@@ -695,20 +963,46 @@ function construirRespuestaConAlertasMIA({
   terminos = [],
   regiones = [],
   tipo_pregunta: tipoPregunta = detectarTipoPreguntaMIA(texto),
+  filtros = {},
+  retrieval = {},
   items = [],
   organizationContext = null,
 } = {}) {
   const branding = obtenerMiaBranding(organizationContext);
+  const tieneFiltroObjetivo = Boolean(
+    filtros.temporal
+    || (filtros.fuentes || []).length
+    || regiones.length
+  );
   const minimoTerminos = terminos.length > 0
     ? Math.min(2, Math.ceil(terminos.length * 0.5))
     : 0;
   const itemsConEncajeObjetivo = (items || []).filter((item) => {
     const matchingTerms = new Set(item.matching_terms || []).size;
     const matchingRegions = new Set(item.matching_regions || []).size;
-    return matchingTerms >= minimoTerminos || (minimoTerminos === 0 && matchingRegions > 0);
+    return matchingTerms >= minimoTerminos
+      || (minimoTerminos === 0 && (matchingRegions > 0 || tieneFiltroObjetivo));
   });
   const top = itemsConEncajeObjetivo[0] || null;
   if (!top || Number(top.score || 0) < 4) {
+    if (filtros.alerts_only && retrieval.search_completed) {
+      const ambito = [
+        terminos.length > 0 ? `sobre ${terminos.join(', ')}` : null,
+        filtros.fuentes?.length ? `en ${filtros.fuentes.join(', ')}` : null,
+        filtros.temporal?.kind === 'day' ? `del ${filtros.temporal.desde}` : filtros.temporal?.label,
+      ].filter(Boolean).join(' ');
+      return {
+        answered: true,
+        needs_agent: false,
+        confidence: 0.92,
+        evidence_level: 'alta',
+        reply: `No he encontrado alertas publicadas${ambito ? ` ${ambito}` : ''}.`,
+        matches: [],
+        search_completed: true,
+        answer_source: 'alerts_search_no_results',
+        answer_guardrails: ['read_only_alerts_search', 'verified_empty_result'],
+      };
+    }
     return {
       answered: false,
       needs_agent: true,
@@ -719,7 +1013,9 @@ function construirRespuestaConAlertasMIA({
     };
   }
 
-  const evidenceLevel = clasificarEvidencia(top.score, top.matching_terms || [], terminos);
+  const evidenceLevel = terminos.length === 0 && tieneFiltroObjetivo
+    ? 'alta'
+    : clasificarEvidencia(top.score, top.matching_terms || [], terminos);
   const preguntaSensible = ['pago', 'fecha_resolucion', 'plazo'].includes(tipoPregunta);
   const tieneFechas = (top.fechas_detectadas || []).length > 0 || Boolean(top.fecha);
   const needsAgent = preguntaSensible || evidenceLevel === 'baja';
@@ -763,6 +1059,7 @@ function construirRespuestaConAlertasMIA({
     evidence_level: evidenceLevel,
     reply: lineas.join('\n').slice(0, 1200),
     matches,
+    search_completed: retrieval.search_completed === true,
   };
 }
 
@@ -772,38 +1069,57 @@ async function resolverPreguntaConBaseConocimientoMIA(supabase, {
   usarMockEmbedding = false,
   organizationId = null,
   organizationContext = null,
+  now = new Date(),
 } = {}) {
   const {
     terminos,
     regiones,
     tipo_pregunta: tipoPregunta,
+    filtros,
     retrieval,
     items,
-  } = await buscarAlertasRelacionadasMIA(supabase, { texto, limit, usarMockEmbedding, organizationId });
+  } = await buscarAlertasRelacionadasMIA(supabase, {
+    texto,
+    limit,
+    usarMockEmbedding,
+    organizationId,
+    now,
+  });
   const respuestaBase = construirRespuestaConAlertasMIA({
     texto,
     terminos,
     regiones,
     tipo_pregunta: tipoPregunta,
+    filtros,
+    retrieval,
     items,
     organizationContext,
   });
-  const respuestaGrounded = await generarRespuestaGroundedMIA({
-    texto,
-    matches: respuestaBase.matches || [],
-    tipoPregunta,
-    answered: respuestaBase.answered,
-    needsAgent: respuestaBase.needs_agent,
-    evidenceLevel: respuestaBase.evidence_level,
-    confidence: respuestaBase.confidence,
-    organizationContext,
-  });
+  const respuestaGrounded = respuestaBase.answer_source === 'alerts_search_no_results'
+    ? {
+        reply: respuestaBase.reply,
+        answer_source: respuestaBase.answer_source,
+        answer_guardrails: respuestaBase.answer_guardrails,
+        evidences: [],
+      }
+    : await generarRespuestaGroundedMIA({
+        texto,
+        matches: respuestaBase.matches || [],
+        tipoPregunta,
+        answered: respuestaBase.answered,
+        needsAgent: respuestaBase.needs_agent,
+        evidenceLevel: respuestaBase.evidence_level,
+        confidence: respuestaBase.confidence,
+        organizationContext,
+      });
 
   return {
     terminos,
     regiones,
     tipo_pregunta: tipoPregunta,
+    filtros,
     retrieval,
+    search_completed: retrieval.search_completed === true,
     organization_id: normalizarOrganizationId(organizationId),
     organization_context: organizationContext || null,
     ...respuestaBase,
@@ -845,6 +1161,8 @@ function aplicarRespuestaConocimientoADecision(decision = {}, respuesta = {}) {
       tipo_pregunta: respuesta.tipo_pregunta || null,
       organization_id: respuesta.organization_id || null,
       retrieval: respuesta.retrieval || null,
+      search_completed: respuesta.search_completed === true,
+      filtros: respuesta.filtros || null,
       terminos: respuesta.terminos || [],
       regiones: respuesta.regiones || [],
       matches: respuesta.matches || [],
@@ -858,10 +1176,15 @@ function aplicarRespuestaConocimientoADecision(decision = {}, respuesta = {}) {
 module.exports = {
   extraerTerminosConsultaMIA,
   extraerRegionesConsultaMIA,
+  extraerFiltroTemporalConsultaMIA,
+  extraerFuentesConsultaMIA,
+  detectarConsultaHistoricaAlertasMIA,
+  extraerFiltrosConsultaMIA,
   detectarTipoPreguntaMIA,
   esPreguntaDeFecha,
   extraerFechasTexto,
   puntuarAlerta,
+  cumpleFiltrosObjetivosAlertaMIA,
   buscarAlertasLexicasMIA,
   buscarAlertasSemanticasMIA,
   buscarManualesSemanticosMIA,

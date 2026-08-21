@@ -5,6 +5,7 @@ const assert = require('assert');
 const {
   decidirMensajeMIA,
   interpretarValoracionGlobalDigestMIA,
+  esReferenciaAlDigestMIA,
 } = require('../src/modules/mia/decisionCore');
 const { evaluarPoliticaDecisionMIA } = require('../src/modules/mia/policy');
 
@@ -42,6 +43,7 @@ async function main() {
     {
       id: 901,
       titulo: 'Curso de bienestar animal para ganaderos',
+      resumen_usado: 'Curso por teleformacion de bienestar animal con 35 plazas y solicitud antes del inicio.',
       resumen_final: [
         'FICHA_IA',
         'TIPO: cursos_formacion',
@@ -50,6 +52,8 @@ async function main() {
       ].join('\n'),
       sectores: ['ganaderia'],
       tipos_alerta: ['cursos_formacion'],
+      contenido: 'Curso de 20 horas, del 15 de septiembre al 15 de octubre. Maximo 35 asistentes. Solicitudes por orden de recepcion.',
+      url: 'https://example.com/curso-bienestar',
     },
     {
       id: 902,
@@ -92,6 +96,53 @@ async function main() {
   assert(seguimientoConcreto.reply_action.texto.includes('teleformacion'));
   assert(!seguimientoConcreto.reply_action.texto.includes('TIPO:'));
 
+  let alertaRecibidaPorLLM = null;
+  const explicacionLLM = await decidirMensajeMIA({
+    mensajeUsuario: 'explicame el curso de bienestar animal',
+    usuario: { id: 5, contexto_narrativo: 'Perfil ganadero en Aragon.' },
+    conversacionActiva: { id: 8, tipo: 'feedback_digest', digest_id: 81 },
+    digest: { ...digestDoble, mensaje: 'Hoy te enviamos dos cursos.' },
+    alertasDelDigest: alertasDobles,
+    responderAlertaFn: async ({ alerta }) => {
+      alertaRecibidaPorLLM = alerta;
+      return {
+        reply: 'Es un curso online de 20 horas para obtener el certificado de bienestar animal. Hay 35 plazas.',
+        answer_source: 'digest_context_ai',
+        answer_guardrails: ['exact_digest_alert', 'official_content_only'],
+      };
+    },
+  });
+  assert.strictEqual(alertaRecibidaPorLLM.id, 901);
+  assert(alertaRecibidaPorLLM.contenido.includes('35 asistentes'));
+  assert.strictEqual(explicacionLLM.knowledge_context.answer_source, 'digest_context_ai');
+  assert(explicacionLLM.reply_action.texto.includes('20 horas'));
+
+  let focoRepregunta = null;
+  const repreguntaLLM = await decidirMensajeMIA({
+    mensajeUsuario: 'Y cuantas plazas hay y como me apunto?',
+    usuario: { id: 5 },
+    conversacionActiva: { id: 8, tipo: 'feedback_digest', digest_id: 81 },
+    digest: digestDoble,
+    alertasDelDigest: alertasDobles,
+    contextoReciente: [{
+      direccion: 'ruralicos',
+      texto: 'Es un curso online para obtener el certificado de bienestar animal.',
+      alerta_ids: [901],
+    }],
+    responderAlertaFn: async ({ alerta, contextoReciente }) => {
+      focoRepregunta = { alerta, contextoReciente };
+      return {
+        reply: 'Hay 35 plazas y las solicitudes se atienden por orden de recepcion.',
+        answer_source: 'digest_context_ai',
+        answer_guardrails: ['exact_digest_alert'],
+      };
+    },
+  });
+  assert.strictEqual(focoRepregunta.alerta.id, 901);
+  assert.strictEqual(focoRepregunta.contextoReciente[0].alerta_ids[0], 901);
+  assert.deepStrictEqual(repreguntaLLM.knowledge_context.matches.map((item) => item.id), [901]);
+  assert(repreguntaLLM.reply_action.texto.includes('35 plazas'));
+
   const referenciaAmbigua = await decidirMensajeMIA({
     mensajeUsuario: 'el curso de hoy',
     usuario: { id: 5 },
@@ -101,6 +152,11 @@ async function main() {
   });
   assert.strictEqual(referenciaAmbigua.knowledge_context.answer_source, 'digest_context_clarification');
   assert.strictEqual(referenciaAmbigua.knowledge_context.handled, true);
+  assert.strictEqual(esReferenciaAlDigestMIA('la primera', [{
+    direccion: 'ruralicos',
+    texto: 'He encontrado dos alertas sobre la PAC. Dime cual quieres revisar.',
+    answer_source: 'ai_grounded',
+  }]), false, 'No interpreta una seleccion de la busqueda global como referencia al digest');
   const ambiguaConPolitica = evaluarPoliticaDecisionMIA({
     texto: 'el curso de hoy',
     decision: referenciaAmbigua,

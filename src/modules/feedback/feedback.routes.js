@@ -390,6 +390,7 @@ function feedbackRoutes(app, supabase) {
         digest,
         alertasDelDigest: alertasOrdenadas,
         contextoReciente,
+        organizationContext,
       });
       decisionMIA = {
         ...decisionMIA,
