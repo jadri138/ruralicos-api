@@ -44,12 +44,20 @@ assert(
   extraerFiltroTemporalConsultaMIA('Y sobre el 13?', { now }).desde === '2026-08-13',
   'Interpreta el dia del mes en una repregunta corta'
 );
+assert(
+  extraerFiltroTemporalConsultaMIA('Ha salido algo sobre PAC hoy?\nAclaracion del usuario: Y sobre el 13?', { now }).desde === '2026-08-13',
+  'La fecha de la aclaracion prevalece sobre la pregunta anterior'
+);
 const ultimosSieteDias = extraerFiltroTemporalConsultaMIA('Novedades de los ultimos 7 dias', { now });
 assert(
   ultimosSieteDias.desde === '2026-08-15' && ultimosSieteDias.hasta === '2026-08-21',
   'Calcula un rango inclusivo para los ultimos dias'
 );
 assert(extraerFuentesConsultaMIA('Ha salido en el BOA o el BOPZ?').join(',') === 'BOA,BOPZ', 'Detecta fuentes oficiales concretas');
+assert(
+  extraerFuentesConsultaMIA('Que salio en el BOJA?\nAclaracion del usuario: Y en el BOA?').join(',') === 'BOA',
+  'La fuente de la aclaracion prevalece sobre la busqueda anterior'
+);
 assert(detectarConsultaHistoricaAlertasMIA('Ha salido algo sobre la PAC?') === true, 'Detecta una consulta historica de alertas');
 const filtrosHistoricos = extraerFiltrosConsultaMIA('Ha salido algo de la PAC ayer?', { now });
 assert(filtrosHistoricos.alerts_only === true, 'Restringe las consultas historicas a la tabla de alertas');
@@ -101,6 +109,28 @@ const rankingHibrido = combinarYRankearAlertasMIA({
 assert(rankingHibrido[0].id === 2, 'La evidencia semantica fuerte puede liderar el ranking');
 assert(rankingHibrido[0].retrieval_sources.includes('semantic'), 'Conserva fuente semantic en evidencia');
 assert(rankingHibrido[0].score_breakdown.semantic_points > 0, 'Expone desglose de puntuacion semantica');
+
+const rankingPacVerificado = combinarYRankearAlertasMIA({
+  lexicalItems: [{
+    id: 3,
+    titulo: 'Boletin oficial del dia',
+    resumen_final: 'Publicacion agraria incluida en el boletin.',
+    fecha: '2026-08-21',
+    estado_ia: 'listo',
+    verified_terms: ['pac'],
+  }],
+  semanticItems: [{
+    id: 3,
+    titulo: 'Boletin oficial del dia',
+    resumen_final: 'Publicacion agraria incluida en el boletin.',
+    fecha: '2026-08-21',
+    estado_ia: 'listo',
+    similitud: 0.8,
+  }],
+  contexto: { terminos: ['pac'], regiones: [], tipoPregunta: 'general', filtros: {} },
+  limit: 1,
+});
+assert(rankingPacVerificado[0].matching_terms.includes('pac'), 'Conserva la coincidencia PAC verificada por busqueda de texto completo');
 
 const rankingConManual = combinarYRankearAlertasMIA({
   lexicalItems: [],

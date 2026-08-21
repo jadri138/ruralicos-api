@@ -283,8 +283,29 @@ function sumarDiasFechaISO(fechaISO, dias) {
   return date.toISOString().slice(0, 10);
 }
 
-function extraerFiltroTemporalConsultaMIA(texto, { now = new Date() } = {}) {
+function extraerAclaracionContextualMIA(texto) {
   const normalizado = normalizarTexto(texto).replace(/\s+/g, ' ').trim();
+  const marker = 'aclaracion del usuario:';
+  const markerIndex = normalizado.lastIndexOf(marker);
+  if (markerIndex < 0) return { completo: normalizado, aclaracion: null };
+  return {
+    completo: normalizado,
+    aclaracion: normalizado.slice(markerIndex + marker.length).trim() || null,
+  };
+}
+
+function contieneReferenciaTemporalMIA(texto) {
+  const mesesPattern = MESES.join('|');
+  return new RegExp(
+    `\\b(?:20\\d{2}-\\d{1,2}-\\d{1,2}|\\d{1,2}/\\d{1,2}/20\\d{2}|\\d{1,2}\\s+de\\s+(?:${mesesPattern})|hoy|ayer|anteayer|(?:dia|del|el)\\s+\\d{1,2}|ultim(?:o|os|a|as)\\s+\\d{1,2}\\s+dias?|esta semana|este mes)\\b`
+  ).test(String(texto || ''));
+}
+
+function extraerFiltroTemporalConsultaMIA(texto, { now = new Date() } = {}) {
+  const contexto = extraerAclaracionContextualMIA(texto);
+  const normalizado = contexto.aclaracion && contieneReferenciaTemporalMIA(contexto.aclaracion)
+    ? contexto.aclaracion
+    : contexto.completo;
   const hoy = getFechaMadridISO(now);
   const [hoyYear, hoyMonth, hoyDay] = hoy.split('-').map(Number);
   let fecha = null;
@@ -345,7 +366,10 @@ function extraerFiltroTemporalConsultaMIA(texto, { now = new Date() } = {}) {
 }
 
 function extraerFuentesConsultaMIA(texto) {
-  const normalizado = normalizarTexto(texto);
+  const contexto = extraerAclaracionContextualMIA(texto);
+  const fuenteEnAclaracion = contexto.aclaracion && [...FUENTES_ALERTAS.keys()]
+    .some((alias) => new RegExp(`\\b${alias}\\b`).test(contexto.aclaracion));
+  const normalizado = fuenteEnAclaracion ? contexto.aclaracion : contexto.completo;
   return [...new Set([...FUENTES_ALERTAS.entries()]
     .filter(([alias]) => new RegExp(`\\b${alias}\\b`).test(normalizado))
     .map(([, fuente]) => fuente))];
@@ -470,6 +494,7 @@ function calcularDetalleScore(alerta = {}, contexto = {}) {
   const titulo = normalizarTexto(alerta.titulo || '');
   const resumen = normalizarTexto(`${alerta.resumen_final || ''} ${alerta.resumen || ''}`);
   const resto = normalizarTexto(textoAlerta(alerta));
+  const verifiedTerms = new Set((alerta.verified_terms || []).map(limpiarTermino));
   let score = 0;
 
   const matchingTerms = [];
@@ -478,10 +503,12 @@ function calcularDetalleScore(alerta = {}, contexto = {}) {
     const hitTitulo = variants.some((variant) => contieneTerminoNormalizado(titulo, variant));
     const hitResumen = variants.some((variant) => contieneTerminoNormalizado(resumen, variant));
     const hitResto = variants.some((variant) => contieneTerminoNormalizado(resto, variant));
-    if (hitTitulo || hitResumen || hitResto) matchingTerms.push(term);
+    const hitVerified = verifiedTerms.has(limpiarTermino(term));
+    if (hitTitulo || hitResumen || hitResto || hitVerified) matchingTerms.push(term);
     if (hitTitulo) score += 4;
     if (hitResumen) score += 2;
     if (hitResto) score += 1;
+    if (hitVerified && !hitResto) score += 3;
   }
 
   const matchingRegions = regionesEncontradas(alerta, regiones);
@@ -540,6 +567,7 @@ function resumirMatch(alerta = {}, detalle = {}, contexto = {}) {
     fechas_detectadas: detalle.fechasDetectadas || [],
     semantic_similarity: Number.isFinite(Number(alerta.semantic_similarity)) ? Number(alerta.semantic_similarity) : null,
     retrieval_sources: alerta.retrieval_sources || [],
+    verified_terms: alerta.verified_terms || [],
     score_breakdown: detalle.scoreBreakdown || null,
   };
 }
@@ -574,6 +602,7 @@ function normalizarCandidatoAlerta(alerta = {}, source = 'unknown') {
       ? Number(alerta.similitud ?? alerta.similarity)
       : null,
     retrieval_sources: [source],
+    verified_terms: alerta.verified_terms || [],
   };
 }
 
@@ -606,6 +635,10 @@ function combinarYRankearAlertasMIA({ lexicalItems = [], semanticItems = [], con
         ...existente,
         ...normalizado,
         retrieval_sources: [...new Set([...(existente.retrieval_sources || []), 'semantic'])],
+        verified_terms: [...new Set([
+          ...(existente.verified_terms || []),
+          ...(normalizado.verified_terms || []),
+        ])],
         semantic_similarity: normalizado.semantic_similarity ?? existente.semantic_similarity ?? null,
       });
     } else {
@@ -745,7 +778,10 @@ async function buscarAlertasLexicasMIA(supabase, {
 
     const { data, error } = await query;
     if (error) throw error;
-    return data || [];
+    return (data || []).map((alerta) => ({
+      ...alerta,
+      verified_terms: term === 'pac' ? ['pac'] : [],
+    }));
   });
 
   return (await Promise.all(queries))
@@ -863,6 +899,30 @@ async function buscarManualesSemanticosMIA(supabase, {
   }
 }
 
+async function hidratarExtractosContenidoMIA(supabase, items = [], terminos = []) {
+  const ids = [...new Set((items || [])
+    .filter((item) => (item.verified_terms || []).length > 0)
+    .map((item) => Number(item.id))
+    .filter(Boolean))];
+  if (ids.length === 0) return items;
+
+  const { data, error } = await supabase
+    .from('alertas')
+    .select('id, contenido')
+    .in('id', ids);
+  if (error) throw error;
+
+  const contenidoPorId = new Map((data || []).map((row) => [Number(row.id), row.contenido || '']));
+  return (items || []).map((item) => {
+    const contenido = contenidoPorId.get(Number(item.id));
+    if (!contenido) return item;
+    return {
+      ...item,
+      snippet: construirSnippet({ resumen: contenido }, item.verified_terms?.length ? item.verified_terms : terminos, 520),
+    };
+  });
+}
+
 async function buscarAlertasRelacionadasMIA(supabase, {
   texto,
   limit = 5,
@@ -922,7 +982,7 @@ async function buscarAlertasRelacionadasMIA(supabase, {
   const semanticItems = (semanticResult.items || [])
     .filter((alerta) => cumpleFiltrosObjetivosAlertaMIA(alerta, filtros, regiones));
 
-  const items = combinarYRankearAlertasMIA({
+  const rankedItems = combinarYRankearAlertasMIA({
     lexicalItems,
     semanticItems: [
       ...semanticItems,
@@ -931,6 +991,7 @@ async function buscarAlertasRelacionadasMIA(supabase, {
     contexto,
     limit,
   });
+  const items = await hidratarExtractosContenidoMIA(supabase, rankedItems, terminos);
 
   return {
     terminos,
