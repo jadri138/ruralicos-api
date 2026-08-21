@@ -53,7 +53,7 @@ function esMensajeTrivialMIA(texto) {
   if (esRespuestaCortaDeFeedbackMIA(limpio)) return false;
   if (limpio.length < 4) return true;
   const trivial = limpio.replace(/[,;:]+/g, ' ').replace(/\s+/g, ' ').trim();
-  return /^(hola|buen[ao]s(?: dias| tardes| noches)?|ok|vale|gracias|muchas gracias|si|no|perfecto|recibido|ok gracias|vale gracias|perfecto gracias|muy bien(?: gracias)?|de acuerdo(?: gracias)?)[\s.!?]*$/.test(trivial);
+  return /^(hola|buen[ao]s(?: dias| tardes| noches)?|ok|vale|gracias|muchas gracias|si|no|bien(?: gracias)?|correcto|esta bien|me gusta|perfecto|recibido|ok gracias|vale gracias|perfecto gracias|muy bien(?: gracias)?|de acuerdo(?: gracias)?)[\s.!?]*$/.test(trivial);
 }
 
 function parecePreguntaMIA(texto) {
@@ -75,14 +75,37 @@ function parecePreferenciaExplicitaMIA(texto) {
   return futura || exclusion || condicion;
 }
 
-function interpretarValoracionGlobalDigestMIA(texto) {
+function interpretarValoracionGlobalDigestMIA(texto, { totalItems = null } = {}) {
   const limpio = normalizarTexto(texto)
-    .replace(/[,;:]+/g, ' ')
+    .replace(/[.,;:!?¿¡]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
   if (/^(muy bien(?: gracias)?|interesantes?|utiles?|genial)$/.test(limpio)) return 1;
   if (/^(flojas?|mal|poco utiles?|no me sirven|ninguna me sirve)$/.test(limpio)) return -1;
+  if (Number(totalItems) === 1 && /^(bien(?: gracias)?|correcto|esta bien|me gusta)$/.test(limpio)) return 1;
+  if (Number(totalItems) === 1 && /^(no me gusta|no me interesa|esto no me interesa|incorrecto)$/.test(limpio)) return -1;
   return null;
+}
+
+function esSolicitudExplicacionDigestMIA(texto) {
+  const limpio = normalizarTexto(texto)
+    .replace(/[.,;:!?¿¡]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!limpio || limpio.split(/\s+/).length > 14) return false;
+
+  return /\b(explicame|explicalo|me explicas|puedes explicarme|puedes explicarlo|podrias explicarme|podrias explicarlo|de que va|de que trata|que significa (?:esto|esta alerta|este mensaje)|que es esto|cuentame mas|dame mas informacion)\b/.test(limpio);
+}
+
+function construirRespuestaExplicacionDigestMIA(alerta = {}) {
+  const titulo = String(alerta.titulo || '').replace(/\s+/g, ' ').trim();
+  const resumen = String(alerta.resumen_final || alerta.resumen || '').replace(/\s+/g, ' ').trim();
+  if (!titulo && !resumen) return '';
+  if (!titulo) return resumen;
+  if (!resumen || normalizarTexto(resumen) === normalizarTexto(titulo)) {
+    return `Esta alerta trata sobre: ${titulo}`;
+  }
+  return `Esta alerta trata sobre: ${titulo}\n\n${resumen}`;
 }
 
 function memoriaDemostradaPorMensaje(memory = {}, texto = '') {
@@ -418,11 +441,46 @@ async function decidirMensajeMIA({ mensajeUsuario, usuario, conversacionActiva, 
     }), { digest, alertasDelDigest });
   }
 
-  const valoracionGlobal = digest && (alertasDelDigest || []).length > 0
-    ? interpretarValoracionGlobalDigestMIA(mensajeUsuario)
+  const alertasDigest = Array.isArray(alertasDelDigest) ? alertasDelDigest : [];
+  if (digest && alertasDigest.length === 1 && esSolicitudExplicacionDigestMIA(mensajeUsuario)) {
+    const alerta = alertasDigest[0];
+    const respuesta = construirRespuestaExplicacionDigestMIA(alerta);
+    if (respuesta) {
+      const decision = normalizarDecision({
+        intent: 'pregunta_usuario',
+        confidence: 0.99,
+        reply_action: { canal: 'whatsapp', texto: respuesta },
+        risk_flags: ['answered_from_digest_context'],
+        summary: 'Pregunta explicativa resuelta desde la alerta vinculada al digest.',
+        legacy_interpretacion: {
+          feedbacks: [],
+          memoria: [],
+          requiere_respuesta: true,
+          respuesta,
+          intencion: 'pregunta',
+          resumen_para_log: 'Explicacion directa de la alerta vinculada',
+        },
+      });
+      return aplicarContratoAcciones({
+        ...decision,
+        knowledge_context: {
+          answered: true,
+          needs_agent: false,
+          evidence_level: 'alta',
+          tipo_pregunta: 'explicacion_digest',
+          answer_source: 'digest_context',
+          digest_id: digest.id || null,
+          matches: [{ id: alerta.id || null, titulo: alerta.titulo || null }],
+        },
+      }, { digest, alertasDelDigest: alertasDigest });
+    }
+  }
+
+  const valoracionGlobal = digest && alertasDigest.length > 0
+    ? interpretarValoracionGlobalDigestMIA(mensajeUsuario, { totalItems: alertasDigest.length })
     : null;
   if (valoracionGlobal !== null) {
-    const feedbackActions = alertasDelDigest.map((_alerta, index) => ({
+    const feedbackActions = alertasDigest.map((_alerta, index) => ({
       item_numero: index + 1,
       valor: valoracionGlobal,
       confianza: 'media',
@@ -445,7 +503,7 @@ async function decidirMensajeMIA({ mensajeUsuario, usuario, conversacionActiva, 
         intencion: 'feedback',
         resumen_para_log: 'Valoracion global interpretada localmente',
       },
-    }), { digest, alertasDelDigest });
+    }), { digest, alertasDelDigest: alertasDigest });
   }
 
   if (esRespuestaOrigenCaptacionMIA(mensajeUsuario)) {
@@ -510,4 +568,6 @@ module.exports = {
   parecePreguntaMIA,
   parecePreferenciaExplicitaMIA,
   interpretarValoracionGlobalDigestMIA,
+  esSolicitudExplicacionDigestMIA,
+  construirRespuestaExplicacionDigestMIA,
 };

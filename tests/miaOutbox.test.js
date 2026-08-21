@@ -87,6 +87,7 @@ console.log('\n=== TESTS: mia outbox ===\n');
     userId: 141,
     inboundId: 72,
     decisionId: 9,
+    digestId: 88,
     toPhone: '34644899647',
     organizationId: 12,
     decision: {
@@ -104,6 +105,8 @@ console.log('\n=== TESTS: mia outbox ===\n');
   assert(outbox.idempotency_key && outbox.message_version, 'Sella idempotencia y version del mensaje');
   assert(outbox.to_phone === '34644899647', 'Conserva telefono destino');
   assert(outbox.organization_id === 12, 'Propaga organization_id al outbox');
+  assert(outbox.digest_id === 88, 'Propaga digest_id al outbox de respuesta');
+  assert(outbox.metadata_json.digest_id === 88, 'Conserva digest_id tambien en metadata');
   assert(outbox.body.startsWith('*Ruralicos · MIA*'), 'Aplica cabecera breve de marca y asistente');
   assert(!outbox.body.includes('_Respuesta autom'), 'Evita descargos genericos repetitivos');
   assert(outbox.body.includes('fecha clara'), 'Conserva cuerpo de respuesta');

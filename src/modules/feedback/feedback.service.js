@@ -357,6 +357,26 @@ function construirConsultaContextualMIA(texto, mensajesRecientes = []) {
   };
 }
 
+function debeCerrarConversacionMIA({
+  conversacionActiva = null,
+  conversacionAgente = null,
+  decision = {},
+  outbox = null,
+} = {}) {
+  if (!conversacionActiva?.id) return false;
+  if (
+    conversacionAgente?.id &&
+    Number(conversacionActiva.id) === Number(conversacionAgente.id)
+  ) {
+    return false;
+  }
+
+  const shouldReply = decision.policy?.should_reply ?? Boolean(decision.reply_action?.texto);
+  if (shouldReply && !outbox?.id) return false;
+  if (decision.policy?.requires_agent && !conversacionAgente?.id) return false;
+  return true;
+}
+
 async function cargarContextoRecienteMIA(supabase, userId, options = {}) {
   const now = options.now instanceof Date ? options.now : new Date(options.now || Date.now());
   if (Number.isNaN(now.getTime())) return [];
@@ -432,6 +452,7 @@ module.exports = {
   cargarUltimoDigestEntregadoReciente,
   cargarContextoRecienteMIA,
   construirConsultaContextualMIA,
+  debeCerrarConversacionMIA,
   esSeguimientoConversacionalCorto,
   extraerItemsReferenciadosInequivocamente,
   candidatosTelefonoUsuario,

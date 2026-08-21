@@ -12,6 +12,7 @@ const {
   extraerItemsReferenciadosInequivocamente,
   cargarContextoRecienteMIA,
   construirConsultaContextualMIA,
+  debeCerrarConversacionMIA,
 } = __testing;
 
 let passed = 0;
@@ -160,6 +161,32 @@ assert(
     texto: 'Sabes cuando pagan?', intent: 'pregunta_usuario',
   }]).usada === false,
   'No arrastra contexto a una preferencia nueva'
+);
+
+assert(
+  debeCerrarConversacionMIA({
+    conversacionActiva: { id: 20 },
+    decision: { policy: { should_reply: true, requires_agent: false } },
+    outbox: { id: null },
+  }) === false,
+  'No cierra una conversación que debía responder pero no pudo encolar respuesta'
+);
+assert(
+  debeCerrarConversacionMIA({
+    conversacionActiva: { id: 20 },
+    decision: { policy: { should_reply: true, requires_agent: false } },
+    outbox: { id: 90 },
+  }) === true,
+  'Puede cerrar una conversación cuando la respuesta ya quedó encolada'
+);
+assert(
+  debeCerrarConversacionMIA({
+    conversacionActiva: { id: 20 },
+    decision: { policy: { should_reply: true, requires_agent: true } },
+    conversacionAgente: { id: null },
+    outbox: { id: 90 },
+  }) === false,
+  'No cierra una consulta que requiere agente si el seguimiento no pudo abrirse'
 );
 
 (async () => {

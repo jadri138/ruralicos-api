@@ -1,5 +1,7 @@
 const { extraerFeaturesAlerta } = require('./alertFeatures');
 
+const MAX_CLICK_PROFILE_TAGS = 3;
+
 function norm(str) {
   return String(str || '')
     .normalize('NFD')
@@ -79,6 +81,36 @@ function calcularAjusteClickTag(tag = '') {
   if (/^(concepto|subsector|tramite|entidad):/.test(normalizedTag)) return 0.12;
   if (/^tipo:/.test(normalizedTag)) return 0.06;
   return 0;
+}
+
+function prioridadTagClick(tag = '') {
+  const normalizedTag = norm(tag);
+  if (normalizedTag.startsWith('concepto:')) return 0;
+  if (normalizedTag.startsWith('tramite:')) return 1;
+  if (normalizedTag.startsWith('entidad:')) return 2;
+  if (normalizedTag.startsWith('subsector:')) return 3;
+  if (normalizedTag.startsWith('tipo:')) return 4;
+  return 9;
+}
+
+function seleccionarTagsClick(alerta = {}, limit = MAX_CLICK_PROFILE_TAGS) {
+  const textoVisible = [alerta.titulo, alerta.resumen_final, alerta.resumen]
+    .filter(Boolean)
+    .join(' ');
+  if (!textoVisible.trim()) return [];
+
+  const featuresVisibles = extraerFeaturesAlerta({
+    titulo: alerta.titulo,
+    resumen_final: alerta.resumen_final,
+    resumen: alerta.resumen,
+  });
+  const tagsExplicitosVisibles = tagsAlerta(alerta)
+    .filter((tag) => calcularAjusteClickTag(tag) && textoMencionaTag(tag, textoVisible));
+
+  return [...new Set([...featuresVisibles, ...tagsExplicitosVisibles])]
+    .filter((tag) => calcularAjusteClickTag(tag))
+    .sort((a, b) => prioridadTagClick(a) - prioridadTagClick(b))
+    .slice(0, Math.max(0, Number(limit) || MAX_CLICK_PROFILE_TAGS));
 }
 
 function limitarScore(score = 0) {
@@ -178,7 +210,7 @@ async function aplicarFeedbackAlPerfil(supabase, { userId, alerta, delta, rawTex
 }
 
 async function aplicarClickAlPerfil(supabase, { userId, alerta }) {
-  const tags = tagsAlerta(alerta);
+  const tags = seleccionarTagsClick(alerta);
   if (!userId || tags.length === 0) return { updated: 0 };
 
   const ajustes = tags
@@ -197,6 +229,8 @@ module.exports = {
   aplicarClickAlPerfil,
   calcularAjusteFeedbackTag,
   calcularAjusteClickTag,
+  seleccionarTagsClick,
+  MAX_CLICK_PROFILE_TAGS,
   esTagPositivoAtribuible,
   esRechazoGlobalFeedback,
   construirPerfilIntereses,

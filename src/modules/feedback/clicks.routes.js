@@ -51,7 +51,7 @@ async function guardarMemoriaClickSiPrimero(supabase, link) {
 
   const { data: alerta, error: alertaError } = await supabase
     .from('alertas')
-    .select('titulo, provincias, sectores, subsectores, tipos_alerta, taxonomy_tags, contenido, resumen_final')
+    .select('titulo, provincias, sectores, subsectores, tipos_alerta, taxonomy_tags, contenido, resumen, resumen_final')
     .eq('id', link.alerta_id)
     .maybeSingle();
 

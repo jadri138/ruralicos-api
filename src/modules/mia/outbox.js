@@ -208,6 +208,7 @@ function construirOutboxDesdeDecision({
   decision = {},
   inboundId = null,
   decisionId = null,
+  digestId = null,
   userId,
   toPhone,
   organizationId = null,
@@ -246,10 +247,12 @@ function construirOutboxDesdeDecision({
     messageVersion,
     fallback: `${userId || ''}|${formatted.text}`,
   });
+  const normalizedDigestId = normalizarDigestId(digestId);
 
   return conOrganizationId({
     decision_id: decisionId,
     inbound_id: inboundId,
+    ...(normalizedDigestId ? { digest_id: normalizedDigestId } : {}),
     user_id: userId,
     channel: 'whatsapp',
     to_phone: toPhone,
@@ -261,6 +264,7 @@ function construirOutboxDesdeDecision({
     attempts: 0,
     next_attempt_at: new Date().toISOString(),
     metadata_json: {
+      digest_id: normalizedDigestId,
       intent: decision.intent || null,
       confidence: decision.confidence ?? null,
       decision_version: decision.version || null,

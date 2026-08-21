@@ -62,6 +62,7 @@ const {
   cargarUltimoDigestEntregadoReciente,
   cargarContextoRecienteMIA,
   construirConsultaContextualMIA,
+  debeCerrarConversacionMIA,
   extraerItemsReferenciadosInequivocamente,
   buscarUsuarioPorTelefonoEntrante,
 } = require('./feedback.service');
@@ -387,7 +388,9 @@ function feedbackRoutes(app, supabase) {
         };
       }
 
-      if (['pregunta_usuario', 'unknown'].includes(decisionMIA.intent)) {
+      const respondidaDesdeDigest = decisionMIA.knowledge_context?.answer_source === 'digest_context'
+        && decisionMIA.knowledge_context?.answered === true;
+      if (['pregunta_usuario', 'unknown'].includes(decisionMIA.intent) && !respondidaDesdeDigest) {
         try {
           const respuestaConocimiento = await resolverPreguntaConBaseConocimientoMIA(supabase, {
             texto: consultaContextual.usada ? consultaContextual.texto : texto,
@@ -408,6 +411,8 @@ function feedbackRoutes(app, supabase) {
               answered: false,
               needs_agent: true,
               error: error.message,
+              digest_id: digest?.id || null,
+              linked_alert_ids: (alertasOrdenadas || []).map((alerta) => alerta.id).filter(Boolean),
             },
           };
         }
@@ -510,25 +515,11 @@ function feedbackRoutes(app, supabase) {
         },
       });
 
-      const mantenerConversacionConsulta =
-        conversacionActiva &&
-        conversacionAgente.id &&
-        Number(conversacionActiva.id) === Number(conversacionAgente.id);
-
-      if (conversacionActiva && !mantenerConversacionConsulta) {
-        await supabase
-          .from('user_conversations')
-          .update({
-            estado: 'resuelta',
-            cerrada_at: new Date().toISOString(),
-          })
-          .eq('id', conversacionActiva.id);
-      }
-
       const outboxMIA = await encolarRespuestaMIA(supabase, {
         decision: decisionMIA,
         inboundId: inboundMIA?.id || null,
         decisionId: decisionStore.decision_id || null,
+        digestId: digest?.id || null,
         userId: user.id,
         toPhone: telefono,
         organizationId,
@@ -546,6 +537,21 @@ function feedbackRoutes(app, supabase) {
         },
         errorMsg: outboxMIA.error || null,
       });
+
+      if (debeCerrarConversacionMIA({
+        conversacionActiva,
+        conversacionAgente,
+        decision: decisionMIA,
+        outbox: outboxMIA,
+      })) {
+        await supabase
+          .from('user_conversations')
+          .update({
+            estado: 'resuelta',
+            cerrada_at: new Date().toISOString(),
+          })
+          .eq('id', conversacionActiva.id);
+      }
 
       if (decisionMIA.reply_action?.canal === 'whatsapp' && decisionMIA.reply_action?.texto) {
         const textoRespuesta = outboxMIA.body || decisionMIA.reply_action.texto;
@@ -657,5 +663,6 @@ module.exports.__testing = {
   cargarUltimoDigestEntregadoReciente,
   cargarContextoRecienteMIA,
   construirConsultaContextualMIA,
+  debeCerrarConversacionMIA,
   extraerItemsReferenciadosInequivocamente,
 };

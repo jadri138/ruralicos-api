@@ -3,6 +3,7 @@ const assert = require('assert');
 const {
   aplicarClickAlPerfil,
   aplicarFeedbackAlPerfil,
+  MAX_CLICK_PROFILE_TAGS,
 } = require('../src/modules/aprendizaje/userInterestProfile');
 
 function fakeSupabase(existing = []) {
@@ -65,8 +66,21 @@ async function main() {
   assert.strictEqual(clickDb.calls.select, 1);
   assert.strictEqual(clickDb.calls.upsert, 1);
   assert(click.updated >= 1);
+  assert(click.updated <= MAX_CLICK_PROFILE_TAGS);
 
-  console.log('OK: feedback y clic actualizan todas las etiquetas en dos operaciones');
+  const clickGenericoDb = fakeSupabase();
+  const clickGenerico = await aplicarClickAlPerfil(clickGenericoDb, {
+    userId: 5,
+    alerta: {
+      titulo: 'Boletín oficial del día',
+      contenido: 'Incluye muchas disposiciones no relacionadas entre sí',
+      taxonomy_tags: Array.from({ length: 13 }, (_, index) => `concepto:tema_${index + 1}`),
+    },
+  });
+  assert.strictEqual(clickGenerico.updated, 0);
+  assert.strictEqual(clickGenericoDb.calls.upsert, 0);
+
+  console.log('OK: feedback actualiza el perfil y el clic solo aprende temas visibles y acotados');
 }
 
 main().catch((error) => {
