@@ -19,7 +19,11 @@ const {
 const { enviarDigestPro } = require('../../platform/whatsapp');
 const { extraerUltraMsg, esEventoMensajeUltraMsg } = require('../../shared/ultramsgParser');
 const { registrarInboundMIA, actualizarInboundMIA } = require('../mia/inbound');
-const { decidirMensajeMIA, esRespuestaOrigenCaptacionMIA } = require('../mia/decisionCore');
+const {
+  decidirMensajeMIA,
+  esRespuestaOrigenCaptacionMIA,
+  esReferenciaAlDigestMIA,
+} = require('../mia/decisionCore');
 
 const { registrarMemoriaEstructuradaMIA } = require('../mia/structuredMemory');
 const {
@@ -60,12 +64,19 @@ const {
   buscarConversacionActiva,
   cargarDigestYAlertas,
   cargarUltimoDigestEntregadoReciente,
+  cargarConversacionDigestMIA,
   cargarContextoRecienteMIA,
   construirConsultaContextualMIA,
   debeCerrarConversacionMIA,
   extraerItemsReferenciadosInequivocamente,
   buscarUsuarioPorTelefonoEntrante,
 } = require('./feedback.service');
+
+function debeConsultarBaseConocimientoMIA(decision = {}) {
+  if (!['pregunta_usuario', 'unknown'].includes(decision.intent)) return false;
+  const answerSource = String(decision.knowledge_context?.answer_source || '');
+  return decision.knowledge_context?.handled !== true && !answerSource.startsWith('digest_context');
+}
 
 function feedbackRoutes(app, supabase) {
   async function guardarWebhookEvent(req, result = null, error = null) {
@@ -354,10 +365,7 @@ function feedbackRoutes(app, supabase) {
 
       const perfilOperativoMIA = await cargarPerfilOperativoMIA(supabase, user.id, { user: userConOrganization });
       const usuarioMIA = aplicarPerfilOperativoAUsuario(userConOrganization, perfilOperativoMIA);
-      const [conversacionActiva, contextoReciente] = await Promise.all([
-        buscarConversacionActiva(supabase, user.id),
-        cargarContextoRecienteMIA(supabase, user.id),
-      ]);
+      const conversacionActiva = await buscarConversacionActiva(supabase, user.id);
       const { digest, alertasOrdenadas, lateAssociation } = await cargarDigestYAlertas(
         supabase,
         user.id,
@@ -365,6 +373,15 @@ function feedbackRoutes(app, supabase) {
         organizationId,
         { mensajeUsuario: texto }
       );
+      let contextoReciente = digest?.id
+        ? await cargarConversacionDigestMIA(supabase, {
+          userId: user.id,
+          digestId: digest.id,
+        })
+        : [];
+      if (contextoReciente.length === 0) {
+        contextoReciente = await cargarContextoRecienteMIA(supabase, user.id);
+      }
 
       let decisionMIA = await decidirMensajeMIA({
         mensajeUsuario: texto,
@@ -387,10 +404,33 @@ function feedbackRoutes(app, supabase) {
           risk_flags: [...new Set([...(decisionMIA.risk_flags || []), 'recent_context_used'])],
         };
       }
+      const seguimientoDelDigest = Boolean(digest?.id && alertasOrdenadas.length > 0) && (
+        esReferenciaAlDigestMIA(texto, contextoReciente) || consultaContextual.usada
+      );
+      if (
+        seguimientoDelDigest &&
+        ['pregunta_usuario', 'unknown'].includes(decisionMIA.intent) &&
+        decisionMIA.knowledge_context?.handled !== true
+      ) {
+        decisionMIA = {
+          ...decisionMIA,
+          knowledge_context: {
+            handled: true,
+            answered: Boolean(decisionMIA.reply_action?.texto),
+            needs_agent: !decisionMIA.reply_action?.texto,
+            evidence_level: 'media',
+            tipo_pregunta: 'seguimiento_digest',
+            answer_source: 'digest_context_conversation',
+            digest_id: digest.id,
+            matches: alertasOrdenadas.map((alerta) => ({
+              id: alerta.id || null,
+              titulo: alerta.titulo || null,
+            })),
+          },
+        };
+      }
 
-      const respondidaDesdeDigest = decisionMIA.knowledge_context?.answer_source === 'digest_context'
-        && decisionMIA.knowledge_context?.answered === true;
-      if (['pregunta_usuario', 'unknown'].includes(decisionMIA.intent) && !respondidaDesdeDigest) {
+      if (debeConsultarBaseConocimientoMIA(decisionMIA)) {
         try {
           const respuestaConocimiento = await resolverPreguntaConBaseConocimientoMIA(supabase, {
             texto: consultaContextual.usada ? consultaContextual.texto : texto,
@@ -661,8 +701,10 @@ module.exports.__testing = {
   fechaMadridConversacionMIA,
   getExpiracionFinDiaMadridISO,
   cargarUltimoDigestEntregadoReciente,
+  cargarConversacionDigestMIA,
   cargarContextoRecienteMIA,
   construirConsultaContextualMIA,
   debeCerrarConversacionMIA,
+  debeConsultarBaseConocimientoMIA,
   extraerItemsReferenciadosInequivocamente,
 };

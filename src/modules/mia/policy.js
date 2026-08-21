@@ -122,7 +122,8 @@ function tieneContextoOperativoMIA({
   const feedbackShort = esFeedbackCorto(texto);
   const hasFeedback = (decision.feedback_actions || []).length > 0;
   const hasLinkedDigest = Boolean(digest && (alertasDelDigest || []).length > 0);
-  const answeredFromDigest = decision.knowledge_context?.answer_source === 'digest_context';
+  const answeredFromDigest = String(decision.knowledge_context?.answer_source || '')
+    .startsWith('digest_context');
   const lookupFailedWithDigest = (decision.risk_flags || []).includes('knowledge_lookup_failed')
     && decision.intent === 'pregunta_usuario';
 
@@ -375,7 +376,28 @@ function evaluarPoliticaDecisionMIA({
       return aplicarSilencioFueraDeDominio(next, riskFlags, decision, 'off_topic_question');
     }
 
-    if (knowledge.answer_source === 'digest_context' && knowledge.answered && hasReply) {
+    if (knowledge.answer_source === 'digest_context_clarification' && hasReply) {
+      const policy = construirPolicy({
+        outcome: 'ask_clarification',
+        reasons: ['linked_digest_ambiguous'],
+        requiresAgent: false,
+        shouldReply: true,
+        shouldStoreMemory: false,
+        shouldFeedback: false,
+        confidence: decision.confidence,
+      });
+      riskFlags = removeFlags(riskFlags, ['digest_missing', 'digest_without_items', 'low_confidence']);
+      return aplicarPolicy(next, policy, {
+        riskFlags: unique([...riskFlags, 'policy_clarification_requested']),
+        autoAnswered: true,
+      });
+    }
+
+    if (
+      String(knowledge.answer_source || '').startsWith('digest_context') &&
+      knowledge.answered &&
+      hasReply
+    ) {
       const policy = construirPolicy({
         outcome: 'auto_answer',
         reasons: ['linked_digest_answer'],

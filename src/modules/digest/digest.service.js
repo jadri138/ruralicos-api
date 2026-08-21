@@ -50,7 +50,7 @@ const {
   filtrarAlertasParaDigest,
   seleccionarAlertasParaDigest,
 } = require('../alertas/seleccion/alertSelectionGate');
-const { getFechaMadridISO, getRangoDiaMadridUTC } = require('../../shared/fechaMadrid');
+const { getFechaMadridISO } = require('../../shared/fechaMadrid');
 const { leerPerfilIntereses, ordenarAlertasPorPerfil, clasificarPrioridadAlerta, pesoPrioridad } = require('../aprendizaje');
 const { similitudCoseno }          = require('../../platform/ia/embeddings');
 
@@ -118,6 +118,7 @@ const DIGEST_MAX_ALERTAS_USUARIO = numeroConfig(
 // del usuario. Poner DIGEST_RESCUE_ENABLED=false para desactivarlo.
 const DIGEST_RESCUE_ENABLED = (process.env.DIGEST_RESCUE_ENABLED || 'true').toLowerCase() === 'true';
 const DIGEST_RESCUE_AFTER_DAYS = numeroConfig('DIGEST_RESCUE_AFTER_DAYS', 7, 1, 30);
+const DIGEST_CONVERSATION_MAX_DAYS = 8;
 const DIGEST_RESCUE_LOOKBACK_DAYS = numeroConfig('DIGEST_RESCUE_LOOKBACK_DAYS', 7, 1, 30);
 const DIGEST_RESCUE_MAX_ALERTAS = numeroConfig('DIGEST_RESCUE_MAX_ALERTAS', 2, 0, 5);
 const DIGEST_RESCUE_MESSAGE_MAX_CHARS = numeroConfig('DIGEST_RESCUE_MESSAGE_MAX_CHARS', 1300, 800, 2200);
@@ -2855,7 +2856,11 @@ async function abrirConversacionFeedbackDigest(supabase, {
         fecha,
       },
       digest_id: digestId,
-      expira_at: getRangoDiaMadridUTC(fecha || getFechaMadridISO(now)).fin,
+      // La sesion la cierra el siguiente digest. El limite evita dejarla activa
+      // indefinidamente si un usuario deja de recibir digests durante semanas.
+      expira_at: new Date(
+        now.getTime() + DIGEST_CONVERSATION_MAX_DAYS * 24 * 60 * 60 * 1000
+      ).toISOString(),
     }, organizationId));
 
   if (insertarError) throw insertarError;

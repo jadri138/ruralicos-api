@@ -97,15 +97,244 @@ function esSolicitudExplicacionDigestMIA(texto) {
   return /\b(explicame|explicalo|me explicas|puedes explicarme|puedes explicarlo|podrias explicarme|podrias explicarlo|de que va|de que trata|que significa (?:esto|esta alerta|este mensaje)|que es esto|cuentame mas|dame mas informacion)\b/.test(limpio);
 }
 
+function extraerResumenVisibleAlertaDigestMIA(alerta = {}) {
+  const resumenFinal = String(alerta.resumen_final || '').trim();
+  const resumenDigest = resumenFinal.match(/(?:^|\n)\s*RESUMEN_DIGEST:\s*([^\n]+)/i)?.[1] || '';
+  const candidato = resumenDigest || (
+    /(?:^|\n)\s*FICHA_IA\s*(?:\n|$)/i.test(resumenFinal)
+      ? String(alerta.resumen || '')
+      : resumenFinal
+  ) || String(alerta.resumen || '');
+  const limpio = String(candidato).replace(/\s+/g, ' ').trim();
+  return normalizarTexto(limpio) === 'no_detectado' ? '' : limpio;
+}
+
 function construirRespuestaExplicacionDigestMIA(alerta = {}) {
   const titulo = String(alerta.titulo || '').replace(/\s+/g, ' ').trim();
-  const resumen = String(alerta.resumen_final || alerta.resumen || '').replace(/\s+/g, ' ').trim();
+  const resumen = extraerResumenVisibleAlertaDigestMIA(alerta);
   if (!titulo && !resumen) return '';
   if (!titulo) return resumen;
   if (!resumen || normalizarTexto(resumen) === normalizarTexto(titulo)) {
     return `Esta alerta trata sobre: ${titulo}`;
   }
   return `Esta alerta trata sobre: ${titulo}\n\n${resumen}`;
+}
+
+function construirRespuestaListadoDigestMIA(alertas = [], introduccion = 'Hoy te envie estas alertas:') {
+  const alertasDigest = Array.isArray(alertas) ? alertas : [];
+  const maxDetalle = Math.max(60, Math.min(240, Math.floor(620 / Math.max(1, alertasDigest.length))));
+  const lineas = alertasDigest.map((alerta, index) => {
+    const titulo = String(alerta?.titulo || '').replace(/\s+/g, ' ').trim();
+    const resumen = extraerResumenVisibleAlertaDigestMIA(alerta);
+    const detalle = resumen && normalizarTexto(resumen) !== normalizarTexto(titulo)
+      ? `${titulo || 'Alerta'}: ${resumen}`
+      : (titulo || resumen || 'Alerta sin detalle');
+    return `${index + 1}. ${detalle.slice(0, maxDetalle)}`;
+  });
+  return `${introduccion}\n${lineas.join('\n')}\n\nDime el numero o el tema si quieres que amplie una.`;
+}
+
+const TERMINOS_GENERICOS_REFERENCIA_DIGEST = new Set([
+  'alerta', 'aviso', 'anuncio', 'publicacion', 'mensaje', 'digest', 'resumen',
+  'este', 'esta', 'esto', 'ese', 'esa', 'hoy', 'ayer', 'mandado', 'mandaste',
+  'enviado', 'enviaste', 'recibido', 'explica', 'explicame', 'dime', 'saber',
+  'trata', 'informacion', 'quiero', 'puedes', 'podrias', 'sobre', 'para', 'como',
+  'cuando', 'donde', 'cual', 'cuanto', 'porque', 'tiene', 'hacer', 'hecho',
+]);
+
+function normalizarTokenDigest(token) {
+  let limpio = normalizarTexto(token).replace(/[^a-z0-9]/g, '');
+  if (limpio.length > 6 && limpio.endsWith('es')) limpio = limpio.slice(0, -2);
+  else if (limpio.length > 5 && limpio.endsWith('s')) limpio = limpio.slice(0, -1);
+  return limpio;
+}
+
+function tokenizarReferenciaDigest(texto) {
+  return [...new Set(normalizarTexto(texto)
+    .split(/[^a-z0-9]+/)
+    .map(normalizarTokenDigest)
+    .filter((token) => token.length >= 4 && !TERMINOS_GENERICOS_REFERENCIA_DIGEST.has(token)))];
+}
+
+function extraerItemExplicitoDigestMIA(texto, totalItems) {
+  const limpio = normalizarTexto(texto).replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+  const numero = limpio.match(/^(?:el|la)?\s*(\d{1,2})$/)?.[1]
+    || limpio.match(/\b(?:alerta|aviso|item|numero)\s*(\d{1,2})\b/)?.[1];
+  const indice = Number(numero);
+  if (Number.isInteger(indice) && indice >= 1 && indice <= totalItems) return indice - 1;
+
+  const ordinales = [
+    ['primer', 'primero', 'primera'],
+    ['segundo', 'segunda'],
+    ['tercero', 'tercera'],
+    ['cuarto', 'cuarta'],
+    ['quinto', 'quinta'],
+  ];
+  const ordinalIndex = ordinales.findIndex((grupo) => grupo.some((ordinal) => (
+    new RegExp(`\\b${ordinal}\\b`).test(limpio)
+  )));
+  return ordinalIndex >= 0 && ordinalIndex < totalItems ? ordinalIndex : null;
+}
+
+function buscarAlertaReferenciadaDigestMIA(texto, alertas = []) {
+  const alertasDigest = Array.isArray(alertas) ? alertas : [];
+  const indiceExplicito = extraerItemExplicitoDigestMIA(texto, alertasDigest.length);
+  if (indiceExplicito !== null) return { index: indiceExplicito, reason: 'explicit_item' };
+
+  const tokensConsulta = tokenizarReferenciaDigest(texto);
+  if (tokensConsulta.length === 0) return null;
+  const tokensAlertas = alertasDigest.map((alerta) => new Set(tokenizarReferenciaDigest([
+    alerta?.titulo,
+    extraerResumenVisibleAlertaDigestMIA(alerta),
+    ...(alerta?.sectores || []),
+    ...(alerta?.subsectores || []),
+    ...(alerta?.tipos_alerta || []),
+  ].filter(Boolean).join(' '))));
+  const frecuencia = new Map(tokensConsulta.map((token) => [
+    token,
+    tokensAlertas.filter((tokens) => tokens.has(token)).length,
+  ]));
+  const scores = tokensAlertas.map((tokens) => tokensConsulta.reduce((score, token) => (
+    score + (frecuencia.get(token) === 1 && tokens.has(token) ? 1 : 0)
+  ), 0));
+  const mejorScore = Math.max(0, ...scores);
+  if (mejorScore === 0 || scores.filter((score) => score === mejorScore).length !== 1) return null;
+  return { index: scores.indexOf(mejorScore), reason: 'unique_terms', score: mejorScore };
+}
+
+function pareceFeedbackSobreDigestMIA(texto) {
+  const limpio = normalizarTexto(texto);
+  return /\b(me interesa|no me interesa|me gusta|no me gusta|ninguna|ninguno|ambas|todos|todas)\b/.test(limpio)
+    || /^[+-]?\s*\d{1,2}\s*[+-]?$/.test(limpio);
+}
+
+function esReferenciaAlDigestMIA(texto, contextoReciente = []) {
+  if (pareceFeedbackSobreDigestMIA(texto)) return false;
+  if (esSolicitudExplicacionDigestMIA(texto)) return true;
+
+  const limpio = normalizarTexto(texto);
+  const mencionaContenido = /\b(alerta|alertas|aviso|avisos|anuncio|anuncios|mensaje|digest|resumen|curso|ayuda|publicacion)\b/.test(limpio);
+  const mencionaEnvio = /\b(hoy|ayer|mandado|mandaste|mandasteis|enviado|enviaste|enviasteis|recibido|primero|primera|segundo|segunda|tercero|tercera|este|esta|ese|esa)\b/.test(limpio);
+  if (mencionaContenido && mencionaEnvio) return true;
+
+  const ultimaRespuesta = (Array.isArray(contextoReciente) ? contextoReciente : [])
+    .filter((item) => item?.direccion === 'ruralicos' && String(item.texto || '').trim())
+    .at(-1);
+  const esperabaEleccion = /\b(te refieres|dime el numero|dime el tema|cual de|alerta|curso|ayuda)\b/.test(
+    normalizarTexto(ultimaRespuesta?.texto)
+  );
+  return esperabaEleccion && /^(?:el|la)\s+de\b|^(?:ese|esa|este|esta)\b/.test(limpio);
+}
+
+function construirDecisionContextoDigestMIA({
+  digest,
+  alertas,
+  respuesta,
+  answerSource,
+  answered,
+  matches,
+  summary,
+}) {
+  const decision = normalizarDecision({
+    intent: 'pregunta_usuario',
+    confidence: answered ? 0.99 : 0.9,
+    reply_action: { canal: 'whatsapp', texto: respuesta },
+    risk_flags: answered ? ['answered_from_digest_context'] : [],
+    summary,
+    legacy_interpretacion: {
+      feedbacks: [],
+      memoria: [],
+      requiere_respuesta: true,
+      respuesta,
+      intencion: 'pregunta',
+      resumen_para_log: summary,
+    },
+  });
+  return aplicarContratoAcciones({
+    ...decision,
+    knowledge_context: {
+      handled: true,
+      answered,
+      needs_agent: false,
+      evidence_level: 'alta',
+      tipo_pregunta: answered ? 'explicacion_digest' : 'aclaracion_digest',
+      answer_source: answerSource,
+      digest_id: digest?.id || null,
+      matches: (matches || []).map((alerta) => ({
+        id: alerta?.id || null,
+        titulo: alerta?.titulo || null,
+      })),
+    },
+  }, { digest, alertasDelDigest: alertas });
+}
+
+function resolverConsultaDesdeDigestMIA({ texto, digest, alertas = [], contextoReciente = [] }) {
+  const alertasDigest = Array.isArray(alertas) ? alertas : [];
+  if (!digest || alertasDigest.length === 0 || pareceFeedbackSobreDigestMIA(texto)) return null;
+
+  const explicacion = esSolicitudExplicacionDigestMIA(texto);
+  const referencia = esReferenciaAlDigestMIA(texto, contextoReciente);
+  if (!explicacion && !referencia) return null;
+
+  const coincidencia = buscarAlertaReferenciadaDigestMIA(texto, alertasDigest);
+  if (coincidencia) {
+    const alerta = alertasDigest[coincidencia.index];
+    const respuesta = construirRespuestaExplicacionDigestMIA(alerta);
+    if (!respuesta) return null;
+    return construirDecisionContextoDigestMIA({
+      digest,
+      alertas: alertasDigest,
+      respuesta,
+      answerSource: 'digest_context',
+      answered: true,
+      matches: [alerta],
+      summary: 'Pregunta resuelta desde una alerta concreta del digest.',
+    });
+  }
+
+  if (explicacion) {
+    const respuesta = alertasDigest.length === 1
+      ? construirRespuestaExplicacionDigestMIA(alertasDigest[0])
+      : construirRespuestaListadoDigestMIA(alertasDigest);
+    if (!respuesta) return null;
+    return construirDecisionContextoDigestMIA({
+      digest,
+      alertas: alertasDigest,
+      respuesta,
+      answerSource: 'digest_context',
+      answered: true,
+      matches: alertasDigest,
+      summary: 'Pregunta general resuelta con el contenido completo del digest.',
+    });
+  }
+
+  if (alertasDigest.length === 1) {
+    const respuesta = construirRespuestaExplicacionDigestMIA(alertasDigest[0]);
+    if (!respuesta) return null;
+    return construirDecisionContextoDigestMIA({
+      digest,
+      alertas: alertasDigest,
+      respuesta,
+      answerSource: 'digest_context',
+      answered: true,
+      matches: alertasDigest,
+      summary: 'Referencia al unico item resuelta desde el digest.',
+    });
+  }
+
+  const respuesta = construirRespuestaListadoDigestMIA(
+    alertasDigest,
+    'No se a cual de las alertas te refieres:'
+  );
+  return construirDecisionContextoDigestMIA({
+    digest,
+    alertas: alertasDigest,
+    respuesta,
+    answerSource: 'digest_context_clarification',
+    answered: false,
+    matches: alertasDigest,
+    summary: 'Referencia ambigua al digest; se pide elegir alerta.',
+  });
 }
 
 function memoriaDemostradaPorMensaje(memory = {}, texto = '') {
@@ -442,39 +671,13 @@ async function decidirMensajeMIA({ mensajeUsuario, usuario, conversacionActiva, 
   }
 
   const alertasDigest = Array.isArray(alertasDelDigest) ? alertasDelDigest : [];
-  if (digest && alertasDigest.length === 1 && esSolicitudExplicacionDigestMIA(mensajeUsuario)) {
-    const alerta = alertasDigest[0];
-    const respuesta = construirRespuestaExplicacionDigestMIA(alerta);
-    if (respuesta) {
-      const decision = normalizarDecision({
-        intent: 'pregunta_usuario',
-        confidence: 0.99,
-        reply_action: { canal: 'whatsapp', texto: respuesta },
-        risk_flags: ['answered_from_digest_context'],
-        summary: 'Pregunta explicativa resuelta desde la alerta vinculada al digest.',
-        legacy_interpretacion: {
-          feedbacks: [],
-          memoria: [],
-          requiere_respuesta: true,
-          respuesta,
-          intencion: 'pregunta',
-          resumen_para_log: 'Explicacion directa de la alerta vinculada',
-        },
-      });
-      return aplicarContratoAcciones({
-        ...decision,
-        knowledge_context: {
-          answered: true,
-          needs_agent: false,
-          evidence_level: 'alta',
-          tipo_pregunta: 'explicacion_digest',
-          answer_source: 'digest_context',
-          digest_id: digest.id || null,
-          matches: [{ id: alerta.id || null, titulo: alerta.titulo || null }],
-        },
-      }, { digest, alertasDelDigest: alertasDigest });
-    }
-  }
+  const decisionDesdeDigest = resolverConsultaDesdeDigestMIA({
+    texto: mensajeUsuario,
+    digest,
+    alertas: alertasDigest,
+    contextoReciente,
+  });
+  if (decisionDesdeDigest) return decisionDesdeDigest;
 
   const valoracionGlobal = digest && alertasDigest.length > 0
     ? interpretarValoracionGlobalDigestMIA(mensajeUsuario, { totalItems: alertasDigest.length })
@@ -569,5 +772,10 @@ module.exports = {
   parecePreferenciaExplicitaMIA,
   interpretarValoracionGlobalDigestMIA,
   esSolicitudExplicacionDigestMIA,
+  extraerResumenVisibleAlertaDigestMIA,
   construirRespuestaExplicacionDigestMIA,
+  construirRespuestaListadoDigestMIA,
+  buscarAlertaReferenciadaDigestMIA,
+  esReferenciaAlDigestMIA,
+  resolverConsultaDesdeDigestMIA,
 };

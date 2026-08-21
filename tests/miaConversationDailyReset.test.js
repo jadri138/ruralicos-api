@@ -10,9 +10,11 @@ const {
   fechaMadridConversacionMIA,
   getExpiracionFinDiaMadridISO,
   extraerItemsReferenciadosInequivocamente,
+  cargarConversacionDigestMIA,
   cargarContextoRecienteMIA,
   construirConsultaContextualMIA,
   debeCerrarConversacionMIA,
+  debeConsultarBaseConocimientoMIA,
 } = __testing;
 
 let passed = 0;
@@ -162,6 +164,13 @@ assert(
   }]).usada === false,
   'No arrastra contexto a una preferencia nueva'
 );
+assert(
+  construirConsultaContextualMIA('Extremadura', [
+    { texto: 'Sabes cuando pagan?', intent: 'pregunta_usuario', direccion: 'usuario' },
+    { texto: 'La alerta 1 me interesa', intent: 'feedback_digest', direccion: 'usuario' },
+  ]).usada === false,
+  'No recupera una pregunta antigua si hubo otra intervencion del usuario despues'
+);
 
 assert(
   debeCerrarConversacionMIA({
@@ -173,11 +182,26 @@ assert(
 );
 assert(
   debeCerrarConversacionMIA({
-    conversacionActiva: { id: 20 },
+    conversacionActiva: { id: 20, tipo: 'respuesta_consulta' },
     decision: { policy: { should_reply: true, requires_agent: false } },
     outbox: { id: 90 },
   }) === true,
   'Puede cerrar una conversación cuando la respuesta ya quedó encolada'
+);
+assert(
+  debeCerrarConversacionMIA({
+    conversacionActiva: { id: 21, tipo: 'feedback_digest' },
+    decision: { policy: { should_reply: true, requires_agent: false } },
+    outbox: { id: 91 },
+  }) === false,
+  'Mantiene abierta la conversacion del digest aunque ya haya respondido'
+);
+assert(
+  debeConsultarBaseConocimientoMIA({
+    intent: 'pregunta_usuario',
+    knowledge_context: { handled: true, answer_source: 'digest_context_clarification' },
+  }) === false,
+  'No permite que la busqueda global pise una respuesta o aclaracion del digest'
 );
 assert(
   debeCerrarConversacionMIA({
@@ -193,28 +217,37 @@ assert(
   const supabaseConversaciones = crearSupabaseMock({
     user_conversations: [
       {
-        id: 10,
-        user_id: 141,
-        estado: 'activa',
-        tipo: 'feedback_digest',
-        contexto_json: { fecha: '2026-06-04', digest_id: 1 },
-        abierta_at: '2026-06-04T18:00:00.000Z',
-        expira_at: '2026-06-05T22:00:00.000Z',
-      },
-      {
         id: 11,
         user_id: 141,
         estado: 'activa',
         tipo: 'feedback_digest',
         contexto_json: { fecha: '2026-06-05', digest_id: 2 },
         abierta_at: '2026-06-05T08:00:00.000Z',
-        expira_at: '2026-06-05T22:00:00.000Z',
+        expira_at: '2026-06-12T08:00:00.000Z',
+      },
+      {
+        id: 10,
+        user_id: 141,
+        estado: 'activa',
+        tipo: 'feedback_digest',
+        contexto_json: { fecha: '2026-06-04', digest_id: 1 },
+        abierta_at: '2026-06-04T18:00:00.000Z',
+        expira_at: '2026-06-11T18:00:00.000Z',
+      },
+      {
+        id: 9,
+        user_id: 141,
+        estado: 'activa',
+        tipo: 'pregunta_exploracion',
+        contexto_json: { fecha: '2026-06-04' },
+        abierta_at: '2026-06-04T17:00:00.000Z',
+        expira_at: '2026-06-11T17:00:00.000Z',
       },
     ],
   });
 
   const activa = await buscarConversacionActiva(supabaseConversaciones, 141, { fechaHoy: '2026-06-05' });
-  assert(activa?.id === 11, 'Devuelve solo la conversacion activa del dia actual');
+  assert(activa?.id === 11, 'Devuelve la conversacion mas reciente asociada al digest');
   assert(
     supabaseConversaciones.calls.some((call) =>
       call.table === 'user_conversations' &&
@@ -227,10 +260,84 @@ assert(
     supabaseConversaciones.calls.some((call) =>
       call.table === 'user_conversations' &&
       call.op === 'update_in' &&
-      call.values.includes(10) &&
+      call.values.includes(9) &&
+      !call.values.includes(10) &&
       call.patch.estado === 'expirada'
     ),
-    'Expira conversaciones activas de dias anteriores'
+    'Expira conversaciones diarias antiguas sin cerrar la sesion del digest'
+  );
+
+  const conversacionDigest = await cargarConversacionDigestMIA(crearSupabaseMock({
+    mia_inbound_messages: [
+      {
+        id: 51,
+        user_id: 141,
+        digest_id: 2,
+        sender_kind: 'user',
+        status: 'processed',
+        text_body: 'Explicame de que va',
+        decision_json: { intent: 'pregunta_usuario' },
+        created_at: '2026-06-05T08:05:00.000Z',
+      },
+      {
+        id: 52,
+        user_id: 141,
+        digest_id: 2,
+        sender_kind: 'user',
+        status: 'processed',
+        text_body: 'El curso de bienestar animal',
+        decision_json: { intent: 'pregunta_usuario' },
+        created_at: '2026-06-05T08:07:00.000Z',
+      },
+      {
+        id: 53,
+        user_id: 141,
+        digest_id: 1,
+        sender_kind: 'user',
+        status: 'processed',
+        text_body: 'Mensaje de otro digest',
+        created_at: '2026-06-04T08:00:00.000Z',
+      },
+    ],
+    mia_outbox: [
+      {
+        id: 70,
+        user_id: 141,
+        digest_id: 2,
+        body: 'Digest original con dos cursos',
+        metadata_json: { intent: 'digest_daily' },
+        delivery_status: 'PROVIDER_ACCEPTED',
+        created_at: '2026-06-05T08:00:00.000Z',
+        sent_at: '2026-06-05T08:00:30.000Z',
+      },
+      {
+        id: 71,
+        user_id: 141,
+        digest_id: 2,
+        body: 'Dime a cual de los dos cursos te refieres',
+        metadata_json: { intent: 'pregunta_usuario' },
+        delivery_status: 'READ',
+        created_at: '2026-06-05T08:06:00.000Z',
+        sent_at: '2026-06-05T08:06:30.000Z',
+      },
+      {
+        id: 72,
+        user_id: 141,
+        digest_id: 2,
+        body: 'Este mensaje no llego al usuario',
+        metadata_json: {},
+        delivery_status: 'QUEUED',
+        created_at: '2026-06-05T08:08:00.000Z',
+      },
+    ],
+  }), { userId: 141, digestId: 2 });
+  assert(
+    conversacionDigest.map((item) => item.direccion).join(',') === 'ruralicos,usuario,ruralicos,usuario',
+    'Carga y ordena todos los mensajes enviados y recibidos del mismo digest'
+  );
+  assert(
+    conversacionDigest.every((item) => !item.texto.includes('otro digest') && !item.texto.includes('no llego')),
+    'Aisla el digest actual y excluye salidas que el usuario no recibio'
   );
 
   const contexto = await cargarContextoRecienteMIA(crearSupabaseMock({

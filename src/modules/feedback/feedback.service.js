@@ -11,6 +11,9 @@ const { normalizePhone } = require('../../shared/phoneNormalizer');
 
 const DIGEST_STATUSES_USABLE_WITH_INBOUND = ['PROVIDER_ACCEPTED', 'DELIVERED', 'READ'];
 const DEFAULT_RECENT_CONTEXT_MINUTES = 45;
+const DIGEST_CONVERSATION_MAX_MESSAGES = 100;
+const DIGEST_CONVERSATION_MAX_CHARS = 20000;
+const OUTBOX_STATUSES_VISIBLE_TO_USER = ['PROVIDER_ACCEPTED', 'DELIVERED', 'READ'];
 
 
 
@@ -212,7 +215,9 @@ async function buscarConversacionActiva(supabase, userId, options = {}) {
 
   if (error) throw error;
   const conversaciones = Array.isArray(data) ? data : [];
-  const obsoletas = conversaciones.filter((item) => !esConversacionMIADelDia(item, fechaHoy));
+  const obsoletas = conversaciones.filter((item) => (
+    item.tipo !== 'feedback_digest' && !esConversacionMIADelDia(item, fechaHoy)
+  ));
   const idsObsoletas = obsoletas.map((item) => item.id).filter(Boolean);
 
   if (idsObsoletas.length > 0) {
@@ -229,7 +234,9 @@ async function buscarConversacionActiva(supabase, userId, options = {}) {
     }
   }
 
-  return conversaciones.find((item) => esConversacionMIADelDia(item, fechaHoy)) || null;
+  return conversaciones.find((item) => (
+    item.tipo === 'feedback_digest' || esConversacionMIADelDia(item, fechaHoy)
+  )) || null;
 }
 
 async function cargarDigestYAlertas(supabase, userId, conversacionActiva, organizationId = null, options = {}) {
@@ -342,11 +349,12 @@ function construirConsultaContextualMIA(texto, mensajesRecientes = []) {
 
   const anteriores = (Array.isArray(mensajesRecientes) ? mensajesRecientes : [])
     .filter((item) => item && String(item.texto || item.text_body || '').trim())
-    .filter((item) => ['pregunta_usuario', 'unknown'].includes(
-      String(item.intent || item.decision_json?.intent || '')
-    ));
+    .filter((item) => !item.direccion || item.direccion === 'usuario');
   const anterior = anteriores.at(-1);
   if (!anterior) return { texto: actual, usada: false };
+  if (!['pregunta_usuario', 'unknown'].includes(
+    String(anterior.intent || anterior.decision_json?.intent || '')
+  )) return { texto: actual, usada: false };
 
   const pregunta = String(anterior.texto || anterior.text_body || '').replace(/\s+/g, ' ').trim();
   if (!pregunta) return { texto: actual, usada: false };
@@ -364,6 +372,7 @@ function debeCerrarConversacionMIA({
   outbox = null,
 } = {}) {
   if (!conversacionActiva?.id) return false;
+  if (conversacionActiva.tipo === 'feedback_digest') return false;
   if (
     conversacionAgente?.id &&
     Number(conversacionActiva.id) === Number(conversacionAgente.id)
@@ -375,6 +384,93 @@ function debeCerrarConversacionMIA({
   if (shouldReply && !outbox?.id) return false;
   if (decision.policy?.requires_agent && !conversacionAgente?.id) return false;
   return true;
+}
+
+function limitarConversacionDigestMIA(items = [], options = {}) {
+  const maxMessages = Math.max(1, Math.min(
+    DIGEST_CONVERSATION_MAX_MESSAGES,
+    Number(options.maxMessages || DIGEST_CONVERSATION_MAX_MESSAGES)
+  ));
+  let remainingChars = Math.max(1000, Math.min(
+    DIGEST_CONVERSATION_MAX_CHARS,
+    Number(options.maxChars || DIGEST_CONVERSATION_MAX_CHARS)
+  ));
+  const seleccionados = [];
+
+  for (const item of items.slice(-maxMessages).reverse()) {
+    if (remainingChars <= 0) break;
+    const texto = String(item.texto || '').trim();
+    if (!texto) continue;
+    const textoVisible = texto.slice(0, remainingChars);
+    seleccionados.unshift({ ...item, texto: textoVisible });
+    remainingChars -= textoVisible.length;
+  }
+
+  return seleccionados;
+}
+
+async function cargarConversacionDigestMIA(supabase, {
+  userId,
+  digestId,
+  maxMessages = DIGEST_CONVERSATION_MAX_MESSAGES,
+  maxChars = DIGEST_CONVERSATION_MAX_CHARS,
+} = {}) {
+  const usuarioId = Number(userId);
+  const resumenId = Number(digestId);
+  if (!Number.isSafeInteger(usuarioId) || usuarioId <= 0) return [];
+  if (!Number.isSafeInteger(resumenId) || resumenId <= 0) return [];
+
+  try {
+    const [inboundResult, outboxResult] = await Promise.all([
+      supabase
+        .from('mia_inbound_messages')
+        .select('id, text_body, decision_json, created_at')
+        .eq('user_id', usuarioId)
+        .eq('digest_id', resumenId)
+        .eq('sender_kind', 'user')
+        .eq('status', 'processed')
+        .order('created_at', { ascending: true })
+        .limit(maxMessages),
+      supabase
+        .from('mia_outbox')
+        .select('id, body, metadata_json, delivery_status, created_at, sent_at')
+        .eq('user_id', usuarioId)
+        .eq('digest_id', resumenId)
+        .in('delivery_status', OUTBOX_STATUSES_VISIBLE_TO_USER)
+        .order('created_at', { ascending: true })
+        .limit(maxMessages),
+    ]);
+
+    if (inboundResult.error) throw inboundResult.error;
+    if (outboxResult.error) throw outboxResult.error;
+
+    const inbound = (inboundResult.data || []).map((item) => ({
+      id: item.id,
+      direccion: 'usuario',
+      texto: String(item.text_body || '').trim(),
+      intent: item.decision_json?.intent || null,
+      created_at: item.created_at || null,
+    }));
+    const outbound = (outboxResult.data || []).map((item) => ({
+      id: item.id,
+      direccion: 'ruralicos',
+      texto: String(item.body || '').trim(),
+      intent: item.metadata_json?.intent || null,
+      created_at: item.sent_at || item.created_at || null,
+    }));
+    const conversacion = [...inbound, ...outbound]
+      .filter((item) => item.texto)
+      .sort((left, right) => {
+        const leftTime = new Date(left.created_at || 0).getTime() || 0;
+        const rightTime = new Date(right.created_at || 0).getTime() || 0;
+        return leftTime - rightTime;
+      });
+
+    return limitarConversacionDigestMIA(conversacion, { maxMessages, maxChars });
+  } catch (error) {
+    console.warn('[mia:conversation] No se pudo cargar la conversacion del digest:', error.message);
+    return [];
+  }
 }
 
 async function cargarContextoRecienteMIA(supabase, userId, options = {}) {
@@ -450,6 +546,7 @@ module.exports = {
   buscarConversacionActiva,
   cargarDigestYAlertas,
   cargarUltimoDigestEntregadoReciente,
+  cargarConversacionDigestMIA,
   cargarContextoRecienteMIA,
   construirConsultaContextualMIA,
   debeCerrarConversacionMIA,

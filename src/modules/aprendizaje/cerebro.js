@@ -71,11 +71,20 @@ function formatearAlertas(alertas = []) {
     return 'El usuario no tenia un digest activo.';
   }
 
-  return alertas.map((a, i) => (
-    `Item ${i + 1}: "${a.titulo || 'Sin titulo'}"\n` +
-    `Sector: ${(a.sectores || []).join(', ') || 'N/A'} | Subsector: ${(a.subsectores || []).join(', ') || 'N/A'}\n` +
-    `Tipo: ${(a.tipos_alerta || []).join(', ') || 'N/A'} | Provincia: ${(a.provincias || []).join(', ') || 'nacional'}`
-  )).join('\n\n');
+  return alertas.map((a, i) => {
+    const resumenFinal = String(a.resumen_final || '').trim();
+    const resumenDigest = resumenFinal.match(/(?:^|\n)\s*RESUMEN_DIGEST:\s*([^\n]+)/i)?.[1];
+    const resumen = String(resumenDigest || a.resumen || resumenFinal || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 600);
+    return (
+      `Item ${i + 1}: "${a.titulo || 'Sin titulo'}"\n` +
+      `Resumen: ${resumen || 'N/A'}\n` +
+      `Sector: ${(a.sectores || []).join(', ') || 'N/A'} | Subsector: ${(a.subsectores || []).join(', ') || 'N/A'}\n` +
+      `Tipo: ${(a.tipos_alerta || []).join(', ') || 'N/A'} | Provincia: ${(a.provincias || []).join(', ') || 'nacional'}`
+    );
+  }).join('\n\n');
 }
 
 function normalizarTextoCerebro(texto) {
@@ -267,11 +276,15 @@ async function interpretacionFallback({ mensajeUsuario, alertasDelDigest }) {
 
 function formatearContextoReciente(contextoReciente = []) {
   const mensajes = (Array.isArray(contextoReciente) ? contextoReciente : [])
-    .map((item) => String(item?.texto || item?.text_body || item || '').replace(/\s+/g, ' ').trim())
-    .filter(Boolean)
-    .slice(-3);
+    .map((item) => {
+      const texto = String(item?.texto || item?.text_body || item || '').replace(/\s+/g, ' ').trim();
+      if (!texto) return null;
+      const direccion = item?.direccion === 'ruralicos' ? 'RURALICOS' : 'USUARIO';
+      return `${direccion}: ${texto}`;
+    })
+    .filter(Boolean);
   return mensajes.length > 0
-    ? mensajes.map((texto, index) => `${index + 1}. ${texto}`).join('\n')
+    ? mensajes.join('\n')
     : 'No hay mensajes recientes relacionados.';
 }
 
@@ -291,7 +304,7 @@ ${conversacionActiva
     ? `Tipo: ${conversacionActiva.tipo || 'desconocido'}\nContexto: ${JSON.stringify(conversacionActiva.contexto_json || {})}`
     : 'No hay conversacion activa.'}
 
-MENSAJES RECIENTES DEL MISMO USUARIO
+CONVERSACION ASOCIADA AL DIGEST, EN ORDEN
 ${formatearContextoReciente(contextoReciente)}
 
 ALERTAS DEL DIGEST
