@@ -167,11 +167,9 @@ function construirMemoriaLegacyRows({
         digestId: digest?.id || null,
         inboundId,
         organizationId: orgId,
-        scopeType: 'topic',
-        scopeValue: 'pregunta_usuario',
         polarity: 'neutral',
         source: 'response',
-        strength: 0.7,
+        strength: 0.3,
         confidence: decision.confidence ?? 0.7,
         decisionVersion: decision.version || null,
       }));

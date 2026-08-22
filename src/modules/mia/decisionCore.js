@@ -529,10 +529,18 @@ function normalizarMemoryAction(action = {}) {
   if (!contenido) return null;
 
   const peso = Number(action.peso_inicial);
+  const scopeType = ['alert', 'topic', 'subsector', 'territory', 'frequency', 'channel', 'activity']
+    .includes(String(action.scope_type || ''))
+    ? String(action.scope_type)
+    : null;
+  const scopeValue = String(action.scope_value || '').replace(/\s+/g, ' ').trim().slice(0, 180);
+  const expiresDate = action.expires_at ? new Date(action.expires_at) : null;
   return {
     tipo: MEMORY_TYPES.has(action.tipo) ? action.tipo : 'mensaje_libre',
     contenido,
     peso_inicial: Number.isFinite(peso) ? Math.max(0.1, Math.min(1, peso)) : 0.5,
+    ...(scopeType && scopeValue ? { scope_type: scopeType, scope_value: scopeValue } : {}),
+    ...(expiresDate && !Number.isNaN(expiresDate.getTime()) ? { expires_at: expiresDate.toISOString() } : {}),
   };
 }
 
@@ -710,6 +718,9 @@ function construirDecisionDesdeInterpretacion({
       tipo: memoria.tipo,
       contenido: memoria.contenido,
       peso_inicial: memoria.peso_inicial || 0.5,
+      ...(memoria.scope_type ? { scope_type: memoria.scope_type } : {}),
+      ...(memoria.scope_value ? { scope_value: memoria.scope_value } : {}),
+      ...(memoria.expires_at ? { expires_at: memoria.expires_at } : {}),
     })),
     reply_action: interpretacion.requiere_respuesta && interpretacion.respuesta
       ? { canal: 'whatsapp', texto: interpretacion.respuesta }

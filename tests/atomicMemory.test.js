@@ -108,6 +108,21 @@ function createMemorySupabaseMock(initialRows = []) {
 }
 
 async function main() {
+  const memoriaPregunta = construirMemoriaAtomica({
+    userId: 141,
+    tipo: 'pregunta_usuario',
+    contenido: 'Ha salido algo sobre la PAC?',
+    scopeType: 'topic',
+    scopeValue: 'pac',
+    strength: 0.3,
+    now: '2026-08-22T10:00:00.000Z',
+  });
+  assert.strictEqual(
+    memoriaPregunta.expires_at,
+    '2026-10-21T10:00:00.000Z',
+    'Las preguntas se guardan como senales temporales de 60 dias'
+  );
+
   const base = construirMemoriaAtomica({
     userId: 9,
     tipo: 'interes_detectado',

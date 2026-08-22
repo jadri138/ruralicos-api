@@ -6,6 +6,7 @@ const {
   analizarFeedbackCompleto,
   esComentarioTramiteOEspera,
 } = require('./feedbackParser');
+const { inferirTopic } = require('./atomicMemory');
 
 function confianzaAPeso(confianza) {
   if (confianza === 'alta') return 1.0;
@@ -48,6 +49,9 @@ function normalizarInterpretacion(raw = {}) {
         tipo: tiposMemoriaPermitidos.has(item.tipo) ? item.tipo : 'mensaje_libre',
         contenido: String(item.contenido || '').trim().slice(0, 1200),
         peso_inicial: confianzaAPeso(item.peso_inicial),
+        ...(item.scope_type ? { scope_type: String(item.scope_type).slice(0, 40) } : {}),
+        ...(item.scope_value ? { scope_value: String(item.scope_value).slice(0, 180) } : {}),
+        ...(item.expires_at ? { expires_at: String(item.expires_at).slice(0, 80) } : {}),
       }))
       .filter((item) => item.contenido.length > 0)
     : [];
@@ -126,28 +130,110 @@ function tieneReferenciaDirectaADigest(mensajeUsuario) {
   return (
     /[+-]\s*\d{1,2}\b/.test(texto) ||
     /\b\d{1,2}\s*[+-]\b/.test(texto) ||
-    /\b(item|items|numero|numeros|primera|segunda|tercera|cuarta|quinta|sexta|septima|esta|esa|la de|lo de|ambas|todas|todos|ninguna|ninguno|resto)\b/.test(texto)
+    /\b(item|items|numero|numeros|alerta|alertas|aviso|avisos|primera|segunda|tercera|cuarta|quinta|sexta|septima|octava|novena|decima|esta|esa|la de|lo de|ambas|todas|todos|ninguna|ninguno|resto)\b/.test(texto)
   );
 }
 
-function reforzarInterpretacionConReglasLocales(interpretacion, mensajeUsuario, alertasDelDigest = []) {
+function esConsultaMetaMemoria(mensajeUsuario) {
+  const texto = normalizarTextoCerebro(mensajeUsuario);
+  return /\b(que has aprendido|que habeis aprendido|que sabes de mi|que recordais? de mi|mis intereses|mis preferencias|tu memoria)\b/.test(texto);
+}
+
+function buscarFocoPreguntaEnContexto(contextoReciente = [], alertasDelDigest = []) {
+  const totalItems = Array.isArray(alertasDelDigest) ? alertasDelDigest.length : 0;
+  const mensajes = Array.isArray(contextoReciente) ? contextoReciente : [];
+
+  for (const item of mensajes.slice().reverse()) {
+    if (item?.direccion === 'ruralicos') continue;
+    const votos = parsearVotosDigest(item?.texto || item?.text_body || '', totalItems)
+      .filter((voto) => Number(voto.valor) !== 0);
+    const items = [...new Set(votos.map((voto) => Number(voto.item)).filter(Boolean))];
+    if (items.length === 1 && alertasDelDigest[items[0] - 1]?.id) {
+      return { scope_type: 'alert', scope_value: String(alertasDelDigest[items[0] - 1].id) };
+    }
+  }
+
+  for (const direccion of ['usuario', 'ruralicos']) {
+    for (const item of mensajes.slice().reverse()) {
+      if ((item?.direccion || 'usuario') !== direccion) continue;
+      const topic = inferirTopic(item?.texto || item?.text_body || '');
+      if (topic !== 'general') return { scope_type: 'topic', scope_value: topic };
+    }
+  }
+
+  return { scope_type: 'topic', scope_value: 'general' };
+}
+
+function construirMemoriaPregunta({ mensajeUsuario, interpretacion, contextoReciente, alertasDelDigest }) {
+  if (esConsultaMetaMemoria(mensajeUsuario)) return [];
+
+  const existente = (interpretacion.memoria || []).find((memoria) => memoria.tipo === 'pregunta_usuario');
+  const focoActual = inferirTopic(`${existente?.contenido || ''} ${mensajeUsuario || ''}`);
+  const scope = focoActual !== 'general'
+    ? { scope_type: 'topic', scope_value: focoActual }
+    : buscarFocoPreguntaEnContexto(contextoReciente, alertasDelDigest);
+  const contenidoBase = String(existente?.contenido || mensajeUsuario || '').trim().slice(0, 500);
+  const contenido = scope.scope_type === 'topic' && scope.scope_value !== 'general' && inferirTopic(contenidoBase) === 'general'
+    ? `Pregunta relacionada con ${scope.scope_value}: ${contenidoBase}`.slice(0, 500)
+    : contenidoBase;
+
+  return contenido ? [{
+    tipo: 'pregunta_usuario',
+    contenido,
+    peso_inicial: Math.min(0.35, Number(existente?.peso_inicial || 0.3)),
+    ...scope,
+  }] : [];
+}
+
+function recuperarFeedbackPrevioDesdeContexto(mensajeUsuario, contextoReciente = [], totalItems = 0) {
+  const texto = normalizarTextoCerebro(mensajeUsuario);
+  const aportaMotivo = /^(porque|por que|es por|por la|por el)\b/.test(texto) ||
+    /\b(otra provincia|zona equivocada|no aplica|no aplicaba|curso|formacion|poco concreto)\b/.test(texto);
+  if (!aportaMotivo) return null;
+
+  for (const item of (Array.isArray(contextoReciente) ? contextoReciente : []).slice().reverse()) {
+    if (item?.direccion === 'ruralicos') continue;
+    const votos = parsearVotosDigest(item?.texto || item?.text_body || '', totalItems)
+      .filter((voto) => Number(voto.valor) < 0);
+    const items = [...new Set(votos.map((voto) => Number(voto.item)).filter(Boolean))];
+    if (items.length === 1) {
+      return {
+        item_numero: items[0],
+        valor: -1,
+        confianza: 'alta',
+        razon: 'Motivo aportado como continuacion del feedback anterior',
+      };
+    }
+    if (items.length > 1) return null;
+  }
+  return null;
+}
+
+function reforzarInterpretacionConReglasLocales(interpretacion, mensajeUsuario, alertasDelDigest = [], contextoReciente = []) {
   const totalItems = Array.isArray(alertasDelDigest) ? alertasDelDigest.length : 0;
   const preferenciaFutura = esMensajePreferenciaFutura(mensajeUsuario);
   if (parecePreguntaUsuario(mensajeUsuario) && !preferenciaFutura) {
     const referenciasDigest = tieneReferenciaDirectaADigest(mensajeUsuario);
-    const feedbacks = referenciasDigest && totalItems > 0
-      ? interpretacion.feedbacks
-      : [];
-    const memoriasPregunta = (interpretacion.memoria || [])
-      .filter((memoria) => memoria.tipo === 'pregunta_usuario')
-      .map((memoria) => ({ ...memoria, peso_inicial: Math.min(0.35, Number(memoria.peso_inicial || 0.3)) }));
-    if (memoriasPregunta.length === 0) {
-      memoriasPregunta.push({
-        tipo: 'pregunta_usuario',
-        contenido: String(mensajeUsuario || '').trim().slice(0, 500),
-        peso_inicial: 0.3,
-      });
+    const feedbacks = referenciasDigest && totalItems > 0 ? [...interpretacion.feedbacks] : [];
+    if (referenciasDigest && totalItems > 0) {
+      for (const voto of parsearVotosDigest(mensajeUsuario, totalItems)) {
+        const feedbackLocal = {
+          item_numero: voto.item,
+          valor: voto.valor,
+          confianza: voto.valor < 0 ? 'media' : 'alta',
+          razon: 'Referencia ordinal o numerica validada localmente',
+        };
+        const indexExistente = feedbacks.findIndex((feedback) => Number(feedback.item_numero) === Number(voto.item));
+        if (indexExistente >= 0) feedbacks[indexExistente] = feedbackLocal;
+        else feedbacks.push(feedbackLocal);
+      }
     }
+    const memoriasPregunta = construirMemoriaPregunta({
+      mensajeUsuario,
+      interpretacion,
+      contextoReciente,
+      alertasDelDigest,
+    });
     return normalizarInterpretacion({
       ...interpretacion,
       feedbacks,
@@ -189,23 +275,39 @@ function reforzarInterpretacionConReglasLocales(interpretacion, mensajeUsuario, 
 
   const feedbacks = [...(interpretacion.feedbacks || [])];
   const memoria = [...(interpretacion.memoria || [])];
-  const itemsYaInterpretados = new Set(feedbacks.map((item) => item.item_numero));
-
-  const votosNumericos = parsearVotosDigest(mensajeUsuario, totalItems);
-  const votosNaturales = parsearVotosNaturalesPorAlertas(mensajeUsuario, alertasDelDigest).votos || [];
+  const votosNumericos = parsearVotosDigest(mensajeUsuario, totalItems)
+    .map((voto) => ({ ...voto, determinista: true }));
+  const referenciaDigest = tieneReferenciaDirectaADigest(mensajeUsuario) || votosNumericos.length > 0;
+  const votosNaturales = referenciaDigest
+    ? (parsearVotosNaturalesPorAlertas(mensajeUsuario, alertasDelDigest).votos || [])
+    : [];
   const votosLocales = [...votosNumericos, ...votosNaturales];
 
+  if (feedbacks.length === 0 && votosLocales.length === 0) {
+    const feedbackPrevio = recuperarFeedbackPrevioDesdeContexto(mensajeUsuario, contextoReciente, totalItems);
+    if (feedbackPrevio) votosLocales.push({
+      item: feedbackPrevio.item_numero,
+      valor: feedbackPrevio.valor,
+      razon: feedbackPrevio.razon,
+      confianza: feedbackPrevio.confianza,
+    });
+  }
+
   for (const voto of votosLocales) {
-    if (itemsYaInterpretados.has(voto.item)) continue;
-    feedbacks.push({
+    const feedbackLocal = {
       item_numero: voto.item,
       valor: voto.valor,
-      confianza: voto.valor === -1 ? 'media' : 'alta',
-      razon: voto.tema
+      confianza: voto.confianza || (voto.valor === -1 ? 'media' : 'alta'),
+      razon: voto.razon || (voto.tema
         ? `Regla local: detectado tema ${voto.tema}`
-        : 'Regla local: matiz numerico o "el resto" detectado',
-    });
-    itemsYaInterpretados.add(voto.item);
+        : 'Regla local: referencia explicita validada'),
+    };
+    const indexExistente = feedbacks.findIndex((feedback) => Number(feedback.item_numero) === Number(voto.item));
+    if (indexExistente >= 0) {
+      if (voto.determinista) feedbacks[indexExistente] = feedbackLocal;
+      continue;
+    }
+    feedbacks.push(feedbackLocal);
   }
 
   const natural = parsearVotosNaturalesPorAlertas(mensajeUsuario, alertasDelDigest);
@@ -233,7 +335,20 @@ function reforzarInterpretacionConReglasLocales(interpretacion, mensajeUsuario, 
     ? ' Reglas locales reforzaron desintereses suaves.'
     : '';
 
-  if (preferenciaFutura && !tieneReferenciaDirectaADigest(mensajeUsuario)) {
+  if (!referenciaDigest && votosLocales.length === 0) {
+    return normalizarInterpretacion({
+      ...interpretacion,
+      feedbacks: [],
+      memoria,
+      intencion: memoria.length > 0 ? 'conversacion' : 'otro',
+      resumen_para_log: `${interpretacion.resumen_para_log || ''} Sin referencia a un item: preferencia guardada sin votar el digest.`.trim(),
+    });
+  }
+
+  // Una preferencia tematica no debe votar el digest solo por contener palabras
+  // como "alertas" o "avisos". Unicamente conservamos feedback cuando hay una
+  // referencia determinista a un item concreto (numero u ordinal).
+  if (preferenciaFutura && votosNumericos.length === 0) {
     return normalizarInterpretacion({
       ...interpretacion,
       feedbacks: [],
@@ -252,11 +367,11 @@ function reforzarInterpretacionConReglasLocales(interpretacion, mensajeUsuario, 
   });
 }
 
-async function interpretacionFallback({ mensajeUsuario, alertasDelDigest }) {
+async function interpretacionFallback({ mensajeUsuario, alertasDelDigest, contextoReciente = [] }) {
   const totalItems = Array.isArray(alertasDelDigest) ? alertasDelDigest.length : 0;
   let votos = parsearVotosDigest(mensajeUsuario, totalItems);
 
-  if (votos.length === 0 && totalItems > 0) {
+  if (votos.length === 0 && totalItems > 0 && tieneReferenciaDirectaADigest(mensajeUsuario)) {
     const natural = parsearVotosNaturalesPorAlertas(mensajeUsuario, alertasDelDigest);
     votos = natural.votos || [];
   }
@@ -264,7 +379,7 @@ async function interpretacionFallback({ mensajeUsuario, alertasDelDigest }) {
   const analisis = await analizarFeedbackCompleto(mensajeUsuario);
   const esPregunta = parecePreguntaUsuario(mensajeUsuario);
 
-  return normalizarInterpretacion({
+  return reforzarInterpretacionConReglasLocales(normalizarInterpretacion({
     feedbacks: votos.map((voto) => ({
       item_numero: voto.item,
       valor: voto.valor,
@@ -294,7 +409,7 @@ async function interpretacionFallback({ mensajeUsuario, alertasDelDigest }) {
     resumen_para_log: votos.length > 0
       ? `Fallback local: ${votos.length} feedback(s)`
       : 'Fallback local sin feedback numerico',
-  });
+  }), mensajeUsuario, alertasDelDigest, contextoReciente);
 }
 
 function formatearContextoReciente(contextoReciente = []) {
@@ -352,13 +467,15 @@ Reglas:
 - Cuando la conversacion activa sea pregunta_exploracion, trata la respuesta como memoria de preferencias. No crees feedback del digest salvo que valore explicitamente un item numerado o una alerta concreta.
 - Si no expresa una preferencia clara, no inventes memoria. Puede responder con sus propias palabras y no tiene obligacion de decidir en ese momento.
 - Una pregunta no es una preferencia firme, pero si una senal de interes debil. Usa intencion "pregunta" y guarda una sola memoria pregunta_usuario que resuma el tema concreto con peso_inicial 0.3. Si ademas expresa interes o desinteres explicitamente, guarda tambien esa preferencia con el peso que corresponda.
+- Si una pregunta corta continua el turno anterior ("y la semana pasada", "de esas", "y que documentos"), conserva el tema y las alertas de la ultima respuesta visible. No vuelvas automaticamente al digest original.
+- Si MIA acaba de pedir el motivo de un rechazo, asocia la explicacion solo con el ultimo item rechazado de forma explicita.
 - No copies contenido de ejemplos ni del perfil como memoria nueva. Toda memoria debe estar demostrada literalmente por el mensaje actual o por una respuesta a pregunta_exploracion.
 - feedbacks solo sobre items del digest.
 - valor: 1 interesa, -1 no interesa, 0 neutro.
 - confianza: alta, media o baja.
 - Entiende "la primera", "la de olivos", "la del porcino", "ambas", "ninguna", "+1", "-2".
 - Si el usuario dice "me interesa 2 y 3, el resto no/no tanto/no me interesa tanto", marca 2 y 3 como positivos y los demas items del digest como negativos con confianza media.
-- Si dice que un tema no le interesa tanto, por ejemplo "lo del agua no me interesa tanto", marca negativos los items del digest relacionados con ese tema aunque no cite su numero.
+- Solo crea feedback del digest cuando el mensaje identifica el digest, una alerta o un item. Una preferencia tematica general se guarda como memoria, no como voto de las alertas del digest.
 - "No me interesa tanto" es una senal negativa suave: guardala como feedback negativo de confianza media y como desinteres_detectado, no la ignores.
 - Si el usuario pide recibir avisos, alertas o informacion sobre temas futuros ("quiero recibir avisos sobre PAC", "me gustaria que me avisarais de tractores"), NO lo conviertas en feedback del digest salvo que mencione claramente un item o una alerta del digest. Guardalo solo como memoria/interes_detectado.
 - memoria solo si hay informacion util para el futuro.
@@ -377,10 +494,10 @@ Reglas:
       { task: 'cerebro_feedback' }
     );
     const interpretacion = normalizarInterpretacion(parsearJSON(texto));
-    return reforzarInterpretacionConReglasLocales(interpretacion, mensajeUsuario, alertasDelDigest);
+    return reforzarInterpretacionConReglasLocales(interpretacion, mensajeUsuario, alertasDelDigest, contextoReciente);
   } catch (err) {
     console.warn('[cerebro] Fallback local por error interpretando mensaje:', err.message);
-    const fallback = await interpretacionFallback({ mensajeUsuario, alertasDelDigest });
+    const fallback = await interpretacionFallback({ mensajeUsuario, alertasDelDigest, contextoReciente });
     fallback.resumen_para_log = `${fallback.resumen_para_log}. Error LLM: ${err.message.slice(0, 160)}`;
     return fallback;
   }

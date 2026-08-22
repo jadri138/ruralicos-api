@@ -165,12 +165,13 @@ const MIA_EVAL_FIXTURES = [
     },
     expect: {
       intent: 'pregunta_usuario',
-      policyOutcome: 'partial_answer_handoff',
+      policyOutcome: 'ask_clarification',
       reply: true,
-      requiresAgent: true,
+      replyIncludes: ['ayuda, zona o periodo'],
+      requiresAgent: false,
       riskFlagsInclude: ['auto_blocked_missing_traceable_evidence'],
       riskFlagsExclude: ['auto_answered_from_knowledge_base'],
-      actionTypes: ['handoff_agent', 'reply'],
+      actionTypes: ['memory', 'reply'],
     },
   },
   {
@@ -199,11 +200,11 @@ const MIA_EVAL_FIXTURES = [
     },
     expect: {
       intent: 'pregunta_usuario',
-      policyOutcome: 'partial_answer_handoff',
+      policyOutcome: 'ask_clarification',
       reply: true,
-      replyIncludes: ['agente de Ruralicos'],
-      requiresAgent: true,
-      actionTypes: ['handoff_agent', 'reply'],
+      replyIncludes: ['ayuda, zona o periodo'],
+      requiresAgent: false,
+      actionTypes: ['reply'],
     },
   },
   {
@@ -324,9 +325,10 @@ const MIA_EVAL_FIXTURES = [
     },
     expect: {
       intent: 'pregunta_usuario',
+      policyOutcome: 'ask_clarification',
       reply: true,
       replyNotMatches: ['Jose Luis', 'granja', 'vacas'],
-      requiresAgent: true,
+      requiresAgent: false,
     },
   },
 ];

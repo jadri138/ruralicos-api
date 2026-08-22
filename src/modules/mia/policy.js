@@ -26,8 +26,28 @@ function normalizar(texto) {
     .toLowerCase();
 }
 
-function limpiarRespuestaPolitica(texto, max = 900) {
-  return String(texto || '')
+function recortarRespuestaCompleta(texto, max = 1200) {
+  const value = String(texto || '').trim();
+  if (value.length <= max) return value;
+
+  const candidata = value.slice(0, max);
+  const corteFrase = Math.max(
+    candidata.lastIndexOf('\n'),
+    candidata.lastIndexOf('. '),
+    candidata.lastIndexOf('? '),
+    candidata.lastIndexOf('! ')
+  );
+  if (corteFrase >= Math.floor(max * 0.6)) {
+    const incluyeSigno = ['.', '?', '!'].includes(candidata[corteFrase]);
+    return candidata.slice(0, corteFrase + (incluyeSigno ? 1 : 0)).trim();
+  }
+
+  const cortePalabra = candidata.lastIndexOf(' ');
+  return `${candidata.slice(0, cortePalabra > 0 ? cortePalabra : max - 1).trim()}…`;
+}
+
+function limpiarRespuestaPolitica(texto, max = 1200) {
+  const limpio = String(texto || '')
     .replace(/\r/g, '\n')
     .split('\n')
     .map((linea) => linea.replace(/\s+/g, ' ').trim())
@@ -36,8 +56,8 @@ function limpiarRespuestaPolitica(texto, max = 900) {
     .join('\n')
     .replace(/^hola\s+[^,\n.!?]{2,80}[,.!?\s]+/i, '')
     .replace(/^hola[,.!?\s]+/i, '')
-    .trim()
-    .slice(0, max);
+    .trim();
+  return recortarRespuestaCompleta(limpio, max);
 }
 
 function conReply(decision, texto) {
@@ -76,6 +96,11 @@ function pareceServicioRuralicos(texto) {
   return /\b(ruralicos|alertas?|avisos?|whatsapp|mensaje|mensajes|telefono|plan|suscripcion|baja|alta|pago|factura|cobro|cuenta|usuario|agente|humano|soporte|servicio|no funciona|no me llega|no llegan|no recibo|no he recibido|no han mandado|no habeis mandado|no me habeis mandado|llega tarde|llegan tarde|siempre llega tarde|dejar de recibir|quien sois|que sois)\b/.test(value);
 }
 
+function pareceConsultaMemoriaMIA(texto) {
+  const value = normalizar(texto);
+  return /\b(que has aprendido|que habeis aprendido|que sabes de mi|que recordais? de mi|mis intereses|mis preferencias|tu memoria)\b/.test(value);
+}
+
 function pareceDominioRural(texto) {
   const value = normalizar(texto);
   return /\b(agricultura|agricola|agricultor|agricultores|agrario|agraria|ganaderia|ganadero|ganadera|explotacion|campo|finca|cultivo|cultivos|olivar|olivo|vinedo|vina|cereal|regadio|riego|agua|pozo|pozos|comunidad de regantes|pac|fega|sigpac|feaga|feader|eco regimen|ecoregimen|ayuda|ayudas|subvencion|subvenciones|convocatoria|plazo|resolucion|boe|boletin|bocyl|boa|boja|dogv|dogc|doe|docm|bopa|bopv|borm|bon|tractor|tractores|maquinaria|apero|aperos|vacuno|ovino|porcino|caprino|sanidad animal|bienestar animal|purines|fitosanitario|sequia|dana|helada|pedrisco)\b/.test(value);
@@ -106,7 +131,7 @@ function esFeedbackNegativoSinDetalle(decision = {}, texto = '') {
   const value = normalizar(texto);
   if (/^(ninguna|ninguno|nada|no)$/.test(value)) return true;
   if (value.split(/\s+/).filter(Boolean).length <= 4) return true;
-  return !/\b(zona|pueblo|municipio|tema|agua|riego|ayuda|subvencion|pac|vacuno|ovino|porcino|poco concreto|no aplica|no aplicaba)\b/.test(value);
+  return !/\b(porque|ya que|debido|provincia|curso|formacion|zona|pueblo|municipio|tema|agua|riego|ayuda|subvencion|pac|vacuno|ovino|porcino|poco concreto|no aplica|no aplicaba)\b/.test(value);
 }
 
 function tieneMemoriaOperativa(decision = {}) {
@@ -142,6 +167,7 @@ function tieneContextoOperativoMIA({
   )) && decision.intent === 'pregunta_usuario';
 
   if (pareceServicioRuralicos(texto)) return true;
+  if (pareceConsultaMemoriaMIA(texto)) return true;
   if (pareceDominioRural(texto)) return true;
   if (parecePreferenciaFutura(texto)) return true;
   if (knowledgeLookupFailed) return true;
@@ -189,7 +215,11 @@ function preguntaDemasiadoVaga(texto, perfilOperativo = {}) {
   return !tieneTemaPerfil && !tieneTemaAgrario && palabras.length < 8;
 }
 
-function tipoPreguntaSensible(tipo = '') {
+function tipoPreguntaSensible(tipo = '', texto = '') {
+  const value = normalizar(texto);
+  if (!/\b(cuando pagan|cuando ingresan|fecha de pago|fecha de resolucion|hasta cuando|plazo|ultimo dia|fecha limite|cuanto pagan|importe exacto)\b/.test(value)) {
+    return false;
+  }
   return ['pago', 'fecha_resolucion', 'plazo'].includes(String(tipo || ''));
 }
 
@@ -221,9 +251,9 @@ function evaluarPermisoAutoRespuestaMIA({
   if (knowledge.needs_agent) reasons.push('knowledge_requires_agent');
   if (!decision.reply_action?.texto) reasons.push('reply_missing');
   if (confidence < 0.72) reasons.push('confidence_below_auto_threshold');
-  if (tipoPreguntaSensible(knowledge.tipo_pregunta)) reasons.push('sensitive_question_requires_review');
+  if (tipoPreguntaSensible(knowledge.tipo_pregunta, texto)) reasons.push('sensitive_question_requires_review');
   if (!respuestaTieneEvidenciaTrazable(decision)) reasons.push('missing_traceable_evidence');
-  if (!busquedaVaciaVerificada && preguntaDemasiadoVaga(texto, perfilOperativo)) {
+  if (!busquedaVaciaVerificada && knowledge.search_completed !== true && preguntaDemasiadoVaga(texto, perfilOperativo)) {
     reasons.push('question_too_vague_for_auto_answer');
   }
 
@@ -414,6 +444,22 @@ function evaluarPoliticaDecisionMIA({
       });
     }
 
+    if (pareceConsultaMemoriaMIA(texto) && knowledge.answered && hasReply) {
+      const policy = construirPolicy({
+        outcome: 'auto_answer',
+        reasons: ['memory_summary_answer'],
+        requiresAgent: false,
+        shouldReply: true,
+        shouldStoreMemory: false,
+        shouldFeedback: hasFeedback,
+        confidence: decision.confidence,
+      });
+      return aplicarPolicy(next, policy, {
+        riskFlags: unique([...removeFlags(riskFlags, ['digest_missing', 'digest_without_items', 'low_confidence']), 'policy_auto_answered']),
+        autoAnswered: true,
+      });
+    }
+
     if (
       (
         String(knowledge.answer_source || '').startsWith('digest_context')
@@ -480,21 +526,19 @@ function evaluarPoliticaDecisionMIA({
     }
 
     riskFlags = removeFlags(riskFlags, ['auto_answered_from_knowledge_base']);
-    next = hasReply ? asegurarAvisoRevision(next, textos.agent) : conReply(next, textos.agent);
-    const partial = Boolean(knowledge.answered || hasReply);
+    next = conReply(next, 'No puedo confirmarlo con suficiente seguridad. Dime la ayuda, zona o periodo concreto y lo vuelvo a buscar.');
     const policy = construirPolicy({
-      outcome: partial ? 'partial_answer_handoff' : 'handoff_agent',
-      reasons: [partial ? 'knowledge_requires_review' : 'answer_requires_agent'],
-      requiresAgent: true,
+      outcome: 'ask_clarification',
+      reasons: ['answer_not_safe_to_send'],
+      requiresAgent: false,
       shouldReply: true,
       shouldStoreMemory: hasMemory,
       shouldFeedback: hasFeedback,
-      priority: knowledge.evidence_level === 'baja' ? 'media' : 'normal',
       confidence: decision.confidence,
     });
     return aplicarPolicy(next, policy, {
-      riskFlags: unique([...riskFlags, 'policy_handoff_required']),
-      autoAnswered: false,
+      riskFlags: unique([...removeFlags(riskFlags, ['policy_handoff_required']), 'policy_clarification_requested']),
+      autoAnswered: true,
     });
   }
 

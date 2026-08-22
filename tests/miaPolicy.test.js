@@ -104,7 +104,8 @@ const falloAgenteEnSeguimiento = evaluarPoliticaDecisionMIA({
     knowledge_context: { answered: false, needs_agent: true },
   },
 });
-assert(falloAgenteEnSeguimiento.policy.requires_agent === true, 'Un fallo del agente no silencia una repregunta corta');
+assert(falloAgenteEnSeguimiento.policy.outcome === 'ask_clarification', 'Un fallo del agente pide contexto util en una repregunta corta');
+assert(falloAgenteEnSeguimiento.policy.requires_agent === false, 'Un fallo ordinario no promete una revision humana inexistente');
 
 const autoBloqueadaSinEvidencia = evaluarPoliticaDecisionMIA({
   texto: 'Hay ayudas para tractores?',
@@ -124,7 +125,7 @@ const autoBloqueadaSinEvidencia = evaluarPoliticaDecisionMIA({
     },
   },
 });
-assert(autoBloqueadaSinEvidencia.policy.outcome === 'partial_answer_handoff', 'Bloquea auto-respuesta sin evidencia visible');
+assert(autoBloqueadaSinEvidencia.policy.outcome === 'ask_clarification', 'Bloquea auto-respuesta sin evidencia visible y pide precision');
 assert(autoBloqueadaSinEvidencia.risk_flags.includes('auto_blocked_missing_traceable_evidence'), 'Marca motivo de bloqueo de auto-respuesta');
 
 const autoBloqueadaSensible = evaluarPoliticaDecisionMIA({
@@ -146,7 +147,7 @@ const autoBloqueadaSensible = evaluarPoliticaDecisionMIA({
     },
   },
 });
-assert(autoBloqueadaSensible.policy.requires_agent === true, 'Bloquea auto-respuesta en pagos aunque haya evidencia');
+assert(autoBloqueadaSensible.policy.requires_agent === false, 'Bloquea auto-respuesta en pagos sin abrir un caso no atendido');
 assert(autoBloqueadaSensible.risk_flags.includes('auto_blocked_sensitive_question_requires_review'), 'Marca bloqueo por pregunta sensible');
 
 const partial = evaluarPoliticaDecisionMIA({
@@ -164,9 +165,9 @@ const partial = evaluarPoliticaDecisionMIA({
   },
 });
 
-assert(partial.policy.outcome === 'partial_answer_handoff', 'Escala respuestas parciales o sensibles');
-assert(partial.policy.requires_agent === true, 'Marca agente requerido para respuesta parcial');
-assert(necesitaCasoAgenteMIA(partial) === true, 'Action executor crea caso si policy requiere agente');
+assert(partial.policy.outcome === 'ask_clarification', 'Una respuesta parcial pide precision sin fingir un soporte humano');
+assert(partial.policy.requires_agent === false, 'No marca agente requerido para una duda ordinaria');
+assert(necesitaCasoAgenteMIA(partial) === false, 'Action executor no crea un caso que nadie vaya a atender');
 
 const preference = evaluarPoliticaDecisionMIA({
   texto: 'Me gustaria recibir avisos sobre tractores',
@@ -240,6 +241,26 @@ const feedbackNegativo = evaluarPoliticaDecisionMIA({
 assert(feedbackNegativo.policy.outcome === 'record_feedback_with_reply', 'Pregunta por contexto cuando rechaza todas');
 assert(feedbackNegativo.reply_action.texto.includes('zona'), 'La pregunta de seguimiento pide motivo util');
 assert(feedbackNegativo.policy.requires_agent === false, 'No escala a agente por pedir motivo de rechazo');
+
+const feedbackNegativoDetallado = evaluarPoliticaDecisionMIA({
+  texto: 'La primera no me interesa porque es un curso',
+  digest: { id: 13 },
+  alertasDelDigest: [{ id: 100 }, { id: 101 }],
+  decision: {
+    intent: 'feedback_digest',
+    confidence: 0.95,
+    risk_flags: [],
+    feedback_actions: [{ item_numero: 1, valor: -1, confianza: 'alta' }],
+    memory_actions: [{ tipo: 'desinteres_detectado', contenido: 'No le interesa formacion', peso_inicial: 0.8 }],
+    reply_action: null,
+    summary: 'Feedback negativo explicado',
+  },
+});
+assert(
+  !feedbackNegativoDetallado.reply_action.texto.includes('zona') &&
+    !feedbackNegativoDetallado.reply_action.texto.includes('?'),
+  'No vuelve a preguntar el motivo cuando el usuario ya lo ha explicado'
+);
 
 const feedbackAmbiguo = evaluarPoliticaDecisionMIA({
   texto: 'la otra',
@@ -351,8 +372,79 @@ const preguntaDominio = evaluarPoliticaDecisionMIA({
   },
 });
 
-assert(preguntaDominio.policy.requires_agent === true, 'Mantiene handoff para preguntas agrarias reales');
-assert(preguntaDominio.reply_action.texto.includes('respuesta clara'), 'Sigue contestando cuando el tema es Ruralicos/agro');
+assert(preguntaDominio.policy.outcome === 'ask_clarification', 'Una pregunta agraria sin evidencia pide datos concretos');
+assert(preguntaDominio.policy.requires_agent === false, 'Una pregunta agraria ordinaria no crea un falso handoff');
+assert(preguntaDominio.reply_action.texto.includes('ayuda, zona o periodo'), 'La aclaracion solicita datos que permiten repetir la busqueda');
+
+const seguimientoConBusqueda = evaluarPoliticaDecisionMIA({
+  texto: 'Y la semana pasada?',
+  decision: {
+    intent: 'pregunta_usuario',
+    confidence: 0.9,
+    risk_flags: [],
+    feedback_actions: [],
+    memory_actions: [],
+    reply_action: { canal: 'whatsapp', texto: 'He encontrado dos ayudas PAC [E1].' },
+    knowledge_context: {
+      answered: true,
+      needs_agent: false,
+      evidence_level: 'alta',
+      tipo_pregunta: 'general',
+      answer_source: 'mia_tool_agent',
+      search_completed: true,
+      matches: [{ id: 901 }],
+      grounded_evidences: [{ ref: 'E1', id: 901 }],
+    },
+  },
+});
+assert(seguimientoConBusqueda.policy.outcome === 'auto_answer', 'Una repregunta corta puede responderse tras una busqueda trazable');
+
+const resumenMemoria = evaluarPoliticaDecisionMIA({
+  texto: 'Que has aprendido de mis intereses?',
+  decision: {
+    intent: 'pregunta_usuario',
+    confidence: 0.9,
+    risk_flags: ['knowledge_no_match'],
+    feedback_actions: [],
+    memory_actions: [],
+    reply_action: { canal: 'whatsapp', texto: 'He aprendido que te interesan la PAC y el olivar, y que no quieres formacion.' },
+    knowledge_context: {
+      answered: true,
+      needs_agent: false,
+      evidence_level: 'alta',
+      answer_source: 'mia_conversation_memory',
+      matches: [],
+    },
+  },
+});
+assert(resumenMemoria.policy.outcome === 'auto_answer', 'MIA puede explicar lo aprendido sin exigir una alerta oficial como evidencia');
+assert(resumenMemoria.policy.should_store_memory === false, 'Preguntar por la memoria no se aprende como preferencia');
+
+const respuestaLarga = evaluarPoliticaDecisionMIA({
+  texto: 'Que ayudas PAC has encontrado?',
+  decision: {
+    intent: 'pregunta_usuario',
+    confidence: 0.95,
+    risk_flags: [],
+    feedback_actions: [],
+    memory_actions: [],
+    reply_action: {
+      canal: 'whatsapp',
+      texto: `${'Primera frase con informacion comprobada. '.repeat(20)}${'Segunda frase adicional. '.repeat(35)}`,
+    },
+    knowledge_context: {
+      answered: true,
+      needs_agent: false,
+      evidence_level: 'alta',
+      answer_source: 'mia_tool_agent',
+      search_completed: true,
+      matches: [{ id: 902 }],
+      grounded_evidences: [{ ref: 'E1', id: 902 }],
+    },
+  },
+});
+assert(respuestaLarga.reply_action.texto.length <= 1200, 'Limita respuestas largas a un tamano razonable');
+assert(/[.!?]$/.test(respuestaLarga.reply_action.texto), 'Corta respuestas largas al final de una frase completa');
 
 console.log(`\nResultados: ${passed} aprobados, ${failed} fallidos`);
 process.exit(failed > 0 ? 1 : 0);

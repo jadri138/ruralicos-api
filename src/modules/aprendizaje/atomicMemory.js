@@ -8,9 +8,16 @@ const TOPIC_RULES = [
   ['ayudas_subvenciones', /\b(ayuda|ayudas|subvencion|subvenciones|subsidio|convocatoria|pago|prima|indemnizacion)\b/i],
   ['agua_riego', /\b(agua|riego|regadio|pozo|pozos|concesion de aguas|comunidad de regantes)\b/i],
   ['olivar', /\b(olivar|olivo|olivos|aceituna|aceitunas)\b/i],
+  ['nitratos_purines', /\b(nitrato|nitratos|purin|purines|deyecciones)\b/i],
+  ['fitosanitarios', /\b(fitosanitario|fitosanitarios|plaguicida|plaguicidas)\b/i],
+  ['formacion', /\b(curso|cursos|formacion|jornada formativa|carne profesional)\b/i],
+  ['bienestar_animal', /\b(bienestar animal)\b/i],
+  ['normativa', /\b(norma|normas|normativa|obligacion|obligaciones|regulacion)\b/i],
   ['porcino', /\b(porcino|cerdo|cerdos|cochino|cochinos)\b/i],
   ['vacuno', /\b(vacuno|vaca|vacas|bovino|bovinos)\b/i],
 ];
+
+const QUESTION_MEMORY_TTL_DAYS = 60;
 
 const POSITIVE_TYPES = new Set([
   'interes_detectado',
@@ -137,6 +144,12 @@ function construirMemoriaAtomica(options = {}) {
   const strength = limitar01(options.strength ?? options.peso_inicial, 0.5);
   const confidence = limitar01(options.confidence, 0.5);
   const now = options.now || new Date().toISOString();
+  const expiresAtExplicit = options.expiresAt ?? options.expires_at;
+  const expiresAt = expiresAtExplicit !== undefined && expiresAtExplicit !== null
+    ? expiresAtExplicit
+    : tipo === 'pregunta_usuario'
+      ? new Date(new Date(now).getTime() + QUESTION_MEMORY_TTL_DAYS * 86400000).toISOString()
+      : null;
 
   if (!Number.isInteger(userId) || userId <= 0) throw new Error('userId inválido para memoria atómica');
   if (!contenido) throw new Error('contenido vacío para memoria atómica');
@@ -174,7 +187,7 @@ function construirMemoriaAtomica(options = {}) {
     strength,
     confidence,
     status: 'active',
-    expires_at: options.expiresAt ?? options.expires_at ?? null,
+    expires_at: expiresAt,
     correction_of: options.correctionOf ?? options.correction_of ?? null,
     metadata_json: {
       contract_version: MEMORY_CONTRACT_VERSION,

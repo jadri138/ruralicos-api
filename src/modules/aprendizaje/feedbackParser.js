@@ -14,6 +14,21 @@ const PROVINCIAS = [
   'badajoz', 'caceres', 'guadalajara', 'soria', 'segovia', 'avila', 'salamanca',
 ];
 
+const ORDINALES_DIGEST = new Map([
+  ['primero', 1], ['primera', 1],
+  ['segundo', 2], ['segunda', 2],
+  ['tercero', 3], ['tercera', 3],
+  ['cuarto', 4], ['cuarta', 4],
+  ['quinto', 5], ['quinta', 5],
+  ['sexto', 6], ['sexta', 6],
+  ['septimo', 7], ['septima', 7],
+  ['octavo', 8], ['octava', 8],
+  ['noveno', 9], ['novena', 9],
+  ['decimo', 10], ['decima', 10],
+]);
+
+const PATRON_ORDINAL_DIGEST = `\\b(${[...ORDINALES_DIGEST.keys()].join('|')})\\b`;
+
 function normalizarTexto(texto) {
   return String(texto || '')
     .normalize('NFD')
@@ -161,14 +176,42 @@ function parsearVotosDigest(texto, totalItems = null) {
     }
   }
 
-  if (tieneTotal && /\b(ambas|todos|todas|los dos|las dos)\b/.test(normalizado)) {
+  const valoracionGlobalPositiva = (
+    /^(?:ambas|todos|todas|los dos|las dos)(?: (?:me interesan?|me gustan?|son utiles?|estan bien))?$/.test(normalizado) ||
+    /^(?:me interesan?|me gustan?) (?:ambas|todos|todas|los dos|las dos)$/.test(normalizado)
+  );
+  if (tieneTotal && valoracionGlobalPositiva) {
     for (let item = 1; item <= total; item++) add(item, 1);
     return votos;
   }
 
-  if (tieneTotal && /\b(ninguna|ninguno|nada|no)\b/.test(normalizado) && !/\d/.test(normalizado)) {
+  const valoracionGlobalNegativa = (
+    /^(?:ninguna|ninguno|nada|no)$/.test(normalizado) ||
+    /^(?:ninguna|ninguno)(?: me (?:interesa|sirve|gusta))?$/.test(normalizado) ||
+    /^no me (?:interesa|sirve|gusta) (?:ninguna|ninguno)$/.test(normalizado)
+  );
+  if (tieneTotal && valoracionGlobalNegativa) {
     for (let item = 1; item <= total; item++) add(item, -1);
     return votos;
+  }
+
+  // Los ordinales aportan una referencia objetiva al item. El sentimiento se
+  // interpreta dentro de su propia clausula para no convertir un "no" aislado
+  // en un rechazo global de todo el digest.
+  const clausulasOrdinales = normalizado
+    .split(/\s*(?:[,;]|\bpero\b|\baunque\b)\s*/)
+    .map((clausula) => clausula.trim())
+    .filter(Boolean);
+  for (const clausula of clausulasOrdinales) {
+    const ordinales = [...clausula.matchAll(new RegExp(PATRON_ORDINAL_DIGEST, 'g'))]
+      .map((match) => ORDINALES_DIGEST.get(match[1]))
+      .filter(Boolean);
+    if (ordinales.length === 0) continue;
+
+    const negativa = /\b(no me interesa(?:n)?|no me sirve(?:n)?|no me gusta(?:n)?|no aplica|no aplicaba|poco interesante|poco util|irrelevante|descartar|fuera|no)\b/.test(clausula);
+    const positiva = /\b(muy interesante|interesante|interesantes|me interesa(?:n)?|me sirve(?:n)?|me gusta(?:n)?|util|utiles|importante|importantes|si)\b/.test(clausula);
+    if (!negativa && !positiva) continue;
+    for (const ordinal of ordinales) add(ordinal, negativa ? -1 : 1);
   }
 
   for (const match of normalizado.matchAll(/([+-])\s*(\d{1,2})/g)) {
