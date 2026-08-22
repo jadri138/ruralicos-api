@@ -48,9 +48,10 @@ const MIA_EVAL_FIXTURES = [
     },
     expect: {
       intent: 'feedback_digest',
-      policyOutcome: 'record_feedback',
+      policyOutcome: 'record_feedback_with_reply',
       feedbackActions: 1,
-      reply: false,
+      reply: true,
+      replyIncludes: ['tendre mas en cuenta'],
       requiresAgent: false,
     },
   },

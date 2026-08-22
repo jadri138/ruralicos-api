@@ -3,6 +3,8 @@ const { obtenerMiaBranding } = require('./organizationContext');
 
 const FEEDBACK_CLARIFICATION_REPLY = 'No he podido asociar tu respuesta a una alerta concreta. Puedes responder con el numero de la alerta, por ejemplo 1, 2 o ninguna.';
 const NEGATIVE_FEEDBACK_FOLLOWUP = 'Entendido. Para afinar mejor, dime si no encajaba por la zona, por el tema, porque era poco concreto o porque no aplicaba a tu explotacion.';
+const POSITIVE_FEEDBACK_ACK = 'Perfecto, tendre mas en cuenta alertas como esa.';
+const FEEDBACK_ACK = 'Entendido, lo tendre en cuenta para ajustar tus proximas alertas.';
 
 function construirTextosPolitica(organizationContext = null) {
   const branding = obtenerMiaBranding(organizationContext);
@@ -336,21 +338,22 @@ function evaluarPoliticaDecisionMIA({
       const shouldAskWhy = esFeedbackNegativoSinDetalle(decision, texto);
       if (shouldAskWhy && !hasReply) {
         next = conReply(next, NEGATIVE_FEEDBACK_FOLLOWUP);
+      } else if (!hasReply) {
+        const tieneNegativos = (decision.feedback_actions || []).some((item) => Number(item.valor) < 0);
+        next = conReply(next, tieneNegativos ? FEEDBACK_ACK : POSITIVE_FEEDBACK_ACK);
       }
 
       const policy = construirPolicy({
-        outcome: questionish || shouldAskWhy ? 'record_feedback_with_reply' : 'record_feedback',
+        outcome: 'record_feedback_with_reply',
         reasons: shouldAskWhy ? ['valid_digest_feedback', 'negative_feedback_needs_context'] : ['valid_digest_feedback'],
         requiresAgent: false,
-        shouldReply: (questionish && hasReply) || shouldAskWhy,
-        shouldStoreMemory: hasMemory,
+        shouldReply: true,
+        shouldStoreMemory: true,
         shouldFeedback: true,
         confidence: decision.confidence,
       });
-      const replyAction = (questionish && hasReply) || shouldAskWhy ? next.reply_action : null;
-      return aplicarPolicy(replyAction ? next : sinReply(next), policy, {
+      return aplicarPolicy(next, policy, {
         riskFlags,
-        replyAction,
         autoAnswered: true,
       });
     }
@@ -401,7 +404,7 @@ function evaluarPoliticaDecisionMIA({
         requiresAgent: false,
         shouldReply: true,
         shouldStoreMemory: false,
-        shouldFeedback: false,
+        shouldFeedback: hasFeedback,
         confidence: decision.confidence,
       });
       riskFlags = removeFlags(riskFlags, ['digest_missing', 'digest_without_items', 'low_confidence']);
@@ -425,7 +428,7 @@ function evaluarPoliticaDecisionMIA({
         requiresAgent: false,
         shouldReply: true,
         shouldStoreMemory: hasMemory,
-        shouldFeedback: false,
+        shouldFeedback: hasFeedback,
         confidence: decision.confidence,
       });
       riskFlags = removeFlags(riskFlags, ['digest_missing', 'digest_without_items', 'low_confidence']);
@@ -443,7 +446,7 @@ function evaluarPoliticaDecisionMIA({
         requiresAgent: false,
         shouldReply: true,
         shouldStoreMemory: hasMemory,
-        shouldFeedback: false,
+        shouldFeedback: hasFeedback,
         confidence: decision.confidence,
       });
       riskFlags = removeFlags(riskFlags, ['digest_missing', 'digest_without_items', 'low_confidence']);
@@ -466,7 +469,7 @@ function evaluarPoliticaDecisionMIA({
         requiresAgent: false,
         shouldReply: true,
         shouldStoreMemory: hasMemory,
-        shouldFeedback: false,
+        shouldFeedback: hasFeedback,
         confidence: Math.min(Number(decision.confidence || 0.5), 0.55),
       });
       riskFlags = removeFlags(riskFlags, ['auto_answered_from_knowledge_base', 'knowledge_no_match', 'knowledge_evidence_weak', 'digest_missing', 'digest_without_items', 'low_confidence']);
@@ -485,7 +488,7 @@ function evaluarPoliticaDecisionMIA({
       requiresAgent: true,
       shouldReply: true,
       shouldStoreMemory: hasMemory,
-      shouldFeedback: false,
+      shouldFeedback: hasFeedback,
       priority: knowledge.evidence_level === 'baja' ? 'media' : 'normal',
       confidence: decision.confidence,
     });

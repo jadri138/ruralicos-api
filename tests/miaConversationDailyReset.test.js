@@ -517,8 +517,10 @@ assert(
     }
   );
   assert(
-    tardioAmbiguo.digest === null && tardioAmbiguo.lateAssociation === null,
-    'No atribuye una respuesta tardia ambigua'
+    tardioAmbiguo.digest?.id === 30 &&
+      tardioAmbiguo.lateAssociation?.context_candidate === true &&
+      tardioAmbiguo.lateAssociation?.associated === false,
+    'Entrega el ultimo digest como contexto candidato sin fingir una asociacion determinista'
   );
 
   const conConversacionNueva = await cargarDigestYAlertas(

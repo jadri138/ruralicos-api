@@ -215,8 +215,8 @@ const feedback = evaluarPoliticaDecisionMIA({
   },
 });
 
-assert(feedback.policy.outcome === 'record_feedback', 'Registra feedback claro');
-assert(feedback.reply_action === null, 'No responde a feedback simple para no molestar');
+assert(feedback.policy.outcome === 'record_feedback_with_reply', 'Registra feedback claro y confirma el aprendizaje');
+assert(feedback.reply_action.texto === 'Gracias', 'Conserva el acuse breve preparado para el feedback');
 assert(feedback.policy.should_feedback === true, 'Policy marca que hay feedback ejecutable');
 
 const feedbackNegativo = evaluarPoliticaDecisionMIA({

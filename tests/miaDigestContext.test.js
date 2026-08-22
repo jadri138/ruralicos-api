@@ -25,6 +25,14 @@ async function main() {
       url: 'https://example.com/fitosanitarios',
     },
   ];
+  const interpretarPregunta = async ({ mensajeUsuario }) => ({
+    feedbacks: [],
+    memoria: [{ tipo: 'pregunta_usuario', contenido: mensajeUsuario, peso_inicial: 0.3 }],
+    requiere_respuesta: false,
+    respuesta: '',
+    intencion: 'pregunta',
+    resumen_para_log: 'Pregunta comprendida por la IA',
+  });
 
   const preguntaDigest = await decidirMensajeMIA({
     mensajeUsuario: 'Explicame el curso de bienestar animal',
@@ -32,9 +40,12 @@ async function main() {
     conversacionActiva: { id: 8, tipo: 'feedback_digest', digest_id: 81 },
     digest,
     alertasDelDigest,
+    interpretarMensajeFn: interpretarPregunta,
   });
   assert.strictEqual(preguntaDigest.intent, 'pregunta_usuario');
   assert.strictEqual(preguntaDigest.reply_action, null);
+  assert.strictEqual(preguntaDigest.memory_actions[0].tipo, 'pregunta_usuario');
+  assert.strictEqual(preguntaDigest.memory_actions[0].peso_inicial, 0.3);
   assert.notStrictEqual(preguntaDigest.knowledge_context?.handled, true);
 
   const repregunta = await decidirMensajeMIA({
@@ -48,10 +59,36 @@ async function main() {
       texto: 'Es un curso online para obtener el certificado.',
       alerta_ids: [901],
     }],
+    interpretarMensajeFn: interpretarPregunta,
   });
   assert.strictEqual(repregunta.intent, 'pregunta_usuario');
   assert.strictEqual(repregunta.reply_action, null);
   assert.notStrictEqual(repregunta.knowledge_context?.handled, true);
+
+  const feedbackLenguajeLibre = await decidirMensajeMIA({
+    mensajeUsuario: 'La segunda muy interesante',
+    usuario: { id: 5 },
+    digest,
+    alertasDelDigest,
+    interpretarMensajeFn: async () => ({
+      feedbacks: [{ item_numero: 2, valor: 1, confianza: 'alta', razon: 'Interes explicito' }],
+      memoria: [],
+      requiere_respuesta: false,
+      respuesta: '',
+      intencion: 'feedback',
+      resumen_para_log: 'La IA valora positivamente la segunda alerta',
+    }),
+  });
+  assert.strictEqual(feedbackLenguajeLibre.intent, 'feedback_digest');
+  assert.strictEqual(feedbackLenguajeLibre.feedback_actions[0].item_numero, 2);
+  const feedbackConAcuse = evaluarPoliticaDecisionMIA({
+    texto: 'La segunda muy interesante',
+    digest,
+    alertasDelDigest,
+    decision: feedbackLenguajeLibre,
+  });
+  assert.strictEqual(feedbackConAcuse.policy.outcome, 'record_feedback_with_reply');
+  assert(feedbackConAcuse.reply_action.texto.includes('tendre mas en cuenta'));
 
   const decisionAgente = evaluarPoliticaDecisionMIA({
     texto: 'Explicame el curso de bienestar animal',
@@ -86,6 +123,7 @@ async function main() {
     conversacionActiva: { id: 8, tipo: 'feedback_digest', digest_id: 81 },
     digest,
     alertasDelDigest,
+    interpretarMensajeFn: interpretarPregunta,
   });
   assert.strictEqual(feedback.intent, 'trivial');
   assert.deepStrictEqual(feedback.feedback_actions, []);

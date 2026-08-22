@@ -58,7 +58,7 @@ Cada decisión tiene intención, confianza, evidencia, acción propuesta y razó
 - respuesta ante ambigüedad;
 - cuándo crear un caso operativo.
 
-`actionExecutor.js` solo ejecuta acciones enumeradas. Para responder preguntas, el modelo recibe la conversación asociada al digest actual y solo puede invocar dos herramientas cerradas: buscar alertas y leer una alerta concreta. No recibe SQL, credenciales, escritura en base de datos ni acceso a WhatsApp.
+`actionExecutor.js` solo ejecuta acciones enumeradas. El último digest reciente puede entrar como contexto candidato aunque la respuesta llegue al día siguiente; la IA decide si el mensaje lo valora, pregunta por él o trata otro asunto. Para responder preguntas, el modelo recibe esa conversación y solo puede invocar dos herramientas cerradas: buscar alertas y leer una alerta concreta. No recibe SQL, credenciales, escritura en base de datos ni acceso a WhatsApp.
 
 ## Memoria
 
@@ -68,6 +68,8 @@ Se separan:
 - memoria estructurada con tipo, valor, confianza, origen y vigencia;
 - preferencias explícitas de cuenta;
 - perfil aprendido y señales agregadas.
+
+Una pregunta relacionada con el dominio se conserva como señal temática débil y temporal, no como preferencia explícita. Una valoración clara de una alerta genera feedback fuerte y un acuse breve en el mismo turno.
 
 Una inferencia no debe sobrescribir una preferencia explícita. El usuario puede consultar y borrar memoria desde `/me/memory`.
 

@@ -626,7 +626,6 @@ function aplicarRespuestaAgenteADecision(decision = {}, respuesta = {}) {
     },
     legacy_interpretacion: {
       ...(decision.legacy_interpretacion || {}),
-      feedbacks: [],
       requiere_respuesta: true,
       respuesta: respuesta.reply || '',
       intencion: 'pregunta',

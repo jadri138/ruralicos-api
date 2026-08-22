@@ -286,14 +286,16 @@ async function cargarDigestYAlertas(supabase, userId, conversacionActiva, organi
         options.mensajeUsuario,
         alertaIdsRecientes.length
       );
-      if (itemsReferenciados.length > 0) {
-        digest = digestReciente;
-        lateAssociation = {
-          associated: true,
-          item_numbers: itemsReferenciados,
-          window_hours: clampHours(options.lateWindowHours),
-        };
-      }
+      // El lenguaje libre no se puede reducir a una lista cerrada de frases.
+      // El ultimo digest reciente entra como contexto candidato y la IA decide
+      // despues si el mensaje lo valora, pregunta por el o trata otro asunto.
+      digest = digestReciente;
+      lateAssociation = {
+        associated: itemsReferenciados.length > 0,
+        context_candidate: true,
+        item_numbers: itemsReferenciados,
+        window_hours: clampHours(options.lateWindowHours),
+      };
     }
   }
 

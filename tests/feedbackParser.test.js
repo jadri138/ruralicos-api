@@ -202,8 +202,50 @@ const preguntaContaminada = cerebroTesting.reforzarInterpretacionConReglasLocale
   []
 );
 assert(
-  preguntaContaminada.intencion === 'pregunta' && preguntaContaminada.memoria.length === 0,
-  'Las reglas locales eliminan memoria contaminada de una pregunta sin digest'
+  preguntaContaminada.intencion === 'pregunta' &&
+    preguntaContaminada.memoria.length === 1 &&
+    preguntaContaminada.memoria[0].tipo === 'pregunta_usuario' &&
+    preguntaContaminada.memoria[0].peso_inicial <= 0.35,
+  'Una pregunta elimina preferencias fuertes inventadas y conserva solo una senal debil'
+);
+
+const valoracionLibre = cerebroTesting.reforzarInterpretacionConReglasLocales(
+  {
+    feedbacks: [{ item_numero: 2, valor: 1, confianza: 'alta', razon: 'La segunda alerta le resulta muy interesante' }],
+    memoria: [],
+    requiere_respuesta: false,
+    respuesta: '',
+    intencion: 'feedback',
+    resumen_para_log: 'Valoracion positiva de la segunda alerta',
+  },
+  'La segunda muy interesante',
+  [{ titulo: 'Curso ganadero' }, { titulo: 'Ayudas PAC para vinedo y olivar' }]
+);
+assert(
+  valoracionLibre.intencion === 'feedback' &&
+    valoracionLibre.feedbacks.length === 1 &&
+    valoracionLibre.feedbacks[0].item_numero === 2 &&
+    valoracionLibre.feedbacks[0].valor === 1,
+  'La decision semantica de la IA conserva feedback expresado con lenguaje libre'
+);
+
+const preferenciaLibre = cerebroTesting.reforzarInterpretacionConReglasLocales(
+  {
+    feedbacks: [],
+    memoria: [{ tipo: 'interes_detectado', contenido: 'Le interesa todo lo relacionado con la PAC', peso_inicial: 0.9 }],
+    requiere_respuesta: false,
+    respuesta: '',
+    intencion: 'conversacion',
+    resumen_para_log: 'Preferencia explicita',
+  },
+  'Me interesa todo lo que tenga que ver con la PAC',
+  []
+);
+assert(
+  cerebroTesting.esMensajePreferenciaFutura('Me interesa todo lo que tenga que ver con la PAC') &&
+    !cerebroTesting.parecePreguntaUsuario('Me interesa todo lo que tenga que ver con la PAC') &&
+    preferenciaLibre.memoria.length === 1,
+  'Una preferencia natural no se confunde con pregunta por contener "lo que"'
 );
 
 const ambiguaSinDigest = cerebroTesting.reforzarInterpretacionConReglasLocales(

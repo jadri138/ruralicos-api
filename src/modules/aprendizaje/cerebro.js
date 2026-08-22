@@ -106,15 +106,17 @@ function esMensajePreferenciaFutura(mensajeUsuario) {
     /\b(me gusta|prefiero|valoro)\s+que\s+me\s+(?:informes?|avises?|mandes?|envies?)\b/.test(texto);
   const exclusion = /\b(no me interesa|no quiero|no me envies|no me mandeis|dejad de|evitar)\b/.test(texto);
   const condicion = /\b(solo|solamente|unicamente)\s+(?:me\s+)?interesa\b|\bme interesa\s+(?:solo|solamente|unicamente)\b/.test(texto);
+  const declaracion = /\bme interes(?:a|an)\b|\bme gust(?:a|an)\b|\bprefiero\b/.test(texto);
 
-  return (pideRecibir && /\b(sobre|de|del|para)\b/.test(texto)) || exclusion || condicion;
+  return (pideRecibir && /\b(sobre|de|del|para)\b/.test(texto)) || exclusion || condicion || declaracion;
 }
 
 function parecePreguntaUsuario(mensajeUsuario) {
   const texto = normalizarTextoCerebro(mensajeUsuario);
   if (!texto) return false;
   return /[?¿]/.test(String(mensajeUsuario || '')) ||
-    /\b(cuando|donde|como|que|cual|cuanto|por que|sabes|sabeis|puedes|podrias|me puedes|hay|existe|sale|pagan|ingresan|plazo|resolucion)\b/.test(texto);
+    /^(cuando|donde|como|que|cual|cuanto|por que)\b/.test(texto) ||
+    /\b(sabes|sabeis|puedes|podrias|me puedes|hay|existe|sale|pagan|ingresan)\b/.test(texto);
 }
 
 function tieneReferenciaDirectaADigest(mensajeUsuario) {
@@ -132,12 +134,26 @@ function reforzarInterpretacionConReglasLocales(interpretacion, mensajeUsuario, 
   const totalItems = Array.isArray(alertasDelDigest) ? alertasDelDigest.length : 0;
   const preferenciaFutura = esMensajePreferenciaFutura(mensajeUsuario);
   if (parecePreguntaUsuario(mensajeUsuario) && !preferenciaFutura) {
+    const referenciasDigest = tieneReferenciaDirectaADigest(mensajeUsuario);
+    const feedbacks = referenciasDigest && totalItems > 0
+      ? interpretacion.feedbacks
+      : [];
+    const memoriasPregunta = (interpretacion.memoria || [])
+      .filter((memoria) => memoria.tipo === 'pregunta_usuario')
+      .map((memoria) => ({ ...memoria, peso_inicial: Math.min(0.35, Number(memoria.peso_inicial || 0.3)) }));
+    if (memoriasPregunta.length === 0) {
+      memoriasPregunta.push({
+        tipo: 'pregunta_usuario',
+        contenido: String(mensajeUsuario || '').trim().slice(0, 500),
+        peso_inicial: 0.3,
+      });
+    }
     return normalizarInterpretacion({
       ...interpretacion,
-      feedbacks: [],
-      memoria: [],
+      feedbacks,
+      memoria: memoriasPregunta,
       intencion: 'pregunta',
-      resumen_para_log: `${interpretacion.resumen_para_log || ''} Pregunta protegida: no se infieren preferencias.`.trim(),
+      resumen_para_log: `${interpretacion.resumen_para_log || ''} Pregunta guardada como senal de interes debil.`.trim(),
     });
   }
 
@@ -246,6 +262,7 @@ async function interpretacionFallback({ mensajeUsuario, alertasDelDigest }) {
   }
 
   const analisis = await analizarFeedbackCompleto(mensajeUsuario);
+  const esPregunta = parecePreguntaUsuario(mensajeUsuario);
 
   return normalizarInterpretacion({
     feedbacks: votos.map((voto) => ({
@@ -255,6 +272,11 @@ async function interpretacionFallback({ mensajeUsuario, alertasDelDigest }) {
       razon: voto.tema ? `Detectado tema ${voto.tema}` : 'Formato local interpretado sin LLM',
     })),
     memoria: [
+      ...(esPregunta ? [{
+        tipo: 'pregunta_usuario',
+        contenido: String(mensajeUsuario || '').trim().slice(0, 500),
+        peso_inicial: 0.3,
+      }] : []),
       ...(analisis.aprende_positivo || []).map((tema) => ({
         tipo: 'interes_detectado',
         contenido: `Le interesa ${tema}`,
@@ -268,7 +290,7 @@ async function interpretacionFallback({ mensajeUsuario, alertasDelDigest }) {
     ],
     requiere_respuesta: false,
     respuesta: '',
-    intencion: votos.length > 0 ? 'feedback' : 'otro',
+    intencion: esPregunta ? 'pregunta' : votos.length > 0 ? 'feedback' : 'otro',
     resumen_para_log: votos.length > 0
       ? `Fallback local: ${votos.length} feedback(s)`
       : 'Fallback local sin feedback numerico',
@@ -329,7 +351,7 @@ Reglas:
 - En una respuesta con "si, pero...", guarda por separado lo que le interesa y lo que no. No conviertas una excepcion concreta en rechazo de todo el tema.
 - Cuando la conversacion activa sea pregunta_exploracion, trata la respuesta como memoria de preferencias. No crees feedback del digest salvo que valore explicitamente un item numerado o una alerta concreta.
 - Si no expresa una preferencia clara, no inventes memoria. Puede responder con sus propias palabras y no tiene obligacion de decidir en ese momento.
-- Una pregunta no es una preferencia. Si pide informacion, usa intencion "pregunta" y no guardes memoria; el mensaje ya queda registrado para auditoria.
+- Una pregunta no es una preferencia firme, pero si una senal de interes debil. Usa intencion "pregunta" y guarda una sola memoria pregunta_usuario que resuma el tema concreto con peso_inicial 0.3. Si ademas expresa interes o desinteres explicitamente, guarda tambien esa preferencia con el peso que corresponda.
 - No copies contenido de ejemplos ni del perfil como memoria nueva. Toda memoria debe estar demostrada literalmente por el mensaje actual o por una respuesta a pregunta_exploracion.
 - feedbacks solo sobre items del digest.
 - valor: 1 interesa, -1 no interesa, 0 neutro.
@@ -343,7 +365,7 @@ Reglas:
 - Tipos memoria permitidos: interes_detectado, desinteres_detectado, dato_explotacion, pregunta_usuario, mensaje_libre, evento_estacional, respuesta_exploracion.
 - Responde por WhatsApp solo si el mensaje trata claramente de Ruralicos, alertas, ayudas, boletines, PAC, actividad agraria/ganadera o soporte del servicio.
 - Si el mensaje es charla social, una pregunta general no relacionada, una broma, un saludo ampliado o cualquier tema fuera de Ruralicos/campo/alertas, usa intencion "otro", requiere_respuesta false y respuesta "".
-- Si solo da feedback simple, requiere_respuesta false.
+- Si solo da feedback simple, requiere_respuesta false; la politica anadira un acuse breve despues de guardarlo.
 - Si respondes, hazlo sobrio y directo. No uses nombre y apellidos, ni saludos largos, ni despedidas creativas, ni frases tipo "que tengas buen dia en tu granja/campo/con tus animales".
 `.trim();
 

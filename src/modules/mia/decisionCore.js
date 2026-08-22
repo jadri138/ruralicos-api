@@ -61,7 +61,8 @@ function parecePreguntaMIA(texto) {
   const limpio = normalizarTexto(texto);
   if (!limpio) return false;
   return /[?¿]/.test(String(texto || '')) ||
-    /\b(cuando|donde|como|que|cual|cuanto|por que|sabes|sabeis|puedes|podrias|me puedes|hay|existe|sale|pagan|ingresan|plazo|resolucion|explicame|explicar|explica|cuentame)\b/.test(limpio);
+    /^(cuando|donde|como|que|cual|cuanto|por que)\b/.test(limpio) ||
+    /\b(sabes|sabeis|puedes|podrias|me puedes|hay|existe|sale|pagan|ingresan|explicame|explicar|explica|cuentame)\b/.test(limpio);
 }
 
 function parecePreferenciaExplicitaMIA(texto) {
@@ -74,7 +75,8 @@ function parecePreferenciaExplicitaMIA(texto) {
   );
   const exclusion = /\b(no me interesa|no quiero|no me envies|no me mandeis|dejad de|evitar)\b/.test(limpio);
   const condicion = /\b(solo|solamente|unicamente)\s+(?:me\s+)?interesa\b|\bme interesa\s+(?:solo|solamente|unicamente)\b/.test(limpio);
-  return futura || exclusion || condicion;
+  const declaracion = /\bme interes(?:a|an)\b|\bme gust(?:a|an)\b|\bprefiero\b/.test(limpio);
+  return futura || exclusion || condicion || declaracion;
 }
 
 function interpretarValoracionGlobalDigestMIA(texto, { totalItems = null } = {}) {
@@ -444,7 +446,8 @@ function memoriaDemostradaPorMensaje(memory = {}, texto = '') {
   if (tipo === 'dato_explotacion') {
     return /\b(soy|tengo|gestiono|cultivo|crio|mi explotacion|mis parcelas?|mi finca)\b/.test(limpio);
   }
-  return !['pregunta_usuario', 'mensaje_libre'].includes(tipo);
+  if (tipo === 'pregunta_usuario') return parecePreguntaMIA(limpio);
+  return tipo !== 'mensaje_libre';
 }
 
 function esRespuestaCortaDeFeedbackMIA(texto) {
@@ -544,7 +547,8 @@ function aplicarContratoAcciones(decision = {}, context = {}) {
     const itemValido = normalized && normalized.item_numero <= totalItems;
     const confianzaEjecutable = normalized && normalized.confianza !== 'baja';
 
-    if (!normalized || !itemValido || !confianzaEjecutable || decision.intent !== 'feedback_digest') {
+    const intentPermiteFeedback = ['feedback_digest', 'pregunta_usuario'].includes(decision.intent);
+    if (!normalized || !itemValido || !confianzaEjecutable || !intentPermiteFeedback) {
       feedbackDropped++;
       continue;
     }
@@ -725,6 +729,7 @@ async function decidirMensajeMIA({
   digest,
   alertasDelDigest,
   contextoReciente = [],
+  interpretarMensajeFn = interpretarMensaje,
 }) {
   const controlExploracion = analizarControlExploracion(mensajeUsuario, conversacionActiva);
   if (controlExploracion) {
@@ -838,24 +843,7 @@ async function decidirMensajeMIA({
     });
   }
 
-  if (parecePreguntaMIA(mensajeUsuario) && !parecePreferenciaExplicitaMIA(mensajeUsuario)) {
-    return normalizarDecision({
-      intent: 'pregunta_usuario',
-      confidence: 0.95,
-      reply_action: null,
-      summary: 'Pregunta preparada para el agente conversacional con herramientas.',
-      legacy_interpretacion: {
-        feedbacks: [],
-        memoria: [],
-        requiere_respuesta: false,
-        respuesta: '',
-        intencion: 'pregunta',
-        resumen_para_log: 'Pregunta derivada al agente conversacional con herramientas',
-      },
-    });
-  }
-
-  const interpretacion = await interpretarMensaje({
+  const interpretacion = await interpretarMensajeFn({
     mensajeUsuario,
     usuario,
     conversacionActiva,
